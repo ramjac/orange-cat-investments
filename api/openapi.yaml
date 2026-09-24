@@ -1,11 +1,15 @@
 openapi: 3.1.0
 info:
   title: Orange Cat Investments (OCI) Platform API
-  description: API specification for OCI Backend-For-Frontend (BFF) covering Facilities Asset Tracking, Employee Onboarding, and Leave Requests.
+  description: API specification for OCI Backend-For-Frontend (BFF) endpoints serving Customer Portal (`customer.oci.local`) and Employee Portal (`employee.oci.local`).
   version: 1.0.0
 servers:
   - url: https://api.oci.local/api/v1
-    description: Local K3s Ingress Development Environment
+    description: Common Ingress Development API Router
+  - url: https://customer.oci.local/api/v1
+    description: Customer BFF (ZITADEL OIDC Auth)
+  - url: https://employee.oci.local/api/v1
+    description: Employee BFF (Forgejo OAuth2 Auth)
 
 paths:
   /facilities/assets:

@@ -14,7 +14,7 @@ Orange Cat Investments (OCI) requires a production-grade, self-hosted applicatio
 To ensure high maintainability, strict security boundaries, clean domain isolation, and modular scalability, the architecture must define:
 1. Domain boundary decomposition and database storage mapping.
 2. An asynchronous, event-driven architecture connecting custom Go services (BFF, gRPC BLL services, and background workers).
-3. A unified authentication and authorization security framework spanning external users, internal microservices, and third-party integrations.
+3. A unified dual-IdP authentication and authorization security framework separating external customer access (via ZITADEL) and internal employee/employer operational access (via Forgejo OAuth2/OIDC).
 
 ---
 
@@ -24,14 +24,14 @@ To ensure high maintainability, strict security boundaries, clean domain isolati
 The application architecture adheres strictly to Domain-Driven Design principles:
 * **Domain APIs & Persistence:** Each bounded context is encapsulated by a dedicated Domain API in front of isolated database schemas. Direct cross-domain database queries or cross-Domain API calls are prohibited.
 * **Business Logic Layer (BLL):** Microservices and async workers orchestrate multi-domain workflows by calling underlying Domain APIs over gRPC mTLS.
-* **Backend-For-Frontend (BFF):** Dedicated Go REST API serving client applications (Vue SPA web portal, Flutter mobile app). The BFF manages user sessions, CSRF validation, authorization, and response shaping. The BFF calls BLL services over gRPC mTLS.
+* **Backend-For-Frontend (BFF):** Dedicated Go REST APIs serving web and mobile frontends (`cmd/customer-bff` and `cmd/employee-bff`). The BFFs manage user sessions, CSRF validation, authorization, and response shaping. The BFFs call BLL services over gRPC mTLS.
 
 ### 2.2 Commercial Off-The-Shelf (COTS) / Open Source (OSS) vs. Custom Code Boundary
 1. **System of Record for Generic Operations:**
    * **ERPNext / Frappe HR:** Single source of truth for double-entry financial accounting, legal payroll, billing, and core HR records.
    * **Homebox:** Office physical inventory for non-networked equipment.
-   * **ZITADEL:** Central identity provider (OIDC/SSO) for authentication.
-   * **Forgejo:** Git repositories, issue tracking, CI/CD pipelines (Actions), and OAuth2 identity provider for staff.
+   * **ZITADEL:** Identity provider (OIDC/SSO) for external customer authentication.
+   * **Forgejo:** Git repositories, issue tracking, CI/CD pipelines (Actions), and OAuth2/OIDC identity provider for internal employees/employers/staff.
 2. **Custom Go Domain Responsibilities:**
    * Feline behavioral stream ingestion (Orange Observer) and automated algorithmic portfolio trading (Core Investment Engine).
    * Edge telemetry and hardware asset tracking for custom habitational infrastructure (Facilities).
@@ -79,34 +79,38 @@ The platform's relational persistence is hosted on PostgreSQL 16 using schema is
 
 ## 4. Event-Driven & Inter-Service Architecture
 
-Communication between the Go REST BFF, gRPC BLL services, and Go Worker service uses RabbitMQ as the message broker, orchestrated via the Watermill framework in Go.
+Communication between the Go REST BFFs, gRPC BLL services, and Go Worker service uses RabbitMQ as the message broker, orchestrated via the Watermill framework in Go.
 
 ```text
-   +-------------------+              +-------------------+
-   |   Vue SPA / App   |              |   Hugo / Public   |
-   +---------+---------+              +---------+---------+
-             | REST / HTTPS                     | Static
-             v                                  v
-   +------------------------------------------------------+
-   |                  Go REST BFF API                     |
-   +-------------------------+----------------------------+
-                             | gRPC over mTLS
-                             v
-   +------------------------------------------------------+
-   |            Business Logic Layer (BLL)                |
-   |   (Core Investment, Facilities, Workforce Services)  |
-   +------------+-----------------------------+-----------+
-                | Publish                     | Subscribe
-                v                             v
-   +------------------------------------------------------+
-   |             RabbitMQ Event Broker (Watermill)        |
-   +-------------------------+----------------------------+
-                             ^
-                             | Consume & Process
-   +-------------------------+----------------------------+
-   |            Go Asynchronous Worker Engine             |
-   | - Cron Schedulers   - Event Stream Processors        |
-   +------------------------------------------------------+
+  +----------------------+  +------------------------+  +-------------------+
+  | Customer Portal (Vue)|  | Employee Portal (Vue)  |  |   Hugo / Public   |
+  |  (web/customer-portal)  |  (web/employee-portal) |  |     Website       |
+  +----------+-----------+  +-----------+------------+  +---------+---------+
+             |                          |                         | Static
+             v REST                     v REST                    v
+  +----------------------+  +------------------------+
+  |  Go Customer BFF     |  |   Go Employee BFF      |
+  | (ZITADEL Auth Session)|  |(Forgejo OAuth2 Session)|
+  +----------+-----------+  +-----------+------------+
+             |                          |
+             +------------+-------------+
+                          | gRPC over mTLS
+                          v
+  +------------------------------------------------------+
+  |            Business Logic Layer (BLL)                |
+  |   (Core Investment, Facilities, Workforce Services)  |
+  +------------+-----------------------------+-----------+
+               | Publish                     | Subscribe
+               v                             v
+  +------------------------------------------------------+
+  |             RabbitMQ Event Broker (Watermill)        |
+  +-------------------------+----------------------------+
+                            ^
+                            | Consume & Process
+  +-------------------------+----------------------------+
+  |            Go Asynchronous Worker Engine             |
+  | - Cron Schedulers   - Event Stream Processors        |
+  +------------------------------------------------------+
 ```
 
 ### 4.1 Standard Event Envelope
@@ -132,35 +136,50 @@ type EventEnvelope[T any] struct {
 
 ---
 
-## 5. Security, Authentication & Authorization Framework
+## 5. Security, Dual Authentication & Authorization Framework
 
-### 5.1 External User Authentication (OIDC + Server-Side Valkey Sessions)
-Browser and mobile clients authenticate using ZITADEL as the central OIDC Identity Provider:
+The platform maintains two distinct authentication domains to preserve strict identity boundary separation between external investors and internal corporate staff.
 
 ```text
-Client Browser            Go REST BFF                ZITADEL (OIDC)             Valkey Store
-      |                        |                          |                          |
-      | 1. GET /auth/login     |                          |                          |
-      |----------------------->| 2. Redirect /authorize   |                          |
-      |<-----------------------|------------------------->|                          |
-      |                        |                          |                          |
-      | 3. Authenticate & Redirect /auth/callback?code=.. |                          |
-      |----------------------->|                          |                          |
-      |                        | 4. Exchange code         |                          |
-      |                        |------------------------->|                          |
-      |                        |<-------------------------|                          |
-      |                        | 5. Store Tokens & Session                           |
-      |                        |---------------------------------------------------->|
-      | 6. Set-Cookie: __Host-session=OPAQUE; HttpOnly; Secure; SameSite=Lax           |
-      |<-----------------------|                                                     |
++-------------------------------------------------------------------------------+
+|                            Dual Identity Provider Model                       |
++---------------------------------------+---------------------------------------+
+| 1. External Customer Authentication   | 2. Internal Employee Authentication   |
+| - Identity Provider: ZITADEL (OIDC)   | - Identity Provider: Forgejo (OAuth2) |
+| - Surface: Customer Portal            | - Surface: Employee Portal            |
+|   (`web/customer-portal`)             |   (`web/employee-portal`)             |
+| - BFF: Customer BFF (`cmd/customer-bff`)| - BFF: Employee BFF (`cmd/employee-bff`)|
++---------------------------------------+---------------------------------------+
 ```
 
-* **Session Management:** OAuth tokens (Access, ID, Refresh) are stored **exclusively** on the server in Valkey. The browser receives only an opaque `__Host-session` cookie.
-* **CSRF Mitigation:** Double-submit cookie pattern combined with `X-CSRF-Token` header for state-changing requests (`POST`, `PUT`, `DELETE`).
-* **Session Lifetime:** 30-minute idle expiration, 12-hour hard limit.
+### 5.1 Dual OIDC/OAuth Auth Flows & Valkey Sessions
 
-### 5.2 Internal Inter-Service Identity & Auth (SPIFFE + mTLS)
-All internal gRPC communication (BFF $\rightarrow$ BLL $\rightarrow$ Domain APIs) uses Mutual TLS (mTLS) managed by `cert-manager` and `trust-manager`.
+#### A. External Customer Auth Flow (ZITADEL)
+* **Identity Provider:** ZITADEL
+* **Target Audience:** Public investors and retail customers.
+* **Surface:** `web/customer-portal` (`customer.oci.local`)
+* **Session Strategy:**
+  1. Login redirects user to ZITADEL OIDC `/authorize`.
+  2. Authorization code exchanged by `cmd/customer-bff` for ZITADEL ID and Access tokens.
+  3. Tokens stored in Valkey server-side session.
+  4. Browser receives an opaque `__Host-customer-session` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`).
+
+#### B. Internal Employee / Employer Auth Flow (Forgejo)
+* **Identity Provider:** Forgejo
+* **Target Audience:** Corporate staff, managers, facilities engineers, caretakers.
+* **Surface:** `web/employee-portal` (`employee.oci.local` / `ops.oci.local`)
+* **Session Strategy:**
+  1. Login redirects user to Forgejo OAuth2 `/login/oauth/authorize`.
+  2. Authorization code exchanged by `cmd/employee-bff` for Forgejo tokens and profile.
+  3. User role mapping checked against Forgejo team memberships (e.g. `facilities-techs`, `hr-managers`).
+  4. Tokens stored in Valkey server-side session.
+  5. Browser receives an opaque `__Host-employee-session` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`).
+
+### 5.2 CSRF Mitigation
+Double-submit cookie pattern combined with `X-CSRF-Token` header for state-changing requests (`POST`, `PUT`, `DELETE`) across both BFFs.
+
+### 5.3 Internal Inter-Service Identity & Auth (SPIFFE + mTLS)
+All internal gRPC communication (`BFF` $\rightarrow$ `BLL` $\rightarrow$ `Domain APIs`) uses Mutual TLS (mTLS) managed by `cert-manager` and `trust-manager`.
 
 * **Workload Identity:** Every service pod runs under a dedicated Kubernetes ServiceAccount. `cert-manager` issues X.509 certs with a SPIFFE ID in the URI SAN:
   `spiffe://oci.local/ns/{namespace}/sa/{serviceaccount}`
@@ -173,18 +192,20 @@ All internal gRPC communication (BFF $\rightarrow$ BLL $\rightarrow$ Domain APIs
 
 ## 6. Client Surface Matrix
 
-| Surface | Target Audience | Tech Stack | Communication Channel | Auth Mechanism |
+| Surface | Target Audience | Tech Stack | Ingress Host | Auth Mechanism / IdP |
 | :--- | :--- | :--- | :--- | :--- |
-| **Marketing Site** | Public / Investors | Hugo (Static) | CDN / HTTPS Ingress | N/A |
-| **Web Portal** | Customers & Staff | Vue 3 (SPA) | REST / JSON to Go BFF | Opaque Session Cookie + CSRF |
-| **Mobile App** | Field Technicians | Flutter | REST / JSON to Go BFF | Bearer Token / Opaque Session |
-| **Watch App** | On-Call Engineers | Pebble C SDK | AppMessage to Companion Proxy | API Key / Device Token |
-| **CLI Tool** | Operational Staff | Go Cobra | gRPC / REST | Personal Access Token |
+| **Marketing Site** | Public / Investors | Hugo (Static) | `oci.local` | N/A |
+| **Customer Portal** | External Investors | Vue 3 SPA (`web/customer-portal`) | `customer.oci.local` | ZITADEL OIDC + Valkey Session Cookie |
+| **Employee Portal** | Internal Staff & Employers | Vue 3 SPA (`web/employee-portal`) | `employee.oci.local` | Forgejo OAuth2 + Valkey Session Cookie |
+| **Mobile App** | Field Technicians | Flutter | API Ingress | Forgejo Auth / OAuth2 Token |
+| **Watch App** | On-Call Engineers | Pebble C SDK | API Ingress | Companion App Proxy Token |
+| **CLI Tool** | Operational Staff | Go Cobra | Direct gRPC | Personal Access Token |
 
 ---
 
 ## 7. Operational & Security Checklist
 
+* **Dual Identity Isolation:** Customer identities (ZITADEL) and Employee identities (Forgejo) are strictly separated across distinct BFF and SPA surfaces.
 * **Zero Static Certificates:** All workload certificates are ephemeral (7 days) and dynamically reloaded.
 * **Schema Isolation:** PostgreSQL logic enforced via isolated schemas (`workforce`, `facilities`, `core_invest`, `ops`).
 * **No JWTs in SPA Storage:** All OIDC tokens kept server-side in Valkey.
