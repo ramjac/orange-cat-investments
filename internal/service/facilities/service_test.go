@@ -42,7 +42,3 @@ func TestFacilitiesService(t *testing.T) {
 	assert.NoError(t, errCreate)
 	assert.Equal(t, "created-mock-id", newAsset.AssetID)
 }
-
-func TestBranchProtectionFailing(t *testing.T) {
-	assert.True(t, false, "intentional failure to test branch protection")
-}
