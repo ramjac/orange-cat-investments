@@ -1,0 +1,694 @@
+openapi: 3.1.0
+info:
+  title: Orange Cat Investments (OCI) Platform API
+  description: API specification for OCI Backend-For-Frontend (BFF) endpoints serving Customer Portal (`customer.oci.local`) and Employee Portal (`employee.oci.local`).
+  version: 1.0.0
+servers:
+  - url: https://api.oci.local/api/v1
+    description: Common Ingress Development API Router
+  - url: https://customer.oci.local/api/v1
+    description: Customer BFF (ZITADEL OIDC Auth)
+  - url: https://employee.oci.local/api/v1
+    description: Employee BFF (Forgejo OAuth2 Auth)
+
+paths:
+  /facilities/assets:
+    get:
+      summary: List Hardware Assets
+      operationId: listAssets
+      tags:
+        - Facilities Assets
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, maintenance_required, offline, pending_return, decommissioned]
+        - name: asset_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of hardware assets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HardwareAsset'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+    post:
+      summary: Register New Hardware Asset
+      operationId: createAsset
+      tags:
+        - Facilities Assets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HardwareAssetCreate'
+      responses:
+        '201':
+          description: Hardware asset created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardwareAsset'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /facilities/assets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get Hardware Asset Details
+      operationId: getAssetById
+      tags:
+        - Facilities Assets
+      responses:
+        '200':
+          description: Hardware asset details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardwareAsset'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    put:
+      summary: Update Hardware Asset Details
+      operationId: updateAsset
+      tags:
+        - Facilities Assets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HardwareAssetUpdate'
+      responses:
+        '200':
+          description: Hardware asset updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HardwareAsset'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    delete:
+      summary: Decommission Hardware Asset
+      operationId: deleteAsset
+      tags:
+        - Facilities Assets
+      responses:
+        '204':
+          description: Hardware asset decommissioned
+
+  /facilities/assets/{id}/maintenance:
+    post:
+      summary: Report Maintenance / Create Maintenance Ticket
+      operationId: reportMaintenance
+      tags:
+        - Facilities Maintenance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceTicketCreate'
+      responses:
+        '201':
+          description: Maintenance ticket generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceTicket'
+
+  /workforce/employees:
+    get:
+      summary: List Employees (Human and Feline)
+      operationId: listEmployees
+      tags:
+        - Workforce Management
+      parameters:
+        - name: employee_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [human, feline]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [onboarding, active, on_leave, separated, retired]
+      responses:
+        '200':
+          description: List of employees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Employee'
+                  total:
+                    type: integer
+
+  /workforce/employees/onboard:
+    post:
+      summary: Onboard New Employee
+      operationId: onboardEmployee
+      tags:
+        - Workforce Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeOnboardRequest'
+      responses:
+        '201':
+          description: Employee successfully initiated onboarding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+
+  /workforce/employees/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get Employee Details
+      operationId: getEmployeeById
+      tags:
+        - Workforce Management
+      responses:
+        '200':
+          description: Employee detailed profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/employees/{id}/onboarding:
+    get:
+      summary: Get Employee Onboarding Checklist
+      operationId: getEmployeeOnboardingChecklist
+      tags:
+        - Workforce Management
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of onboarding checklist items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OnboardingChecklistTask'
+
+  /workforce/onboarding/tasks/{taskId}:
+    put:
+      summary: Update Onboarding Checklist Task Status
+      operationId: updateOnboardingTask
+      tags:
+        - Workforce Management
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_completed
+              properties:
+                is_completed:
+                  type: boolean
+      responses:
+        '200':
+          description: Checklist task updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingChecklistTask'
+
+  /workforce/leave-requests:
+    get:
+      summary: List Leave Requests
+      operationId: listLeaveRequests
+      tags:
+        - Workforce Leave
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected, cancelled]
+      responses:
+        '200':
+          description: List of leave requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LeaveRequest'
+
+    post:
+      summary: Submit Leave Request
+      operationId: createLeaveRequest
+      tags:
+        - Workforce Leave
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveRequestCreate'
+      responses:
+        '201':
+          description: Leave request submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequest'
+
+  /workforce/leave-requests/{id}/status:
+    put:
+      summary: Approve or Reject Leave Request
+      operationId: updateLeaveStatus
+      tags:
+        - Workforce Leave
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveStatusUpdate'
+      responses:
+        '200':
+          description: Leave request status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequest'
+
+components:
+  schemas:
+    HardwareAsset:
+      type: object
+      required:
+        - asset_id
+        - serial_number
+        - asset_type
+        - model
+        - status
+        - created_at
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        serial_number:
+          type: string
+        asset_type:
+          type: string
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+        model:
+          type: string
+        status:
+          type: string
+          enum: [active, maintenance_required, offline, pending_return, decommissioned]
+        zone_id:
+          type: string
+          format: uuid
+          nullable: true
+        assigned_employee_id:
+          type: string
+          format: uuid
+          nullable: true
+        last_ping_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HardwareAssetCreate:
+      type: object
+      required:
+        - serial_number
+        - asset_type
+        - model
+      properties:
+        serial_number:
+          type: string
+        asset_type:
+          type: string
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+        model:
+          type: string
+        zone_id:
+          type: string
+          format: uuid
+
+    HardwareAssetUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, maintenance_required, offline, pending_return, decommissioned]
+        zone_id:
+          type: string
+          format: uuid
+        assigned_employee_id:
+          type: string
+          format: uuid
+
+    MaintenanceTicket:
+      type: object
+      required:
+        - ticket_id
+        - asset_id
+        - title
+        - description
+        - priority
+        - status
+        - created_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [open, in_progress, resolved, closed]
+        assigned_technician_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    MaintenanceTicketCreate:
+      type: object
+      required:
+        - title
+        - description
+        - priority
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+
+    Employee:
+      type: object
+      required:
+        - employee_id
+        - employee_type
+        - first_name
+        - role_title
+        - department
+        - status
+        - hired_at
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        employee_type:
+          type: string
+          enum: [human, feline]
+        first_name:
+          type: string
+        last_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        role_title:
+          type: string
+        department:
+          type: string
+        status:
+          type: string
+          enum: [onboarding, active, on_leave, separated, retired]
+        hired_at:
+          type: string
+          format: date
+
+    EmployeeOnboardRequest:
+      type: object
+      required:
+        - employee_type
+        - first_name
+        - role_title
+        - department
+      properties:
+        employee_type:
+          type: string
+          enum: [human, feline]
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+          format: email
+        role_title:
+          type: string
+        department:
+          type: string
+        feline_care_details:
+          type: object
+          properties:
+            dietary_plan:
+              type: string
+            feeding_times:
+              type: array
+              items:
+                type: string
+
+    OnboardingChecklistTask:
+      type: object
+      required:
+        - checklist_id
+        - employee_id
+        - task_name
+        - category
+        - is_completed
+      properties:
+        checklist_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+          format: uuid
+        task_name:
+          type: string
+        category:
+          type: string
+          enum: [hardware, access, dietary, medical, training]
+        is_completed:
+          type: boolean
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    LeaveRequest:
+      type: object
+      required:
+        - leave_id
+        - employee_id
+        - leave_type
+        - start_date
+        - end_date
+        - status
+      properties:
+        leave_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+          format: uuid
+        leave_type:
+          type: string
+          enum: [vacation, sick, catnip_break, sabbatical]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [pending, approved, rejected, cancelled]
+        reason:
+          type: string
+
+    LeaveRequestCreate:
+      type: object
+      required:
+        - employee_id
+        - leave_type
+        - start_date
+        - end_date
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        leave_type:
+          type: string
+          enum: [vacation, sick, catnip_break, sabbatical]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+
+    LeaveStatusUpdate:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected, cancelled]
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  responses:
+    '400BadRequest':
+      description: Invalid request parameters or payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    '401Unauthorized':
+      description: Unauthenticated or invalid session cookie
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    '404NotFound':
+      description: Requested entity not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    '500InternalError':
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
