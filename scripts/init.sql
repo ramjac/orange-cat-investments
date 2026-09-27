@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS workforce.care_schedules (
     feeding_times TEXT[] NOT NULL,
     special_medical_needs TEXT,
     preferred_perch_zone VARCHAR(100),
+    emergency_medical_hold BOOLEAN NOT NULL DEFAULT FALSE,
     caretaker_id UUID REFERENCES workforce.employees(employee_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
