@@ -29,19 +29,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /core-invest/backtesting/runs", h.ListBacktestRuns)
 	mux.HandleFunc("POST /core-invest/backtesting/runs", h.StartBacktestRun)
 	mux.HandleFunc("GET /core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
-
-	// API v1 route aliases
-	mux.HandleFunc("GET /api/v1/core-invest/streams", h.ListCameraStreams)
-	mux.HandleFunc("POST /api/v1/core-invest/streams", h.RegisterCameraStream)
-	mux.HandleFunc("GET /api/v1/core-invest/streams/{id}", h.GetCameraStreamByID)
-
-	mux.HandleFunc("GET /api/v1/core-invest/brokerage/orders", h.ListBrokerageOrders)
-	mux.HandleFunc("POST /api/v1/core-invest/brokerage/orders", h.ExecuteBrokerageOrder)
-	mux.HandleFunc("GET /api/v1/core-invest/brokerage/orders/{id}", h.GetBrokerageOrderByID)
-
-	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs", h.ListBacktestRuns)
-	mux.HandleFunc("POST /api/v1/core-invest/backtesting/runs", h.StartBacktestRun)
-	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
 }
 
 func (h *Handler) GetCameraStreamByID(w http.ResponseWriter, r *http.Request) {

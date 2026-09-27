@@ -113,27 +113,6 @@ func TestFacilitiesRepository(t *testing.T) {
 
 		_, err = pgxRepo.CreateMaintenanceTicket(ctx, &facilities.MaintenanceTicket{})
 		assert.Error(t, err)
-
-		_, err = pgxRepo.BatchInsertMaintenanceLogs(ctx, nil)
-		assert.Error(t, err)
-
-		_, err = pgxRepo.ListMaintenanceLogsByAsset(ctx, "asset-001")
-		assert.Error(t, err)
-
-		_, err = pgxRepo.CreateFirmwareRelease(ctx, &facilities.FirmwareRelease{})
-		assert.Error(t, err)
-
-		_, err = pgxRepo.ListFirmwareReleases(ctx, "edge_camera")
-		assert.Error(t, err)
-
-		_, err = pgxRepo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{})
-		assert.Error(t, err)
-
-		_, err = pgxRepo.UpdateOTAJobStatus(ctx, "job-1", "completed", nil, nil)
-		assert.Error(t, err)
-
-		_, err = pgxRepo.ListOTAJobsByAsset(ctx, "asset-001")
-		assert.Error(t, err)
 	})
 }
 
@@ -213,42 +192,5 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 	}
 	if created.UpdatedAt.IsZero() {
 		t.Fatalf("expected non-zero UpdatedAt timestamp")
-	}
-
-	// Test BatchInsertMaintenanceLogs
-	logs, err := repo.BatchInsertMaintenanceLogs(context.Background(), []*facilities.MaintenanceLog{
-		{AssetID: "asset-001", QRCodeScanned: "QR-CAM-01", ActionTaken: "Clean lens"},
-	})
-	if err != nil || len(logs) != 1 {
-		t.Fatalf("expected 1 maintenance log inserted, got %v, err=%v", logs, err)
-	}
-
-	// Test Firmware & OTA repository functions
-	release, err := repo.CreateFirmwareRelease(context.Background(), &facilities.FirmwareRelease{
-		DeviceType: "edge_camera",
-		Version:    "2.1.0",
-		FileURL:    "https://firmware.oci.local/v2.1.0.bin",
-		Checksum:   "abc123checksum",
-	})
-	if err != nil || release.ReleaseID == "" {
-		t.Fatalf("expected firmware release created, got %v, err=%v", release, err)
-	}
-
-	releases, err := repo.ListFirmwareReleases(context.Background(), "edge_camera")
-	if err != nil || len(releases) == 0 {
-		t.Fatalf("expected firmware releases list, got %v, err=%v", releases, err)
-	}
-
-	otaJob, err := repo.CreateOTAJob(context.Background(), &facilities.DeviceOTAJob{
-		AssetID:   "asset-001",
-		ReleaseID: release.ReleaseID,
-	})
-	if err != nil || otaJob.JobID == "" {
-		t.Fatalf("expected OTA job created, got %v, err=%v", otaJob, err)
-	}
-
-	otaJobs, err := repo.ListOTAJobsByAsset(context.Background(), "asset-001")
-	if err != nil || len(otaJobs) == 0 {
-		t.Fatalf("expected OTA jobs list, got %v, err=%v", otaJobs, err)
 	}
 }

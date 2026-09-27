@@ -12,11 +12,6 @@ type Service interface {
 	GetAsset(ctx context.Context, id string) (*facilities.HardwareAsset, error)
 	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error)
 	CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error)
-	SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error)
-	CreateFirmwareRelease(ctx context.Context, release *facilities.FirmwareRelease) (*facilities.FirmwareRelease, error)
-	ListFirmwareReleases(ctx context.Context, deviceType string) ([]*facilities.FirmwareRelease, error)
-	TriggerOTAUpdate(ctx context.Context, assetIDs []string, releaseID string) ([]*facilities.DeviceOTAJob, error)
-	ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error)
 }
 
 type facilitiesService struct {
@@ -57,55 +52,4 @@ func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, asset
 	}
 
 	return s.repo.CreateAsset(ctx, asset)
-}
-
-func (s *facilitiesService) SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error) {
-	if len(logs) == 0 {
-		return []*facilities.MaintenanceLog{}, nil
-	}
-	for _, l := range logs {
-		if l.AssetID == "" || l.QRCodeScanned == "" {
-			return nil, errors.New("asset_id and qr_code_scanned are required for each maintenance log")
-		}
-	}
-	return s.repo.BatchInsertMaintenanceLogs(ctx, logs)
-}
-
-func (s *facilitiesService) CreateFirmwareRelease(ctx context.Context, release *facilities.FirmwareRelease) (*facilities.FirmwareRelease, error) {
-	if release == nil || release.DeviceType == "" || release.Version == "" || release.FileURL == "" {
-		return nil, errors.New("device_type, version, and file_url are required")
-	}
-	return s.repo.CreateFirmwareRelease(ctx, release)
-}
-
-func (s *facilitiesService) ListFirmwareReleases(ctx context.Context, deviceType string) ([]*facilities.FirmwareRelease, error) {
-	if deviceType == "" {
-		return nil, errors.New("device_type is required")
-	}
-	return s.repo.ListFirmwareReleases(ctx, deviceType)
-}
-
-func (s *facilitiesService) TriggerOTAUpdate(ctx context.Context, assetIDs []string, releaseID string) ([]*facilities.DeviceOTAJob, error) {
-	if len(assetIDs) == 0 || releaseID == "" {
-		return nil, errors.New("asset_ids and release_id are required")
-	}
-	jobs := make([]*facilities.DeviceOTAJob, 0, len(assetIDs))
-	for _, assetID := range assetIDs {
-		job, err := s.repo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{
-			AssetID:   assetID,
-			ReleaseID: releaseID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, job)
-	}
-	return jobs, nil
-}
-
-func (s *facilitiesService) ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error) {
-	if assetID == "" {
-		return nil, errors.New("asset_id is required")
-	}
-	return s.repo.ListOTAJobsByAsset(ctx, assetID)
 }
