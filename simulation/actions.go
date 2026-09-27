@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -208,16 +209,26 @@ func (r *Registry) createBarnebyPersona() *Persona {
 				Name:        "barneby_slap_water_glass",
 				Description: "Slaps a glass of water off table, triggering facilities alert ticket, Pebble watch notification, and mobile field app cleanup log sync",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					// Step 1: Trigger maintenance ticket
-					maintEndpoint := "/facilities/assets/asset-001/maintenance"
+					// Step 1: Trigger operations alert ticket for water spill
+					maintEndpoint := "/ops/tickets"
 					maintPayload := map[string]any{
-						"title":       "Water Spill Incident: Glass slapped off desk in Sector 4",
-						"description": "Barneby slapped a full glass of water onto active server control console desk. Immediate spill response required.",
-						"priority":    "high",
+						"forgejo_repo":    "oci/facilities",
+						"title":           "Water Spill Incident: Glass slapped off desk in Sector 4",
+						"body":            "Barneby slapped a full glass of water onto active server control console desk. Immediate spill response required.",
+						"author_username": "emp-feline-barneby",
 					}
 					maintResp, maintBytes, err := client.Do(ctx, false, "POST", maintEndpoint, maintPayload)
 					if err != nil {
 						return nil, fmt.Errorf("failed to create maintenance ticket: %w", err)
+					}
+
+					var ticketData struct {
+						TicketID string `json:"ticket_id"`
+					}
+					_ = json.Unmarshal(maintBytes, &ticketData)
+					ticketID := ticketData.TicketID
+					if ticketID == "" {
+						ticketID = "018e0000-0000-7000-8000-000000000003"
 					}
 
 					// Step 2: Query Pebble companion alerts
@@ -230,7 +241,7 @@ func (r *Registry) createBarnebyPersona() *Persona {
 					// Step 3: Send Pebble watch ACK for facilities alert
 					pebbleAckEndpoint := "/ops/pebble/ack"
 					pebbleAckPayload := map[string]any{
-						"ticket_id":       "ticket-mock-123",
+						"ticket_id":       ticketID,
 						"acknowledged_by": "emp-human-bob",
 					}
 					ackResp, ackBytes, ackErr := client.Do(ctx, false, "POST", pebbleAckEndpoint, pebbleAckPayload)
@@ -242,13 +253,11 @@ func (r *Registry) createBarnebyPersona() *Persona {
 					syncEndpoint := "/facilities/sync/maintenance-logs"
 					syncPayload := []map[string]any{
 						{
-							"ticket_id":        "ticket-mock-123",
-							"asset_id":         "asset-001",
-							"technician_id":    "emp-human-bob",
-							"qr_code_scanned":  "QR-ZONE-4-DESK-01",
-							"action_taken":     "Cleaned up water spill, wiped control console electronics, placed spill prevention mug coaster.",
-							"notes":            "Barneby supervised cleanup from upper perch.",
-							"created_at":       time.Now().UTC().Format(time.RFC3339),
+							"asset_id":        "018e0000-0000-7000-8000-000000000001",
+							"qr_code_scanned": "QR-ZONE-4-DESK-01",
+							"action_taken":    "Cleaned up water spill, wiped control console electronics, placed spill prevention mug coaster.",
+							"notes":           "Barneby supervised cleanup from upper perch.",
+							"created_at":      time.Now().UTC().Format(time.RFC3339),
 						},
 					}
 					syncResp, syncBytes, syncErr := client.Do(ctx, false, "POST", syncEndpoint, syncPayload)
