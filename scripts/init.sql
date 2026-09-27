@@ -133,6 +133,8 @@ CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
+
 -- Observation Perches (Habitat specific details)
 CREATE TABLE IF NOT EXISTS facilities.observation_perches (
     perch_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
