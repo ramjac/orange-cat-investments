@@ -286,6 +286,9 @@ kubectl port-forward -n apps svc/valkey-service 6379:6379 &
 kubectl port-forward -n apps svc/rabbitmq-service 5672:5672 15672:15672 &
 ```
 
+> **Clean Reset:** To tear down all OCI workloads and reset the cluster back to a clean state at any time, run `./scripts/cleanup-k8s.sh` (see [Section 6.8](#68-cluster-cleanup--environment-reset)).
+
+
 ---
 
 ### 6.5 Bare-Metal K3s Cluster Provisioning via Ansible
@@ -387,6 +390,28 @@ curl -s -X POST http://localhost:8082/ops/pebble/ack \
 go test -v -race ./...
 ```
 All unit, integration, and race detection test suites will report passing!
+
+---
+
+### 6.8 Cluster Cleanup & Environment Reset
+
+When you finish testing or want to reset your home server cluster to a clean slate (such that you can start testing from scratch the next day):
+
+```bash
+chmod +x scripts/cleanup-k8s.sh
+./scripts/cleanup-k8s.sh
+```
+
+This automated cleanup routine:
+* Safely deletes all OCI domain applications, databases, logging, monitoring, and namespaces (`apps`, `logging`, `monitoring`, `oci-core`, `postgres`).
+* Deletes and releases OCI persistent volume claims (`postgres-data-pvc`).
+* **Preserves System Infrastructure:** Keeps all cluster system services, storage classes, ingress controllers (e.g. MicroK8s NGINX ingress), container registries, and `kubectl` control plane connectivity intact.
+
+To also stop and remove standalone Docker containers from Section 6.3:
+```bash
+docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-valkey oci-rabbitmq
+```
+
 
 ---
 
