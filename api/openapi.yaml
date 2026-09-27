@@ -570,6 +570,100 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /ops/tickets:
+    get:
+      summary: List IT Helpdesk Tickets
+      operationId: listITTickets
+      tags:
+        - IT Operations
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, closed, acknowledged]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of IT tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ITTicket'
+                  total:
+                    type: integer
+    post:
+      summary: Create IT Helpdesk Ticket
+      operationId: createITTicket
+      tags:
+        - IT Operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ITTicketCreate'
+      responses:
+        '201':
+          description: IT ticket created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+
+  /ops/pebble/alerts:
+    get:
+      summary: Get Pebble Companion Watch Alert Payloads
+      operationId: getPebbleAlerts
+      tags:
+        - Wearable Proxy
+      responses:
+        '200':
+          description: List of active alert payloads formatted for Pebble watch AppMessage
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PebbleAlertPayload'
+
+  /ops/pebble/ack:
+    post:
+      summary: Submit Pebble Watch ACK Button Interaction
+      operationId: submitPebbleAck
+      tags:
+        - Wearable Proxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PebbleAckRequest'
+      responses:
+        '200':
+          description: ACK processed and ticket updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PebbleAckResponse'
+
 components:
   schemas:
     HardwareAsset:
@@ -1042,6 +1136,129 @@ components:
           format: date-time
         parameters:
           type: object
+
+    ITTicket:
+      type: object
+      required:
+        - ticket_id
+        - forgejo_repo
+        - title
+        - state
+        - author_username
+        - created_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        forgejo_issue_id:
+          type: integer
+          nullable: true
+        forgejo_repo:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+          nullable: true
+        state:
+          type: string
+          enum: [open, closed, acknowledged]
+        author_username:
+          type: string
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+        acknowledged_by:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ITTicketCreate:
+      type: object
+      required:
+        - forgejo_repo
+        - title
+        - author_username
+      properties:
+        forgejo_issue_id:
+          type: integer
+        forgejo_repo:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        author_username:
+          type: string
+
+    PebbleAlertPayload:
+      type: object
+      required:
+        - ticket_id
+        - title
+        - priority
+        - created_at
+        - app_message_dict
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        priority:
+          type: string
+        body:
+          type: string
+        author:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        app_message_dict:
+          type: object
+          additionalProperties:
+            type: string
+
+    PebbleAckRequest:
+      type: object
+      required:
+        - ticket_id
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        acknowledged_by:
+          type: string
+        button_id:
+          type: integer
+
+    PebbleAckResponse:
+      type: object
+      required:
+        - ticket_id
+        - state
+        - acknowledged_at
+        - acknowledged_by
+        - status_message
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        state:
+          type: string
+        acknowledged_at:
+          type: string
+          format: date-time
+        acknowledged_by:
+          type: string
+        status_message:
+          type: string
 
     ErrorResponse:
       type: object
