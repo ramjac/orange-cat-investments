@@ -21,7 +21,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
   * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule & Emergency Medical Hold management.
   * **Hugo Marketing Site (`web/marketing`):** Static public marketing website.
   * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app with offline SQLite sync engine, QR scanning, and firmware OTA rollout tracking.
-  * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (C / Pebble C SDK).
+  * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (Embedded JavaScript / RePebble Alloy framework).
 
 ---
 
