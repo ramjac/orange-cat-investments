@@ -13,7 +13,7 @@ import (
 )
 
 func TestFacilitiesHandler(t *testing.T) {
-	repo := facilities.NewRepository(nil)
+	repo := facilities.NewMockRepository()
 	svc := facilities_svc.NewService(repo)
 	handler := NewHandler(svc)
 

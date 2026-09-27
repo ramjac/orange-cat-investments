@@ -3,12 +3,14 @@ package facilities
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/facilities"
 )
 
 type Service interface {
 	GetAsset(ctx context.Context, id string) (*facilities.HardwareAsset, error)
+	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error)
 	CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error)
 	SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error)
 	CreateFirmwareRelease(ctx context.Context, release *facilities.FirmwareRelease) (*facilities.FirmwareRelease, error)
@@ -32,6 +34,13 @@ func (s *facilitiesService) GetAsset(ctx context.Context, id string) (*facilitie
 	return s.repo.GetAssetByID(ctx, id)
 }
 
+func (s *facilitiesService) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return s.repo.ListAssets(ctx, limit, cursorCreatedAt, cursorID)
+}
+
 func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error) {
 	if serialNumber == "" || assetType == "" {
 		return nil, errors.New("serial number and asset type are required")
@@ -42,6 +51,9 @@ func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, asset
 		AssetType:    assetType,
 		Model:        model,
 		Status:       "active",
+	}
+	if zoneID != "" {
+		asset.ZoneID = &zoneID
 	}
 
 	return s.repo.CreateAsset(ctx, asset)

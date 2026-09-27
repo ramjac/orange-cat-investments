@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS workforce.care_schedules (
     feeding_times TEXT[] NOT NULL,
     special_medical_needs TEXT,
     preferred_perch_zone VARCHAR(100),
+    emergency_medical_hold BOOLEAN NOT NULL DEFAULT FALSE,
     caretaker_id UUID REFERENCES workforce.employees(employee_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -172,6 +173,8 @@ CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
 
 -- Observation Perches (Habitat specific details)
 CREATE TABLE IF NOT EXISTS facilities.observation_perches (
@@ -306,8 +309,10 @@ CREATE TABLE IF NOT EXISTS ops.it_tickets (
     forgejo_repo VARCHAR(200) NOT NULL,
     title VARCHAR(255) NOT NULL,
     body TEXT,
-    state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed')),
+    state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed', 'acknowledged')),
     author_username VARCHAR(100) NOT NULL,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
