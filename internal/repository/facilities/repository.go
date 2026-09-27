@@ -54,25 +54,25 @@ func (r *pgxRepository) GetAssetByID(ctx context.Context, assetID string) (*Hard
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	var asset HardwareAsset
+	var a HardwareAsset
 	query := `SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at
               FROM facilities.hardware_assets WHERE asset_id = $1`
 	err := r.db.QueryRow(ctx, query, assetID).Scan(
-		&asset.AssetID,
-		&asset.SerialNumber,
-		&asset.AssetType,
-		&asset.Model,
-		&asset.Status,
-		&asset.ZoneID,
-		&asset.AssignedEmployeeID,
-		&asset.LastPingAt,
-		&asset.CreatedAt,
-		&asset.UpdatedAt,
+		&a.AssetID,
+		&a.SerialNumber,
+		&a.AssetType,
+		&a.Model,
+		&a.Status,
+		&a.ZoneID,
+		&a.AssignedEmployeeID,
+		&a.LastPingAt,
+		&a.CreatedAt,
+		&a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &asset, nil
+	return &a, nil
 }
 
 func (r *pgxRepository) ListAssets(ctx context.Context, limit, offset int32) ([]*HardwareAsset, error) {
@@ -89,22 +89,22 @@ func (r *pgxRepository) ListAssets(ctx context.Context, limit, offset int32) ([]
 
 	var assets []*HardwareAsset
 	for rows.Next() {
-		var asset HardwareAsset
+		var a HardwareAsset
 		if err := rows.Scan(
-			&asset.AssetID,
-			&asset.SerialNumber,
-			&asset.AssetType,
-			&asset.Model,
-			&asset.Status,
-			&asset.ZoneID,
-			&asset.AssignedEmployeeID,
-			&asset.LastPingAt,
-			&asset.CreatedAt,
-			&asset.UpdatedAt,
+			&a.AssetID,
+			&a.SerialNumber,
+			&a.AssetType,
+			&a.Model,
+			&a.Status,
+			&a.ZoneID,
+			&a.AssignedEmployeeID,
+			&a.LastPingAt,
+			&a.CreatedAt,
+			&a.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
-		assets = append(assets, &asset)
+		assets = append(assets, &a)
 	}
 	return assets, rows.Err()
 }
@@ -117,23 +117,24 @@ func (r *pgxRepository) CreateAsset(ctx context.Context, asset *HardwareAsset) (
                   serial_number, asset_type, model, status, zone_id
               ) VALUES ($1, $2, $3, $4, $5)
               RETURNING asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at`
-	var created HardwareAsset
-	err := r.db.QueryRow(ctx, query, asset.SerialNumber, asset.AssetType, asset.Model, asset.Status, asset.ZoneID).Scan(
-		&created.AssetID,
-		&created.SerialNumber,
-		&created.AssetType,
-		&created.Model,
-		&created.Status,
-		&created.ZoneID,
-		&created.AssignedEmployeeID,
-		&created.LastPingAt,
-		&created.CreatedAt,
-		&created.UpdatedAt,
-	)
+	var a HardwareAsset
+	err := r.db.QueryRow(ctx, query, asset.SerialNumber, asset.AssetType, asset.Model, asset.Status, asset.ZoneID).
+		Scan(
+			&a.AssetID,
+			&a.SerialNumber,
+			&a.AssetType,
+			&a.Model,
+			&a.Status,
+			&a.ZoneID,
+			&a.AssignedEmployeeID,
+			&a.LastPingAt,
+			&a.CreatedAt,
+			&a.UpdatedAt,
+		)
 	if err != nil {
 		return nil, err
 	}
-	return &created, nil
+	return &a, nil
 }
 
 func (r *pgxRepository) CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error) {
@@ -144,22 +145,23 @@ func (r *pgxRepository) CreateMaintenanceTicket(ctx context.Context, ticket *Mai
                   asset_id, title, description, priority, status
               ) VALUES ($1, $2, $3, $4, 'open')
               RETURNING ticket_id, asset_id, title, description, priority, status, assigned_technician_id, reported_by, resolved_at, created_at, updated_at`
-	var created MaintenanceTicket
-	err := r.db.QueryRow(ctx, query, ticket.AssetID, ticket.Title, ticket.Description, ticket.Priority).Scan(
-		&created.TicketID,
-		&created.AssetID,
-		&created.Title,
-		&created.Description,
-		&created.Priority,
-		&created.Status,
-		&created.AssignedTechnicianID,
-		&created.ReportedBy,
-		&created.ResolvedAt,
-		&created.CreatedAt,
-		&created.UpdatedAt,
-	)
+	var t MaintenanceTicket
+	err := r.db.QueryRow(ctx, query, ticket.AssetID, ticket.Title, ticket.Description, ticket.Priority).
+		Scan(
+			&t.TicketID,
+			&t.AssetID,
+			&t.Title,
+			&t.Description,
+			&t.Priority,
+			&t.Status,
+			&t.AssignedTechnicianID,
+			&t.ReportedBy,
+			&t.ResolvedAt,
+			&t.CreatedAt,
+			&t.UpdatedAt,
+		)
 	if err != nil {
 		return nil, err
 	}
-	return &created, nil
+	return &t, nil
 }

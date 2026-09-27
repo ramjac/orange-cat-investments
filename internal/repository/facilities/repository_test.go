@@ -14,26 +14,41 @@ func TestFacilitiesRepository(t *testing.T) {
 	repo := facilities.NewMockRepository()
 	ctx := context.Background()
 
-	t.Run("HardwareAsset Operations", func(t *testing.T) {
-		asset, err := repo.CreateAsset(ctx, &facilities.HardwareAsset{
-			SerialNumber: "CAM-TEST-01",
-			AssetType:    "edge_camera",
-			Model:        "TestModel",
-			Status:       "active",
-		})
+	t.Run("GetAssetByID", func(t *testing.T) {
+		asset, err := repo.GetAssetByID(ctx, "asset-001")
 		require.NoError(t, err)
-		assert.Equal(t, "asset-uuid-created", asset.AssetID)
-
-		fetched, err := repo.GetAssetByID(ctx, asset.AssetID)
-		require.NoError(t, err)
-		assert.Equal(t, asset.AssetID, fetched.AssetID)
-
-		list, err := repo.ListAssets(ctx, 10, 0)
-		require.NoError(t, err)
-		assert.NotEmpty(t, list)
+		assert.Equal(t, "asset-001", asset.AssetID)
+		assert.Equal(t, "CAM-ORANGE-01", asset.SerialNumber)
+		assert.Equal(t, "edge_camera", asset.AssetType)
+		assert.Equal(t, "4K-FelineCam-v2", asset.Model)
+		assert.Equal(t, "active", asset.Status)
+		assert.False(t, asset.CreatedAt.IsZero())
+		assert.False(t, asset.UpdatedAt.IsZero())
 	})
 
-	t.Run("MaintenanceTicket Operations", func(t *testing.T) {
+	t.Run("ListAssets", func(t *testing.T) {
+		assets, err := repo.ListAssets(ctx, 10, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, assets)
+		assert.Equal(t, "asset-uuid-001", assets[0].AssetID)
+	})
+
+	t.Run("CreateAsset", func(t *testing.T) {
+		input := &facilities.HardwareAsset{
+			SerialNumber: "SER-12345",
+			AssetType:    "feeder",
+			Model:        "AutoFeed-v1",
+			Status:       "pending",
+		}
+		created, err := repo.CreateAsset(ctx, input)
+		require.NoError(t, err)
+		assert.Equal(t, "asset-uuid-created", created.AssetID)
+		assert.Equal(t, "SER-12345", created.SerialNumber)
+		assert.False(t, created.CreatedAt.IsZero())
+		assert.False(t, created.UpdatedAt.IsZero())
+	})
+
+	t.Run("CreateMaintenanceTicket", func(t *testing.T) {
 		techID := "tech-123"
 		reporterID := "emp-456"
 
@@ -57,6 +72,8 @@ func TestFacilitiesRepository(t *testing.T) {
 		assert.Equal(t, "Camera lens dirty", created.Title)
 		assert.Equal(t, "The lens needs cleaning on zone 2 camera", created.Description)
 		assert.Equal(t, "medium", created.Priority)
+		assert.Equal(t, &techID, created.AssignedTechnicianID)
+		assert.Equal(t, &reporterID, created.ReportedBy)
 		assert.Nil(t, created.ResolvedAt)
 		assert.False(t, created.CreatedAt.IsZero())
 		assert.False(t, created.UpdatedAt.IsZero())
@@ -64,9 +81,28 @@ func TestFacilitiesRepository(t *testing.T) {
 		assert.True(t, created.UpdatedAt.After(startTime) || created.UpdatedAt.Equal(startTime))
 	})
 
+	t.Run("CreateMaintenanceTicket with optional fields omitted", func(t *testing.T) {
+		inputTicket := &facilities.MaintenanceTicket{
+			AssetID:     "asset-002",
+			Title:       "Sensor fault",
+			Description: "Sensor non-responsive",
+			Priority:    "high",
+		}
+
+		created, err := repo.CreateMaintenanceTicket(ctx, inputTicket)
+		require.NoError(t, err)
+		require.NotNil(t, created)
+
+		assert.Equal(t, "maint-uuid-created", created.TicketID)
+		assert.Equal(t, "open", created.Status)
+		assert.Nil(t, created.AssignedTechnicianID)
+		assert.Nil(t, created.ReportedBy)
+		assert.Nil(t, created.ResolvedAt)
+	})
+
 	t.Run("PgxRepository nil DB error", func(t *testing.T) {
 		pgxRepo := facilities.NewRepository(nil)
-		_, err := pgxRepo.GetAssetByID(ctx, "123")
+		_, err := pgxRepo.GetAssetByID(ctx, "asset-001")
 		assert.Error(t, err)
 
 		_, err = pgxRepo.ListAssets(ctx, 10, 0)
