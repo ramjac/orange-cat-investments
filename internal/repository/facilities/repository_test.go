@@ -20,4 +20,12 @@ func TestPgxRepository(t *testing.T) {
 	if err != nil || len(assets) == 0 {
 		t.Fatalf("expected assets list, got %v", err)
 	}
+
+	_, err = repo.CreateAsset(context.Background(), &HardwareAsset{
+		SerialNumber: "CAM-001",
+		AssetType:    "edge_camera",
+	})
+	if err == nil {
+		t.Fatalf("expected error when db is nil, got nil")
+	}
 }

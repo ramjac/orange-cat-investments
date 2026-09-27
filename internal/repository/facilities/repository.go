@@ -2,6 +2,7 @@ package facilities
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -76,10 +77,24 @@ func (r *pgxRepository) ListAssets(ctx context.Context, limit, offset int32) ([]
 }
 
 func (r *pgxRepository) CreateAsset(ctx context.Context, asset *HardwareAsset) (*HardwareAsset, error) {
-	asset.AssetID = "asset-uuid-created"
-	asset.CreatedAt = time.Now().UTC()
-	asset.UpdatedAt = time.Now().UTC()
-	return asset, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO facilities.hardware_assets (
+                  serial_number, asset_type, model, status, zone_id
+              ) VALUES ($1, $2, $3, $4, $5)
+              RETURNING asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at`
+	var a HardwareAsset
+	status := asset.Status
+	if status == "" {
+		status = "active"
+	}
+	err := r.db.QueryRow(ctx, query, asset.SerialNumber, asset.AssetType, asset.Model, status, asset.ZoneID).
+		Scan(&a.AssetID, &a.SerialNumber, &a.AssetType, &a.Model, &a.Status, &a.ZoneID, &a.AssignedEmployeeID, &a.LastPingAt, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 func (r *pgxRepository) CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error) {
