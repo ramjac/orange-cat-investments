@@ -86,14 +86,6 @@ jobs:
         run: |
           kubeconform -summary -ignore-missing-schemas -kubernetes-version 1.28.0 k8s/
 
-      - name: Validate Kubernetes manifests (kubectl client dry-run)
-        run: |
-          kubectl apply --dry-run=client --validate=false \
-            -f k8s/namespaces/ \
-            -f k8s/postgres/ \
-            -f k8s/apps/ \
-            -f k8s/monitoring/ \
-            -f k8s/logging/
 
 
   validate-openapi:
