@@ -38,6 +38,9 @@ func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, asset
 		Model:        model,
 		Status:       "active",
 	}
+	if zoneID != "" {
+		asset.ZoneID = &zoneID
+	}
 
 	return s.repo.CreateAsset(ctx, asset)
 }
