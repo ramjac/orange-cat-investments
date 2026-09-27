@@ -1,4 +1,0 @@
----
-# Master Orchestration Playbook for Orange Cat Investments Infrastructure
-- import_playbook: playbooks/k3s_cluster.yml
-- import_playbook: playbooks/deploy_workloads.yml

@@ -1,6 +1,0 @@
----
-- name: Deploy All Self-Hosted Platform Workloads on K3s
-  hosts: k3s_servers
-  become: true
-  roles:
-    - k8s_deploy
