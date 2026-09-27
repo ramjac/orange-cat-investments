@@ -43,6 +43,29 @@ type pubSub interface {
 	message.Subscriber
 }
 
+func handleCatSpotted(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
+	logger.Info("Watermill consumer received observation event", "uuid", msg.UUID)
+
+	var envelope EventEnvelope[CatSpottedPayload]
+	if err := json.Unmarshal(msg.Payload, &envelope); err == nil {
+		logger.Info("executing algorithmic portfolio allocation check & automated brokerage trade order",
+			"feline_id", envelope.Payload.FelineID,
+			"activity_type", envelope.Payload.ActivityType,
+			"confidence", envelope.Payload.ConfidenceScore,
+		)
+	}
+
+	outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"brokerage_trade_executed"}`))
+	return []*message.Message{outputMsg}, nil
+}
+
+func handleBacktestRun(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
+	logger.Info("Watermill consumer processing historical backtest run", "uuid", msg.UUID)
+
+	outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"backtest_completed","results":{"sharpe_ratio":1.85,"alpha":0.12}}`))
+	return []*message.Message{outputMsg}, nil
+}
+
 func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *slog.Logger) (*message.Router, error) {
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
 	if err != nil {
@@ -56,19 +79,7 @@ func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *sl
 		"events.investment.allocation_check.v1",
 		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
-			logger.Info("Watermill consumer received observation event", "uuid", msg.UUID, "payload", string(msg.Payload))
-
-			var envelope EventEnvelope[CatSpottedPayload]
-			if err := json.Unmarshal(msg.Payload, &envelope); err == nil {
-				logger.Info("executing algorithmic portfolio allocation check & automated brokerage trade order",
-					"feline_id", envelope.Payload.FelineID,
-					"activity_type", envelope.Payload.ActivityType,
-					"confidence", envelope.Payload.ConfidenceScore,
-				)
-			}
-
-			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"brokerage_trade_executed"}`))
-			return []*message.Message{outputMsg}, nil
+			return handleCatSpotted(logger, msg)
 		},
 	)
 
@@ -79,10 +90,7 @@ func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *sl
 		"events.investment.backtest_completed.v1",
 		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
-			logger.Info("Watermill consumer processing historical backtest run", "uuid", msg.UUID, "payload", string(msg.Payload))
-
-			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"backtest_completed","results":{"sharpe_ratio":1.85,"alpha":0.12}}`))
-			return []*message.Message{outputMsg}, nil
+			return handleBacktestRun(logger, msg)
 		},
 	)
 

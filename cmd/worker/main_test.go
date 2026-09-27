@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -172,6 +173,38 @@ func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for output message on events.investment.backtest_completed.v1")
 	}
+}
+
+func TestHandleCatSpotted_DoesNotLogRawPayload(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, nil))
+
+	secretPayloadStr := `{"secret_key":"TOP_SECRET_PAYLOAD_DATA","payload":{"camera_id":"CAM-1","feline_id":"garfield","activity_type":"zooming","confidence_score":0.99}}`
+	msg := message.NewMessage("test-msg-uuid-123", []byte(secretPayloadStr))
+
+	outMsgs, err := handleCatSpotted(logger, msg)
+	require.NoError(t, err)
+	require.Len(t, outMsgs, 1)
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "TOP_SECRET_PAYLOAD_DATA")
+	assert.Contains(t, logs, "test-msg-uuid-123")
+}
+
+func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, nil))
+
+	secretPayloadStr := `{"secret_strategy":"CLASSIFIED_QUANT_MODEL"}`
+	msg := message.NewMessage("test-msg-uuid-456", []byte(secretPayloadStr))
+
+	outMsgs, err := handleBacktestRun(logger, msg)
+	require.NoError(t, err)
+	require.Len(t, outMsgs, 1)
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "CLASSIFIED_QUANT_MODEL")
+	assert.Contains(t, logs, "test-msg-uuid-456")
 }
 
 func BenchmarkEventPublishingOriginal(b *testing.B) {
