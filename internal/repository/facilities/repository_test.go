@@ -1,16 +1,17 @@
-package facilities
+package facilities_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/orange-cat-investments/oci/internal/repository/facilities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPgxRepository(t *testing.T) {
-	repo := NewRepository(nil)
+func TestFacilitiesRepository(t *testing.T) {
+	repo := facilities.NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("GetAssetByID", func(t *testing.T) {
@@ -32,23 +33,26 @@ func TestPgxRepository(t *testing.T) {
 		assert.Equal(t, "asset-uuid-001", assets[0].AssetID)
 	})
 
-	t.Run("CreateAsset DB Nil Error", func(t *testing.T) {
-		input := &HardwareAsset{
+	t.Run("CreateAsset", func(t *testing.T) {
+		input := &facilities.HardwareAsset{
 			SerialNumber: "SER-12345",
 			AssetType:    "feeder",
 			Model:        "AutoFeed-v1",
 			Status:       "pending",
 		}
-		_, err := repo.CreateAsset(ctx, input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "database connection is nil")
+		created, err := repo.CreateAsset(ctx, input)
+		require.NoError(t, err)
+		assert.Equal(t, "asset-uuid-created", created.AssetID)
+		assert.Equal(t, "SER-12345", created.SerialNumber)
+		assert.False(t, created.CreatedAt.IsZero())
+		assert.False(t, created.UpdatedAt.IsZero())
 	})
 
 	t.Run("CreateMaintenanceTicket", func(t *testing.T) {
 		techID := "tech-123"
 		reporterID := "emp-456"
 
-		inputTicket := &MaintenanceTicket{
+		inputTicket := &facilities.MaintenanceTicket{
 			AssetID:              "asset-001",
 			Title:                "Camera lens dirty",
 			Description:          "The lens needs cleaning on zone 2 camera",
@@ -78,7 +82,7 @@ func TestPgxRepository(t *testing.T) {
 	})
 
 	t.Run("CreateMaintenanceTicket with optional fields omitted", func(t *testing.T) {
-		inputTicket := &MaintenanceTicket{
+		inputTicket := &facilities.MaintenanceTicket{
 			AssetID:     "asset-002",
 			Title:       "Sensor fault",
 			Description: "Sensor non-responsive",
@@ -95,4 +99,86 @@ func TestPgxRepository(t *testing.T) {
 		assert.Nil(t, created.ReportedBy)
 		assert.Nil(t, created.ResolvedAt)
 	})
+
+	t.Run("PgxRepository nil DB error", func(t *testing.T) {
+		pgxRepo := facilities.NewRepository(nil)
+		_, err := pgxRepo.GetAssetByID(ctx, "asset-001")
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListAssets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateAsset(ctx, &facilities.HardwareAsset{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateMaintenanceTicket(ctx, &facilities.MaintenanceTicket{})
+		assert.Error(t, err)
+	})
+}
+
+func TestCreateAsset(t *testing.T) {
+	repo := facilities.NewMockRepository()
+
+	input := &facilities.HardwareAsset{
+		SerialNumber: "CAM-ORANGE-02",
+		AssetType:    "edge_camera",
+		Model:        "4K-FelineCam-v3",
+		Status:       "active",
+	}
+
+	created, err := repo.CreateAsset(context.Background(), input)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if created.AssetID != "asset-uuid-created" {
+		t.Fatalf("expected asset_id asset-uuid-created, got %s", created.AssetID)
+	}
+	if created.SerialNumber != input.SerialNumber {
+		t.Fatalf("expected serial_number %s, got %s", input.SerialNumber, created.SerialNumber)
+	}
+	if created.AssetType != input.AssetType {
+		t.Fatalf("expected asset_type %s, got %s", input.AssetType, created.AssetType)
+	}
+	if created.Model != input.Model {
+		t.Fatalf("expected model %s, got %s", input.Model, created.Model)
+	}
+	if created.Status != input.Status {
+		t.Fatalf("expected status %s, got %s", input.Status, created.Status)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatalf("expected non-zero CreatedAt timestamp")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Fatalf("expected non-zero UpdatedAt timestamp")
+	}
+}
+
+func TestCreateMaintenanceTicket(t *testing.T) {
+	repo := facilities.NewMockRepository()
+
+	input := &facilities.MaintenanceTicket{
+		AssetID:     "asset-001",
+		Title:       "Sensor calibration",
+		Description: "Recalibrate optical sensor for laser pointer detection",
+		Priority:    "high",
+	}
+
+	created, err := repo.CreateMaintenanceTicket(context.Background(), input)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if created.TicketID != "maint-uuid-created" {
+		t.Fatalf("expected ticket_id maint-uuid-created, got %s", created.TicketID)
+	}
+	if created.Status != "open" {
+		t.Fatalf("expected status open, got %s", created.Status)
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatalf("expected non-zero CreatedAt timestamp")
+	}
+	if created.UpdatedAt.IsZero() {
+		t.Fatalf("expected non-zero UpdatedAt timestamp")
+	}
 }
