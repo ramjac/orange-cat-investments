@@ -38,3 +38,6 @@ go.work.sum
 .pub-cache/
 .pub/
 build/
+
+# Local server / environment notes (private host details)
+local-server-notes.md

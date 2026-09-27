@@ -103,3 +103,12 @@ Before marking any task as complete or submitting code changes, agents must veri
    go vet ./...
    ```
 4. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
+
+---
+
+## 5. Local Server & Target Testing Environments
+
+* **Local Private Server Notes (`local-server-notes.md`):**
+  When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
+  * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
+  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, K3s, Docker), and local execution parameters before executing commands or tests against local infrastructure.

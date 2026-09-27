@@ -64,7 +64,7 @@ func (h *Handler) GetAssetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListAssets(w http.ResponseWriter, r *http.Request) {
-	asset, err := h.service.GetAsset(r.Context(), "asset-uuid-001")
+	assets, err := h.service.ListAssets(r.Context(), 50, nil, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -72,8 +72,8 @@ func (h *Handler) ListAssets(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"items": []*facilities.HardwareAsset{asset},
-		"total": 1,
+		"items": assets,
+		"total": len(assets),
 	})
 }
 

@@ -22,6 +22,8 @@ spec:
             - start-from-init
             - --masterkey
             - "$(ZITADEL_MASTERKEY)"
+            - --tlsMode
+            - disabled
           ports:
             - containerPort: 8080
               name: http
@@ -37,6 +39,15 @@ spec:
               value: "5432"
             - name: ZITADEL_DATABASE_POSTGRES_DATABASE
               value: oci
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+              value: oci_admin
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE
+              value: disable
             - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
               value: oci_admin
             - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD

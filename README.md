@@ -71,10 +71,11 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ---
 
-## 4. Employee Personas & Daily Workflow Mapping
+## 4. Employee & Customer Personas (Workflow Simulation)
 
-To exercise and simulate the entire software stack using AI agents, OCI defines 8 distinct employee personas across human staff and feline executives:
+To exercise and simulate the entire software stack using autonomous drivers and AI agents, OCI defines 10 distinct personas across corporate staff, feline executives, and retail investors:
 
+### Corporate Staff & Feline Executives
 1. **Garfield (`emp-feline-garfield`)** — Chief Observation Officer (COO)
 2. **Barneby (`emp-feline-barneby`)** — Senior Alpha Perch Analyst
 3. **Alice Vance (`emp-human-alice`)** — Head of Human & Feline Resources
@@ -83,6 +84,10 @@ To exercise and simulate the entire software stack using AI agents, OCI defines 
 6. **David Quant (`emp-human-david`)** — Feline Behavioral Data Scientist
 7. **Dr. Elena Rostova (`emp-human-elena`)** — Chief Veterinary Officer & Habitat Specialist
 8. **Frank Operations (`emp-human-frank`)** — Platform Security & K8s Infrastructure Lead
+
+### Retail Investor Customers
+9. **Arthur Pendelton (`cust-longterm-arthur`)** — Long-Term Value Investor (passive regular fund deposits, quarterly performance reviews)
+10. **Chloe Spark (`cust-active-chloe`)** — Short-Term Momentum Alpha Trader (active tactical buy/sell orders on feline zoomies activity spikes)
 
 Detailed profile specifications are located in the `personas/` directory.
 
@@ -256,14 +261,41 @@ Technicians can scan simulated QR codes (`QR-CAM-ORANGE-01`), record offline mai
 
 ---
 
-### 6.4 Full Kubernetes (K3s) Cluster Deployment via Ansible
+### 6.4 Kubernetes Cluster Deployment (MicroK8s, K3s, Minikube, kind)
 
-For users wishing to run the full production platform on a dedicated home server (e.g. mini PC, Intel NUC, or Raspberry Pi cluster):
+If you have an existing Kubernetes cluster or local node (such as MicroK8s, Minikube, kind, or an existing K3s installation) configured in your local `~/.kube/config`:
+
+```bash
+chmod +x scripts/deploy-k8s.sh
+./scripts/deploy-k8s.sh
+```
+
+This single command:
+* Checks `kubectl` connectivity to your cluster.
+* Applies all namespaces (`oci-core`, `postgres`, `apps`, `monitoring`, `logging`).
+* Deploys PostgreSQL 16 with persistent volume claims, table constraints, and initial seed records.
+* Deploys Valkey, RabbitMQ, Forgejo, ZITADEL, Nextcloud, Homebox, ERPNext, and Frappe HR.
+* Deploys Prometheus, Grafana, Loki, and Promtail monitoring stacks.
+* Waits for core database and queuing workloads to become healthy.
+
+To connect your local workstation to the cluster services for testing:
+```bash
+# Forward PostgreSQL, Valkey, and RabbitMQ
+kubectl port-forward -n postgres svc/postgres-service 5432:5432 &
+kubectl port-forward -n apps svc/valkey-service 6379:6379 &
+kubectl port-forward -n apps svc/rabbitmq-service 5672:5672 15672:15672 &
+```
+
+---
+
+### 6.5 Bare-Metal K3s Cluster Provisioning via Ansible
+
+For users provisioning a fresh, unconfigured bare-metal server (e.g. mini PC, Intel NUC, or dedicated home lab node) from scratch:
 
 1. **Configure Ansible Inventory:**
    Edit `ansible/inventory/hosts.ini` with your home server's IP address and SSH user:
    ```ini
-   [k3s_master]
+   [k3s_servers]
    192.168.1.100 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_ed25519
    ```
 
@@ -272,16 +304,27 @@ For users wishing to run the full production platform on a dedicated home server
    chmod +x scripts/deploy-infrastructure.sh
    ./scripts/deploy-infrastructure.sh
    ```
-   This will:
-   * Bootstrap K3s Kubernetes on the home server.
-   * Apply namespaces (`oci-core`, `oci-workforce`, `oci-facilities`, `oci-monitoring`).
-   * Deploy PostgreSQL 16 with Persistent Volume Claims (`k8s/postgres/`).
-   * Deploy RabbitMQ, Valkey, Forgejo, ZITADEL, and Frappe HR (`k8s/apps/`).
-   * Deploy Prometheus, Grafana, and Loki monitoring stacks (`k8s/monitoring/`, `k8s/logging/`).
 
 ---
 
-### 6.5 Functional Verification & Health Checks
+### 6.6 OCI Platform Simulation Driver
+
+The repository includes a comprehensive simulation driver (`simulation/cmd/simulator`) that exercises all 10 OCI personas (Garfield, Barneby, Alice, Bob, Carol, David, Dr. Elena, Frank, Arthur, Chloe) through their full daily operational routines:
+
+```bash
+# 1. Run in Mock Mode (offline, in-memory):
+go run ./simulation/cmd/simulator -mode mock
+
+# 2. Run in Live Mode (against running API Server & PostgreSQL):
+go run ./simulation/cmd/simulator \
+  -mode live \
+  -server-url http://localhost:8080 \
+  -bff-url http://localhost:8081
+```
+
+---
+
+### 6.7 Functional Verification & Health Checks
 
 Once services are running, verify system operation using `curl`:
 
@@ -344,3 +387,116 @@ curl -s -X POST http://localhost:8082/ops/pebble/ack \
 go test -v -race ./...
 ```
 All unit, integration, and race detection test suites will report passing!
+
+---
+
+## 7. Future Work & Persona Feature Roadmap
+
+A comprehensive audit of the OCI platform against the operational needs of all 10 corporate, feline, and customer personas reveals several high-value capabilities planned for future development. While the foundational schemas, backend services, simulation engines, and developer APIs are operational, the following capabilities represent the feature roadmap derived directly from persona workflows:
+
+### 7.1 Customer Experience & Retail Investor Surfaces
+* **Customer Web Portal (`web/customer-portal`) & Customer BFF (`cmd/customer-bff`):**
+  * *Target Personas:* **Arthur Pendelton** (`cust-longterm-arthur`), **Chloe Spark** (`cust-active-chloe`)
+  * *Current State:* Architecture design and BFF specification exist, but the Vue 3 customer SPA and `cmd/customer-bff` service have not yet been instantiated.
+  * *Future Scope:* Build the Vue 3 Customer Web Portal with ZITADEL OIDC customer authentication, session management, portfolio valuation charts, historical asset growth, and real-time trade logs.
+* **Low-Latency In-Browser WebRTC Habitat Video Player:**
+  * *Target Personas:* **Arthur Pendelton**, **Chloe Spark**
+  * *Current State:* Stream endpoints (`/core-invest/streams`) catalog RTSP and WebRTC stream URLs, but there is no embedded browser player or active WebRTC media bridge.
+  * *Future Scope:* Deploy a lightweight streaming media bridge (e.g., MediaMTX or go2rtc) and embed a sub-500ms WebRTC video player in the Customer Web Portal so investors can watch Garfield and Barneby lounging in their perches in real time.
+* **Active Trading Terminal & Real-Time WebSocket Ticker:**
+  * *Target Persona:* **Chloe Spark**
+  * *Current State:* Brokerage trade orders are submitted via REST API (`POST /core-invest/brokerage/orders`).
+  * *Future Scope:* Build a high-velocity execution trading interface with TradingView/Canvas charts, real-time trade fill ticker streamed over WebSockets, and rapid 1-click execution.
+* **Live "Zoomie Index" & Behavioral Momentum Push Alerts:**
+  * *Target Persona:* **Chloe Spark**
+  * *Current State:* Cat observation events are recorded in `core_invest.observation_events`, but there is no real-time telemetry streaming channel to retail clients.
+  * *Future Scope:* Implement a real-time Server-Sent Events (SSE) / WebSocket behavioral momentum indicator that scores feline movement velocity and alert states, dispatching instant push notifications when 3 AM zoomies or sudden energy spikes trigger tactical trading opportunities.
+* **Automated Recurring Deposits & Bank ACH Integrations:**
+  * *Target Persona:* **Arthur Pendelton**
+  * *Current State:* Trades are recorded against static cash balances in `core_invest.investment_portfolios`.
+  * *Future Scope:* Integrate with banking rails (Stripe ACH, Plaid) and create an automated recurring deposit scheduler allowing passive long-term investors to set up monthly automated dollar-cost averaging into OCI investment funds.
+* **Customer Developer API Keys & Webhook Subscriptions:**
+  * *Target Persona:* **Chloe Spark**
+  * *Current State:* REST endpoints exist for direct API calls, but lack self-service customer API key management.
+  * *Future Scope:* Enable self-service generation of scoped HMAC/Bearer API keys in the Customer Portal, enabling retail quant traders to connect custom trading algorithms and receive real-time webhook callbacks on cat observation events.
+* **Feline Welfare & ESG Transparency Dashboard:**
+  * *Target Persona:* **Arthur Pendelton**
+  * *Current State:* Care schedules are managed internally via `workforce.care_schedules` in the Employee Portal.
+  * *Future Scope:* Provide a public-facing transparency dashboard showcasing veterinary adherence, nutritional compliance, daily nap hours, and perch comfort ratings to assure retail investors of ethical feline care standards.
+
+### 7.2 Feline Welfare, Biometrics & Habitat IoT
+* **Smart Feeder Telemetry & Automated Snack Disbursement:**
+  * *Target Personas:* **Garfield** (`emp-feline-garfield`), **Dr. Elena Rostova** (`emp-human-elena`)
+  * *Current State:* Database schema supports `feeder` in `facilities.hardware_assets`, but no feeder control protocol is implemented.
+  * *Future Scope:* Implement driver integrations for IoT smart feeders, recording actual food consumption weights in real time against `workforce.care_schedules` and allowing automated snack disbursements upon successful observation milestones.
+* **Smart Collar Biometrics & Accelerometer Streaming:**
+  * *Target Personas:* **Barneby** (`emp-feline-barneby`), **David Quant** (`emp-human-david`), **Dr. Elena Rostova**
+  * *Current State:* Hardware inventory registers `smart_collar` serial numbers, but no continuous sensor telemetry stream exists.
+  * *Future Scope:* Build a BLE / MQTT telemetry ingestion pipeline for feline smart collars, capturing 3-axis accelerometer data (pounce G-force, jump heights), heart rate, and circadian sleep cycle metrics.
+* **Electronic Veterinary Health Records (VHR) & Clinical Charting:**
+  * *Target Persona:* **Dr. Elena Rostova**
+  * *Current State:* Basic care schedules and medical holds are managed in `workforce.care_schedules`.
+  * *Future Scope:* Extend the `workforce` schema with veterinary charting tables for clinical checkups, vaccination logs, prescription schedules, dental health scoring, and historical weight progression graphs.
+* **Perch Cushion Comfort & Thermal Sunbeam Sensors:**
+  * *Target Personas:* **Garfield**, **Bob Builder** (`emp-human-bob`)
+  * *Current State:* Perch assets are recorded in `facilities.observation_perches` with height, max weight, and cushion type metadata.
+  * *Future Scope:* Integrate IoT load cells, pressure mats, and temperature sensors on observation perches to monitor cushion wear, perch occupancy duration, and optimal sunbeam thermal tracking.
+* **Feline Acoustic / Vocalization Analysis:**
+  * *Target Personas:* **Garfield**, **David Quant**
+  * *Current State:* Only optical camera streams are ingested.
+  * *Future Scope:* Audio stream ingestion and ML acoustic classification to distinguish between contented purring, playful chirping, and urgent demands for feeding.
+
+### 7.3 Quantitative AI, Computer Vision & Brokerage Execution
+* **Embedded Real-Time Computer Vision Inference Engine:**
+  * *Target Personas:* **David Quant**, **Carol Danvers** (`emp-human-carol`)
+  * *Current State:* Stream URLs and metadata are stored in `core_invest.camera_streams`, but observation events are emitted artificially or via the simulation driver.
+  * *Future Scope:* Implement an active video frame inference pipeline (e.g., YOLOv8 / MediaPipe / OpenVINO cat-pose detector) processing RTSP streams in real time to automatically publish `events.observation.cat_spotted.v1` events to RabbitMQ.
+* **ML Model Registry & Confidence Drift Tracking:**
+  * *Target Persona:* **David Quant**
+  * *Current State:* Confidence scores are recorded as floats in `core_invest.observation_events`.
+  * *Future Scope:* Build a versioned model artifact registry and evaluation harness monitoring classification accuracy and confidence score drift across seasonal lighting variations.
+* **Production Brokerage API Gateways (FIX / REST):**
+  * *Target Personas:* **Carol Danvers**, **Chloe Spark**
+  * *Current State:* Simulated order execution writes directly to `core_invest.brokerage_orders`.
+  * *Future Scope:* Replace the simulated order execution stub with production FIX protocol and REST integrations (e.g., Interactive Brokers Client Portal API, Alpaca Markets API) featuring Smart Order Routing (SOR) and liquidity aggregation.
+* **Algorithmic Order Types & Pre-Trade Risk Engine:**
+  * *Target Personas:* **Carol Danvers**, **Chloe Spark**
+  * *Current State:* Brokerage orders support basic `buy` and `sell` actions.
+  * *Future Scope:* Support advanced conditional order types (Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC) and an automated pre-trade risk management engine enforcing maximum drawdown limits, position concentration caps, and slippage guardrails.
+* **Automated Investor Statements & Tax Document Generation:**
+  * *Target Personas:* **Carol Danvers**, **Arthur Pendelton**
+  * *Current State:* Orders and snapshots are stored in PostgreSQL.
+  * *Future Scope:* Background worker job generating quarterly PDF performance tear sheets, Sharpe/Sortino ratio analytics, and annual Form 1099-B tax documentation.
+
+### 7.4 Workforce Management & Workplace Operations
+* **Performance Reviews & Assessment Cycles Management:**
+  * *Target Personas:* **Alice Vance** (`emp-human-alice`), **Barneby**, **Dr. Elena Rostova**
+  * *Current State:* Table `workforce.review_cycles` exists in the database schema, but has no API handlers or UI views.
+  * *Future Scope:* Complete the REST endpoints and Employee Portal UI for `workforce.review_cycles`, enabling managers to schedule, grade, and record joint performance reviews for human staff and monthly feline health assessments.
+* **Leave Requests & Catnip Break Workflow UI:**
+  * *Target Persona:* **Alice Vance**
+  * *Current State:* Table `workforce.leave_requests` exists in the database schema, but lacks API endpoints and frontend forms.
+  * *Future Scope:* Complete API handlers and portal workflows for `workforce.leave_requests`, supporting leave submission, manager approval chains, and feline catnip break compliance tracking.
+* **Cross-Species Workplace Incident & Conflict Logging:**
+  * *Target Persona:* **Alice Vance**
+  * *Current State:* Workplace issues are tracked ad-hoc in Forgejo.
+  * *Future Scope:* Incident reporting mechanism to record and resolve habitat disputes (e.g., accidental perch disruption, desk coffee spillage, unauthorized treat confiscation).
+
+### 7.5 Facilities Engineering & Platform Infrastructure
+* **Remote PTZ & Camera Lens Calibration:**
+  * *Target Persona:* **Bob Builder**
+  * *Current State:* Hardware assets store metadata and support mobile maintenance logs.
+  * *Future Scope:* Remote Pan-Tilt-Zoom (PTZ), digital zoom, and optical focus calibration APIs to adjust edge camera angles without entering the habitat and disturbing feline observation staff.
+* **Habitat Environmental Telemetry (HVAC, Lux, Decibels):**
+  * *Target Personas:* **Bob Builder**, **Dr. Elena Rostova**
+  * *Current State:* Environmental conditions are not recorded in the database.
+  * *Future Scope:* Ingestion and alerting pipeline for habitat ambient temperature, relative humidity, light intensity (lux), and noise levels (dB) to ensure optimal animal welfare.
+* **Active Push Notification Services (`ntfy` / WebPush):**
+  * *Target Persona:* **Frank Operations** (`emp-human-frank`)
+  * *Current State:* Pebble watch companion proxy polls `/ops/pebble/alerts`.
+  * *Future Scope:* Implement push notification broker integration (`ntfy` / WebPush) so infrastructure alerts and IT tickets immediately notify on-call engineers rather than depending exclusively on client polling.
+* **Automated Database Backup & Disaster Recovery (Velero / Barman):**
+  * *Target Persona:* **Frank Operations**
+  * *Current State:* Database PVCs are provisioned, but automated snapshot schedules are not configured.
+  * *Future Scope:* Production backup manifests utilizing Barman/pgBackRest for point-in-time PostgreSQL recovery and Velero for Kubernetes persistent volume snapshots.
+

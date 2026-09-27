@@ -8,16 +8,17 @@ data:
     auth_enabled: false
     server:
       http_listen_port: 3100
-    ingester:
-      lifecycler:
-        address: 127.0.0.1
-        ring:
-          kvstore:
-            store: inmemory
-          replication_factor: 1
-        final_sleep: 0s
-      chunk_idle_period: 5m
-      chunk_retain_period: 30s
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        instance_addr: 127.0.0.1
+        kvstore:
+          store: inmemory
     schema_config:
       configs:
         - from: 2024-01-01
@@ -27,9 +28,8 @@ data:
           index:
             prefix: index_
             period: 24h
-    storage_config:
-      filesystem:
-        directory: /loki/chunks
+    compactor:
+      working_directory: /loki/compactor
     limits_config:
       enforce_metric_name: false
       reject_old_samples: true

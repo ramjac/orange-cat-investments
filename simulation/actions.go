@@ -16,6 +16,8 @@ func (r *Registry) registerAllDefaultPersonas() {
 	r.Register(r.createDavidPersona())
 	r.Register(r.createElenaPersona())
 	r.Register(r.createFrankPersona())
+	r.Register(r.createArthurPersona())
+	r.Register(r.createChloePersona())
 }
 
 // 1. Garfield - Chief Observation Officer (COO)
@@ -251,7 +253,7 @@ func (r *Registry) createBobPersona() *Persona {
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/facilities/assets"
 					payload := map[string]any{
-						"serial_number": "CAM-RIG-2025-X01",
+						"serial_number": fmt.Sprintf("CAM-RIG-%d", time.Now().UnixNano()),
 						"asset_type":    "edge_camera",
 						"model":         "4K-Feline-Scope-V2",
 						"zone_id":       "018f3a9a-1111-7000-8000-000000000001",
@@ -544,6 +546,203 @@ func (r *Registry) createFrankPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Created IT ticket: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+// 9. Arthur Pendelton - Long-Term Value Investor (Customer)
+func (r *Registry) createArthurPersona() *Persona {
+	return &Persona{
+		ID:         "cust-longterm-arthur",
+		Name:       "Arthur Pendelton",
+		Type:       "customer",
+		RoleTitle:  "Long-Term Value Investor",
+		Department: "Retail Investor Community",
+		Actions: []Action{
+			{
+				Name:        "arthur_review_performance_reports",
+				Description: "Audits historical quantitative backtest performance and strategy returns",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/backtesting/runs"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_review_performance_reports",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Reviewed strategy backtest reports. Payload size: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_deposit_investment_capital",
+				Description: "Executes steady capital deposit order into OCI Alpha Growth Fund",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/brokerage/orders"
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"broker_name":  "Interactive Brokers",
+						"symbol":       "SPY",
+						"side":         "buy",
+						"quantity":     25,
+						"price":        510.50,
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_deposit_investment_capital",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Deposited capital via trade order: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_monitor_feline_stream",
+				Description: "Passively checks optical camera streams to verify feline habitat comfort",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/streams"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_monitor_feline_stream",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Monitored habitat observation streams. Stream count: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+// 10. Chloe Spark - Short-Term Momentum Trader (Customer)
+func (r *Registry) createChloePersona() *Persona {
+	return &Persona{
+		ID:         "cust-active-chloe",
+		Name:       "Chloe Spark",
+		Type:       "customer",
+		RoleTitle:  "Momentum Alpha Trader",
+		Department: "Retail Investor Community",
+		Actions: []Action{
+			{
+				Name:        "chloe_scan_activity_streams",
+				Description: "Scans real-time camera streams for high-activity feline behavioral telemetry",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/streams"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_scan_activity_streams",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Scanned real-time camera streams for zoomies signals: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_momentum_buy_order",
+				Description: "Executes aggressive momentum buy order on feline zoomies activity spike",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/brokerage/orders"
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"broker_name":  "Interactive Brokers",
+						"symbol":       "NVDA",
+						"side":         "buy",
+						"quantity":     50,
+						"price":        125.75,
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_momentum_buy_order",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Executed momentum buy order on activity spike: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_take_profit_sell_order",
+				Description: "Executes tactical take-profit sell order as cat activity returns to baseline",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/brokerage/orders"
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"broker_name":  "Interactive Brokers",
+						"symbol":       "NVDA",
+						"side":         "sell",
+						"quantity":     50,
+						"price":        131.25,
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_take_profit_sell_order",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Executed take-profit sell order on post-zoomies cooldown: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_audit_execution_log",
+				Description: "Audits real-time trade order execution logs and settlement status",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/brokerage/orders"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_audit_execution_log",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited real-time trade executions: %d bytes", len(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

@@ -59,4 +59,10 @@ func TestFacilitiesHandler(t *testing.T) {
 	rrOTA := httptest.NewRecorder()
 	mux.ServeHTTP(rrOTA, reqOTA)
 	assert.Equal(t, http.StatusAccepted, rrOTA.Code)
+
+	// Test GET /facilities/assets
+	reqList := httptest.NewRequest("GET", "/facilities/assets", nil)
+	rrList := httptest.NewRecorder()
+	mux.ServeHTTP(rrList, reqList)
+	assert.Equal(t, http.StatusOK, rrList.Code)
 }
