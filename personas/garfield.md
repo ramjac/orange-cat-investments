@@ -8,6 +8,7 @@
 ## Responsibilities
 * Perform high-visibility perch observations across primary habitat zones.
 * Generate observation events (`events.observation.cat_spotted.v1`) during peak activity windows (zooming, napping, grooming).
+* Execute hallway napping routines ("sleeps in the middle of a hallway"), creating a 1/3 probability tripping hazard that sends Garfield to the vet for treatment and triggers a human employee workplace injury workflow.
 * Maintain strict quality control over dietary schedules and snack disbursements.
 * Inspect edge camera rigs and habitat comfort cushions for operational readiness.
 

@@ -3,6 +3,7 @@ package simulation
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -92,6 +93,62 @@ func (r *Registry) createGarfieldPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "garfield_sleep_in_hallway",
+				Description: "Sleeps in the middle of a hallway, with a 1/3 chance of tripping a human employee, sending Garfield to the vet and triggering a workplace injury report",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?asset_type=observation_perch"
+					resp, _, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+
+					tripped := rand.Intn(3) == 0
+					if tripped {
+						vetEndpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
+						vetResp, vetBytes, vetErr := client.Do(ctx, true, "POST", vetEndpoint, map[string]any{
+							"emergency_medical_hold": true,
+						})
+						if vetErr != nil {
+							return nil, fmt.Errorf("failed to toggle vet medical hold: %w", vetErr)
+						}
+
+						injuryEndpoint := "/ops/tickets"
+						injuryPayload := map[string]any{
+							"forgejo_repo":    "oci/workforce-safety",
+							"title":           "Workplace Injury Report: Tripped over Garfield in Hallway B",
+							"body":            "Human employee tripped over Garfield while sleeping in hallway. Garfield admitted to vet for checkup.",
+							"author_username": "emp-human-bob",
+						}
+						injResp, injBytes, injErr := client.Do(ctx, false, "POST", injuryEndpoint, injuryPayload)
+						if injErr != nil {
+							return nil, fmt.Errorf("failed to create workplace injury ticket: %w", injErr)
+						}
+
+						return &ActionResult{
+							PersonaID:   "emp-feline-garfield",
+							PersonaName: "Garfield",
+							ActionName:  "garfield_sleep_in_hallway",
+							Endpoint:    injuryEndpoint,
+							Success:     (vetResp.StatusCode == http.StatusOK) && (injResp.StatusCode == http.StatusCreated || injResp.StatusCode == http.StatusOK),
+							StatusCode:  injResp.StatusCode,
+							Details:     fmt.Sprintf("TRIPPED! Garfield sent to vet (Hold status %d: %s). Workplace injury ticket created (Status %d: %s)", vetResp.StatusCode, string(vetBytes), injResp.StatusCode, string(injBytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
+
+					return &ActionResult{
+						PersonaID:   "emp-feline-garfield",
+						PersonaName: "Garfield",
+						ActionName:  "garfield_sleep_in_hallway",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     "Garfield slept peacefully in the middle of the hallway. Nobody tripped.",
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -143,6 +200,75 @@ func (r *Registry) createBarnebyPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Barneby care schedule checked. Payload: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "barneby_slap_water_glass",
+				Description: "Slaps a glass of water off table, triggering facilities alert ticket, Pebble watch notification, and mobile field app cleanup log sync",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					// Step 1: Trigger maintenance ticket
+					maintEndpoint := "/facilities/assets/asset-001/maintenance"
+					maintPayload := map[string]any{
+						"title":       "Water Spill Incident: Glass slapped off desk in Sector 4",
+						"description": "Barneby slapped a full glass of water onto active server control console desk. Immediate spill response required.",
+						"priority":    "high",
+					}
+					maintResp, maintBytes, err := client.Do(ctx, false, "POST", maintEndpoint, maintPayload)
+					if err != nil {
+						return nil, fmt.Errorf("failed to create maintenance ticket: %w", err)
+					}
+
+					// Step 2: Query Pebble companion alerts
+					pebbleAlertEndpoint := "/ops/pebble/alerts"
+					pebbleResp, pebbleBytes, pebbleErr := client.Do(ctx, false, "GET", pebbleAlertEndpoint, nil)
+					if pebbleErr != nil {
+						return nil, fmt.Errorf("failed to query Pebble watch alerts: %w", pebbleErr)
+					}
+
+					// Step 3: Send Pebble watch ACK for facilities alert
+					pebbleAckEndpoint := "/ops/pebble/ack"
+					pebbleAckPayload := map[string]any{
+						"ticket_id":       "ticket-mock-123",
+						"acknowledged_by": "emp-human-bob",
+					}
+					ackResp, ackBytes, ackErr := client.Do(ctx, false, "POST", pebbleAckEndpoint, pebbleAckPayload)
+					if ackErr != nil {
+						return nil, fmt.Errorf("failed to acknowledge Pebble watch alert: %w", ackErr)
+					}
+
+					// Step 4: Facilities employee completes maintenance work and syncs via Flutter mobile app
+					syncEndpoint := "/facilities/sync/maintenance-logs"
+					syncPayload := []map[string]any{
+						{
+							"ticket_id":        "ticket-mock-123",
+							"asset_id":         "asset-001",
+							"technician_id":    "emp-human-bob",
+							"qr_code_scanned":  "QR-ZONE-4-DESK-01",
+							"action_taken":     "Cleaned up water spill, wiped control console electronics, placed spill prevention mug coaster.",
+							"notes":            "Barneby supervised cleanup from upper perch.",
+							"created_at":       time.Now().UTC().Format(time.RFC3339),
+						},
+					}
+					syncResp, syncBytes, syncErr := client.Do(ctx, false, "POST", syncEndpoint, syncPayload)
+					if syncErr != nil {
+						return nil, fmt.Errorf("failed to sync mobile app maintenance log: %w", syncErr)
+					}
+
+					success := (maintResp.StatusCode == http.StatusCreated || maintResp.StatusCode == http.StatusOK) &&
+						pebbleResp.StatusCode == http.StatusOK &&
+						(ackResp.StatusCode == http.StatusOK || ackResp.StatusCode == http.StatusCreated) &&
+						(syncResp.StatusCode == http.StatusOK || syncResp.StatusCode == http.StatusCreated)
+
+					return &ActionResult{
+						PersonaID:   "emp-feline-barneby",
+						PersonaName: "Barneby",
+						ActionName:  "barneby_slap_water_glass",
+						Endpoint:    syncEndpoint,
+						Success:     success,
+						StatusCode:  syncResp.StatusCode,
+						Details:     fmt.Sprintf("WATER GLASS SLAPPED! Maint Ticket: %d (%s) -> Pebble Watch Alert: %d (%d bytes) -> Pebble ACK: %d (%s) -> Mobile App Log Sync: %d (%s)", maintResp.StatusCode, string(maintBytes), pebbleResp.StatusCode, len(pebbleBytes), ackResp.StatusCode, string(ackBytes), syncResp.StatusCode, string(syncBytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
