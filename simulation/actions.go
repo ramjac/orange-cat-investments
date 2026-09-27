@@ -348,6 +348,27 @@ func (r *Registry) createAlicePersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "alice_review_leave_requests",
+				Description: "Audits pending staff leave requests and feline catnip break compliance",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/leave-requests"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-alice",
+						PersonaName: "Alice Vance",
+						ActionName:  "alice_review_leave_requests",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited leave requests & feline catnip breaks. Payload: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -599,6 +620,27 @@ func (r *Registry) createElenaPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Medical hold checked: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elena_review_health_assessments",
+				Description: "Audits scheduled feline health assessments and records clinical observation metrics",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/review-cycles?review_type=feline_health_assessment"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elena",
+						PersonaName: "Dr. Elena Rostova",
+						ActionName:  "elena_review_health_assessments",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited feline health assessments: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

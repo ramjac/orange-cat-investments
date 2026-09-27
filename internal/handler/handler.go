@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
@@ -33,6 +34,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/workforce/care-schedules/{felineId}", h.getCareSchedule)
 	mux.HandleFunc("PUT /api/v1/workforce/care-schedules/{felineId}", h.updateCareSchedule)
 	mux.HandleFunc("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+	mux.HandleFunc("GET /api/v1/workforce/leave-requests", h.listLeaveRequests)
+	mux.HandleFunc("POST /api/v1/workforce/leave-requests", h.createLeaveRequest)
+	mux.HandleFunc("PUT /api/v1/workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
+	mux.HandleFunc("GET /api/v1/workforce/review-cycles", h.listReviewCycles)
+	mux.HandleFunc("POST /api/v1/workforce/review-cycles", h.createReviewCycle)
+	mux.HandleFunc("GET /api/v1/workforce/review-cycles/{id}", h.getReviewCycle)
+	mux.HandleFunc("PUT /api/v1/workforce/review-cycles/{id}", h.updateReviewCycle)
 	mux.HandleFunc("POST /api/v1/webhooks/frappe-hr", h.handleFrappeHRWebhook)
 
 	// Direct route aliases matching OpenAPI spec
@@ -40,6 +48,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /workforce/care-schedules/{felineId}", h.getCareSchedule)
 	mux.HandleFunc("PUT /workforce/care-schedules/{felineId}", h.updateCareSchedule)
 	mux.HandleFunc("POST /workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+	mux.HandleFunc("GET /workforce/leave-requests", h.listLeaveRequests)
+	mux.HandleFunc("POST /workforce/leave-requests", h.createLeaveRequest)
+	mux.HandleFunc("PUT /workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
+	mux.HandleFunc("GET /workforce/review-cycles", h.listReviewCycles)
+	mux.HandleFunc("POST /workforce/review-cycles", h.createReviewCycle)
+	mux.HandleFunc("GET /workforce/review-cycles/{id}", h.getReviewCycle)
+	mux.HandleFunc("PUT /workforce/review-cycles/{id}", h.updateReviewCycle)
 	mux.HandleFunc("POST /webhooks/frappe-hr", h.handleFrappeHRWebhook)
 }
 
@@ -237,6 +252,153 @@ func (h *WorkforceHandler) handleFrappeHRWebhook(w http.ResponseWriter, r *http.
 		"status": "ignored",
 		"action": "no_matching_saga_trigger",
 	})
+}
+
+func (h *WorkforceHandler) listLeaveRequests(w http.ResponseWriter, r *http.Request) {
+	employeeID := r.URL.Query().Get("employee_id")
+	status := r.URL.Query().Get("status")
+
+	list, err := h.wfSvc.ListLeaveRequests(r.Context(), employeeID, status)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if list == nil {
+		list = []*workforce.LeaveRequest{}
+	}
+
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (h *WorkforceHandler) createLeaveRequest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EmployeeID string  `json:"employee_id"`
+		LeaveType  string  `json:"leave_type"`
+		StartDate  string  `json:"start_date"`
+		EndDate    string  `json:"end_date"`
+		Reason     *string `json:"reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	created, err := h.wfSvc.CreateLeaveRequest(r.Context(), req.EmployeeID, req.LeaveType, req.StartDate, req.EndDate, req.Reason)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *WorkforceHandler) updateLeaveRequestStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "leave request id parameter is required")
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	updated, err := h.wfSvc.UpdateLeaveRequestStatus(r.Context(), id, req.Status)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *WorkforceHandler) listReviewCycles(w http.ResponseWriter, r *http.Request) {
+	employeeID := r.URL.Query().Get("employee_id")
+	status := r.URL.Query().Get("status")
+	reviewType := r.URL.Query().Get("review_type")
+
+	list, err := h.wfSvc.ListReviewCycles(r.Context(), employeeID, status, reviewType)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EmployeeID   string  `json:"employee_id"`
+		ReviewType   string  `json:"review_type"`
+		ScheduledFor string  `json:"scheduled_for"`
+		ReviewerID   *string `json:"reviewer_id,omitempty"`
+		Notes        *string `json:"notes,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	created, err := h.wfSvc.CreateReviewCycle(r.Context(), req.EmployeeID, req.ReviewType, req.ScheduledFor, req.ReviewerID, req.Notes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *WorkforceHandler) getReviewCycle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
+		return
+	}
+
+	rc, err := h.wfSvc.GetReviewCycle(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, rc)
+}
+
+func (h *WorkforceHandler) updateReviewCycle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
+		return
+	}
+
+	var req struct {
+		Status      *string    `json:"status,omitempty"`
+		ReviewerID  *string    `json:"reviewer_id,omitempty"`
+		Score       *float64   `json:"score,omitempty"`
+		Notes       *string    `json:"notes,omitempty"`
+		CompletedAt *time.Time `json:"completed_at,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	updated, err := h.wfSvc.UpdateReviewCycle(r.Context(), id, req.Status, req.ReviewerID, req.Score, req.Notes, req.CompletedAt)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

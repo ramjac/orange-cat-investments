@@ -496,6 +496,111 @@ paths:
               schema:
                 $ref: '#/components/schemas/LeaveRequest'
 
+  /workforce/review-cycles:
+    get:
+      summary: List Review Cycles
+      operationId: listReviewCycles
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [scheduled, in_progress, completed, overdue]
+        - name: review_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [performance, feline_health_assessment]
+      responses:
+        '200':
+          description: List of review cycles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewCycle'
+
+    post:
+      summary: Schedule Review Cycle
+      operationId: createReviewCycle
+      tags:
+        - Workforce Reviews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewCycleCreate'
+      responses:
+        '201':
+          description: Review cycle scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}:
+    get:
+      summary: Get Review Cycle Details
+      operationId: getReviewCycle
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Review cycle details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+    put:
+      summary: Update Review Cycle Evaluation
+      operationId: updateReviewCycle
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewCycleUpdate'
+      responses:
+        '200':
+          description: Review cycle updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /workforce/care-schedules/{felineId}:
     parameters:
       - name: felineId
@@ -1344,6 +1449,92 @@ components:
         status:
           type: string
           enum: [approved, rejected, cancelled]
+
+    ReviewCycle:
+      type: object
+      required:
+        - review_id
+        - employee_id
+        - review_type
+        - scheduled_for
+        - status
+      properties:
+        review_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+          format: uuid
+        review_type:
+          type: string
+          enum: [performance, feline_health_assessment]
+        scheduled_for:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [scheduled, in_progress, completed, overdue]
+        reviewer_id:
+          type: string
+          format: uuid
+          nullable: true
+        score:
+          type: number
+          format: float
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ReviewCycleCreate:
+      type: object
+      required:
+        - employee_id
+        - review_type
+        - scheduled_for
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        review_type:
+          type: string
+          enum: [performance, feline_health_assessment]
+        scheduled_for:
+          type: string
+          format: date
+        reviewer_id:
+          type: string
+          format: uuid
+        notes:
+          type: string
+
+    ReviewCycleUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [scheduled, in_progress, completed, overdue]
+        reviewer_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          format: float
+        notes:
+          type: string
+        completed_at:
+          type: string
+          format: date-time
 
     CareSchedule:
       type: object

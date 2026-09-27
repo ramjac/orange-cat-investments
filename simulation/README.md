@@ -41,6 +41,7 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 ### 3. Alice Vance (`emp-human-alice`) — Head of Human & Feline Resources
 * **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).
 * **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, ZITADEL, and Forgejo identity planes.
+* **`alice_review_leave_requests`**: Audits pending staff leave requests and feline catnip break compliance (`/api/v1/workforce/leave-requests`).
 
 ### 4. Bob Builder (`emp-human-bob`) — Lead Facilities & Edge Telemetry Engineer
 * **`bob_scan_edge_cameras`**: Scans optical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
@@ -58,6 +59,7 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 ### 7. Dr. Elena Rostova (`emp-human-elena`) — Chief Veterinary Officer & Habitat Care Specialist
 * **`elena_update_garfield_care_schedule`**: Dynamically updates feline dietary plans and feeding times (`PUT /api/v1/workforce/care-schedules/emp-feline-garfield`).
 * **`elena_toggle_medical_hold`**: Verifies emergency medical trading holds (`POST /api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold`) to pause automated trading when rest is required.
+* **`elena_review_health_assessments`**: Audits scheduled feline health assessments and records clinical observation metrics (`GET /api/v1/workforce/review-cycles?review_type=feline_health_assessment`).
 
 ### 8. Frank Operations (`emp-human-frank`) — Platform Security & K8s Infrastructure Lead
 * **`frank_monitor_it_tickets`**: Monitors IT helpdesk tickets (`/ops/tickets`) originating from Forgejo issues or automated cluster alerts.

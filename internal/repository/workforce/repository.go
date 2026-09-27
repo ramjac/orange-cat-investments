@@ -3,6 +3,7 @@ package workforce
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -48,6 +49,32 @@ type CareSchedule struct {
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 
+type LeaveRequest struct {
+	LeaveID    string    `json:"leave_id"`
+	EmployeeID string    `json:"employee_id"`
+	LeaveType  string    `json:"leave_type"`
+	StartDate  string    `json:"start_date"`
+	EndDate    string    `json:"end_date"`
+	Status     string    `json:"status"`
+	Reason     *string   `json:"reason,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type ReviewCycle struct {
+	ReviewID     string     `json:"review_id"`
+	EmployeeID   string     `json:"employee_id"`
+	ReviewType   string     `json:"review_type"`
+	ScheduledFor string     `json:"scheduled_for"`
+	Status       string     `json:"status"`
+	ReviewerID   *string    `json:"reviewer_id,omitempty"`
+	Score        *float64   `json:"score,omitempty"`
+	Notes        *string    `json:"notes,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
 type Repository interface {
 	GetEmployeeByID(ctx context.Context, id string) (*Employee, error)
 	ListEmployees(ctx context.Context, employeeType, status string) ([]*Employee, error)
@@ -59,14 +86,28 @@ type Repository interface {
 	GetCareScheduleByFelineID(ctx context.Context, felineID string) (*CareSchedule, error)
 	UpsertCareSchedule(ctx context.Context, cs *CareSchedule) (*CareSchedule, error)
 	SetEmergencyMedicalHold(ctx context.Context, felineID string, hold bool) (*CareSchedule, error)
+
+	// Leave Requests
+	CreateLeaveRequest(ctx context.Context, req *LeaveRequest) (*LeaveRequest, error)
+	GetLeaveRequestByID(ctx context.Context, id string) (*LeaveRequest, error)
+	ListLeaveRequests(ctx context.Context, employeeID, status string) ([]*LeaveRequest, error)
+	UpdateLeaveRequestStatus(ctx context.Context, id, status string) (*LeaveRequest, error)
+
+	// Review Cycles
+	CreateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error)
+	GetReviewCycleByID(ctx context.Context, id string) (*ReviewCycle, error)
+	ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*ReviewCycle, error)
+	UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error)
 }
 
 type pgxRepository struct {
-	db             *pgxpool.Pool
-	mu             sync.RWMutex
-	employees      map[string]*Employee
-	checklists     map[string]*OnboardingTask
-	careSchedules  map[string]*CareSchedule
+	db            *pgxpool.Pool
+	mu            sync.RWMutex
+	employees     map[string]*Employee
+	checklists    map[string]*OnboardingTask
+	careSchedules map[string]*CareSchedule
+	leaveRequests map[string]*LeaveRequest
+	reviewCycles  map[string]*ReviewCycle
 }
 
 func NewRepository(db *pgxpool.Pool) Repository {
@@ -75,6 +116,8 @@ func NewRepository(db *pgxpool.Pool) Repository {
 		employees:     make(map[string]*Employee),
 		checklists:    make(map[string]*OnboardingTask),
 		careSchedules: make(map[string]*CareSchedule),
+		leaveRequests: make(map[string]*LeaveRequest),
+		reviewCycles:  make(map[string]*ReviewCycle),
 	}
 
 	// Seed sample personas into in-memory store for dev/testing when DB pool is uninitialized
@@ -107,6 +150,44 @@ func (r *pgxRepository) seedDefaults() {
 		UpdatedAt:            now,
 	}
 
+	barnebyID := "emp-feline-barneby"
+	r.employees[barnebyID] = &Employee{
+		EmployeeID:   barnebyID,
+		EmployeeType: "feline",
+		FirstName:    "Barneby",
+		RoleTitle:    "Senior Alpha Perch Analyst",
+		Department:   "Alpha Perch Research",
+		Status:       "active",
+		HiredAt:      now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	r.careSchedules[barnebyID] = &CareSchedule{
+		ScheduleID:           "cs-barneby-01",
+		FelineID:             barnebyID,
+		DietaryPlan:          "Grain-free organic turkey pate",
+		FeedingTimes:         []string{"07:30 AM", "05:30 PM"},
+		EmergencyMedicalHold: false,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	aliceID := "emp-human-alice"
+	r.employees[aliceID] = &Employee{
+		EmployeeID:   aliceID,
+		EmployeeType: "human",
+		FirstName:    "Alice",
+		LastName:     strPtr("Vance"),
+		Email:        strPtr("alice.vance@oci.local"),
+		RoleTitle:    "Head of Human & Feline Resources",
+		Department:   "Workforce Operations",
+		Status:       "active",
+		HiredAt:      now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
 	elenaID := "emp-human-elena"
 	r.employees[elenaID] = &Employee{
 		EmployeeID:   elenaID,
@@ -120,6 +201,92 @@ func (r *pgxRepository) seedDefaults() {
 		HiredAt:      now,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}
+
+	// Seed foundational leave requests & feline catnip breaks
+	garfieldLeaveID := "018e0000-0000-7000-8000-000000000010"
+	r.leaveRequests[garfieldLeaveID] = &LeaveRequest{
+		LeaveID:    garfieldLeaveID,
+		EmployeeID: garfieldID,
+		LeaveType:  "catnip_break",
+		StartDate:  "2026-10-01",
+		EndDate:    "2026-10-03",
+		Status:     "approved",
+		Reason:     strPtr("Mandatory post-alpha observation rest & organic catnip relaxation"),
+		CreatedAt:  now.Add(-24 * time.Hour),
+		UpdatedAt:  now.Add(-24 * time.Hour),
+	}
+
+	barnebyLeaveID := "018e0000-0000-7000-8000-000000000011"
+	r.leaveRequests[barnebyLeaveID] = &LeaveRequest{
+		LeaveID:    barnebyLeaveID,
+		EmployeeID: barnebyID,
+		LeaveType:  "catnip_break",
+		StartDate:  "2026-10-05",
+		EndDate:    "2026-10-06",
+		Status:     "pending",
+		Reason:     strPtr("Alpha perch rotation decompression and premium catnip session"),
+		CreatedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-2 * time.Hour),
+	}
+
+	elenaLeaveID := "018e0000-0000-7000-8000-000000000012"
+	r.leaveRequests[elenaLeaveID] = &LeaveRequest{
+		LeaveID:    elenaLeaveID,
+		EmployeeID: elenaID,
+		LeaveType:  "vacation",
+		StartDate:  "2026-10-15",
+		EndDate:    "2026-10-20",
+		Status:     "approved",
+		Reason:     strPtr("Annual veterinary feline habitat conference"),
+		CreatedAt:  now.Add(-48 * time.Hour),
+		UpdatedAt:  now.Add(-48 * time.Hour),
+	}
+
+	// Seed review cycles (Performance reviews for humans, Health/Care assessments for felines)
+	garfieldReviewID := "018e0000-0000-7000-8000-000000000020"
+	completedAt := now.Add(-72 * time.Hour)
+	garfieldScore := 4.95
+	garfieldReviewNotes := "Superb whisker symmetry, resting purr acoustics 92dB, optimal alpha sunbeam positioning. Lasagna tolerance remains peak."
+	r.reviewCycles[garfieldReviewID] = &ReviewCycle{
+		ReviewID:     garfieldReviewID,
+		EmployeeID:   garfieldID,
+		ReviewType:   "feline_health_assessment",
+		ScheduledFor: now.Add(-72 * time.Hour).Format("2006-01-02"),
+		Status:       "completed",
+		ReviewerID:   &elenaID,
+		Score:        &garfieldScore,
+		Notes:        &garfieldReviewNotes,
+		CompletedAt:  &completedAt,
+		CreatedAt:    now.Add(-7 * 24 * time.Hour),
+		UpdatedAt:    completedAt,
+	}
+
+	barnebyReviewID := "018e0000-0000-7000-8000-000000000021"
+	barnebyReviewNotes := "Quarterly weight check and alpha perch mobility audit"
+	r.reviewCycles[barnebyReviewID] = &ReviewCycle{
+		ReviewID:     barnebyReviewID,
+		EmployeeID:   barnebyID,
+		ReviewType:   "feline_health_assessment",
+		ScheduledFor: now.Add(48 * time.Hour).Format("2006-01-02"),
+		Status:       "scheduled",
+		ReviewerID:   &elenaID,
+		Notes:        &barnebyReviewNotes,
+		CreatedAt:    now.Add(-24 * time.Hour),
+		UpdatedAt:    now.Add(-24 * time.Hour),
+	}
+
+	aliceReviewID := "018e0000-0000-7000-8000-000000000022"
+	aliceReviewNotes := "Joint human-feline HR operations & catnip compliance review"
+	r.reviewCycles[aliceReviewID] = &ReviewCycle{
+		ReviewID:     aliceReviewID,
+		EmployeeID:   aliceID,
+		ReviewType:   "performance",
+		ScheduledFor: now.Add(7 * 24 * time.Hour).Format("2006-01-02"),
+		Status:       "scheduled",
+		Notes:        &aliceReviewNotes,
+		CreatedAt:    now.Add(-48 * time.Hour),
+		UpdatedAt:    now.Add(-48 * time.Hour),
 	}
 }
 
@@ -291,3 +458,343 @@ func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID st
 	cs.UpdatedAt = time.Now().UTC()
 	return cs, nil
 }
+
+func (r *pgxRepository) CreateLeaveRequest(ctx context.Context, req *LeaveRequest) (*LeaveRequest, error) {
+	if r.db != nil {
+		query := `INSERT INTO workforce.leave_requests (
+			leave_id, employee_id, leave_type, start_date, end_date, status, reason
+		) VALUES (
+			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4::date, $5::date, COALESCE(NULLIF($6, ''), 'pending'), $7
+		) RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
+		var res LeaveRequest
+		err := r.db.QueryRow(ctx, query, req.LeaveID, req.EmployeeID, req.LeaveType, req.StartDate, req.EndDate, req.Status, req.Reason).Scan(
+			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		r.mu.Lock()
+		r.leaveRequests[res.LeaveID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().UTC()
+	if req.LeaveID == "" {
+		req.LeaveID = fmt.Sprintf("leave-%d", time.Now().UnixNano())
+	}
+	if req.Status == "" {
+		req.Status = "pending"
+	}
+	req.CreatedAt = now
+	req.UpdatedAt = now
+
+	r.leaveRequests[req.LeaveID] = req
+	return req, nil
+}
+
+func (r *pgxRepository) GetLeaveRequestByID(ctx context.Context, id string) (*LeaveRequest, error) {
+	if r.db != nil {
+		query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
+		          FROM workforce.leave_requests WHERE leave_id::text = $1`
+		var res LeaveRequest
+		err := r.db.QueryRow(ctx, query, id).Scan(
+			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
+		}
+		return &res, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	req, ok := r.leaveRequests[id]
+	if !ok {
+		return nil, fmt.Errorf("leave request with id %s not found", id)
+	}
+	return req, nil
+}
+
+func (r *pgxRepository) ListLeaveRequests(ctx context.Context, employeeID, status string) ([]*LeaveRequest, error) {
+	if r.db != nil {
+		query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
+		          FROM workforce.leave_requests
+		          WHERE ($1 = '' OR employee_id::text = $1)
+		            AND ($2 = '' OR status = $2)
+		          ORDER BY created_at DESC`
+		rows, err := r.db.Query(ctx, query, employeeID, status)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var list []*LeaveRequest
+		for rows.Next() {
+			var res LeaveRequest
+			if err := rows.Scan(&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt); err != nil {
+				return nil, err
+			}
+			list = append(list, &res)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if list == nil {
+			list = []*LeaveRequest{}
+		}
+		return list, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var list []*LeaveRequest
+	for _, req := range r.leaveRequests {
+		if employeeID != "" && req.EmployeeID != employeeID {
+			continue
+		}
+		if status != "" && req.Status != status {
+			continue
+		}
+		list = append(list, req)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].CreatedAt.After(list[j].CreatedAt)
+	})
+	if list == nil {
+		list = []*LeaveRequest{}
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) UpdateLeaveRequestStatus(ctx context.Context, id, status string) (*LeaveRequest, error) {
+	if r.db != nil {
+		query := `UPDATE workforce.leave_requests
+		          SET status = $2, updated_at = CURRENT_TIMESTAMP
+		          WHERE leave_id::text = $1
+		          RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
+		var res LeaveRequest
+		err := r.db.QueryRow(ctx, query, id, status).Scan(
+			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
+		}
+		r.mu.Lock()
+		r.leaveRequests[res.LeaveID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	req, ok := r.leaveRequests[id]
+	if !ok {
+		return nil, fmt.Errorf("leave request with id %s not found", id)
+	}
+
+	req.Status = status
+	req.UpdatedAt = time.Now().UTC()
+	return req, nil
+}
+
+func (r *pgxRepository) CreateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
+	if r.db != nil {
+		query := `INSERT INTO workforce.review_cycles (
+		              review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at
+		          ) VALUES (
+		              COALESCE($1, gen_random_uuid_v7()), $2, $3, $4, COALESCE($5, 'scheduled'), $6, $7, $8, $9
+		          ) RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
+		var res ReviewCycle
+		var revID *string
+		var schedFor string
+		var revUUID *string
+		if rc.ReviewID != "" {
+			revUUID = &rc.ReviewID
+		}
+		err := r.db.QueryRow(ctx, query, revUUID, rc.EmployeeID, rc.ReviewType, rc.ScheduledFor, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
+			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res.ScheduledFor = schedFor
+		res.ReviewerID = revID
+		r.mu.Lock()
+		r.reviewCycles[res.ReviewID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().UTC()
+	if rc.ReviewID == "" {
+		rc.ReviewID = fmt.Sprintf("018e0000-0000-7000-8000-%012d", len(r.reviewCycles)+1)
+	}
+	if rc.Status == "" {
+		rc.Status = "scheduled"
+	}
+	rc.CreatedAt = now
+	rc.UpdatedAt = now
+
+	r.reviewCycles[rc.ReviewID] = rc
+	return rc, nil
+}
+
+func (r *pgxRepository) GetReviewCycleByID(ctx context.Context, id string) (*ReviewCycle, error) {
+	if r.db != nil {
+		query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
+		          FROM workforce.review_cycles
+		          WHERE review_id::text = $1`
+		var res ReviewCycle
+		var revID *string
+		var schedFor string
+		err := r.db.QueryRow(ctx, query, id).Scan(
+			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("review cycle with id %s not found: %w", id, err)
+		}
+		res.ScheduledFor = schedFor
+		res.ReviewerID = revID
+		return &res, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rc, ok := r.reviewCycles[id]
+	if !ok {
+		return nil, fmt.Errorf("review cycle with id %s not found", id)
+	}
+	return rc, nil
+}
+
+func (r *pgxRepository) ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*ReviewCycle, error) {
+	if r.db != nil {
+		query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
+		          FROM workforce.review_cycles
+		          WHERE ($1 = '' OR employee_id::text = $1)
+		            AND ($2 = '' OR status = $2)
+		            AND ($3 = '' OR review_type = $3)
+		          ORDER BY scheduled_for DESC, created_at DESC`
+		rows, err := r.db.Query(ctx, query, employeeID, status, reviewType)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var list []*ReviewCycle
+		for rows.Next() {
+			var res ReviewCycle
+			var revID *string
+			var schedFor string
+			if err := rows.Scan(&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt); err != nil {
+				return nil, err
+			}
+			res.ScheduledFor = schedFor
+			res.ReviewerID = revID
+			list = append(list, &res)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if list == nil {
+			list = []*ReviewCycle{}
+		}
+		return list, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var list []*ReviewCycle
+	for _, rc := range r.reviewCycles {
+		if employeeID != "" && rc.EmployeeID != employeeID {
+			continue
+		}
+		if status != "" && rc.Status != status {
+			continue
+		}
+		if reviewType != "" && rc.ReviewType != reviewType {
+			continue
+		}
+		list = append(list, rc)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].ScheduledFor == list[j].ScheduledFor {
+			return list[i].CreatedAt.After(list[j].CreatedAt)
+		}
+		return list[i].ScheduledFor > list[j].ScheduledFor
+	})
+	if list == nil {
+		list = []*ReviewCycle{}
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
+	if r.db != nil {
+		query := `UPDATE workforce.review_cycles
+		          SET status = COALESCE($2, status),
+		              reviewer_id = CASE WHEN $3::text IS NOT NULL THEN $3::uuid ELSE reviewer_id END,
+		              score = CASE WHEN $4::numeric IS NOT NULL THEN $4::numeric ELSE score END,
+		              notes = CASE WHEN $5::text IS NOT NULL THEN $5::text ELSE notes END,
+		              completed_at = CASE WHEN $6::timestamptz IS NOT NULL THEN $6::timestamptz ELSE completed_at END,
+		              updated_at = CURRENT_TIMESTAMP
+		          WHERE review_id::text = $1
+		          RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
+		var res ReviewCycle
+		var revID *string
+		var schedFor string
+		err := r.db.QueryRow(ctx, query, rc.ReviewID, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
+			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("review cycle with id %s not found: %w", rc.ReviewID, err)
+		}
+		res.ScheduledFor = schedFor
+		res.ReviewerID = revID
+		r.mu.Lock()
+		r.reviewCycles[res.ReviewID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.reviewCycles[rc.ReviewID]
+	if !ok {
+		return nil, fmt.Errorf("review cycle with id %s not found", rc.ReviewID)
+	}
+
+	if rc.Status != "" {
+		existing.Status = rc.Status
+	}
+	if rc.ReviewerID != nil {
+		existing.ReviewerID = rc.ReviewerID
+	}
+	if rc.Score != nil {
+		existing.Score = rc.Score
+	}
+	if rc.Notes != nil {
+		existing.Notes = rc.Notes
+	}
+	if rc.CompletedAt != nil {
+		existing.CompletedAt = rc.CompletedAt
+	}
+	existing.UpdatedAt = time.Now().UTC()
+	return existing, nil
+}
+
