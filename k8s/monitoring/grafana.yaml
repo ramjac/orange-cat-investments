@@ -44,7 +44,7 @@ spec:
             - name: GF_SECURITY_ADMIN_USER
               value: admin
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "<CHANGE_ME_IN_PRODUCTION_GRAFANA_PASS>"
+              value: oci_admin_pass
           volumeMounts:
             - name: datasource-volume
               mountPath: /etc/grafana/provisioning/datasources
