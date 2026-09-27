@@ -31,10 +31,12 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 * **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows.
 * **`garfield_perch_inspection`**: Inspects primary habitat perches (`/facilities/assets?asset_type=observation_perch`) for operational readiness and cushion ergonomics.
 * **`garfield_care_schedule_audit`**: Queries care schedules (`/api/v1/workforce/care-schedules/emp-feline-garfield`) to ensure punctual lasagna and snack disbursements.
+* **`garfield_sleep_in_hallway`**: Naps in hallway B; 1/3 chance of tripping a human employee, placing Garfield on vet medical hold (`POST /api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold`) and logging a workplace injury ticket (`POST /ops/tickets`).
 
 ### 2. Barneby (`emp-feline-barneby`) — Senior Alpha Perch Analyst
 * **`barneby_sunbeam_tracking`**: Queries smart collar telemetry (`/facilities/assets?asset_type=smart_collar`) to track sunbeam positioning.
 * **`barneby_care_schedule_review`**: Reviews secondary perch health and care assessment parameters (`/api/v1/workforce/care-schedules/emp-feline-barneby`).
+* **`barneby_slap_water_glass`**: Slaps a water glass off a desk, creating a facilities maintenance ticket (`POST /facilities/assets/{id}/maintenance`), querying Pebble watch alerts (`GET /ops/pebble/alerts`), submitting a Pebble watch ACK (`POST /ops/pebble/ack`), and logging completed maintenance work via mobile field app sync (`POST /facilities/sync/maintenance-logs`).
 
 ### 3. Alice Vance (`emp-human-alice`) — Head of Human & Feline Resources
 * **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).

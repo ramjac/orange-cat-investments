@@ -8,6 +8,7 @@
 ## Responsibilities
 * Monitor secondary observation perches and edge camera fields of view.
 * Provide high-frequency behavioral telemetry (playful pouncing, sunbeam tracking, perch lounging).
+* Execute table perturbation tests ("slaps glass of water off table"), triggering facilities maintenance alerts, Pebble watch notifications, and mobile maintenance app logging by facilities staff.
 * Evaluate perch cushion durability and smart collar telemetry accuracy.
 * Co-chair monthly feline health and care assessment review cycles.
 
