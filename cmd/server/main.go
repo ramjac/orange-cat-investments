@@ -13,12 +13,16 @@ import (
 	core_invest_handler "github.com/orange-cat-investments/oci/internal/handler/core_invest"
 	facilities_handler "github.com/orange-cat-investments/oci/internal/handler/facilities"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
+	workforce_handler "github.com/orange-cat-investments/oci/internal/handler"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	facilities_repo "github.com/orange-cat-investments/oci/internal/repository/facilities"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
+	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
+	"github.com/orange-cat-investments/oci/internal/saga"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
+	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 )
 
 func main() {
@@ -41,6 +45,13 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
+	// Health check endpoint
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 
 	// Initialize Core Invest Domain Service & Handlers
 	var ciRepo core_invest_repo.Repository
@@ -70,6 +81,14 @@ func main() {
 	facSvc := facilities_svc.NewService(facRepo)
 	facHandler := facilities_handler.NewHandler(facSvc)
 	facHandler.RegisterRoutes(mux)
+
+	// Initialize Workforce Domain Service, Sagas & Handlers
+	wfRepo := workforce_repo.NewRepository(pool)
+	wfSvc := workforce_svc.NewService(wfRepo)
+	onboardSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
+	offboardEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
+	wfHandler := workforce_handler.NewWorkforceHandler(wfSvc, onboardSaga, offboardEng)
+	wfHandler.RegisterRoutes(mux)
 
 	port := os.Getenv("PORT")
 	if port == "" {
