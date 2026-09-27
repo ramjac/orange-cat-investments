@@ -1,0 +1,32 @@
+{
+  "name": "oci-oncall-alerts-pebble",
+  "author": "Orange Cat Investments",
+  "version": "1.0.0",
+  "description": "On-Call Alert Watch App for Pebble, written in Embedded JavaScript targeting the RePebble Alloy runtime.",
+  "private": true,
+  "type": "module",
+  "pebble": {
+    "uuid": "8f3b2a1c-4e5d-6f7a-8b9c-0d1e2f3a4b5c",
+    "displayName": "OCI On-Call Alerts",
+    "shortName": "OCI Alerts",
+    "watchapp": {
+      "watchface": false
+    },
+    "targetPlatforms": [
+      "emery",
+      "gabbro"
+    ],
+    "messageKeys": {
+      "CMD": 0,
+      "TICKET_ID": 1,
+      "TITLE": 2,
+      "BODY": 3,
+      "PRIORITY": 4,
+      "AUTHOR": 5,
+      "TIMESTAMP": 6
+    },
+    "resources": {
+      "media": []
+    }
+  }
+}

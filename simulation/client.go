@@ -135,6 +135,24 @@ func (c *Client) initMockServers() error {
 		json.NewEncoder(w).Encode(ticket)
 	})
 
+	serverMux.HandleFunc("POST /facilities/sync/maintenance-logs", func(w http.ResponseWriter, r *http.Request) {
+		var logs []*facilities_repo.MaintenanceLog
+		if err := json.NewDecoder(r.Body).Decode(&logs); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		syncedLogs, err := facService.SyncMaintenanceLogs(r.Context(), logs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"synced_count": len(syncedLogs),
+			"items":        syncedLogs,
+		})
+	})
+
 	c.mockServer = httptest.NewServer(serverMux)
 	c.serverURL = c.mockServer.URL
 
