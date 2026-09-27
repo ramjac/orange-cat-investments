@@ -1,16 +1,17 @@
-package facilities
+package facilities_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/orange-cat-investments/oci/internal/repository/facilities"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPgxRepository(t *testing.T) {
-	repo := NewRepository(nil)
+func TestFacilitiesRepository(t *testing.T) {
+	repo := facilities.NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("GetAssetByID", func(t *testing.T) {
@@ -33,7 +34,7 @@ func TestPgxRepository(t *testing.T) {
 	})
 
 	t.Run("CreateAsset", func(t *testing.T) {
-		input := &HardwareAsset{
+		input := &facilities.HardwareAsset{
 			SerialNumber: "SER-12345",
 			AssetType:    "feeder",
 			Model:        "AutoFeed-v1",
@@ -51,7 +52,7 @@ func TestPgxRepository(t *testing.T) {
 		techID := "tech-123"
 		reporterID := "emp-456"
 
-		inputTicket := &MaintenanceTicket{
+		inputTicket := &facilities.MaintenanceTicket{
 			AssetID:              "asset-001",
 			Title:                "Camera lens dirty",
 			Description:          "The lens needs cleaning on zone 2 camera",
@@ -81,7 +82,7 @@ func TestPgxRepository(t *testing.T) {
 	})
 
 	t.Run("CreateMaintenanceTicket with optional fields omitted", func(t *testing.T) {
-		inputTicket := &MaintenanceTicket{
+		inputTicket := &facilities.MaintenanceTicket{
 			AssetID:     "asset-002",
 			Title:       "Sensor fault",
 			Description: "Sensor non-responsive",
@@ -98,12 +99,27 @@ func TestPgxRepository(t *testing.T) {
 		assert.Nil(t, created.ReportedBy)
 		assert.Nil(t, created.ResolvedAt)
 	})
+
+	t.Run("PgxRepository nil DB error", func(t *testing.T) {
+		pgxRepo := facilities.NewRepository(nil)
+		_, err := pgxRepo.GetAssetByID(ctx, "asset-001")
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListAssets(ctx, 10, nil, nil)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateAsset(ctx, &facilities.HardwareAsset{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateMaintenanceTicket(ctx, &facilities.MaintenanceTicket{})
+		assert.Error(t, err)
+	})
 }
 
 func TestCreateAsset(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := facilities.NewMockRepository()
 
-	input := &HardwareAsset{
+	input := &facilities.HardwareAsset{
 		SerialNumber: "CAM-ORANGE-02",
 		AssetType:    "edge_camera",
 		Model:        "4K-FelineCam-v3",
@@ -139,9 +155,9 @@ func TestCreateAsset(t *testing.T) {
 }
 
 func TestCreateMaintenanceTicket(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := facilities.NewMockRepository()
 
-	input := &MaintenanceTicket{
+	input := &facilities.MaintenanceTicket{
 		AssetID:     "asset-001",
 		Title:       "Sensor calibration",
 		Description: "Recalibrate optical sensor for laser pointer detection",
@@ -155,6 +171,18 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 
 	if created.TicketID != "maint-uuid-created" {
 		t.Fatalf("expected ticket_id maint-uuid-created, got %s", created.TicketID)
+	}
+	if created.AssetID != input.AssetID {
+		t.Fatalf("expected asset_id %s, got %s", input.AssetID, created.AssetID)
+	}
+	if created.Title != input.Title {
+		t.Fatalf("expected title %s, got %s", input.Title, created.Title)
+	}
+	if created.Description != input.Description {
+		t.Fatalf("expected description %s, got %s", input.Description, created.Description)
+	}
+	if created.Priority != input.Priority {
+		t.Fatalf("expected priority %s, got %s", input.Priority, created.Priority)
 	}
 	if created.Status != "open" {
 		t.Fatalf("expected status open, got %s", created.Status)
