@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erpnext-frappe
+  namespace: apps
+  labels:
+    app: erpnext-frappe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: erpnext-frappe
+  template:
+    metadata:
+      labels:
+        app: erpnext-frappe
+    spec:
+      containers:
+        - name: erpnext
+          image: frappe/erpnext:v15
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: DB_HOST
+              value: postgres-service.postgres.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: REDIS_CACHE
+              value: valkey-service.apps.svc.cluster.local:6379
+            - name: REDIS_QUEUE
+              value: valkey-service.apps.svc.cluster.local:6379
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: erpnext-service
+  namespace: apps
+  labels:
+    app: erpnext-frappe
+spec:
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+  selector:
+    app: erpnext-frappe
