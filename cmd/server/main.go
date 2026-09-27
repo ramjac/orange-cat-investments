@@ -11,8 +11,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_handler "github.com/orange-cat-investments/oci/internal/handler/core_invest"
+	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
+	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
 func main() {
@@ -37,16 +40,22 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Initialize Core Invest Domain Service & Handlers
-	var repo core_invest_repo.Repository
+	var ciRepo core_invest_repo.Repository
 	if pool != nil {
-		repo = core_invest_repo.NewRepository(pool)
+		ciRepo = core_invest_repo.NewRepository(pool)
 	} else {
-		repo = core_invest_repo.NewMockRepository()
+		ciRepo = core_invest_repo.NewMockRepository()
 	}
 
-	svc := core_invest_svc.NewService(repo)
-	handler := core_invest_handler.NewHandler(svc)
-	handler.RegisterRoutes(mux)
+	ciService := core_invest_svc.NewService(ciRepo)
+	ciHandler := core_invest_handler.NewHandler(ciService)
+	ciHandler.RegisterRoutes(mux)
+
+	// Initialize Operations & Wearable Alerts Domain Service & Handlers
+	opsRepo := ops_repo.NewRepository(pool)
+	opsService := ops_svc.NewService(opsRepo)
+	opsHandler := ops_handler.NewHandler(opsService)
+	opsHandler.RegisterRoutes(mux)
 
 	port := os.Getenv("PORT")
 	if port == "" {
