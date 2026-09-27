@@ -1,0 +1,25 @@
+---
+- name: Ensure kubectl is available
+  ansible.builtin.command:
+    cmd: kubectl version --client
+  changed_when: false
+
+- name: Deploy Kubernetes Namespaces
+  ansible.builtin.command:
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/namespaces/ --kubeconfig={{ k3s_kubeconfig_path }}"
+
+- name: Deploy PostgreSQL Database
+  ansible.builtin.command:
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/postgres/ --kubeconfig={{ k3s_kubeconfig_path }}"
+
+- name: Deploy Monitoring Stack (Prometheus + Grafana)
+  ansible.builtin.command:
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/monitoring/ --kubeconfig={{ k3s_kubeconfig_path }}"
+
+- name: Deploy Logging Stack (Loki + Promtail)
+  ansible.builtin.command:
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/logging/ --kubeconfig={{ k3s_kubeconfig_path }}"
+
+- name: Deploy Off-the-Shelf Application Workloads
+  ansible.builtin.command:
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/apps/ --kubeconfig={{ k3s_kubeconfig_path }}"
