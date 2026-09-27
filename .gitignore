@@ -17,8 +17,13 @@ coverage.*
 *.coverprofile
 profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories & logs
+**/node_modules/
+**/dist/
+node_modules/
+dist/
+vendor/
+*.log
 
 # Go workspace file
 go.work
