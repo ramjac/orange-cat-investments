@@ -6,8 +6,9 @@ WHERE asset_id = $1;
 -- name: ListAssets :many
 SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at
 FROM facilities.hardware_assets
-ORDER BY created_at DESC
-LIMIT $1 OFFSET $2;
+WHERE ($1::timestamptz IS NULL OR $2::uuid IS NULL OR (created_at, asset_id) < ($1, $2))
+ORDER BY created_at DESC, asset_id DESC
+LIMIT $3;
 
 -- name: CreateAsset :one
 INSERT INTO facilities.hardware_assets (

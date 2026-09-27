@@ -16,7 +16,7 @@ func TestPgxRepository(t *testing.T) {
 		t.Fatalf("expected asset_id asset-001, got %s", asset.AssetID)
 	}
 
-	assets, err := repo.ListAssets(context.Background(), 10, 0)
+	assets, err := repo.ListAssets(context.Background(), 10, nil, nil)
 	if err != nil || len(assets) == 0 {
 		t.Fatalf("expected assets list, got %v", err)
 	}
