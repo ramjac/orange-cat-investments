@@ -21,7 +21,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestRegistryPersonas(t *testing.T) {
 	registry := NewRegistry()
 	personas := registry.List()
-	assert.Len(t, personas, 8)
+	assert.Len(t, personas, 10)
 
 	expectedPersonas := []string{
 		"emp-feline-garfield",
@@ -32,6 +32,8 @@ func TestRegistryPersonas(t *testing.T) {
 		"emp-human-david",
 		"emp-human-elena",
 		"emp-human-frank",
+		"cust-longterm-arthur",
+		"cust-active-chloe",
 	}
 
 	for _, id := range expectedPersonas {
@@ -89,5 +91,53 @@ func TestDriverSinglePersonaGarfield(t *testing.T) {
 
 	assert.Equal(t, 3, summary.TotalActions)
 	assert.Equal(t, 3, summary.Successes)
+	assert.Equal(t, 0, summary.Failures)
+}
+
+func TestDriverSinglePersonaArthur(t *testing.T) {
+	cfg := &Config{
+		Mode:          "mock",
+		TargetPersona: "cust-longterm-arthur",
+		Iterations:    1,
+		ActionDelay:   1 * time.Millisecond,
+		Verbose:       false,
+	}
+
+	driver, err := NewDriver(cfg)
+	require.NoError(t, err)
+	defer driver.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	summary, err := driver.Run(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, summary.TotalActions)
+	assert.Equal(t, 3, summary.Successes)
+	assert.Equal(t, 0, summary.Failures)
+}
+
+func TestDriverSinglePersonaChloe(t *testing.T) {
+	cfg := &Config{
+		Mode:          "mock",
+		TargetPersona: "cust-active-chloe",
+		Iterations:    1,
+		ActionDelay:   1 * time.Millisecond,
+		Verbose:       false,
+	}
+
+	driver, err := NewDriver(cfg)
+	require.NoError(t, err)
+	defer driver.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	summary, err := driver.Run(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 4, summary.TotalActions)
+	assert.Equal(t, 4, summary.Successes)
 	assert.Equal(t, 0, summary.Failures)
 }

@@ -62,6 +62,17 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 * **`frank_query_pebble_alerts`**: Queries wearable watch alert payloads (`/ops/pebble/alerts`) formatted for Pebble AppMessage protocol.
 * **`frank_create_it_ticket`**: Submits infrastructure support tickets (`POST /ops/tickets`) for intermediate CA key rotations and dynamic SPIFFE ID mTLS reloads.
 
+### 9. Arthur Pendelton (`cust-longterm-arthur`) — Long-Term Value Investor (Customer)
+* **`arthur_review_performance_reports`**: Audits historical quantitative backtest performance and strategy returns (`GET /core-invest/backtesting/runs`).
+* **`arthur_deposit_investment_capital`**: Executes steady capital deposit orders into the OCI Alpha Growth Fund (`POST /core-invest/brokerage/orders`).
+* **`arthur_monitor_feline_stream`**: Passively checks optical camera streams (`GET /core-invest/streams`) to verify feline habitat comfort and wellbeing.
+
+### 10. Chloe Spark (`cust-active-chloe`) — Momentum Alpha Trader (Customer)
+* **`chloe_scan_activity_streams`**: Scans real-time camera streams (`GET /core-invest/streams`) for high-activity feline behavioral signals.
+* **`chloe_momentum_buy_order`**: Executes aggressive momentum buy orders (`POST /core-invest/brokerage/orders`) on feline zoomies activity spikes.
+* **`chloe_take_profit_sell_order`**: Executes tactical take-profit sell orders (`POST /core-invest/brokerage/orders`) as cat activity returns to baseline.
+* **`chloe_audit_execution_log`**: Audits real-time trade order execution logs and settlement status (`GET /core-invest/brokerage/orders`).
+
 ---
 
 ## Execution Modes

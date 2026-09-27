@@ -34,6 +34,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/workforce/care-schedules/{felineId}", h.updateCareSchedule)
 	mux.HandleFunc("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
 	mux.HandleFunc("POST /api/v1/webhooks/frappe-hr", h.handleFrappeHRWebhook)
+
+	// Direct route aliases matching OpenAPI spec
+	mux.HandleFunc("GET /workforce/employees", h.listEmployees)
+	mux.HandleFunc("GET /workforce/care-schedules/{felineId}", h.getCareSchedule)
+	mux.HandleFunc("PUT /workforce/care-schedules/{felineId}", h.updateCareSchedule)
+	mux.HandleFunc("POST /workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+	mux.HandleFunc("POST /webhooks/frappe-hr", h.handleFrappeHRWebhook)
 }
 
 func (h *WorkforceHandler) listEmployees(w http.ResponseWriter, r *http.Request) {
