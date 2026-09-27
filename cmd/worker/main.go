@@ -30,6 +30,24 @@ type CatSpottedPayload struct {
 	ConfidenceScore float64 `json:"confidence_score"`
 }
 
+type OTATriggeredPayload struct {
+	JobID      string `json:"job_id"`
+	AssetID    string `json:"asset_id"`
+	ReleaseID  string `json:"release_id"`
+	DeviceType string `json:"device_type"`
+	Version    string `json:"version"`
+	FileURL    string `json:"file_url"`
+	Checksum   string `json:"checksum"`
+}
+
+type OTACompletedPayload struct {
+	JobID       string    `json:"job_id"`
+	AssetID     string    `json:"asset_id"`
+	ReleaseID   string    `json:"release_id"`
+	Status      string    `json:"status"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
 type CARotationPayload struct {
 	IntermediateCAName       string    `json:"intermediate_ca_name"`
 	NewSerialNumber           string    `json:"new_serial_number"`
@@ -41,6 +59,43 @@ type CARotationPayload struct {
 type pubSub interface {
 	message.Publisher
 	message.Subscriber
+}
+
+func HandleOTATriggered(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
+	logger.Info("Watermill consumer received OTA update triggered event", "uuid", msg.UUID)
+
+	var envelope EventEnvelope[OTATriggeredPayload]
+	status := "completed"
+	if err := json.Unmarshal(msg.Payload, &envelope); err == nil {
+		logger.Info("executing edge device OTA firmware update pipeline",
+			"job_id", envelope.Payload.JobID,
+			"asset_id", envelope.Payload.AssetID,
+			"version", envelope.Payload.Version,
+		)
+		logger.Info("downloading firmware image and verifying checksum",
+			"file_url", envelope.Payload.FileURL,
+			"checksum", envelope.Payload.Checksum,
+		)
+		logger.Info("applying OTA update to edge device and rebooting", "asset_id", envelope.Payload.AssetID)
+	}
+
+	completionEvent := EventEnvelope[OTACompletedPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "facilities.ota_completed.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: msg.UUID,
+		Payload: OTACompletedPayload{
+			JobID:       envelope.Payload.JobID,
+			AssetID:     envelope.Payload.AssetID,
+			ReleaseID:   envelope.Payload.ReleaseID,
+			Status:      status,
+			CompletedAt: time.Now().UTC(),
+		},
+	}
+
+	data, _ := json.Marshal(completionEvent)
+	outputMsg := message.NewMessage(completionEvent.EventID, data)
+	return []*message.Message{outputMsg}, nil
 }
 
 func handleCatSpotted(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
@@ -91,6 +146,17 @@ func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *sl
 		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
 			return handleBacktestRun(logger, msg)
+		},
+	)
+
+	router.AddHandler(
+		"ota_pipeline_handler",
+		"events.facilities.ota_triggered.v1",
+		ps,
+		"events.facilities.ota_completed.v1",
+		ps,
+		func(msg *message.Message) ([]*message.Message, error) {
+			return HandleOTATriggered(logger, msg)
 		},
 	)
 

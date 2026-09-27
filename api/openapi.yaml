@@ -171,6 +171,124 @@ paths:
               schema:
                 $ref: '#/components/schemas/MaintenanceTicket'
 
+  /facilities/sync/maintenance-logs:
+    post:
+      summary: Batch Sync Offline Maintenance Logs
+      operationId: syncMaintenanceLogs
+      tags:
+        - Facilities Maintenance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/MaintenanceLogCreate'
+      responses:
+        '200':
+          description: Offline maintenance logs synced successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  synced_count:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MaintenanceLog'
+
+  /facilities/firmware:
+    get:
+      summary: List Firmware Releases
+      operationId: listFirmwareReleases
+      tags:
+        - Facilities Firmware
+      parameters:
+        - name: device_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+      responses:
+        '200':
+          description: List of firmware releases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FirmwareRelease'
+
+    post:
+      summary: Publish Firmware Release
+      operationId: createFirmwareRelease
+      tags:
+        - Facilities Firmware
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FirmwareReleaseCreate'
+      responses:
+        '201':
+          description: Firmware release created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FirmwareRelease'
+
+  /facilities/firmware/ota-jobs:
+    get:
+      summary: List Device OTA Jobs
+      operationId: listOTAJobs
+      tags:
+        - Facilities Firmware
+      parameters:
+        - name: asset_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of OTA jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeviceOTAJob'
+
+    post:
+      summary: Trigger OTA Firmware Update Pipeline
+      operationId: triggerOTAUpdate
+      tags:
+        - Facilities Firmware
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OTATriggerRequest'
+      responses:
+        '202':
+          description: OTA update pipeline triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeviceOTAJob'
+
   /workforce/employees:
     get:
       summary: List Employees (Human and Feline)
@@ -890,6 +1008,183 @@ components:
         priority:
           type: string
           enum: [low, medium, high, critical]
+
+    MaintenanceLog:
+      type: object
+      required:
+        - log_id
+        - asset_id
+        - qr_code_scanned
+        - action_taken
+        - synced_at
+        - created_at
+      properties:
+        log_id:
+          type: string
+          format: uuid
+        ticket_id:
+          type: string
+          format: uuid
+          nullable: true
+        asset_id:
+          type: string
+          format: uuid
+        technician_id:
+          type: string
+          format: uuid
+          nullable: true
+        qr_code_scanned:
+          type: string
+        action_taken:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        synced_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    MaintenanceLogCreate:
+      type: object
+      required:
+        - asset_id
+        - qr_code_scanned
+        - action_taken
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        technician_id:
+          type: string
+          format: uuid
+        qr_code_scanned:
+          type: string
+        action_taken:
+          type: string
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    FirmwareRelease:
+      type: object
+      required:
+        - release_id
+        - device_type
+        - version
+        - file_url
+        - checksum
+        - status
+        - created_at
+      properties:
+        release_id:
+          type: string
+          format: uuid
+        device_type:
+          type: string
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+        version:
+          type: string
+        file_url:
+          type: string
+        checksum:
+          type: string
+        min_hardware_version:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    FirmwareReleaseCreate:
+      type: object
+      required:
+        - device_type
+        - version
+        - file_url
+        - checksum
+      properties:
+        device_type:
+          type: string
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+        version:
+          type: string
+        file_url:
+          type: string
+        checksum:
+          type: string
+        min_hardware_version:
+          type: string
+        status:
+          type: string
+          enum: [draft, published, deprecated]
+
+    DeviceOTAJob:
+      type: object
+      required:
+        - job_id
+        - asset_id
+        - release_id
+        - status
+        - scheduled_at
+        - created_at
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        asset_id:
+          type: string
+          format: uuid
+        release_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, downloading, applying, completed, failed]
+        error_message:
+          type: string
+          nullable: true
+        scheduled_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    OTATriggerRequest:
+      type: object
+      required:
+        - asset_ids
+        - release_id
+      properties:
+        asset_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        release_id:
+          type: string
+          format: uuid
 
     Employee:
       type: object

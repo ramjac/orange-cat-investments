@@ -11,10 +11,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_handler "github.com/orange-cat-investments/oci/internal/handler/core_invest"
+	facilities_handler "github.com/orange-cat-investments/oci/internal/handler/facilities"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
+	facilities_repo "github.com/orange-cat-investments/oci/internal/repository/facilities"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
@@ -56,6 +59,17 @@ func main() {
 	opsService := ops_svc.NewService(opsRepo)
 	opsHandler := ops_handler.NewHandler(opsService)
 	opsHandler.RegisterRoutes(mux)
+
+	// Initialize Facilities Domain Service & Handlers
+	var facRepo facilities_repo.Repository
+	if pool != nil {
+		facRepo = facilities_repo.NewRepository(pool)
+	} else {
+		facRepo = facilities_repo.NewMockRepository()
+	}
+	facSvc := facilities_svc.NewService(facRepo)
+	facHandler := facilities_handler.NewHandler(facSvc)
+	facHandler.RegisterRoutes(mux)
 
 	port := os.Getenv("PORT")
 	if port == "" {
