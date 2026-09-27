@@ -28,6 +28,19 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /facilities/firmware/ota-jobs", h.ListOTAJobs)
 	mux.HandleFunc("POST /facilities/firmware/ota-jobs", h.TriggerOTAUpdate)
+
+	// API v1 route aliases
+	mux.HandleFunc("GET /api/v1/facilities/assets", h.ListAssets)
+	mux.HandleFunc("POST /api/v1/facilities/assets", h.CreateAsset)
+	mux.HandleFunc("GET /api/v1/facilities/assets/{id}", h.GetAssetByID)
+
+	mux.HandleFunc("POST /api/v1/facilities/sync/maintenance-logs", h.SyncMaintenanceLogs)
+
+	mux.HandleFunc("GET /api/v1/facilities/firmware", h.ListFirmwareReleases)
+	mux.HandleFunc("POST /api/v1/facilities/firmware", h.CreateFirmwareRelease)
+
+	mux.HandleFunc("GET /api/v1/facilities/firmware/ota-jobs", h.ListOTAJobs)
+	mux.HandleFunc("POST /api/v1/facilities/firmware/ota-jobs", h.TriggerOTAUpdate)
 }
 
 func (h *Handler) GetAssetByID(w http.ResponseWriter, r *http.Request) {
