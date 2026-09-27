@@ -12,15 +12,16 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 * **Orchestration & Infrastructure:** K3s Kubernetes, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
 * **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`).
 * **Custom Backend Services:**
+  * **Unified API Server (`cmd/server`):** Serves domain REST APIs across `core-invest`, `facilities`, `ops`, and `workforce`.
   * **Go REST BFFs (`cmd/customer-bff` & `cmd/employee-bff`):** Connect web/mobile frontends using `net/http` + `chi`. Uses server-side Valkey session management and double-submit CSRF protection.
-  * **Go gRPC BLL Microservices:** Internal domain services communicating over mTLS (`pkg/mtls`).
-  * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) and ticker/cron runner.
+  * **Wearable Gateway Proxy (`cmd/pebble-proxy`):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations (`ops.it_tickets`).
+  * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, and automated cert-manager CA rotation tickers.
 * **Client Applications:**
   * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers (Identity Provider: **ZITADEL OIDC**).
-  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**).
+  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule & Emergency Medical Hold management.
   * **Hugo Marketing Site (`web/marketing`):** Static public marketing website.
-  * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app.
-  * **Pebble Watch App (`embedded/pebble`):** On-call watch app (C / Pebble C SDK).
+  * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app with offline SQLite sync engine, QR scanning, and firmware OTA rollout tracking.
+  * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (C / Pebble C SDK).
 
 ---
 
@@ -31,11 +32,25 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ├── api/                   # OpenAPI 3.1 YAML specifications (`openapi.yaml`)
 ├── docs/                  # Architecture Decision Records (`adr/`) and specifications
 ├── proto/                 # Protobuf definitions (`oci/core/`, `oci/ops/`)
-├── pkg/                   # Shared Go packages (`gen/go`, `mtls`, `envelope`, etc.)
+├── pkg/                   # Shared Go packages (`envelope`, `mtls`, `gen/go`, etc.)
+│   └── envelope/          # Standard EventEnvelope[T] message wrapper
 ├── scripts/               # SQL scripts (`init.sql`) and environment bootstrapping
-├── cmd/                   # Go application entrypoints (`customer-bff`, `employee-bff`, `worker`, `domain-*`)
-├── web/                   # Frontend applications (`customer-portal`, `employee-portal`, `marketing`)
-└── internal/              # Core domain logic, handlers, repositories, services
+├── cmd/                   # Go application entrypoints
+│   ├── server/            # Unified API server hosting all 4 domains
+│   ├── employee-bff/      # Employee portal backend-for-frontend
+│   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy
+│   └── worker/            # Background worker (Watermill, OTA, CA rotation)
+├── web/                   # Frontend applications
+│   └── employee-portal/   # Vue 3 SPA for employee and feline care management
+├── mobile/                # Mobile applications
+│   └── flutter_app/       # Flutter offline-first field maintenance application
+├── k8s/                   # Kubernetes deployment manifests (PostgreSQL, Valkey, RabbitMQ, COTS)
+├── ansible/               # Ansible playbooks for host & cluster provisioning
+└── internal/              # Core domain logic, handlers, repositories, services, and sagas
+    ├── handler/           # HTTP handlers (core_invest, facilities, ops, workforce)
+    ├── repository/        # pgxpool database repositories & mock implementations
+    ├── service/           # Domain business logic services & PKI rotation manager
+    └── saga/              # Distributed sagas (OnboardingSaga, OffboardingEngine)
 ```
 
 ---
@@ -43,7 +58,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ## 3. Mandatory Coding Standards & Principles
 
 ### Domain Boundary & Dual Identity Rules
-1. **Schema Isolation:** Custom Go services strictly access their designated database schema. Direct cross-schema table queries or cross-Domain API calls are prohibited.
+1. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
 2. **Dual Identity Provider Model:**
    * **ZITADEL:** Strictly reserved for external customer identity management (`web/customer-portal`).
    * **Forgejo:** System of record for internal employee, employer, staff, and developer identity management (`web/employee-portal`).
@@ -51,11 +66,12 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.
-2. **No JWTs in Web SPAs:** Web browser clients authenticate via OIDC/OAuth2 handled at the Go BFF layer. Access tokens are stored exclusively in Valkey. Browsers receive only opaque session cookies (`__Host-customer-session` or `__Host-employee-session`, both `HttpOnly`, `Secure`, `SameSite=Lax`).
-3. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
+2. **No Sensitive Payload Logging (CWE-532):** Background event workers and HTTP handlers must never log unredacted message payloads, secret keys, or credentials.
+3. **No JWTs in Web SPAs:** Web browser clients authenticate via OIDC/OAuth2 handled at the Go BFF layer. Access tokens are stored exclusively in Valkey. Browsers receive only opaque session cookies (`__Host-customer-session` or `__Host-employee-session`, both `HttpOnly`, `Secure`, `SameSite=Lax`).
+4. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
 
 ### Event Protocol Standard
-All domain messages emitted across RabbitMQ must be wrapped in the standard Go `EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
+All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
 
 ---
 
@@ -66,16 +82,24 @@ Before marking any task as complete or submitting code changes, agents must veri
 1. **SQL Validation:**
    Ensure `scripts/init.sql` parses correctly and enforces PostgreSQL constraints:
    ```bash
-   python3 -c "import psql" # or validate syntax via python/psql CLI if available
+   python3 -c "
+   with open('scripts/init.sql') as f:
+       sql = f.read()
+   assert 'facilities.firmware_releases' in sql
+   assert 'facilities.maintenance_logs' in sql
+   assert 'facilities.device_ota_jobs' in sql
+   print('SQL syntax & constraints validated successfully')
+   "
    ```
 2. **OpenAPI Specification Validation:**
    Verify `api/openapi.yaml` for YAML correctness and OpenAPI 3.1 compliance:
    ```bash
    python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"
    ```
-3. **Go Code Quality (when Go files exist):**
+3. **Go Code Quality & Race Detection:**
+   Run full test suite with race detector enabled:
    ```bash
-   go test ./...
+   go test -v -race ./...
    go vet ./...
    ```
-4. **General Rule:** Always read modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
+4. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
