@@ -62,6 +62,46 @@ CREATE TABLE IF NOT EXISTS workforce.onboarding_checklists (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Maintenance Logs (Offline field maintenance logs synced via mobile app)
+CREATE TABLE IF NOT EXISTS facilities.maintenance_logs (
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    ticket_id UUID REFERENCES facilities.maintenance_tickets(ticket_id) ON DELETE SET NULL,
+    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    technician_id UUID REFERENCES workforce.employees(employee_id),
+    qr_code_scanned VARCHAR(255) NOT NULL,
+    action_taken TEXT NOT NULL,
+    notes TEXT,
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Firmware Releases (OTA updates for edge devices)
+CREATE TABLE IF NOT EXISTS facilities.firmware_releases (
+    release_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    device_type VARCHAR(50) NOT NULL CHECK (device_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
+    version VARCHAR(50) NOT NULL,
+    file_url TEXT NOT NULL,
+    checksum VARCHAR(64) NOT NULL,
+    min_hardware_version VARCHAR(50),
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_device_version UNIQUE (device_type, version)
+);
+
+-- Device OTA Jobs (Tracking OTA deployment pipeline status per asset)
+CREATE TABLE IF NOT EXISTS facilities.device_ota_jobs (
+    job_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    release_id UUID NOT NULL REFERENCES facilities.firmware_releases(release_id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'downloading', 'applying', 'completed', 'failed')),
+    error_message TEXT,
+    scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Feline Care Schedules
 CREATE TABLE IF NOT EXISTS workforce.care_schedules (
     schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -211,6 +251,48 @@ CREATE TABLE IF NOT EXISTS core_invest.portfolio_snapshots (
     holdings_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
     triggered_by_event_id UUID REFERENCES core_invest.observation_events(event_id),
     snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Camera Streams (Real-time WebRTC/RTSP Computer Vision Stream Ingestion)
+CREATE TABLE IF NOT EXISTS core_invest.camera_streams (
+    stream_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    camera_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    stream_url VARCHAR(500) NOT NULL,
+    protocol VARCHAR(20) NOT NULL CHECK (protocol IN ('rtsp', 'webrtc')),
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'idle', 'error')),
+    ingest_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Brokerage Orders (Automated Brokerage Execution)
+CREATE TABLE IF NOT EXISTS core_invest.brokerage_orders (
+    order_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+    strategy_id UUID REFERENCES core_invest.allocation_strategies(strategy_id),
+    event_id UUID REFERENCES core_invest.observation_events(event_id),
+    broker_name VARCHAR(100) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    side VARCHAR(10) NOT NULL CHECK (side IN ('buy', 'sell')),
+    quantity DECIMAL(14, 4) NOT NULL,
+    price DECIMAL(14, 4) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'executed', 'failed', 'cancelled')),
+    executed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Backtest Runs (Dynamic Backtesting Workbench)
+CREATE TABLE IF NOT EXISTS core_invest.backtest_runs (
+    backtest_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    strategy_id UUID NOT NULL REFERENCES core_invest.allocation_strategies(strategy_id) ON DELETE CASCADE,
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
+    parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    results JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 --------------------------------------------------------------------------------
