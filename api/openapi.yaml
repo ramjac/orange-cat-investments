@@ -372,6 +372,204 @@ paths:
               schema:
                 $ref: '#/components/schemas/LeaveRequest'
 
+  /core-invest/streams:
+    get:
+      summary: List Camera Ingestion Streams
+      operationId: listCameraStreams
+      tags:
+        - Stream Ingestion
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of camera ingestion streams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CameraStream'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+    post:
+      summary: Register Camera Ingestion Stream
+      operationId: createCameraStream
+      tags:
+        - Stream Ingestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraStreamCreate'
+      responses:
+        '201':
+          description: Camera stream registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStream'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /core-invest/brokerage/orders:
+    get:
+      summary: List Brokerage Orders
+      operationId: listBrokerageOrders
+      tags:
+        - Brokerage Execution
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of brokerage execution orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrokerageOrder'
+
+    post:
+      summary: Execute Automated Brokerage Order
+      operationId: createBrokerageOrder
+      tags:
+        - Brokerage Execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrokerageOrderCreate'
+      responses:
+        '201':
+          description: Brokerage order submitted and executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerageOrder'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /core-invest/brokerage/orders/{id}:
+    get:
+      summary: Get Brokerage Order Details
+      operationId: getBrokerageOrderById
+      tags:
+        - Brokerage Execution
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Brokerage order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerageOrder'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /core-invest/backtesting/runs:
+    get:
+      summary: List Backtest Runs
+      operationId: listBacktestRuns
+      tags:
+        - Backtesting Workbench
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of backtest runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BacktestRun'
+
+    post:
+      summary: Start Backtest Run
+      operationId: createBacktestRun
+      tags:
+        - Backtesting Workbench
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BacktestRunCreate'
+      responses:
+        '201':
+          description: Backtest run initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestRun'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /core-invest/backtesting/runs/{id}:
+    get:
+      summary: Get Backtest Run Results
+      operationId: getBacktestRunById
+      tags:
+        - Backtesting Workbench
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Backtest run details and results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestRun'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
 components:
   schemas:
     HardwareAsset:
@@ -655,6 +853,195 @@ components:
         status:
           type: string
           enum: [approved, rejected, cancelled]
+
+    CameraStream:
+      type: object
+      required:
+        - stream_id
+        - camera_asset_id
+        - stream_url
+        - protocol
+        - status
+        - created_at
+      properties:
+        stream_id:
+          type: string
+          format: uuid
+        camera_asset_id:
+          type: string
+          format: uuid
+        stream_url:
+          type: string
+        protocol:
+          type: string
+          enum: [rtsp, webrtc]
+        status:
+          type: string
+          enum: [active, idle, error]
+        ingest_settings:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CameraStreamCreate:
+      type: object
+      required:
+        - camera_asset_id
+        - stream_url
+        - protocol
+      properties:
+        camera_asset_id:
+          type: string
+          format: uuid
+        stream_url:
+          type: string
+        protocol:
+          type: string
+          enum: [rtsp, webrtc]
+        ingest_settings:
+          type: object
+
+    BrokerageOrder:
+      type: object
+      required:
+        - order_id
+        - portfolio_id
+        - broker_name
+        - symbol
+        - side
+        - quantity
+        - price
+        - status
+        - created_at
+      properties:
+        order_id:
+          type: string
+          format: uuid
+        portfolio_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_id:
+          type: string
+          format: uuid
+          nullable: true
+        broker_name:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        quantity:
+          type: number
+        price:
+          type: number
+        status:
+          type: string
+          enum: [pending, executed, failed, cancelled]
+        executed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BrokerageOrderCreate:
+      type: object
+      required:
+        - portfolio_id
+        - broker_name
+        - symbol
+        - side
+        - quantity
+        - price
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        broker_name:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [buy, sell]
+        quantity:
+          type: number
+        price:
+          type: number
+
+    BacktestRun:
+      type: object
+      required:
+        - backtest_id
+        - strategy_id
+        - start_date
+        - end_date
+        - status
+        - created_at
+      properties:
+        backtest_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        parameters:
+          type: object
+        results:
+          type: object
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BacktestRunCreate:
+      type: object
+      required:
+        - strategy_id
+        - start_date
+        - end_date
+      properties:
+        strategy_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        parameters:
+          type: object
 
     ErrorResponse:
       type: object
