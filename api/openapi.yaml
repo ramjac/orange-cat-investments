@@ -37,12 +37,18 @@ paths:
           schema:
             type: integer
             default: 20
-        - name: offset
+        - name: last_created_at
           in: query
           required: false
           schema:
-            type: integer
-            default: 0
+            type: string
+            format: date-time
+        - name: last_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: List of hardware assets

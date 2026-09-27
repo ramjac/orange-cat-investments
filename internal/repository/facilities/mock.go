@@ -33,7 +33,7 @@ func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*Har
 	}, nil
 }
 
-func (m *mockRepository) ListAssets(ctx context.Context, limit, offset int32) ([]*HardwareAsset, error) {
+func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
 	var list []*HardwareAsset
 	for _, a := range m.assets {
 		list = append(list, a)

@@ -27,7 +27,7 @@ func TestFacilitiesRepository(t *testing.T) {
 	})
 
 	t.Run("ListAssets", func(t *testing.T) {
-		assets, err := repo.ListAssets(ctx, 10, 0)
+		assets, err := repo.ListAssets(ctx, 10, nil, nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, assets)
 		assert.Equal(t, "asset-uuid-001", assets[0].AssetID)
@@ -105,7 +105,7 @@ func TestFacilitiesRepository(t *testing.T) {
 		_, err := pgxRepo.GetAssetByID(ctx, "asset-001")
 		assert.Error(t, err)
 
-		_, err = pgxRepo.ListAssets(ctx, 10, 0)
+		_, err = pgxRepo.ListAssets(ctx, 10, nil, nil)
 		assert.Error(t, err)
 
 		_, err = pgxRepo.CreateAsset(ctx, &facilities.HardwareAsset{})
@@ -171,6 +171,18 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 
 	if created.TicketID != "maint-uuid-created" {
 		t.Fatalf("expected ticket_id maint-uuid-created, got %s", created.TicketID)
+	}
+	if created.AssetID != input.AssetID {
+		t.Fatalf("expected asset_id %s, got %s", input.AssetID, created.AssetID)
+	}
+	if created.Title != input.Title {
+		t.Fatalf("expected title %s, got %s", input.Title, created.Title)
+	}
+	if created.Description != input.Description {
+		t.Fatalf("expected description %s, got %s", input.Description, created.Description)
+	}
+	if created.Priority != input.Priority {
+		t.Fatalf("expected priority %s, got %s", input.Priority, created.Priority)
 	}
 	if created.Status != "open" {
 		t.Fatalf("expected status open, got %s", created.Status)

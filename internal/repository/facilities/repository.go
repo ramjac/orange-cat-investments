@@ -37,7 +37,7 @@ type MaintenanceTicket struct {
 
 type Repository interface {
 	GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error)
-	ListAssets(ctx context.Context, limit, offset int32) ([]*HardwareAsset, error)
+	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error)
 	CreateAsset(ctx context.Context, asset *HardwareAsset) (*HardwareAsset, error)
 	CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error)
 }
@@ -75,13 +75,16 @@ func (r *pgxRepository) GetAssetByID(ctx context.Context, assetID string) (*Hard
 	return &a, nil
 }
 
-func (r *pgxRepository) ListAssets(ctx context.Context, limit, offset int32) ([]*HardwareAsset, error) {
+func (r *pgxRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 	query := `SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at
-              FROM facilities.hardware_assets ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-	rows, err := r.db.Query(ctx, query, limit, offset)
+              FROM facilities.hardware_assets
+              WHERE ($1::timestamptz IS NULL OR $2::uuid IS NULL OR (created_at, asset_id) < ($1, $2))
+              ORDER BY created_at DESC, asset_id DESC
+              LIMIT $3`
+	rows, err := r.db.Query(ctx, query, cursorCreatedAt, cursorID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +93,7 @@ func (r *pgxRepository) ListAssets(ctx context.Context, limit, offset int32) ([]
 	var assets []*HardwareAsset
 	for rows.Next() {
 		var a HardwareAsset
-		if err := rows.Scan(
-			&a.AssetID,
-			&a.SerialNumber,
-			&a.AssetType,
-			&a.Model,
-			&a.Status,
-			&a.ZoneID,
-			&a.AssignedEmployeeID,
-			&a.LastPingAt,
-			&a.CreatedAt,
-			&a.UpdatedAt,
-		); err != nil {
+		if err := rows.Scan(&a.AssetID, &a.SerialNumber, &a.AssetType, &a.Model, &a.Status, &a.ZoneID, &a.AssignedEmployeeID, &a.LastPingAt, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		assets = append(assets, &a)
