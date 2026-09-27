@@ -66,7 +66,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 * **Log Aggregation:** Loki + Promtail.
 * **Frontend Applications:** Vue 3 (Employee Portal), Hugo (Static Marketing Site).
 * **Mobile Applications:** Flutter SDK (Field Maintenance App with SQLite offline sync).
-* **Wearables & Embedded:** Pebble C SDK Companion App and Go Gateway Proxy (`cmd/pebble-proxy`).
+* **Wearables & Embedded:** Pebble Alloy Embedded JS Companion App (`embedded/pebble`) and Go Gateway Proxy (`cmd/pebble-proxy`).
 * **Backend Services & Tooling:** Go 1.22+.
 
 ---

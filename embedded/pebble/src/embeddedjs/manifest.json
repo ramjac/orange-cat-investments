@@ -1,0 +1,11 @@
+{
+  "include": [
+    "$(MODDABLE)/manifests/xs/manifest.json"
+  ],
+  "modules": {
+    "*": [
+      "./alertCore",
+      "./main"
+    ]
+  }
+}

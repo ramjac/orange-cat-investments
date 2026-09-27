@@ -198,7 +198,7 @@ All internal gRPC communication (`BFF` $\rightarrow$ `BLL` $\rightarrow$ `Domain
 | **Customer Portal** | External Investors | Vue 3 SPA (`web/customer-portal`) | `customer.oci.local` | ZITADEL OIDC + Valkey Session Cookie |
 | **Employee Portal** | Internal Staff & Employers | Vue 3 SPA (`web/employee-portal`) | `employee.oci.local` | Forgejo OAuth2 + Valkey Session Cookie |
 | **Mobile App** | Field Technicians | Flutter | API Ingress | Forgejo Auth / OAuth2 Token |
-| **Watch App** | On-Call Engineers | Pebble C SDK | API Ingress | Companion App Proxy Token |
+| **Watch App** | On-Call Engineers | Pebble Alloy (Embedded JS) | API Ingress | Companion App Proxy Token |
 | **CLI Tool** | Operational Staff | Go Cobra | Direct gRPC | Personal Access Token |
 
 ---
