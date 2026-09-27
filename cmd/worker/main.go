@@ -74,6 +74,7 @@ func main() {
 				)
 			}
 
+			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"brokerage_trade_executed"}`))
 			return []*message.Message{outputMsg}, nil
 		},
 	)
