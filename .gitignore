@@ -17,8 +17,13 @@ coverage.*
 *.coverprofile
 profile.cov
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories & logs
+**/node_modules/
+**/dist/
+node_modules/
+dist/
+vendor/
+*.log
 
 # Go workspace file
 go.work
@@ -30,3 +35,14 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+
+# Local server / environment notes (private host details)
+local-server-notes.md

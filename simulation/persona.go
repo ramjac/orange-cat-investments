@@ -17,18 +17,18 @@ type ActionResult struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
-// Action represents a single daily workflow step executed by an OCI employee persona.
+// Action represents a single daily workflow step executed by an OCI employee or customer persona.
 type Action struct {
 	Name        string
 	Description string
 	Execute     func(ctx context.Context, client *Client) (*ActionResult, error)
 }
 
-// Persona represents an OCI employee (human or feline) with daily simulation actions.
+// Persona represents an OCI persona (human employee, feline executive, or customer investor).
 type Persona struct {
 	ID         string
 	Name       string
-	Type       string // "human" or "feline"
+	Type       string // "human", "feline", or "customer"
 	RoleTitle  string
 	Department string
 	Actions    []Action

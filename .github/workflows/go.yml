@@ -26,12 +26,169 @@ jobs:
       - name: Vet Go code
         run: go vet ./...
 
-      - name: Build Go code
+      - name: Build Go binaries & packages
         run: go build -v ./...
+
+  validate-scripts:
+    name: validate-scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Bash syntax check (bash -n)
+        run: |
+          for script in scripts/*.sh; do
+            echo "Checking bash syntax for $script..."
+            bash -n "$script"
+          done
+
+      - name: ShellCheck static analysis
+        run: |
+          echo "Running ShellCheck on scripts/*.sh..."
+          shellcheck scripts/*.sh
+
+      - name: Validate Ansible playbooks & roles YAML
+        run: |
+          python3 -c "
+          import glob, yaml
+          for p in sorted(glob.glob('ansible/**/*.yml', recursive=True)):
+              print(f'Validating Ansible YAML: {p}')
+              with open(p) as f:
+                  list(yaml.safe_load_all(f))
+          print('All Ansible YAML files validated successfully.')
+          "
+
+  validate-k8s:
+    name: validate-k8s
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate YAML syntax across Kubernetes manifests
+        run: |
+          python3 -c "
+          import glob, yaml
+          for path in sorted(glob.glob('k8s/**/*.yaml', recursive=True)):
+              print(f'Validating YAML: {path}')
+              with open(path) as f:
+                  list(yaml.safe_load_all(f))
+          print('All Kubernetes YAML manifests are syntactically valid.')
+          "
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar -xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate Kubernetes schemas with kubeconform
+        run: |
+          kubeconform -summary -ignore-missing-schemas -kubernetes-version 1.28.0 k8s/
+
+
+
+  validate-openapi:
+    name: validate-openapi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate OpenAPI specification YAML syntax & structure
+        run: |
+          python3 -c "
+          import yaml
+          with open('api/openapi.yaml') as f:
+              spec = yaml.safe_load(f)
+          assert spec.get('openapi', '').startswith('3.'), f'Invalid OpenAPI version: {spec.get(\"openapi\")}'
+          assert 'info' in spec, 'Missing info block'
+          assert 'paths' in spec, 'Missing paths block'
+          assert len(spec['paths']) > 0, 'No paths defined'
+          print(f'OpenAPI specification validated: {spec[\"info\"][\"title\"]} v{spec[\"info\"][\"version\"]} with {len(spec[\"paths\"])} endpoints')
+          "
+
+  validate-sql:
+    name: validate-sql
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oci_admin
+          POSTGRES_PASSWORD: oci_secure_pass
+          POSTGRES_DB: oci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure PostgreSQL client is installed
+        run: |
+          which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Validate SQL table assertions
+        run: |
+          python3 -c "
+          with open('scripts/init.sql') as f:
+              sql = f.read()
+          assert 'facilities.firmware_releases' in sql, 'Missing facilities.firmware_releases'
+          assert 'facilities.maintenance_logs' in sql, 'Missing facilities.maintenance_logs'
+          assert 'facilities.device_ota_jobs' in sql, 'Missing facilities.device_ota_jobs'
+          assert 'workforce.care_schedules' in sql, 'Missing workforce.care_schedules'
+          assert 'core_invest.investment_portfolios' in sql, 'Missing core_invest.investment_portfolios'
+          assert 'ops.it_tickets' in sql, 'Missing ops.it_tickets'
+          print('SQL syntax and table assertions passed successfully')
+          "
+
+      - name: Apply scripts/init.sql to live PostgreSQL 16
+        env:
+          PGPASSWORD: oci_secure_pass
+        run: |
+          psql -h localhost -U oci_admin -d oci -f scripts/init.sql
+
+      - name: Verify schemas, tables, and seed data in PostgreSQL 16
+        env:
+          PGPASSWORD: oci_secure_pass
+        run: |
+          psql -h localhost -U oci_admin -d oci -c "
+            SELECT 'workforce.employees' AS tbl, count(*) FROM workforce.employees
+            UNION ALL
+            SELECT 'facilities.hardware_assets', count(*) FROM facilities.hardware_assets
+            UNION ALL
+            SELECT 'facilities.location_zones', count(*) FROM facilities.location_zones
+            UNION ALL
+            SELECT 'core_invest.investment_portfolios', count(*) FROM core_invest.investment_portfolios
+            UNION ALL
+            SELECT 'core_invest.allocation_strategies', count(*) FROM core_invest.allocation_strategies
+            UNION ALL
+            SELECT 'ops.it_tickets', count(*) FROM ops.it_tickets;
+          "
 
   test:
     name: test
     runs-on: ubuntu-latest
+    needs: [build, validate-scripts, validate-k8s, validate-openapi, validate-sql]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oci_admin
+          POSTGRES_PASSWORD: oci_secure_pass
+          POSTGRES_DB: oci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,5 +198,31 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Run Go tests
+      - name: Ensure PostgreSQL client is installed
+        run: |
+          which psql || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Initialize PostgreSQL 16 schema & seed data
+        env:
+          PGPASSWORD: oci_secure_pass
+        run: |
+          psql -h localhost -U oci_admin -d oci -f scripts/init.sql
+
+      - name: Run Go tests with race detection
         run: go test -v -race ./...
+
+      - name: Run Platform Simulation Driver (Mock Mode - All 10 Personas)
+        run: go run ./simulation/cmd/simulator -mode mock
+
+      - name: Run Unified API Server, BFF, and Live Platform Simulation
+        env:
+          DATABASE_URL: "postgres://oci_admin:oci_secure_pass@localhost:5432/oci?sslmode=disable"
+        run: |
+          PORT=8080 go run ./cmd/server &
+          SERVER_PID=$!
+          PORT=8081 go run ./cmd/employee-bff &
+          BFF_PID=$!
+          sleep 4
+          # Execute live simulation driver against live API server & BFF
+          go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081
+          kill $SERVER_PID $BFF_PID

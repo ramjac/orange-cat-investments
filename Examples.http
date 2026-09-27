@@ -1,0 +1,320 @@
+# ==============================================================================
+# Orange Cat Investments (OCI) - RESTful API Examples
+# ==============================================================================
+# This file contains executable HTTP requests for testing the OCI platform APIs.
+# Compatible with VS Code REST Client extension, JetBrains HTTP Client, and httpyac.
+#
+# Default Local Port Topology:
+#   - Unified API Server : http://localhost:8080 (serves all 4 domains)
+#   - Employee BFF       : http://localhost:8081 (session & auth gateway)
+#   - Pebble Proxy       : http://localhost:8082 (wearable companion proxy)
+# ==============================================================================
+
+@baseUrl = http://localhost:8080
+@bffUrl = http://localhost:8081
+@pebbleUrl = http://localhost:8082
+
+# Seeded Reference IDs:
+@seededCameraAssetId = 018e0000-0000-7000-8000-000000000001
+@seededZoneId = 018f3a9a-1111-7000-8000-000000000001
+@seededPortfolioId = 018f3a9a-2222-7000-8000-000000000002
+@seededStrategyId = 018f3a9a-4444-7000-8000-000000000004
+@seededFirmwareReleaseId = 018e0000-0000-7000-8000-000000000002
+@felineGarfieldId = emp-feline-garfield
+@felineBarnebyId = emp-feline-barneby
+
+
+# ==============================================================================
+# 1. SYSTEM HEALTH CHECKS
+# ==============================================================================
+
+### Health Check - Unified API Server (:8080)
+GET {{baseUrl}}/healthz
+
+### Health Check - Employee BFF (:8081)
+GET {{bffUrl}}/healthz
+
+
+# ==============================================================================
+# 2. FACILITIES & HARDWARE ASSETS DOMAIN
+# ==============================================================================
+
+### List Hardware Assets (Keyset Pagination)
+GET {{baseUrl}}/facilities/assets
+Accept: application/json
+
+### Filter Hardware Assets by Asset Type
+GET {{baseUrl}}/facilities/assets?asset_type=edge_camera
+Accept: application/json
+
+### Get Single Hardware Asset by ID
+GET {{baseUrl}}/facilities/assets/{{seededCameraAssetId}}
+Accept: application/json
+
+### Register New Hardware Asset (Edge Camera Rig)
+POST {{baseUrl}}/facilities/assets
+Content-Type: application/json
+
+{
+  "serial_number": "CAM-RIG-2026-N01",
+  "asset_type": "edge_camera",
+  "model": "4K-Feline-Scope-V3",
+  "zone_id": "{{seededZoneId}}"
+}
+
+### Submit Offline Maintenance Logs (Field Sync from Flutter Mobile App)
+POST {{baseUrl}}/facilities/sync/maintenance-logs
+Content-Type: application/json
+
+[
+  {
+    "asset_id": "{{seededCameraAssetId}}",
+    "qr_code_scanned": "QR-CAM-ORANGE-01",
+    "action_taken": "Cleaned optical sensor lens and recalibrated zoom focus"
+  }
+]
+
+### Register Maintenance Ticket for Hardware Asset
+POST {{baseUrl}}/facilities/assets/{{seededCameraAssetId}}/maintenance
+Content-Type: application/json
+
+{
+  "issue_description": "Camera night-vision infrared filter stuck in open position",
+  "priority": "medium"
+}
+
+### Publish Edge Device Firmware Release
+POST {{baseUrl}}/facilities/firmware
+Content-Type: application/json
+
+{
+  "device_type": "edge_camera",
+  "version": "v2.2.0-catos",
+  "file_url": "https://firmware.oci.local/v2.2.0.bin",
+  "checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
+
+### Trigger Over-The-Air (OTA) Firmware Rollout Job
+POST {{baseUrl}}/facilities/firmware/ota-jobs
+Content-Type: application/json
+
+{
+  "asset_ids": [
+    "{{seededCameraAssetId}}"
+  ],
+  "release_id": "{{seededFirmwareReleaseId}}"
+}
+
+
+# ==============================================================================
+# 3. WORKFORCE MANAGEMENT & FELINE CARE DOMAIN
+# ==============================================================================
+
+### List All Employees (Human Staff & Feline Executives)
+GET {{baseUrl}}/api/v1/workforce/employees
+Accept: application/json
+
+### Filter Workforce by Employee Type (Felines)
+GET {{baseUrl}}/api/v1/workforce/employees?type=feline
+Accept: application/json
+
+### Get Garfield Employee Details
+GET {{baseUrl}}/api/v1/workforce/employees/{{felineGarfieldId}}
+Accept: application/json
+
+### Get Garfield Care Schedule & Dietary Protocol
+GET {{baseUrl}}/api/v1/workforce/care-schedules/{{felineGarfieldId}}
+Accept: application/json
+
+### Update Garfield Care Schedule (Dr. Elena Rostova)
+PUT {{baseUrl}}/api/v1/workforce/care-schedules/{{felineGarfieldId}}
+Content-Type: application/json
+
+{
+  "dietary_plan": "Low-Sodium Organic Salmon & Grain-Free Lasagna Kibble",
+  "feeding_times": ["06:00", "12:00", "18:00"],
+  "special_medical_needs": "Routine dental checkup completed. Approved for perch duties.",
+  "preferred_perch_zone": "Alpha Sunbeam Lounge"
+}
+
+### Toggle Emergency Medical Trading Hold (Emergency Pause for Feline)
+POST {{baseUrl}}/api/v1/workforce/care-schedules/{{felineGarfieldId}}/medical-hold
+Content-Type: application/json
+
+{
+  "emergency_medical_hold": true
+}
+
+### Release Emergency Medical Trading Hold
+POST {{baseUrl}}/api/v1/workforce/care-schedules/{{felineGarfieldId}}/medical-hold
+Content-Type: application/json
+
+{
+  "emergency_medical_hold": false
+}
+
+### Trigger Distributed Onboarding Saga (Frappe HR Webhook Simulation)
+POST {{baseUrl}}/api/v1/webhooks/frappe-hr
+Content-Type: application/json
+
+{
+  "event": "employee_created",
+  "data": {
+    "first_name": "Felix",
+    "last_name": "Whiskers",
+    "employee_type": "feline",
+    "role_title": "Junior Perch Observation Specialist",
+    "department": "Feline Operations"
+  }
+}
+
+
+# ==============================================================================
+# 4. CORE INVESTMENT & BEHAVIORAL TELEMETRY DOMAIN
+# ==============================================================================
+
+### Register Optical Camera Stream (RTSP / WebRTC Ingest)
+POST {{baseUrl}}/core-invest/streams
+Content-Type: application/json
+
+{
+  "camera_asset_id": "{{seededCameraAssetId}}",
+  "stream_url": "rtsp://edge-cam-01.oci.local/live",
+  "protocol": "rtsp",
+  "ingest_settings": "{\"fps\": 30, \"resolution\": \"3840x2160\"}"
+}
+
+### List Brokerage Trade Orders
+GET {{baseUrl}}/core-invest/brokerage/orders
+Accept: application/json
+
+### Execute Automated Trade Order (Triggered by Feline Activity)
+POST {{baseUrl}}/core-invest/brokerage/orders
+Content-Type: application/json
+
+{
+  "portfolio_id": "{{seededPortfolioId}}",
+  "broker_name": "Interactive Brokers",
+  "symbol": "AAPL",
+  "side": "buy",
+  "quantity": 100,
+  "price": 225.50
+}
+
+### Initiate Quantitative Backtest Run (Comparing Cat Behavior vs Equity Performance)
+POST {{baseUrl}}/core-invest/backtesting/runs
+Content-Type: application/json
+
+{
+  "strategy_id": "{{seededStrategyId}}",
+  "start_date": "2026-08-01T00:00:00Z",
+  "end_date": "2026-09-27T00:00:00Z",
+  "parameters": "{\"multiplier\": 1.5, \"confidence_threshold\": 0.95}"
+}
+
+
+# ==============================================================================
+# 5. OPERATIONS & PEBBLE WATCH WEARABLE DOMAIN
+# ==============================================================================
+
+### List All IT Tickets (Forgejo Ingestion)
+GET {{baseUrl}}/ops/tickets
+Accept: application/json
+
+### Create Infrastructure Support Ticket (Intermediate CA Rotation Audit)
+POST {{baseUrl}}/ops/tickets
+Content-Type: application/json
+
+{
+  "forgejo_repo": "oci/infrastructure",
+  "title": "Routine Intermediate CA Key Rotation Audit",
+  "body": "Cert-manager renewed oci-intermediate-ca. Verify SPIFFE ID mTLS dynamic reloads across all pods.",
+  "state": "open",
+  "author_username": "emp-human-frank"
+}
+
+### Query Pending Pebble Smartwatch Alerts (Formatted for AppMessage Dictionary)
+GET {{pebbleUrl}}/ops/pebble/alerts
+Accept: application/json
+
+### Submit Pebble Watch Physical Button ACK (Acknowledges Ticket & Clears Alert Feed)
+POST {{pebbleUrl}}/ops/pebble/ack
+Content-Type: application/json
+
+{
+  "ticket_id": "018e0000-0000-7000-8000-000000000003",
+  "acknowledged_by": "frank_ops",
+  "button_id": 1
+}
+
+
+# ==============================================================================
+# 6. CUSTOMER PORTAL INVESTOR WORKFLOWS
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Persona A: Arthur Pendelton (Long-Term Value & Yield Investor)
+# ------------------------------------------------------------------------------
+
+### Arthur: Review Portfolio Performance & Executed Allocation History
+GET {{baseUrl}}/core-invest/brokerage/orders
+Accept: application/json
+
+### Arthur: Monthly Dollar-Cost Averaging (DCA) Index Buy Order
+POST {{baseUrl}}/core-invest/brokerage/orders
+Content-Type: application/json
+
+{
+  "portfolio_id": "{{seededPortfolioId}}",
+  "strategy_id": "{{seededStrategyId}}",
+  "broker_name": "Vanguard Institutional",
+  "symbol": "VT",
+  "side": "buy",
+  "quantity": 50,
+  "price": 118.25
+}
+
+### Arthur: Audit Real-Time Feline Observation Stream Health
+GET {{baseUrl}}/core-invest/streams
+Accept: application/json
+
+
+# ------------------------------------------------------------------------------
+# Persona B: Chloe Spark (High-Velocity Behavioral Momentum Trader)
+# ------------------------------------------------------------------------------
+
+### Chloe: Monitor Active Feline Camera Feeds for Movement Triggers
+GET {{baseUrl}}/core-invest/streams
+Accept: application/json
+
+### Chloe: Rapid Momentum Buy (Triggered by Garfield Laser Chase Spike)
+POST {{baseUrl}}/core-invest/brokerage/orders
+Content-Type: application/json
+
+{
+  "portfolio_id": "{{seededPortfolioId}}",
+  "strategy_id": "{{seededStrategyId}}",
+  "broker_name": "Interactive Brokers",
+  "symbol": "NVDA",
+  "side": "buy",
+  "quantity": 150,
+  "price": 128.40
+}
+
+### Chloe: High-Speed Take-Profit Sell Order
+POST {{baseUrl}}/core-invest/brokerage/orders
+Content-Type: application/json
+
+{
+  "portfolio_id": "{{seededPortfolioId}}",
+  "strategy_id": "{{seededStrategyId}}",
+  "broker_name": "Interactive Brokers",
+  "symbol": "NVDA",
+  "side": "sell",
+  "quantity": 150,
+  "price": 134.85
+}
+
+### Chloe: Audit Real-Time Execution Fills & Slippage
+GET {{baseUrl}}/core-invest/brokerage/orders
+Accept: application/json

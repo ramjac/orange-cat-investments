@@ -26,6 +26,11 @@ spec:
               value: production
             - name: HBOX_WEB_PORT
               value: "7745"
+            - name: HBOX_AUTH_API_KEY_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HBOX_AUTH_API_KEY_PEPPER
           resources:
             requests:
               cpu: 50m

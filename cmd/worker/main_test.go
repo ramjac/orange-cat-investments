@@ -175,6 +175,66 @@ func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 	}
 }
 
+func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	pubSub := gochannel.NewGoChannel(
+		gochannel.Config{OutputChannelBuffer: 10},
+		watermillLogger,
+	)
+
+	router, err := createRouter(pubSub, watermillLogger, logger)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	otaCompletedMessages, err := pubSub.Subscribe(ctx, "events.facilities.ota_completed.v1")
+	require.NoError(t, err)
+
+	go func() {
+		_ = router.Run(ctx)
+	}()
+
+	<-router.Running()
+
+	event := EventEnvelope[OTATriggeredPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "facilities.ota_triggered.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "test-corr-ota",
+		Payload: OTATriggeredPayload{
+			JobID:      "job-router-1",
+			AssetID:    "asset-router-2",
+			ReleaseID:  "release-router-3",
+			DeviceType: "edge_camera",
+			Version:    "2.1.0",
+			FileURL:    "https://firmware.oci.local/v2.1.0.bin",
+			Checksum:   "sha256checksum",
+		},
+	}
+	payloadBytes, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	msg := message.NewMessage(event.EventID, payloadBytes)
+	err = pubSub.Publish("events.facilities.ota_triggered.v1", msg)
+	require.NoError(t, err)
+
+	select {
+	case outMsg := <-otaCompletedMessages:
+		outMsg.Ack()
+		var completed EventEnvelope[OTACompletedPayload]
+		err := json.Unmarshal(outMsg.Payload, &completed)
+		require.NoError(t, err)
+		assert.Equal(t, "job-router-1", completed.Payload.JobID)
+		assert.Equal(t, "asset-router-2", completed.Payload.AssetID)
+		assert.Equal(t, "completed", completed.Payload.Status)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for output message on events.facilities.ota_completed.v1")
+	}
+}
+
 func TestHandleCatSpotted_DoesNotLogRawPayload(t *testing.T) {
 	buf := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(buf, nil))
@@ -205,6 +265,58 @@ func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 	logs := buf.String()
 	assert.NotContains(t, logs, "CLASSIFIED_QUANT_MODEL")
 	assert.Contains(t, logs, "test-msg-uuid-456")
+}
+
+func TestHandleOTATriggered(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	event := EventEnvelope[OTATriggeredPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "facilities.ota_triggered.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "test-corr-id",
+		Payload: OTATriggeredPayload{
+			JobID:      "job-123",
+			AssetID:    "asset-456",
+			ReleaseID:  "release-789",
+			DeviceType: "edge_camera",
+			Version:    "2.1.0",
+			FileURL:    "https://firmware.oci.local/v2.1.0.bin",
+			Checksum:   "sha256checksum",
+		},
+	}
+
+	data, err := json.Marshal(event)
+	assert.NoError(t, err)
+
+	msg := message.NewMessage(event.EventID, data)
+	outputMsgs, err := HandleOTATriggered(logger, msg)
+
+	assert.NoError(t, err)
+	assert.Len(t, outputMsgs, 1)
+
+	var completionEvent EventEnvelope[OTACompletedPayload]
+	err = json.Unmarshal(outputMsgs[0].Payload, &completionEvent)
+	assert.NoError(t, err)
+	assert.Equal(t, "job-123", completionEvent.Payload.JobID)
+	assert.Equal(t, "asset-456", completionEvent.Payload.AssetID)
+	assert.Equal(t, "completed", completionEvent.Payload.Status)
+}
+
+func TestHandleOTATriggered_DoesNotLogRawPayload(t *testing.T) {
+	buf := &bytes.Buffer{}
+	logger := slog.New(slog.NewJSONHandler(buf, nil))
+
+	secretPayloadStr := `{"secret_ota_token":"SUPER_SECRET_OTA_KEY","payload":{"job_id":"job-1","asset_id":"asset-1","release_id":"rel-1","device_type":"edge_cam","version":"1.0","file_url":"http://url","checksum":"chk"}}`
+	msg := message.NewMessage("test-msg-uuid-789", []byte(secretPayloadStr))
+
+	outMsgs, err := HandleOTATriggered(logger, msg)
+	require.NoError(t, err)
+	require.Len(t, outMsgs, 1)
+
+	logs := buf.String()
+	assert.NotContains(t, logs, "SUPER_SECRET_OTA_KEY")
+	assert.Contains(t, logs, "test-msg-uuid-789")
 }
 
 func BenchmarkEventPublishingOriginal(b *testing.B) {

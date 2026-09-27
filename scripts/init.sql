@@ -164,6 +164,46 @@ CREATE TABLE IF NOT EXISTS facilities.maintenance_tickets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Firmware Releases (OTA updates for edge devices)
+CREATE TABLE IF NOT EXISTS facilities.firmware_releases (
+    release_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    device_type VARCHAR(50) NOT NULL CHECK (device_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
+    version VARCHAR(50) NOT NULL,
+    file_url TEXT NOT NULL,
+    checksum VARCHAR(64) NOT NULL,
+    min_hardware_version VARCHAR(50),
+    status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_device_version UNIQUE (device_type, version)
+);
+
+-- Maintenance Logs (Offline field maintenance logs synced via mobile app)
+CREATE TABLE IF NOT EXISTS facilities.maintenance_logs (
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    ticket_id UUID REFERENCES facilities.maintenance_tickets(ticket_id) ON DELETE SET NULL,
+    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    technician_id UUID REFERENCES workforce.employees(employee_id),
+    qr_code_scanned VARCHAR(255) NOT NULL,
+    action_taken TEXT NOT NULL,
+    notes TEXT,
+    synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Device OTA Jobs (Tracking OTA deployment pipeline status per asset)
+CREATE TABLE IF NOT EXISTS facilities.device_ota_jobs (
+    job_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    release_id UUID NOT NULL REFERENCES facilities.firmware_releases(release_id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'downloading', 'applying', 'completed', 'failed')),
+    error_message TEXT,
+    scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 --------------------------------------------------------------------------------
 -- CORE_INVEST SCHEMA
 --------------------------------------------------------------------------------
@@ -276,3 +316,46 @@ CREATE TABLE IF NOT EXISTS ops.it_tickets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+--------------------------------------------------------------------------------
+-- INITIAL SEED DATA (Foundational Habitat Zones, Assets, Portfolios & Strategies)
+--------------------------------------------------------------------------------
+
+-- Primary Habitat Location Zone
+INSERT INTO facilities.location_zones (zone_id, name, building, floor_level, description)
+VALUES
+    ('018f3a9a-1111-7000-8000-000000000001', 'Alpha Sunbeam Lounge', 'HQ East', 2, 'Primary high-altitude perch lounge and observation zone')
+ON CONFLICT (name) DO NOTHING;
+
+-- Initial Hardware Assets
+INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status, zone_id)
+VALUES
+    ('018e0000-0000-7000-8000-000000000001', 'QR-CAM-ORANGE-01', 'edge_camera', 'FelineCam-Pro-X', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+    ('018f3a9a-3333-7000-8000-000000000003', 'CAM-RIG-2025-01', 'edge_camera', '4K-Feline-Scope-V1', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+    ('018f3a9a-5555-7000-8000-000000000005', 'PERCH-HABITAT-01', 'observation_perch', 'Ergonomic-Alpha-Perch-V2', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+    ('018f3a9a-6666-7000-8000-000000000006', 'COLLAR-SMART-01', 'smart_collar', 'BioSense-Feline-Tag-V3', 'active', '018f3a9a-1111-7000-8000-000000000001')
+ON CONFLICT (serial_number) DO NOTHING;
+
+-- Firmware Release Catalog
+INSERT INTO facilities.firmware_releases (release_id, version, device_type, checksum, file_url, status)
+VALUES
+    ('018e0000-0000-7000-8000-000000000002', 'v2.1.0-catos', 'edge_camera', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'https://firmware.oci.local/v2.1.0.bin', 'published')
+ON CONFLICT (device_type, version) DO NOTHING;
+
+-- Core Investment Portfolio
+INSERT INTO core_invest.investment_portfolios (portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status)
+VALUES
+    ('018f3a9a-2222-7000-8000-000000000002', '018e0000-0000-7000-8000-000000000099', 'OCI Alpha Growth Fund', 100000.00, 25000.00, 'active')
+ON CONFLICT (portfolio_id) DO NOTHING;
+
+-- Automated Allocation Strategy
+INSERT INTO core_invest.allocation_strategies (strategy_id, name, trigger_activity, action_type, target_asset_symbol, multiplier, is_active)
+VALUES
+    ('018f3a9a-4444-7000-8000-000000000004', 'Garfield Zoomies Multiplier', 'zooming', 'buy', 'AAPL', 1.5000, true)
+ON CONFLICT (name) DO NOTHING;
+
+-- Initial IT Ticket for Pebble Alert verification
+INSERT INTO ops.it_tickets (ticket_id, forgejo_issue_id, forgejo_repo, title, body, state, author_username)
+VALUES
+    ('018e0000-0000-7000-8000-000000000003', 101, 'oci/infrastructure', 'High Memory Usage Alert on Edge Gateway', 'Edge camera gateway node memory exceeded 85% threshold.', 'open', 'emp-human-frank')
+ON CONFLICT (ticket_id) DO NOTHING;
