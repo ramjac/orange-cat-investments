@@ -110,6 +110,8 @@ All core functional domains, distributed sagas, client surfaces, and background 
 ### C. Workforce Operations & Automated Sagas (`workforce` & `web/employee-portal`)
 * **Frappe HR Webhook Ingestion:** Webhook endpoint `/api/v1/webhooks/frappe-hr` triggering distributed `OnboardingSaga` and `OffboardingEngine` flows.
 * **Interactive Care Schedule UI:** Vue 3 Employee Portal interface for Dr. Elena Rostova to dynamically edit feline dietary protocols, feeding times, and toggle Emergency Medical Trading Holds (`/api/v1/workforce/care-schedules/{felineId}/medical-hold`).
+* **Leave Requests & Catnip Break Workflow UI:** End-to-end leave management (`/api/v1/workforce/leave-requests`) and Employee Portal management UI for Alice Vance (`emp-human-alice`) supporting leave requests, manager approval/rejection workflows, and feline catnip break compliance tracking.
+* **Review Cycles & Health Assessment Workflow UI:** End-to-end review management (`/api/v1/workforce/review-cycles`), clinical scoring, and Employee Portal UI tab for Alice Vance and Dr. Elena Rostova to schedule, evaluate, and record joint staff performance reviews and monthly feline health assessments.
 
 ### D. Operations & Wearable Alerts (`ops` & `cmd/pebble-proxy`)
 * **Pebble Companion App Gateway Proxy:** Dedicated proxy server (`cmd/pebble-proxy`) translating active IT tickets into Pebble watch AppMessage dictionary payloads (`/ops/pebble/alerts`) and receiving ACK button clicks (`/ops/pebble/ack`).
@@ -494,14 +496,13 @@ A comprehensive audit of the OCI platform against the operational needs of all 1
   * *Future Scope:* Background worker job generating quarterly PDF performance tear sheets, Sharpe/Sortino ratio analytics, and annual Form 1099-B tax documentation.
 
 ### 7.4 Workforce Management & Workplace Operations
-* **Performance Reviews & Assessment Cycles Management:**
+* **Performance Reviews & Assessment Cycles Management (`workforce.review_cycles`):**
   * *Target Personas:* **Alice Vance** (`emp-human-alice`), **Barneby**, **Dr. Elena Rostova**
-  * *Current State:* Table `workforce.review_cycles` exists in the database schema, but has no API handlers or UI views.
-  * *Future Scope:* Complete the REST endpoints and Employee Portal UI for `workforce.review_cycles`, enabling managers to schedule, grade, and record joint performance reviews for human staff and monthly feline health assessments.
+  * *Current State:* **Implemented**. Schema `workforce.review_cycles`, Go domain repository, service validation layer, REST endpoints (`/api/v1/workforce/review-cycles`), simulation actions, and Employee Portal UI tab for scheduling and grading staff appraisals and feline health assessments are operational.
 * **Leave Requests & Catnip Break Workflow UI:**
   * *Target Persona:* **Alice Vance**
-  * *Current State:* Table `workforce.leave_requests` exists in the database schema, but lacks API endpoints and frontend forms.
-  * *Future Scope:* Complete API handlers and portal workflows for `workforce.leave_requests`, supporting leave submission, manager approval chains, and feline catnip break compliance tracking.
+  * *Current State:* **Implemented**. Schema `workforce.leave_requests`, Go domain repository, service layer, REST endpoints (`/api/v1/workforce/leave-requests`), and Employee Portal UI tab for leave submissions and manager approvals are operational.
+
 * **Cross-Species Workplace Incident & Conflict Logging:**
   * *Target Persona:* **Alice Vance**
   * *Current State:* Workplace issues are tracked ad-hoc in Forgejo.
@@ -524,4 +525,45 @@ A comprehensive audit of the OCI platform against the operational needs of all 1
   * *Target Persona:* **Frank Operations**
   * *Current State:* Database PVCs are provisioned, but automated snapshot schedules are not configured.
   * *Future Scope:* Production backup manifests utilizing Barman/pgBackRest for point-in-time PostgreSQL recovery and Velero for Kubernetes persistent volume snapshots.
+
+### 7.6 Platform Genericization & Small Business Blueprint (White-Labeling & Modularization)
+* **Modular Domain Decoupling & Optional Feline Extensions:**
+  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **External Developers & Fork Authors**
+  * *Current State:* The core architecture features industry-standard, production-grade patterns (K3s Kubernetes deployment, Ansible provisioning, cert-manager dynamic mTLS, Valkey session security without browser JWTs, PostgreSQL schema isolation, and self-hosted COTS like Nextcloud, Forgejo, ZITADEL, and ERPNext/Frappe HR). However, the feline observation and quantitative trading domain (`core_invest`, `emp-feline-*`, `catnip_breaks`, `care_schedules`, `observation_perches`) is tightly coupled to the base installation and database schemas.
+  * *Future Scope:* Decouple feline-specific logic into an optional pluggable module via configuration flags (e.g., `ENABLE_CORE_INVEST=false`, `ENABLE_FELINE_WORKFORCE=false`, `ENABLE_PEBBLE_GATEWAY=false`):
+    * **Modular Schemas:** Partition `scripts/init.sql` into standard small-business foundations (`01-workforce-core.sql`, `02-facilities-core.sql`, `03-ops-core.sql`) and an optional demo overlay (`04-oci-feline-investments.sql`). In standard mode, workforce tables support conventional employee classifications (`full_time`, `contractor`, `part_time`) with standard leave types, omitting cat care protocols unless explicitly enabled.
+    * **Clean API Routing:** When the novelty investment domain is toggled off, the unified API server (`cmd/server`) and worker (`cmd/worker`) omit `/core-invest/*` routes and run strictly general-purpose enterprise APIs.
+
+* **Centralized Brand Tokenization & UI White-Labeling (Fonts, Colors, Legal Entity):**
+  * *Target Personas:* **Independent SMB Business Owners**, **External Developers & Fork Authors**
+  * *Current State:* Branding elements ("Orange Cat Investments", `#ea580c` / `#f97316` brand palette, cat emojis, and feline role designations) are hardcoded across the Vue 3 SPAs (`customer-portal`, `employee-portal`), Flutter field mobile app, and Hugo marketing site.
+  * *Future Scope:* Implement a centralized design token and branding configuration manifest (`config/branding.yaml` or environment-driven tokens) controlling:
+    * Organization legal entity name, trading name, slogan, and metadata.
+    * Customizable color schemes (primary, secondary, accent, neutral, status) surfaced via CSS variables (`--brand-primary`, `--brand-accent`, etc.) across all frontend templates.
+    * Custom typography and font families (self-hosted or CDN), vector SVG logos (light/dark variants), and app favicons.
+    * Configurable persona headers in the Employee Portal (e.g., CEO, Head of HR, Facilities Lead) rather than hardcoded feline executives.
+
+* **Turnkey Small Business Suite Fast-Path (COTS-Only & Starter Scaffolding):**
+  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **Frank Operations** (`emp-human-frank`)
+  * *Current State:* Deploying the platform via `scripts/deploy-k8s.sh` deploys all COTS and custom Go services simultaneously.
+  * *Future Scope:* Provide a standalone small business profile (`./scripts/deploy-k8s.sh --profile small-business` or `docker compose -f docker-compose.smb.yaml up`) that spins up only the battle-tested, self-hosted productivity ecosystem:
+    * **Nextcloud Hub:** Private cloud document storage, calendars, contacts, file synchronization, and collaborative office suite.
+    * **Forgejo:** Self-hosted git repositories, issue tracking, pull request code review, and project kanban boards.
+    * **ERPNext & Frappe HR:** Double-entry bookkeeping, invoicing, tax accounting, payroll, and general human resource management.
+    * **ZITADEL:** Enterprise OIDC / OAuth2 identity provider bridging single sign-on (SSO) credentials across all applications.
+    * **Valkey & PostgreSQL 16:** In-memory caching, server-side session persistence, and multi-schema relational database.
+    * **Cert-Manager & Dynamic PKI:** Automated mTLS and TLS certificate issuance and renewal.
+
+* **CLI Project Generator & New Custom Domain Scaffolding (`oci-init` / `blueprint-gen`):**
+  * *Target Personas:* **External Developers & Fork Authors**, **Independent SMB Business Owners**
+  * *Current State:* Developers creating custom software must manually strip out feline references from code and schema files.
+  * *Future Scope:* Create an interactive initialization tool (`scripts/init-business.sh` or `blueprint-gen` CLI) that:
+    * Prompts the user for business name, base domain (`acme-corp.local`), primary brand color, and desired business modules.
+    * Automatically removes or archives the feline demo domain and generates a clean starter custom Go microservice following the repository's strict architectural invariants:
+      * **Schema Isolation:** Dedicated PostgreSQL schema (`acme.*`) with no cross-schema table queries.
+      * **Session Security:** Go REST BFF layer with Valkey server-side session management and double-submit CSRF (zero JWTs in web SPAs).
+      * **Zero Long-Lived Certs:** Dynamic mTLS certificate reloading using Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`).
+      * **Event Bus Standard:** Watermill / RabbitMQ publisher/subscriber using `envelope.EventEnvelope[T]` with UUIDv7, UTC timestamps, and OpenTelemetry trace propagation.
+      * **Contract-First APIs:** OpenAPI 3.1 YAML specifications with linting and code generation harnesses.
+
 
