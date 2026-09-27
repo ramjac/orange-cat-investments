@@ -12,6 +12,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"github.com/orange-cat-investments/oci/internal/service/pki"
 )
 
 type EventEnvelope[T any] struct {
@@ -27,6 +28,14 @@ type CatSpottedPayload struct {
 	FelineID        string  `json:"feline_id"`
 	ActivityType    string  `json:"activity_type"`
 	ConfidenceScore float64 `json:"confidence_score"`
+}
+
+type CARotationPayload struct {
+	IntermediateCAName       string    `json:"intermediate_ca_name"`
+	NewSerialNumber           string    `json:"new_serial_number"`
+	ExpiresAt                 time.Time `json:"expires_at"`
+	ReissuedCertificatesCount int       `json:"reissued_certificates_count"`
+	Status                    string    `json:"status"`
 }
 
 type pubSub interface {
@@ -98,12 +107,72 @@ func main() {
 		os.Exit(1)
 	}
 
+	caManager := pki.NewCARotationManager(pki.CARotationConfig{
+		RootCAName:           "oci-root-ca",
+		IntermediateCAName:   "oci-intermediate-ca",
+		RenewalThresholdDays: 30,
+		IssuerNamespace:      "cert-manager",
+	})
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
 		if err := router.Run(ctx); err != nil {
 			logger.Error("watermill router error", "error", err)
+		}
+	}()
+
+	// CA Rotation Worker Ticker (Automated Root/Intermediate CA key rotation)
+	go func() {
+		<-router.Running()
+		// Initial check on worker startup
+		res, err := caManager.CheckAndRotateCA(ctx)
+		if err != nil {
+			logger.Error("failed initial CA rotation check", "error", err)
+		} else {
+			logger.Info("automated CA key rotation check completed",
+				"status", res.Status,
+				"ca_name", res.IntermediateCAName,
+				"serial_number", res.NewSerialNumber,
+				"reissued_certs", res.ReissuedCertificatesCount,
+			)
+
+			if res.Status == "CA_ROTATED_SUCCESSFULLY" {
+				event := EventEnvelope[CARotationPayload]{
+					EventID:       watermill.NewUUID(),
+					EventType:     "ops.ca_rotated.v1",
+					OccurredAt:    res.RotatedAt,
+					CorrelationID: "ca-rotation-trace-001",
+					Payload: CARotationPayload{
+						IntermediateCAName:       res.IntermediateCAName,
+						NewSerialNumber:           res.NewSerialNumber,
+						ExpiresAt:                 res.ExpiresAt,
+						ReissuedCertificatesCount: res.ReissuedCertificatesCount,
+						Status:                    res.Status,
+					},
+				}
+				data, _ := json.Marshal(event)
+				msg := message.NewMessage(event.EventID, data)
+				_ = pubSub.Publish("events.ops.ca_rotated.v1", msg)
+			}
+		}
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				res, err := caManager.CheckAndRotateCA(ctx)
+				if err != nil {
+					logger.Error("failed scheduled CA rotation check", "error", err)
+				} else {
+					logger.Info("scheduled CA key rotation check completed", "status", res.Status)
+				}
+			}
 		}
 	}()
 
