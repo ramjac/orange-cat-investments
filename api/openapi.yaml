@@ -1,48 +1,58 @@
 openapi: 3.1.0
 info:
   title: Orange Cat Investments (OCI) Platform API
-  description: API specification for OCI Backend-For-Frontend (BFF) endpoints serving Customer Portal (`customer.oci.local`) and Employee Portal (`employee.oci.local`).
+  description: API specification for OCI Backend-For-Frontend (BFF) endpoints serving
+    Customer Portal (`customer.oci.local`) and Employee Portal (`employee.oci.local`).
   version: 1.0.0
 servers:
-  - url: https://api.oci.local/api/v1
-    description: Common Ingress Development API Router
-  - url: https://customer.oci.local/api/v1
-    description: Customer BFF (ZITADEL OIDC Auth)
-  - url: https://employee.oci.local/api/v1
-    description: Employee BFF (Forgejo OAuth2 Auth)
-
+- url: https://api.oci.local/api/v1
+  description: Common Ingress Development API Router
+- url: https://customer.oci.local/api/v1
+  description: Customer BFF (ZITADEL OIDC Auth)
+- url: https://employee.oci.local/api/v1
+  description: Employee BFF (Forgejo OAuth2 Auth)
 paths:
   /facilities/assets:
     get:
       summary: List Hardware Assets
       operationId: listAssets
       tags:
-        - Facilities Assets
+      - Facilities Assets
       parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [active, maintenance_required, offline, pending_return, decommissioned]
-        - name: asset_type
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 0
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - active
+          - maintenance_required
+          - offline
+          - pending_return
+          - decommissioned
+      - name: asset_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - edge_camera
+          - observation_perch
+          - smart_collar
+          - gateway
+          - feeder
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
       responses:
         '200':
           description: List of hardware assets
@@ -61,12 +71,11 @@ paths:
           $ref: '#/components/responses/401Unauthorized'
         '500':
           $ref: '#/components/responses/500InternalError'
-
     post:
       summary: Register New Hardware Asset
       operationId: createAsset
       tags:
-        - Facilities Assets
+      - Facilities Assets
       requestBody:
         required: true
         content:
@@ -84,20 +93,19 @@ paths:
           $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401Unauthorized'
-
   /facilities/assets/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     get:
       summary: Get Hardware Asset Details
       operationId: getAssetById
       tags:
-        - Facilities Assets
+      - Facilities Assets
       responses:
         '200':
           description: Hardware asset details
@@ -107,12 +115,11 @@ paths:
                 $ref: '#/components/schemas/HardwareAsset'
         '404':
           $ref: '#/components/responses/404NotFound'
-
     put:
       summary: Update Hardware Asset Details
       operationId: updateAsset
       tags:
-        - Facilities Assets
+      - Facilities Assets
       requestBody:
         required: true
         content:
@@ -128,29 +135,27 @@ paths:
                 $ref: '#/components/schemas/HardwareAsset'
         '404':
           $ref: '#/components/responses/404NotFound'
-
     delete:
       summary: Decommission Hardware Asset
       operationId: deleteAsset
       tags:
-        - Facilities Assets
+      - Facilities Assets
       responses:
         '204':
           description: Hardware asset decommissioned
-
   /facilities/assets/{id}/maintenance:
     post:
       summary: Report Maintenance / Create Maintenance Ticket
       operationId: reportMaintenance
       tags:
-        - Facilities Maintenance
+      - Facilities Maintenance
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -164,26 +169,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MaintenanceTicket'
-
   /workforce/employees:
     get:
       summary: List Employees (Human and Feline)
       operationId: listEmployees
       tags:
-        - Workforce Management
+      - Workforce Management
       parameters:
-        - name: employee_type
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [human, feline]
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [onboarding, active, on_leave, separated, retired]
+      - name: employee_type
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - human
+          - feline
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - onboarding
+          - active
+          - on_leave
+          - separated
+          - retired
       responses:
         '200':
           description: List of employees
@@ -198,13 +209,12 @@ paths:
                       $ref: '#/components/schemas/Employee'
                   total:
                     type: integer
-
   /workforce/employees/onboard:
     post:
       summary: Onboard New Employee
       operationId: onboardEmployee
       tags:
-        - Workforce Management
+      - Workforce Management
       requestBody:
         required: true
         content:
@@ -218,20 +228,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Employee'
-
   /workforce/employees/{id}:
     parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     get:
       summary: Get Employee Details
       operationId: getEmployeeById
       tags:
-        - Workforce Management
+      - Workforce Management
       responses:
         '200':
           description: Employee detailed profile
@@ -241,20 +250,19 @@ paths:
                 $ref: '#/components/schemas/Employee'
         '404':
           $ref: '#/components/responses/404NotFound'
-
   /workforce/employees/{id}/onboarding:
     get:
       summary: Get Employee Onboarding Checklist
       operationId: getEmployeeOnboardingChecklist
       tags:
-        - Workforce Management
+      - Workforce Management
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: List of onboarding checklist items
@@ -264,20 +272,19 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/OnboardingChecklistTask'
-
   /workforce/onboarding/tasks/{taskId}:
     put:
       summary: Update Onboarding Checklist Task Status
       operationId: updateOnboardingTask
       tags:
-        - Workforce Management
+      - Workforce Management
       parameters:
-        - name: taskId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -285,7 +292,7 @@ paths:
             schema:
               type: object
               required:
-                - is_completed
+              - is_completed
               properties:
                 is_completed:
                   type: boolean
@@ -296,26 +303,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OnboardingChecklistTask'
-
   /workforce/leave-requests:
     get:
       summary: List Leave Requests
       operationId: listLeaveRequests
       tags:
-        - Workforce Leave
+      - Workforce Leave
       parameters:
-        - name: employee_id
-          in: query
-          required: false
-          schema:
-            type: string
-            format: uuid
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [pending, approved, rejected, cancelled]
+      - name: employee_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - pending
+          - approved
+          - rejected
+          - cancelled
       responses:
         '200':
           description: List of leave requests
@@ -325,12 +335,11 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/LeaveRequest'
-
     post:
       summary: Submit Leave Request
       operationId: createLeaveRequest
       tags:
-        - Workforce Leave
+      - Workforce Leave
       requestBody:
         required: true
         content:
@@ -344,20 +353,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LeaveRequest'
-
   /workforce/leave-requests/{id}/status:
     put:
       summary: Approve or Reject Leave Request
       operationId: updateLeaveStatus
       tags:
-        - Workforce Leave
+      - Workforce Leave
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -371,32 +379,224 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LeaveRequest'
-
+  /core-invest/streams:
+    get:
+      summary: List Camera Ingestion Streams
+      operationId: listCameraStreams
+      tags:
+      - Stream Ingestion
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: List of camera ingestion streams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CameraStream'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Register Camera Ingestion Stream
+      operationId: createCameraStream
+      tags:
+      - Stream Ingestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraStreamCreate'
+      responses:
+        '201':
+          description: Camera stream registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStream'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+  /core-invest/brokerage/orders:
+    get:
+      summary: List Brokerage Orders
+      operationId: listBrokerageOrders
+      tags:
+      - Brokerage Execution
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: List of brokerage execution orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BrokerageOrder'
+    post:
+      summary: Execute Automated Brokerage Order
+      operationId: createBrokerageOrder
+      tags:
+      - Brokerage Execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrokerageOrderCreate'
+      responses:
+        '201':
+          description: Brokerage order submitted and executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerageOrder'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+  /core-invest/brokerage/orders/{id}:
+    get:
+      summary: Get Brokerage Order Details
+      operationId: getBrokerageOrderById
+      tags:
+      - Brokerage Execution
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Brokerage order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrokerageOrder'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+  /core-invest/backtesting/runs:
+    get:
+      summary: List Backtest Runs
+      operationId: listBacktestRuns
+      tags:
+      - Backtesting Workbench
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+      responses:
+        '200':
+          description: List of backtest runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BacktestRun'
+    post:
+      summary: Start Backtest Run
+      operationId: createBacktestRun
+      tags:
+      - Backtesting Workbench
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BacktestRunCreate'
+      responses:
+        '201':
+          description: Backtest run initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestRun'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+  /core-invest/backtesting/runs/{id}:
+    get:
+      summary: Get Backtest Run Results
+      operationId: getBacktestRunById
+      tags:
+      - Backtesting Workbench
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Backtest run details and results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BacktestRun'
+        '404':
+          $ref: '#/components/responses/404NotFound'
   /ops/tickets:
     get:
       summary: List IT Helpdesk Tickets
       operationId: listITTickets
       tags:
-        - IT Operations
+      - IT Operations
       parameters:
-        - name: state
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [open, closed, acknowledged]
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 0
+      - name: state
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - open
+          - closed
+          - acknowledged
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 20
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
       responses:
         '200':
           description: List of IT tickets
@@ -411,12 +611,11 @@ paths:
                       $ref: '#/components/schemas/ITTicket'
                   total:
                     type: integer
-
     post:
       summary: Create IT Helpdesk Ticket
       operationId: createITTicket
       tags:
-        - IT Operations
+      - IT Operations
       requestBody:
         required: true
         content:
@@ -430,13 +629,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ITTicket'
-
   /ops/pebble/alerts:
     get:
       summary: Get Pebble Companion Watch Alert Payloads
       operationId: getPebbleAlerts
       tags:
-        - Wearable Proxy
+      - Wearable Proxy
       responses:
         '200':
           description: List of active alert payloads formatted for Pebble watch AppMessage
@@ -446,13 +644,12 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/PebbleAlertPayload'
-
   /ops/pebble/ack:
     post:
       summary: Submit Pebble Watch ACK Button Interaction
       operationId: submitPebbleAck
       tags:
-        - Wearable Proxy
+      - Wearable Proxy
       requestBody:
         required: true
         content:
@@ -466,18 +663,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PebbleAckResponse'
-
 components:
   schemas:
     HardwareAsset:
       type: object
       required:
-        - asset_id
-        - serial_number
-        - asset_type
-        - model
-        - status
-        - created_at
+      - asset_id
+      - serial_number
+      - asset_type
+      - model
+      - status
+      - created_at
       properties:
         asset_id:
           type: string
@@ -486,12 +682,22 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum:
+          - edge_camera
+          - observation_perch
+          - smart_collar
+          - gateway
+          - feeder
         model:
           type: string
         status:
           type: string
-          enum: [active, maintenance_required, offline, pending_return, decommissioned]
+          enum:
+          - active
+          - maintenance_required
+          - offline
+          - pending_return
+          - decommissioned
         zone_id:
           type: string
           format: uuid
@@ -510,48 +716,55 @@ components:
         updated_at:
           type: string
           format: date-time
-
     HardwareAssetCreate:
       type: object
       required:
-        - serial_number
-        - asset_type
-        - model
+      - serial_number
+      - asset_type
+      - model
       properties:
         serial_number:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum:
+          - edge_camera
+          - observation_perch
+          - smart_collar
+          - gateway
+          - feeder
         model:
           type: string
         zone_id:
           type: string
           format: uuid
-
     HardwareAssetUpdate:
       type: object
       properties:
         status:
           type: string
-          enum: [active, maintenance_required, offline, pending_return, decommissioned]
+          enum:
+          - active
+          - maintenance_required
+          - offline
+          - pending_return
+          - decommissioned
         zone_id:
           type: string
           format: uuid
         assigned_employee_id:
           type: string
           format: uuid
-
     MaintenanceTicket:
       type: object
       required:
-        - ticket_id
-        - asset_id
-        - title
-        - description
-        - priority
-        - status
-        - created_at
+      - ticket_id
+      - asset_id
+      - title
+      - description
+      - priority
+      - status
+      - created_at
       properties:
         ticket_id:
           type: string
@@ -565,10 +778,18 @@ components:
           type: string
         priority:
           type: string
-          enum: [low, medium, high, critical]
+          enum:
+          - low
+          - medium
+          - high
+          - critical
         status:
           type: string
-          enum: [open, in_progress, resolved, closed]
+          enum:
+          - open
+          - in_progress
+          - resolved
+          - closed
         assigned_technician_id:
           type: string
           format: uuid
@@ -576,13 +797,12 @@ components:
         created_at:
           type: string
           format: date-time
-
     MaintenanceTicketCreate:
       type: object
       required:
-        - title
-        - description
-        - priority
+      - title
+      - description
+      - priority
       properties:
         title:
           type: string
@@ -590,25 +810,30 @@ components:
           type: string
         priority:
           type: string
-          enum: [low, medium, high, critical]
-
+          enum:
+          - low
+          - medium
+          - high
+          - critical
     Employee:
       type: object
       required:
-        - employee_id
-        - employee_type
-        - first_name
-        - role_title
-        - department
-        - status
-        - hired_at
+      - employee_id
+      - employee_type
+      - first_name
+      - role_title
+      - department
+      - status
+      - hired_at
       properties:
         employee_id:
           type: string
           format: uuid
         employee_type:
           type: string
-          enum: [human, feline]
+          enum:
+          - human
+          - feline
         first_name:
           type: string
         last_name:
@@ -624,22 +849,28 @@ components:
           type: string
         status:
           type: string
-          enum: [onboarding, active, on_leave, separated, retired]
+          enum:
+          - onboarding
+          - active
+          - on_leave
+          - separated
+          - retired
         hired_at:
           type: string
           format: date
-
     EmployeeOnboardRequest:
       type: object
       required:
-        - employee_type
-        - first_name
-        - role_title
-        - department
+      - employee_type
+      - first_name
+      - role_title
+      - department
       properties:
         employee_type:
           type: string
-          enum: [human, feline]
+          enum:
+          - human
+          - feline
         first_name:
           type: string
         last_name:
@@ -660,15 +891,14 @@ components:
               type: array
               items:
                 type: string
-
     OnboardingChecklistTask:
       type: object
       required:
-        - checklist_id
-        - employee_id
-        - task_name
-        - category
-        - is_completed
+      - checklist_id
+      - employee_id
+      - task_name
+      - category
+      - is_completed
       properties:
         checklist_id:
           type: string
@@ -680,23 +910,27 @@ components:
           type: string
         category:
           type: string
-          enum: [hardware, access, dietary, medical, training]
+          enum:
+          - hardware
+          - access
+          - dietary
+          - medical
+          - training
         is_completed:
           type: boolean
         completed_at:
           type: string
           format: date-time
           nullable: true
-
     LeaveRequest:
       type: object
       required:
-        - leave_id
-        - employee_id
-        - leave_type
-        - start_date
-        - end_date
-        - status
+      - leave_id
+      - employee_id
+      - leave_type
+      - start_date
+      - end_date
+      - status
       properties:
         leave_id:
           type: string
@@ -706,7 +940,11 @@ components:
           format: uuid
         leave_type:
           type: string
-          enum: [vacation, sick, catnip_break, sabbatical]
+          enum:
+          - vacation
+          - sick
+          - catnip_break
+          - sabbatical
         start_date:
           type: string
           format: date
@@ -715,24 +953,31 @@ components:
           format: date
         status:
           type: string
-          enum: [pending, approved, rejected, cancelled]
+          enum:
+          - pending
+          - approved
+          - rejected
+          - cancelled
         reason:
           type: string
-
     LeaveRequestCreate:
       type: object
       required:
-        - employee_id
-        - leave_type
-        - start_date
-        - end_date
+      - employee_id
+      - leave_type
+      - start_date
+      - end_date
       properties:
         employee_id:
           type: string
           format: uuid
         leave_type:
           type: string
-          enum: [vacation, sick, catnip_break, sabbatical]
+          enum:
+          - vacation
+          - sick
+          - catnip_break
+          - sabbatical
         start_date:
           type: string
           format: date
@@ -741,25 +986,238 @@ components:
           format: date
         reason:
           type: string
-
     LeaveStatusUpdate:
       type: object
       required:
-        - status
+      - status
       properties:
         status:
           type: string
-          enum: [approved, rejected, cancelled]
-
+          enum:
+          - approved
+          - rejected
+          - cancelled
+    CameraStream:
+      type: object
+      required:
+      - stream_id
+      - camera_asset_id
+      - stream_url
+      - protocol
+      - status
+      - created_at
+      properties:
+        stream_id:
+          type: string
+          format: uuid
+        camera_asset_id:
+          type: string
+          format: uuid
+        stream_url:
+          type: string
+        protocol:
+          type: string
+          enum:
+          - rtsp
+          - webrtc
+        status:
+          type: string
+          enum:
+          - active
+          - idle
+          - error
+        ingest_settings:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CameraStreamCreate:
+      type: object
+      required:
+      - camera_asset_id
+      - stream_url
+      - protocol
+      properties:
+        camera_asset_id:
+          type: string
+          format: uuid
+        stream_url:
+          type: string
+        protocol:
+          type: string
+          enum:
+          - rtsp
+          - webrtc
+        ingest_settings:
+          type: object
+    BrokerageOrder:
+      type: object
+      required:
+      - order_id
+      - portfolio_id
+      - broker_name
+      - symbol
+      - side
+      - quantity
+      - price
+      - status
+      - created_at
+      properties:
+        order_id:
+          type: string
+          format: uuid
+        portfolio_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_id:
+          type: string
+          format: uuid
+          nullable: true
+        broker_name:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum:
+          - buy
+          - sell
+        quantity:
+          type: number
+        price:
+          type: number
+        status:
+          type: string
+          enum:
+          - pending
+          - executed
+          - failed
+          - cancelled
+        executed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BrokerageOrderCreate:
+      type: object
+      required:
+      - portfolio_id
+      - broker_name
+      - symbol
+      - side
+      - quantity
+      - price
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        broker_name:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum:
+          - buy
+          - sell
+        quantity:
+          type: number
+        price:
+          type: number
+    BacktestRun:
+      type: object
+      required:
+      - backtest_id
+      - strategy_id
+      - start_date
+      - end_date
+      - status
+      - created_at
+      properties:
+        backtest_id:
+          type: string
+          format: uuid
+        strategy_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        parameters:
+          type: object
+        results:
+          type: object
+        status:
+          type: string
+          enum:
+          - pending
+          - running
+          - completed
+          - failed
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BacktestRunCreate:
+      type: object
+      required:
+      - strategy_id
+      - start_date
+      - end_date
+      properties:
+        strategy_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+        parameters:
+          type: object
+    ErrorResponse:
+      type: object
+      required:
+      - code
+      - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
     ITTicket:
       type: object
       required:
-        - ticket_id
-        - forgejo_repo
-        - title
-        - state
-        - author_username
-        - created_at
+      - ticket_id
+      - forgejo_repo
+      - title
+      - state
+      - author_username
+      - created_at
       properties:
         ticket_id:
           type: string
@@ -776,7 +1234,10 @@ components:
           nullable: true
         state:
           type: string
-          enum: [open, closed, acknowledged]
+          enum:
+          - open
+          - closed
+          - acknowledged
         author_username:
           type: string
         acknowledged_at:
@@ -792,13 +1253,12 @@ components:
         updated_at:
           type: string
           format: date-time
-
     ITTicketCreate:
       type: object
       required:
-        - forgejo_repo
-        - title
-        - author_username
+      - forgejo_repo
+      - title
+      - author_username
       properties:
         forgejo_issue_id:
           type: integer
@@ -810,15 +1270,14 @@ components:
           type: string
         author_username:
           type: string
-
     PebbleAlertPayload:
       type: object
       required:
-        - ticket_id
-        - title
-        - priority
-        - created_at
-        - app_message_dict
+      - ticket_id
+      - title
+      - priority
+      - created_at
+      - app_message_dict
       properties:
         ticket_id:
           type: string
@@ -838,11 +1297,10 @@ components:
           type: object
           additionalProperties:
             type: string
-
     PebbleAckRequest:
       type: object
       required:
-        - ticket_id
+      - ticket_id
       properties:
         ticket_id:
           type: string
@@ -851,15 +1309,14 @@ components:
           type: string
         button_id:
           type: integer
-
     PebbleAckResponse:
       type: object
       required:
-        - ticket_id
-        - state
-        - acknowledged_at
-        - acknowledged_by
-        - status_message
+      - ticket_id
+      - state
+      - acknowledged_at
+      - acknowledged_by
+      - status_message
       properties:
         ticket_id:
           type: string
@@ -873,38 +1330,26 @@ components:
           type: string
         status_message:
           type: string
-
-    ErrorResponse:
-      type: object
-      required:
-        - code
-        - message
-      properties:
-        code:
-          type: string
-        message:
-          type: string
-
   responses:
-    '400BadRequest':
+    400BadRequest:
       description: Invalid request parameters or payload
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-    '401Unauthorized':
+    401Unauthorized:
       description: Unauthenticated or invalid session cookie
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-    '404NotFound':
+    404NotFound:
       description: Requested entity not found
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-    '500InternalError':
+    500InternalError:
       description: Internal server error
       content:
         application/json:

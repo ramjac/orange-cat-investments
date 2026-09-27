@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
@@ -24,7 +25,25 @@ func main() {
 		port = "8080"
 	}
 
-	repo := opsrepo.NewRepository(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var dbPool *pgxpool.Pool
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL != "" {
+		pool, err := pgxpool.New(ctx, dbURL)
+		if err != nil {
+			logger.Warn("failed to connect to postgresql pool, falling back to mock persistence", "error", err)
+		} else {
+			dbPool = pool
+			defer dbPool.Close()
+			logger.Info("connected to postgresql database pool successfully")
+		}
+	} else {
+		logger.Info("DATABASE_URL not set, running with in-memory persistence fallback")
+	}
+
+	repo := opsrepo.NewRepository(dbPool)
 	svc := opssvc.NewService(repo)
 	handler := opshandler.NewHandler(svc)
 
@@ -52,10 +71,10 @@ func main() {
 	<-stop
 	logger.Info("shutting down Pebble Companion Gateway Proxy...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
 
-	if err := server.Shutdown(ctx); err != nil {
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("failed graceful shutdown", "error", err)
 	}
 

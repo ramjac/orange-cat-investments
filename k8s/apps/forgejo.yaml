@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo
+  namespace: apps
+  labels:
+    app: forgejo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forgejo
+  template:
+    metadata:
+      labels:
+        app: forgejo
+    spec:
+      containers:
+        - name: forgejo
+          image: codeberg.org/forgejo/forgejo:7.0-rootless
+          ports:
+            - containerPort: 3000
+              name: http
+            - containerPort: 2222
+              name: ssh
+          env:
+            - name: FORGEJO__server__DOMAIN
+              value: forgejo.oci.local
+            - name: FORGEJO__server__HTTP_PORT
+              value: "3000"
+            - name: FORGEJO__database__DB_TYPE
+              value: postgres
+            - name: FORGEJO__database__HOST
+              value: postgres-service.postgres.svc.cluster.local:5432
+            - name: FORGEJO__database__NAME
+              value: oci
+            - name: FORGEJO__database__USER
+              value: oci_admin
+            - name: FORGEJO__database__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: FORGEJO_DB_PASSWD
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo-service
+  namespace: apps
+  labels:
+    app: forgejo
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+    - port: 2222
+      targetPort: 2222
+      name: ssh
+  selector:
+    app: forgejo

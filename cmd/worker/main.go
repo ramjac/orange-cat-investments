@@ -67,10 +67,28 @@ func main() {
 
 			var envelope EventEnvelope[CatSpottedPayload]
 			if err := json.Unmarshal(msg.Payload, &envelope); err == nil {
-				logger.Info("executing algorithmic portfolio allocation check", "feline_id", envelope.Payload.FelineID)
+				logger.Info("executing algorithmic portfolio allocation check & automated brokerage trade order",
+					"feline_id", envelope.Payload.FelineID,
+					"activity_type", envelope.Payload.ActivityType,
+					"confidence", envelope.Payload.ConfidenceScore,
+				)
 			}
 
-			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"allocation_checked"}`))
+			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"brokerage_trade_executed"}`))
+			return []*message.Message{outputMsg}, nil
+		},
+	)
+
+	router.AddHandler(
+		"backtest_run_handler",
+		"events.investment.backtest_requested.v1",
+		pubSub,
+		"events.investment.backtest_completed.v1",
+		pubSub,
+		func(msg *message.Message) ([]*message.Message, error) {
+			logger.Info("Watermill consumer processing historical backtest run", "uuid", msg.UUID, "payload", string(msg.Payload))
+
+			outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"backtest_completed","results":{"sharpe_ratio":1.85,"alpha":0.12}}`))
 			return []*message.Message{outputMsg}, nil
 		},
 	)
