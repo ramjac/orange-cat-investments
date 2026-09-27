@@ -1,0 +1,3 @@
+---
+k8s_manifests_dir: "{{ playbook_dir }}/../../k8s"
+k3s_kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
