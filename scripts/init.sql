@@ -134,6 +134,8 @@ CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
+
 -- Observation Perches (Habitat specific details)
 CREATE TABLE IF NOT EXISTS facilities.observation_perches (
     perch_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -214,6 +216,48 @@ CREATE TABLE IF NOT EXISTS core_invest.portfolio_snapshots (
     snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Camera Streams (Real-time WebRTC/RTSP Computer Vision Stream Ingestion)
+CREATE TABLE IF NOT EXISTS core_invest.camera_streams (
+    stream_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    camera_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+    stream_url VARCHAR(500) NOT NULL,
+    protocol VARCHAR(20) NOT NULL CHECK (protocol IN ('rtsp', 'webrtc')),
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'idle', 'error')),
+    ingest_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Brokerage Orders (Automated Brokerage Execution)
+CREATE TABLE IF NOT EXISTS core_invest.brokerage_orders (
+    order_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+    strategy_id UUID REFERENCES core_invest.allocation_strategies(strategy_id),
+    event_id UUID REFERENCES core_invest.observation_events(event_id),
+    broker_name VARCHAR(100) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    side VARCHAR(10) NOT NULL CHECK (side IN ('buy', 'sell')),
+    quantity DECIMAL(14, 4) NOT NULL,
+    price DECIMAL(14, 4) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'executed', 'failed', 'cancelled')),
+    executed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Backtest Runs (Dynamic Backtesting Workbench)
+CREATE TABLE IF NOT EXISTS core_invest.backtest_runs (
+    backtest_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    strategy_id UUID NOT NULL REFERENCES core_invest.allocation_strategies(strategy_id) ON DELETE CASCADE,
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
+    parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    results JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 --------------------------------------------------------------------------------
 -- OPS SCHEMA
 --------------------------------------------------------------------------------
@@ -225,8 +269,10 @@ CREATE TABLE IF NOT EXISTS ops.it_tickets (
     forgejo_repo VARCHAR(200) NOT NULL,
     title VARCHAR(255) NOT NULL,
     body TEXT,
-    state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed')),
+    state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed', 'acknowledged')),
     author_username VARCHAR(100) NOT NULL,
+    acknowledged_at TIMESTAMPTZ,
+    acknowledged_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
