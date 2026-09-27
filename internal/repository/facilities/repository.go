@@ -2,6 +2,7 @@ package facilities
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -83,9 +84,48 @@ func (r *pgxRepository) CreateAsset(ctx context.Context, asset *HardwareAsset) (
 }
 
 func (r *pgxRepository) CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error) {
-	ticket.TicketID = "maint-uuid-created"
-	ticket.Status = "open"
-	ticket.CreatedAt = time.Now().UTC()
-	ticket.UpdatedAt = time.Now().UTC()
-	return ticket, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+
+	status := ticket.Status
+	if status == "" {
+		status = "open"
+	}
+	priority := ticket.Priority
+	if priority == "" {
+		priority = "medium"
+	}
+
+	query := `INSERT INTO facilities.maintenance_tickets (
+		asset_id, title, description, priority, status, assigned_technician_id, reported_by
+	) VALUES ($1, $2, $3, $4, $5, $6, $7)
+	RETURNING ticket_id, asset_id, title, description, priority, status, assigned_technician_id, reported_by, resolved_at, created_at, updated_at`
+
+	var t MaintenanceTicket
+	err := r.db.QueryRow(ctx, query,
+		ticket.AssetID,
+		ticket.Title,
+		ticket.Description,
+		priority,
+		status,
+		ticket.AssignedTechnicianID,
+		ticket.ReportedBy,
+	).Scan(
+		&t.TicketID,
+		&t.AssetID,
+		&t.Title,
+		&t.Description,
+		&t.Priority,
+		&t.Status,
+		&t.AssignedTechnicianID,
+		&t.ReportedBy,
+		&t.ResolvedAt,
+		&t.CreatedAt,
+		&t.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }

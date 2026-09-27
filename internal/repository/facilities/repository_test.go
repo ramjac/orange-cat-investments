@@ -20,4 +20,13 @@ func TestPgxRepository(t *testing.T) {
 	if err != nil || len(assets) == 0 {
 		t.Fatalf("expected assets list, got %v", err)
 	}
+
+	_, err = repo.CreateMaintenanceTicket(context.Background(), &MaintenanceTicket{
+		AssetID:     "asset-001",
+		Title:       "Broken Lens",
+		Description: "Camera lens cracked",
+	})
+	if err == nil {
+		t.Fatalf("expected error for nil DB connection, got nil")
+	}
 }
