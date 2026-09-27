@@ -372,6 +372,102 @@ paths:
               schema:
                 $ref: '#/components/schemas/LeaveRequest'
 
+  /workforce/care-schedules/{felineId}:
+    parameters:
+      - name: felineId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get Feline Care Schedule
+      operationId: getCareSchedule
+      tags:
+        - Care Schedules
+      responses:
+        '200':
+          description: Feline Care Schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareSchedule'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+    put:
+      summary: Update Feline Care Schedule
+      operationId: updateCareSchedule
+      tags:
+        - Care Schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CareScheduleUpdate'
+      responses:
+        '200':
+          description: Feline Care Schedule Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareSchedule'
+
+  /workforce/care-schedules/{felineId}/medical-hold:
+    parameters:
+      - name: felineId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Toggle Emergency Medical Trading Hold
+      operationId: toggleEmergencyMedicalHold
+      tags:
+        - Care Schedules
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - emergency_medical_hold
+              properties:
+                emergency_medical_hold:
+                  type: boolean
+      responses:
+        '200':
+          description: Emergency medical hold status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareSchedule'
+
+  /webhooks/frappe-hr:
+    post:
+      summary: Frappe HR Status Change Webhook Ingestion
+      operationId: handleFrappeHRWebhook
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FrappeHRWebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  action:
+                    type: string
+
 components:
   schemas:
     HardwareAsset:
@@ -655,6 +751,85 @@ components:
         status:
           type: string
           enum: [approved, rejected, cancelled]
+
+    CareSchedule:
+      type: object
+      required:
+        - schedule_id
+        - feline_id
+        - dietary_plan
+        - feeding_times
+        - emergency_medical_hold
+      properties:
+        schedule_id:
+          type: string
+        feline_id:
+          type: string
+        dietary_plan:
+          type: string
+        feeding_times:
+          type: array
+          items:
+            type: string
+        special_medical_needs:
+          type: string
+          nullable: true
+        preferred_perch_zone:
+          type: string
+          nullable: true
+        emergency_medical_hold:
+          type: boolean
+        caretaker_id:
+          type: string
+          nullable: true
+
+    CareScheduleUpdate:
+      type: object
+      required:
+        - dietary_plan
+        - feeding_times
+      properties:
+        dietary_plan:
+          type: string
+        feeding_times:
+          type: array
+          items:
+            type: string
+        special_medical_needs:
+          type: string
+        preferred_perch_zone:
+          type: string
+        emergency_medical_hold:
+          type: boolean
+
+    FrappeHRWebhookPayload:
+      type: object
+      required:
+        - event
+        - employee_id
+      properties:
+        event:
+          type: string
+          enum: [employee_created, status_change, employee_separated]
+        employee_id:
+          type: string
+        employee_type:
+          type: string
+          enum: [human, feline]
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+        dietary_plan:
+          type: string
+        feeding_times:
+          type: array
+          items:
+            type: string
 
     ErrorResponse:
       type: object
