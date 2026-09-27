@@ -38,30 +38,23 @@ type CARotationPayload struct {
 	Status                    string    `json:"status"`
 }
 
-func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("starting OCI Background Worker with Watermill Engine")
+type pubSub interface {
+	message.Publisher
+	message.Subscriber
+}
 
-	watermillLogger := watermill.NewStdLogger(false, false)
-
-	// In production, use watermill-amqp for RabbitMQ. Using GoChannel pub/sub for local runtime reliability.
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 100},
-		watermillLogger,
-	)
-
+func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *slog.Logger) (*message.Router, error) {
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
 	if err != nil {
-		logger.Error("failed to create watermill router", "error", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	router.AddHandler(
 		"cat_spotted_handler",
 		"events.observation.cat_spotted.v1",
-		pubSub,
+		ps,
 		"events.investment.allocation_check.v1",
-		pubSub,
+		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
 			logger.Info("Watermill consumer received observation event", "uuid", msg.UUID, "payload", string(msg.Payload))
 
@@ -82,9 +75,9 @@ func main() {
 	router.AddHandler(
 		"backtest_run_handler",
 		"events.investment.backtest_requested.v1",
-		pubSub,
+		ps,
 		"events.investment.backtest_completed.v1",
-		pubSub,
+		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
 			logger.Info("Watermill consumer processing historical backtest run", "uuid", msg.UUID, "payload", string(msg.Payload))
 
@@ -92,6 +85,27 @@ func main() {
 			return []*message.Message{outputMsg}, nil
 		},
 	)
+
+	return router, nil
+}
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger.Info("starting OCI Background Worker with Watermill Engine")
+
+	watermillLogger := watermill.NewStdLogger(false, false)
+
+	// In production, use watermill-amqp for RabbitMQ. Using GoChannel pub/sub for local runtime reliability.
+	pubSub := gochannel.NewGoChannel(
+		gochannel.Config{OutputChannelBuffer: 100},
+		watermillLogger,
+	)
+
+	router, err := createRouter(pubSub, watermillLogger, logger)
+	if err != nil {
+		logger.Error("failed to create watermill router", "error", err)
+		os.Exit(1)
+	}
 
 	caManager := pki.NewCARotationManager(pki.CARotationConfig{
 		RootCAName:           "oci-root-ca",
