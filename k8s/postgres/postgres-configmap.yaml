@@ -107,6 +107,36 @@ data:
         CONSTRAINT chk_leave_dates CHECK (end_date >= start_date)
     );
 
+    -- Electronic Veterinary Health Records (VHR)
+    CREATE TABLE IF NOT EXISTS workforce.vhr_records (
+        record_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        feline_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        veterinarian_id UUID REFERENCES workforce.employees(employee_id),
+        visit_date DATE NOT NULL,
+        weight_kg DECIMAL(4, 2) NOT NULL,
+        dental_score INT NOT NULL CHECK (dental_score BETWEEN 1 AND 5),
+        vaccination_status VARCHAR(100) NOT NULL,
+        prescriptions TEXT,
+        clinical_notes TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Cross-Species Workplace Incidents & Conflict Logging
+    CREATE TABLE IF NOT EXISTS workforce.incidents (
+        incident_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        title VARCHAR(200) NOT NULL,
+        category VARCHAR(50) NOT NULL CHECK (category IN ('perch_dispute', 'spillage', 'unauthorized_treat', 'habitat_disruption')),
+        involved_feline_id UUID REFERENCES workforce.employees(employee_id),
+        involved_human_id UUID REFERENCES workforce.employees(employee_id),
+        severity VARCHAR(20) NOT NULL DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+        status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'under_review', 'resolved')),
+        description TEXT NOT NULL,
+        resolution_notes TEXT,
+        reported_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMPTZ
+    );
+
     --------------------------------------------------------------------------------
     -- FACILITIES SCHEMA
     --------------------------------------------------------------------------------
@@ -121,6 +151,51 @@ data:
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Smart Feeder Telemetry
+    CREATE TABLE IF NOT EXISTS facilities.feeder_telemetry (
+        telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        feline_id UUID REFERENCES workforce.employees(employee_id),
+        food_dispensed_grams DECIMAL(6,2) NOT NULL,
+        food_consumed_grams DECIMAL(6,2) NOT NULL,
+        snack_disbursed BOOLEAN NOT NULL DEFAULT FALSE,
+        dispensed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Smart Collar Biometrics & Accelerometer Telemetry
+    CREATE TABLE IF NOT EXISTS facilities.collar_telemetry (
+        telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        feline_id UUID REFERENCES workforce.employees(employee_id),
+        heart_rate_bpm INT,
+        pounce_g_force DECIMAL(5,2),
+        jump_height_meters DECIMAL(4,2),
+        circadian_sleep_state VARCHAR(30),
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Perch Cushion Comfort & Thermal Sensors
+    CREATE TABLE IF NOT EXISTS facilities.perch_telemetry (
+        telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        perch_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        pressure_mat_load_kg DECIMAL(5,2) NOT NULL,
+        surface_temp_c DECIMAL(4,2) NOT NULL,
+        sunbeam_alignment_pct DECIMAL(5,2) NOT NULL,
+        cushion_wear_pct DECIMAL(5,2) NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Environmental Telemetry (HVAC, Lux, Decibels)
+    CREATE TABLE IF NOT EXISTS facilities.environmental_telemetry (
+        telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        zone_id UUID NOT NULL REFERENCES facilities.location_zones(zone_id) ON DELETE CASCADE,
+        temperature_c DECIMAL(4,2) NOT NULL,
+        relative_humidity_pct DECIMAL(5,2) NOT NULL,
+        light_intensity_lux DECIMAL(8,2) NOT NULL,
+        noise_level_db DECIMAL(5,2) NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
         asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
         serial_number VARCHAR(100) NOT NULL UNIQUE,
@@ -132,6 +207,71 @@ data:
         last_ping_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Feline Acoustic Vocalization Analysis
+    CREATE TABLE IF NOT EXISTS core_invest.acoustic_events (
+        acoustic_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        feline_id UUID REFERENCES workforce.employees(employee_id),
+        vocalization_type VARCHAR(50) NOT NULL CHECK (vocalization_type IN ('purring', 'chirping', 'meowing', 'trilling', 'demanding_feed')),
+        frequency_hz DECIMAL(6,2) NOT NULL,
+        decibel_level DECIMAL(5,2) NOT NULL,
+        confidence DECIMAL(5,4) NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ML Model Registry
+    CREATE TABLE IF NOT EXISTS core_invest.ml_models (
+        model_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        model_name VARCHAR(100) NOT NULL UNIQUE,
+        version VARCHAR(50) NOT NULL,
+        accuracy DECIMAL(5,4) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ML Model Drift Logs
+    CREATE TABLE IF NOT EXISTS core_invest.model_drift_logs (
+        drift_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        model_id UUID NOT NULL REFERENCES core_invest.ml_models(model_id) ON DELETE CASCADE,
+        confidence_drift DECIMAL(5,4) NOT NULL,
+        lighting_condition VARCHAR(50) NOT NULL,
+        evaluated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Developer API Keys
+    CREATE TABLE IF NOT EXISTS core_invest.customer_api_keys (
+        key_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        key_prefix VARCHAR(20) NOT NULL,
+        key_hash VARCHAR(128) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Webhook Subscriptions
+    CREATE TABLE IF NOT EXISTS core_invest.webhook_subscriptions (
+        subscription_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        target_url TEXT NOT NULL,
+        events TEXT[] NOT NULL,
+        secret VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Recurring ACH Deposits
+    CREATE TABLE IF NOT EXISTS core_invest.recurring_deposits (
+        deposit_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        amount_usd DECIMAL(14,2) NOT NULL,
+        frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('weekly', 'biweekly', 'monthly')),
+        bank_account VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        next_charge_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);

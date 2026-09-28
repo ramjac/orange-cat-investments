@@ -38,6 +38,18 @@
         📋 Review Cycles & Assessments
       </button>
       <button
+        :class="['tab-btn', { active: currentTab === 'vhr' }]"
+        @click="currentTab = 'vhr'"
+      >
+        🩺 Electronic Veterinary Health Records (VHR)
+      </button>
+      <button
+        :class="['tab-btn', { active: currentTab === 'incidents' }]"
+        @click="currentTab = 'incidents'"
+      >
+        🚨 Workplace Incidents & Conflict Logs
+      </button>
+      <button
         :class="['tab-btn', { active: currentTab === 'backtest' }]"
         @click="currentTab = 'backtest'"
       >
@@ -123,6 +135,174 @@
             <button type="submit" class="btn-primary">💾 Save Care Schedule</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- TAB 5: Electronic Veterinary Health Records (VHR) -->
+    <div v-else-if="currentTab === 'vhr'" class="grid-layout vhr-layout">
+      <div class="card">
+        <h3>Record Clinical Checkup (VHR)</h3>
+        <p class="subtext">Record veterinary examinations, dental scoring, weight progression, and prescriptions.</p>
+
+        <form @submit.prevent="submitVHRRecord">
+          <div class="form-group">
+            <label>Feline Subject</label>
+            <select class="form-control" v-model="vhrForm.feline_id" required>
+              <option value="emp-feline-garfield">🐱 Garfield — Chief Observation Officer</option>
+              <option value="emp-feline-barneby">🐈‍⬛ Barneby — Senior Alpha Perch Analyst</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Weight (kg)</label>
+              <input type="number" step="0.1" class="form-control" v-model.number="vhrForm.weight_kg" required />
+            </div>
+            <div class="form-group half">
+              <label>Dental Score (1-5)</label>
+              <input type="number" min="1" max="5" class="form-control" v-model.number="vhrForm.dental_score" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Vaccination Status</label>
+            <input type="text" class="form-control" v-model="vhrForm.vaccination_status" required />
+          </div>
+
+          <div class="form-group">
+            <label>Prescriptions / Medications</label>
+            <textarea class="form-control" v-model="vhrForm.prescriptions" rows="2" placeholder="e.g. Joint vitamin supplement with morning kibble"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Clinical Notes</label>
+            <textarea class="form-control" v-model="vhrForm.clinical_notes" rows="3" required placeholder="Describe clinical findings, coat shine, whisker symmetry..."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">💾 Save VHR Clinical Chart</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Clinical Charting History</h2>
+          <span class="feline-id-badge">Total Records: {{ vhrRecords.length }}</span>
+        </div>
+
+        <div class="backtest-table-container">
+          <table class="backtest-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Subject</th>
+                <th>Weight</th>
+                <th>Dental</th>
+                <th>Vaccination</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="rec in vhrRecords" :key="rec.record_id">
+                <td><span class="date-text">{{ rec.visit_date }}</span></td>
+                <td><strong>{{ getStaffName(rec.feline_id) }}</strong></td>
+                <td><strong>{{ rec.weight_kg }} kg</strong></td>
+                <td>⭐ {{ rec.dental_score }} / 5</td>
+                <td><span class="status-badge completed">{{ rec.vaccination_status }}</span></td>
+                <td><span class="reason-cell">{{ rec.clinical_notes }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: Workplace Incidents & Conflict Logging -->
+    <div v-else-if="currentTab === 'incidents'" class="grid-layout incident-layout">
+      <div class="card">
+        <h3>Log Workplace Incident / Dispute</h3>
+        <p class="subtext">Log habitat disputes, perch disruptions, coffee spillages, or treat confiscation.</p>
+
+        <form @submit.prevent="submitIncident">
+          <div class="form-group">
+            <label>Incident Title</label>
+            <input type="text" class="form-control" v-model="incidentForm.title" placeholder="e.g. Unauthorized Alpha Perch Displacement" required />
+          </div>
+
+          <div class="form-group">
+            <label>Category</label>
+            <select class="form-control" v-model="incidentForm.category" required>
+              <option value="perch_dispute">🪑 Perch Displacement Dispute</option>
+              <option value="spillage">☕ Desk Coffee Spillage</option>
+              <option value="unauthorized_treat">🦴 Unauthorized Treat Confiscation</option>
+              <option value="habitat_disruption">🔊 Habitat Disruption</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Involved Feline</label>
+              <select class="form-control" v-model="incidentForm.involved_feline_id">
+                <option value="emp-feline-garfield">🐱 Garfield</option>
+                <option value="emp-feline-barneby">🐈‍⬛ Barneby</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label>Severity</label>
+              <select class="form-control" v-model="incidentForm.severity" required>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Description</label>
+            <textarea class="form-control" v-model="incidentForm.description" rows="3" required placeholder="Describe what occurred..."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">🚨 Log Incident Report</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Incident Registry</h2>
+          <span class="feline-id-badge">Total: {{ incidentLogs.length }}</span>
+        </div>
+
+        <div class="backtest-table-container">
+          <table class="backtest-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Category</th>
+                <th>Feline</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="inc in incidentLogs" :key="inc.incident_id">
+                <td><strong>{{ inc.title }}</strong></td>
+                <td><span class="activity-chip">{{ inc.category }}</span></td>
+                <td>{{ getStaffName(inc.involved_feline_id) }}</td>
+                <td><span :class="['severity-badge', inc.severity]">{{ inc.severity.toUpperCase() }}</span></td>
+                <td><span :class="['status-badge', inc.status]">{{ inc.status.toUpperCase() }}</span></td>
+                <td>
+                  <button v-if="inc.status !== 'resolved'" class="btn-approve" @click="resolveIncident(inc.incident_id)">✓ Resolve</button>
+                  <span v-else class="text-muted-small">Resolved</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -648,6 +828,81 @@ const reviewCycles = ref([
   }
 ]);
 
+const vhrForm = ref({
+  feline_id: 'emp-feline-garfield',
+  weight_kg: 5.8,
+  dental_score: 5,
+  vaccination_status: 'Up to date (Rabies & FVRCP)',
+  prescriptions: 'Joint vitamin supplement with morning feeding',
+  clinical_notes: 'Whisker symmetry optimal, coat shine excellent, active purr acoustics.'
+});
+
+const vhrRecords = ref([
+  {
+    record_id: 'vhr-018f-0001',
+    feline_id: 'emp-feline-garfield',
+    visit_date: '2026-09-20',
+    weight_kg: 5.8,
+    dental_score: 5,
+    vaccination_status: 'Up to date',
+    clinical_notes: 'Quarterly checkup completed. Perfect health score.'
+  }
+]);
+
+const incidentForm = ref({
+  title: 'Alpha Perch Displacement Incident',
+  category: 'perch_dispute',
+  involved_feline_id: 'emp-feline-garfield',
+  severity: 'medium',
+  description: 'Garfield occupied Barneby perch zone during peak sunbeam alignment.'
+});
+
+const incidentLogs = ref([
+  {
+    incident_id: 'inc-018f-001',
+    title: 'Alpha Perch Displacement Incident',
+    category: 'perch_dispute',
+    involved_feline_id: 'emp-feline-garfield',
+    severity: 'medium',
+    status: 'open',
+    description: 'Garfield occupied Barneby perch zone during peak sunbeam alignment.'
+  }
+]);
+
+async function submitVHRRecord() {
+  vhrRecords.value.unshift({
+    record_id: 'vhr-' + Math.random().toString(36).substring(2, 8),
+    feline_id: vhrForm.value.feline_id,
+    visit_date: new Date().toISOString().split('T')[0],
+    weight_kg: vhrForm.value.weight_kg,
+    dental_score: vhrForm.value.dental_score,
+    vaccination_status: vhrForm.value.vaccination_status,
+    clinical_notes: vhrForm.value.clinical_notes
+  });
+  showToast('VHR Clinical Record saved successfully!');
+}
+
+async function submitIncident() {
+  incidentLogs.value.unshift({
+    incident_id: 'inc-' + Math.random().toString(36).substring(2, 8),
+    title: incidentForm.value.title,
+    category: incidentForm.value.category,
+    involved_feline_id: incidentForm.value.involved_feline_id,
+    severity: incidentForm.value.severity,
+    status: 'open',
+    description: incidentForm.value.description
+  });
+  showToast('Workplace incident report logged!');
+}
+
+async function resolveIncident(id) {
+  const inc = incidentLogs.value.find(i => i.incident_id === id);
+  if (inc) {
+    inc.status = 'resolved';
+    showToast('Incident resolved and archived.');
+  }
+}
+
 const backtestForm = ref({
   strategy_id: 'strat-feline-zoomies-v1',
   start_date: '2024-01-01',
@@ -1048,6 +1303,11 @@ textarea.form-control { min-height: 80px; resize: vertical; }
 .status-badge.pending { background: rgba(234, 179, 8, 0.2); color: #facc15; }
 .status-badge.rejected { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .status-badge.cancelled { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+.severity-badge { padding: 0.15rem 0.4rem; border-radius: 0.2rem; font-size: 0.75rem; font-weight: bold; }
+.severity-badge.low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+.severity-badge.medium { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+.severity-badge.high { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.severity-badge.critical { background: rgba(220, 38, 38, 0.4); color: #ef4444; border: 1px solid #ef4444; }
 .positive-text { color: #4ade80; font-weight: bold; }
 
 .leave-layout { grid-template-columns: 380px 1fr; }

@@ -53,17 +53,24 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Initialize Core Invest Domain Service & Handlers
-	var ciRepo core_invest_repo.Repository
-	if pool != nil {
-		ciRepo = core_invest_repo.NewRepository(pool)
-	} else {
-		ciRepo = core_invest_repo.NewMockRepository()
-	}
+	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
 
-	ciService := core_invest_svc.NewService(ciRepo)
-	ciHandler := core_invest_handler.NewHandler(ciService)
-	ciHandler.RegisterRoutes(mux)
+	// Initialize Core Invest Domain Service & Handlers (if enabled)
+	if enableCoreInvest {
+		var ciRepo core_invest_repo.Repository
+		if pool != nil {
+			ciRepo = core_invest_repo.NewRepository(pool)
+		} else {
+			ciRepo = core_invest_repo.NewMockRepository()
+		}
+
+		ciService := core_invest_svc.NewService(ciRepo)
+		ciHandler := core_invest_handler.NewHandler(ciService)
+		ciHandler.RegisterRoutes(mux)
+		logger.Info("Core Invest domain routes registered")
+	} else {
+		logger.Info("Core Invest domain disabled via ENABLE_CORE_INVEST=false")
+	}
 
 	// Initialize Operations & Wearable Alerts Domain Service & Handlers
 	opsRepo := ops_repo.NewRepository(pool)

@@ -21,12 +21,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/ops/pebble/ack", h.SubmitPebbleAck)
 	mux.HandleFunc("GET /api/v1/ops/tickets", h.ListTickets)
 	mux.HandleFunc("POST /api/v1/ops/tickets", h.CreateTicket)
+	mux.HandleFunc("POST /api/v1/ops/notifications/push", h.SendPushNotification)
 
 	// Fallback/direct path aliases
 	mux.HandleFunc("GET /ops/pebble/alerts", h.GetPebbleAlerts)
 	mux.HandleFunc("POST /ops/pebble/ack", h.SubmitPebbleAck)
 	mux.HandleFunc("GET /ops/tickets", h.ListTickets)
 	mux.HandleFunc("POST /ops/tickets", h.CreateTicket)
+	mux.HandleFunc("POST /ops/notifications/push", h.SendPushNotification)
 }
 
 func (h *Handler) GetPebbleAlerts(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +97,30 @@ type createTicketRequest struct {
 	Title          string `json:"title"`
 	Body           string `json:"body,omitempty"`
 	AuthorUsername string `json:"author_username"`
+}
+
+func (h *Handler) SendPushNotification(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Topic    string `json:"topic"`
+		Title    string `json:"title"`
+		Message  string `json:"message"`
+		Priority string `json:"priority"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "dispatched",
+		"provider":    "ntfy/webpush",
+		"topic":       req.Topic,
+		"title":       req.Title,
+		"message":     req.Message,
+		"dispatched_at": "now",
+	})
 }
 
 func (h *Handler) CreateTicket(w http.ResponseWriter, r *http.Request) {

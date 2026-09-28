@@ -30,6 +30,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /core-invest/backtesting/runs", h.StartBacktestRun)
 	mux.HandleFunc("GET /core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
 
+	mux.HandleFunc("GET /core-invest/models", h.ListMLModels)
+	mux.HandleFunc("POST /core-invest/models/drift", h.LogModelDrift)
+	mux.HandleFunc("POST /core-invest/audio/classify", h.ClassifyAcoustics)
+	mux.HandleFunc("POST /core-invest/statements/generate", h.GenerateStatement)
+
 	// API v1 route aliases
 	mux.HandleFunc("GET /api/v1/core-invest/streams", h.ListCameraStreams)
 	mux.HandleFunc("POST /api/v1/core-invest/streams", h.RegisterCameraStream)
@@ -42,6 +47,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs", h.ListBacktestRuns)
 	mux.HandleFunc("POST /api/v1/core-invest/backtesting/runs", h.StartBacktestRun)
 	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
+
+	mux.HandleFunc("GET /api/v1/core-invest/models", h.ListMLModels)
+	mux.HandleFunc("POST /api/v1/core-invest/models/drift", h.LogModelDrift)
+	mux.HandleFunc("POST /api/v1/core-invest/audio/classify", h.ClassifyAcoustics)
+	mux.HandleFunc("POST /api/v1/core-invest/statements/generate", h.GenerateStatement)
 }
 
 func (h *Handler) GetCameraStreamByID(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +242,78 @@ func (h *Handler) StartBacktestRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(run)
+}
+
+func (h *Handler) ListMLModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	models := []map[string]interface{}{
+		{
+			"model_id":   "mdl-yolov8-cat-pose-v3",
+			"name":       "CatPose-YOLOv8-Alpha",
+			"version":    "v3.2.0",
+			"accuracy":   0.9845,
+			"drift":      0.012,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -2, 0).Format(time.RFC3339),
+		},
+		{
+			"model_id":   "mdl-whisker-audio-v1",
+			"name":       "PurrAcoustic-Classifier-V1",
+			"version":    "v1.0.4",
+			"accuracy":   0.9620,
+			"drift":      0.008,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
+		},
+	}
+	json.NewEncoder(w).Encode(models)
+}
+
+func (h *Handler) LogModelDrift(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"drift_id":         "drift-018f-99",
+		"status":           "recorded",
+		"confidence_drift": 0.012,
+		"evaluated_at":     time.Now().Format(time.RFC3339),
+	})
+}
+
+func (h *Handler) ClassifyAcoustics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		FelineID string `json:"feline_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"acoustic_id":       "ac-018f-777",
+		"feline_id":         req.FelineID,
+		"vocalization_type": "purring",
+		"frequency_hz":      28.5,
+		"decibel_level":     88.2,
+		"confidence":        0.982,
+	})
+}
+
+func (h *Handler) GenerateStatement(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		PortfolioID string `json:"portfolio_id"`
+		Year        int    `json:"year"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"statement_id":      "stmt-018f-2026",
+		"portfolio_id":      req.PortfolioID,
+		"year":              req.Year,
+		"sharpe_ratio":      2.14,
+		"sortino_ratio":     3.08,
+		"form_1099b_url":    "https://statements.oci.local/form1099b-2026.pdf",
+		"performance_summary": "Superior feline behavioral alpha (+28.45% return)",
+		"generated_at":      time.Now().Format(time.RFC3339),
+	})
 }
 
 func (h *Handler) GetBacktestRunByID(w http.ResponseWriter, r *http.Request) {

@@ -13,6 +13,13 @@ echo "  Orange Cat Investments (OCI) - Kubernetes Platform Deploy  "
 echo "=============================================================="
 echo "Working directory: ${REPO_ROOT}"
 
+PROFILE="full"
+if [[ "${1:-}" == "--profile" ]]; then
+    PROFILE="${2:-full}"
+fi
+
+echo "Deployment profile: ${PROFILE}"
+
 # 1. Verify kubectl availability
 if ! command -v kubectl &>/dev/null; then
     echo "ERROR: 'kubectl' command not found. Please ensure kubectl is installed and in your PATH."

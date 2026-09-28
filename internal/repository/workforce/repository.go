@@ -75,6 +75,34 @@ type ReviewCycle struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
+type VHRRecord struct {
+	RecordID          string    `json:"record_id"`
+	FelineID          string    `json:"feline_id"`
+	VeterinarianID    *string   `json:"veterinarian_id,omitempty"`
+	VisitDate         string    `json:"visit_date"`
+	WeightKG          float64   `json:"weight_kg"`
+	DentalScore       int       `json:"dental_score"`
+	VaccinationStatus string    `json:"vaccination_status"`
+	Prescriptions     *string   `json:"prescriptions,omitempty"`
+	ClinicalNotes     string    `json:"clinical_notes"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type WorkplaceIncident struct {
+	IncidentID       string     `json:"incident_id"`
+	Title            string     `json:"title"`
+	Category         string     `json:"category"`
+	InvolvedFelineID *string    `json:"involved_feline_id,omitempty"`
+	InvolvedHumanID  *string    `json:"involved_human_id,omitempty"`
+	Severity         string     `json:"severity"`
+	Status           string     `json:"status"`
+	Description      string     `json:"description"`
+	ResolutionNotes  *string    `json:"resolution_notes,omitempty"`
+	ReportedAt       time.Time  `json:"reported_at"`
+	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+}
+
 type Repository interface {
 	GetEmployeeByID(ctx context.Context, id string) (*Employee, error)
 	ListEmployees(ctx context.Context, employeeType, status string) ([]*Employee, error)
@@ -98,6 +126,15 @@ type Repository interface {
 	GetReviewCycleByID(ctx context.Context, id string) (*ReviewCycle, error)
 	ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*ReviewCycle, error)
 	UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error)
+
+	// Electronic Veterinary Health Records (VHR)
+	CreateVHRRecord(ctx context.Context, rec *VHRRecord) (*VHRRecord, error)
+	ListVHRRecords(ctx context.Context, felineID string) ([]*VHRRecord, error)
+
+	// Workplace Incidents
+	CreateWorkplaceIncident(ctx context.Context, inc *WorkplaceIncident) (*WorkplaceIncident, error)
+	ListWorkplaceIncidents(ctx context.Context, status string) ([]*WorkplaceIncident, error)
+	UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error)
 }
 
 type pgxRepository struct {
@@ -108,6 +145,8 @@ type pgxRepository struct {
 	careSchedules map[string]*CareSchedule
 	leaveRequests map[string]*LeaveRequest
 	reviewCycles  map[string]*ReviewCycle
+	vhrRecords    map[string]*VHRRecord
+	incidents     map[string]*WorkplaceIncident
 }
 
 func NewRepository(db *pgxpool.Pool) Repository {
@@ -118,6 +157,8 @@ func NewRepository(db *pgxpool.Pool) Repository {
 		careSchedules: make(map[string]*CareSchedule),
 		leaveRequests: make(map[string]*LeaveRequest),
 		reviewCycles:  make(map[string]*ReviewCycle),
+		vhrRecords:    make(map[string]*VHRRecord),
+		incidents:     make(map[string]*WorkplaceIncident),
 	}
 
 	// Seed sample personas into in-memory store for dev/testing when DB pool is uninitialized
@@ -798,3 +839,220 @@ func (r *pgxRepository) UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) 
 	return existing, nil
 }
 
+func (r *pgxRepository) CreateVHRRecord(ctx context.Context, rec *VHRRecord) (*VHRRecord, error) {
+	if r.db != nil {
+		query := `INSERT INTO workforce.vhr_records (
+			record_id, feline_id, veterinarian_id, visit_date, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes
+		) VALUES (
+			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4::date, $5, $6, $7, $8, $9
+		) RETURNING record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at`
+		var res VHRRecord
+		var vetID *string
+		var vDate string
+		err := r.db.QueryRow(ctx, query, rec.RecordID, rec.FelineID, rec.VeterinarianID, rec.VisitDate, rec.WeightKG, rec.DentalScore, rec.VaccinationStatus, rec.Prescriptions, rec.ClinicalNotes).Scan(
+			&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res.VeterinarianID = vetID
+		res.VisitDate = vDate
+		r.mu.Lock()
+		r.vhrRecords[res.RecordID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().UTC()
+	if rec.RecordID == "" {
+		rec.RecordID = fmt.Sprintf("vhr-%d", time.Now().UnixNano())
+	}
+	rec.CreatedAt = now
+	rec.UpdatedAt = now
+	r.vhrRecords[rec.RecordID] = rec
+	return rec, nil
+}
+
+func (r *pgxRepository) ListVHRRecords(ctx context.Context, felineID string) ([]*VHRRecord, error) {
+	if r.db != nil {
+		query := `SELECT record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at
+		          FROM workforce.vhr_records
+		          WHERE ($1 = '' OR feline_id::text = $1)
+		          ORDER BY visit_date DESC`
+		rows, err := r.db.Query(ctx, query, felineID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var list []*VHRRecord
+		for rows.Next() {
+			var res VHRRecord
+			var vetID *string
+			var vDate string
+			if err := rows.Scan(&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt); err != nil {
+				return nil, err
+			}
+			res.VeterinarianID = vetID
+			res.VisitDate = vDate
+			list = append(list, &res)
+		}
+		if list == nil {
+			list = []*VHRRecord{}
+		}
+		return list, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var list []*VHRRecord
+	for _, rec := range r.vhrRecords {
+		if felineID != "" && rec.FelineID != felineID {
+			continue
+		}
+		list = append(list, rec)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].VisitDate > list[j].VisitDate
+	})
+	if list == nil {
+		list = []*VHRRecord{}
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) CreateWorkplaceIncident(ctx context.Context, inc *WorkplaceIncident) (*WorkplaceIncident, error) {
+	if r.db != nil {
+		query := `INSERT INTO workforce.incidents (
+			incident_id, title, category, involved_feline_id, involved_human_id, severity, status, description, resolution_notes
+		) VALUES (
+			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'low'), COALESCE(NULLIF($7, ''), 'open'), $8, $9
+		) RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
+		var res WorkplaceIncident
+		var fID, hID *string
+		err := r.db.QueryRow(ctx, query, inc.IncidentID, inc.Title, inc.Category, inc.InvolvedFelineID, inc.InvolvedHumanID, inc.Severity, inc.Status, inc.Description, inc.ResolutionNotes).Scan(
+			&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res.InvolvedFelineID = fID
+		res.InvolvedHumanID = hID
+		r.mu.Lock()
+		r.incidents[res.IncidentID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().UTC()
+	if inc.IncidentID == "" {
+		inc.IncidentID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
+	}
+	if inc.Status == "" {
+		inc.Status = "open"
+	}
+	if inc.Severity == "" {
+		inc.Severity = "low"
+	}
+	inc.ReportedAt = now
+	r.incidents[inc.IncidentID] = inc
+	return inc, nil
+}
+
+func (r *pgxRepository) ListWorkplaceIncidents(ctx context.Context, status string) ([]*WorkplaceIncident, error) {
+	if r.db != nil {
+		query := `SELECT incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at
+		          FROM workforce.incidents
+		          WHERE ($1 = '' OR status = $1)
+		          ORDER BY reported_at DESC`
+		rows, err := r.db.Query(ctx, query, status)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var list []*WorkplaceIncident
+		for rows.Next() {
+			var res WorkplaceIncident
+			var fID, hID *string
+			if err := rows.Scan(&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt); err != nil {
+				return nil, err
+			}
+			res.InvolvedFelineID = fID
+			res.InvolvedHumanID = hID
+			list = append(list, &res)
+		}
+		if list == nil {
+			list = []*WorkplaceIncident{}
+		}
+		return list, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var list []*WorkplaceIncident
+	for _, inc := range r.incidents {
+		if status != "" && inc.Status != status {
+			continue
+		}
+		list = append(list, inc)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ReportedAt.After(list[j].ReportedAt)
+	})
+	if list == nil {
+		list = []*WorkplaceIncident{}
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error) {
+	now := time.Now().UTC()
+	if r.db != nil {
+		query := `UPDATE workforce.incidents
+		          SET status = $2,
+		              resolution_notes = CASE WHEN $3 <> '' THEN $3 ELSE resolution_notes END,
+		              resolved_at = CASE WHEN $2 = 'resolved' THEN CURRENT_TIMESTAMP ELSE resolved_at END
+		          WHERE incident_id::text = $1
+		          RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
+		var res WorkplaceIncident
+		var fID, hID *string
+		err := r.db.QueryRow(ctx, query, id, status, resolutionNotes).Scan(
+			&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		res.InvolvedFelineID = fID
+		res.InvolvedHumanID = hID
+		r.mu.Lock()
+		r.incidents[res.IncidentID] = &res
+		r.mu.Unlock()
+		return &res, nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	inc, ok := r.incidents[id]
+	if !ok {
+		return nil, fmt.Errorf("incident with id %s not found", id)
+	}
+
+	inc.Status = status
+	if resolutionNotes != "" {
+		inc.ResolutionNotes = &resolutionNotes
+	}
+	if status == "resolved" {
+		inc.ResolvedAt = &now
+	}
+	return inc, nil
+}
