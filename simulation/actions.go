@@ -1123,6 +1123,59 @@ func (r *Registry) createRickPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "rick_check_onboarding_status",
+				Description: "Queries employee onboarding status from workforce directory",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/employees?status=onboarding"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_check_onboarding_status",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Onboarding status queried. Payload: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_trigger_self_onboarding_webhook",
+				Description: "Simulates Frappe HR onboarding saga webhook for new hire lifecycle testing",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/webhooks/frappe-hr"
+					payload := map[string]any{
+						"event":         "employee_created",
+						"employee_id":   "emp-human-rick",
+						"employee_type": "human",
+						"first_name":    "Rick",
+						"last_name":     "Newhire",
+						"email":         "rick.newhire@oci.local",
+						"role_title":    "Junior Operations Associate",
+						"department":    "Workforce Operations",
+						"status":        "onboarding",
+					}
+					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_trigger_self_onboarding_webhook",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Self onboarding saga webhook response: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -1207,6 +1260,54 @@ func (r *Registry) createElisePersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Checked IT tickets queue for dev tooling requests: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_create_code_review_ticket",
+				Description: "Submits a Forgejo code review & CI/CD workflow ticket for platform builds",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					payload := map[string]any{
+						"forgejo_repo":    "oci/monorepo",
+						"title":           "PR #42: Enhance Go mTLS cert auto-reloader & CI pipeline",
+						"body":            "Automated build and test suite run successfully in Forgejo Actions runner.",
+						"author_username": "emp-human-elise",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_create_code_review_ticket",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Code review ticket submitted: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_query_developer_tickets",
+				Description: "Audits active developer IT tickets and CI build issues",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_query_developer_tickets",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited developer tickets response size: %d bytes", len(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

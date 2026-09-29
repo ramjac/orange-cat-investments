@@ -12,4 +12,4 @@
 * Submit IT and platform maintenance tickets for developer tooling, dependency updates, and build pipeline enhancements.
 
 ## Biography
-Elise Dev is a software engineer dedicated to building and refining OCI's core microservices and web applications. Working closely with Frank Operations, Elise continuously exercises the monorepo's software development lifecycles—from feature branch commits and Forgejo PR reviews to automated CI/CD pipeline triggers. She actively collaborates with team members by publishing technical documentation in Nextcloud and messaging team channels via Nextcloud Chat.
+Elise Dev is a software engineer dedicated to building and refining OCI's core microservices and web applications. Working closely with Frank Operations, Elise continuously exercises the monorepo's software development lifecycles—from feature branch commits and Forgejo PR reviews to automated CI/CD pipeline triggers and artifact builds. She actively collaborates with team members by publishing technical documentation in Nextcloud and messaging team channels via Nextcloud Chat.

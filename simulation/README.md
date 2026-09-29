@@ -83,11 +83,15 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 * **`rick_onboarding_checklist`**: Verifies workforce directory status during new hire onboarding (`GET /api/v1/workforce/employees`).
 * **`rick_read_nextcloud_docs`**: Reads shared onboarding guides and security standard documentation in Nextcloud (`GET /nextcloud/api/v1/documents`).
 * **`rick_send_nextcloud_chat_ack`**: Sends Nextcloud Chat message acknowledging receipt of assigned laptop and onboarding documents (`POST /nextcloud/api/v1/chat/messages`).
+* **`rick_check_onboarding_status`**: Queries employee onboarding status (`GET /api/v1/workforce/employees?status=onboarding`) to track provisioning progress.
+* **`rick_trigger_self_onboarding_webhook`**: Simulates Frappe HR onboarding saga webhooks (`POST /api/v1/webhooks/frappe-hr`) to exercise new hire lifecycle workflows.
 
 ### 12. Elise Dev (`emp-human-elise`) — Software Developer
 * **`elise_write_nextcloud_doc`**: Publishes Employee Portal Vue 3 & BFF architecture specification document in Nextcloud (`POST /nextcloud/api/v1/documents`).
 * **`elise_send_nextcloud_chat`**: Messages Rick and engineering team via Nextcloud Chat with technical document links (`POST /nextcloud/api/v1/chat/messages`).
 * **`elise_monitor_it_tickets`**: Monitors IT helpdesk ticket queue for developer tooling issues (`GET /ops/tickets`).
+* **`elise_create_code_review_ticket`**: Submits Forgejo code review & CI/CD workflow tickets (`POST /ops/tickets`) for software development and automated pipeline builds.
+* **`elise_query_developer_tickets`**: Audits active developer IT tickets and build issues (`GET /ops/tickets`).
 
 ---
 
