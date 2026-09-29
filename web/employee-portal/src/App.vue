@@ -709,7 +709,9 @@ const staffList = ref([
   { id: 'emp-feline-garfield', name: 'Garfield', role: 'Chief Observation Officer (Feline)', icon: '🐱' },
   { id: 'emp-feline-barneby', name: 'Barneby', role: 'Senior Alpha Perch Analyst (Feline)', icon: '🐈‍⬛' },
   { id: 'emp-human-alice', name: 'Alice Vance', role: 'Head of Human & Feline Resources (Human)', icon: '👩‍💼' },
-  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' }
+  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' },
+  { id: 'emp-human-rick', name: 'Rick Newhire', role: 'Junior Operations Associate (Human)', icon: '🧑‍💼' },
+  { id: 'emp-human-elise', name: 'Elise Dev', role: 'Software Developer (Human)', icon: '👩‍💻' }
 ]);
 
 const selectedFelineId = ref('emp-feline-garfield');
