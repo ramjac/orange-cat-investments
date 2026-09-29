@@ -29,7 +29,7 @@ The application architecture adheres strictly to Domain-Driven Design principles
 ### 2.2 Commercial Off-The-Shelf (COTS) / Open Source (OSS) vs. Custom Code Boundary
 1. **System of Record for Generic Operations:**
    * **ERPNext / Frappe HR:** Single source of truth for double-entry financial accounting, legal payroll, billing, and core HR records.
-   * **Homebox:** Office physical inventory for non-networked equipment.
+   * **Snipe-IT:** Office physical inventory for non-networked equipment.
    * **ZITADEL:** Identity provider (OIDC/SSO) for external customer authentication.
    * **Forgejo:** Git repositories, issue tracking, CI/CD pipelines (Actions), and OAuth2/OIDC identity provider for internal employees/employers/staff.
 2. **Custom Go Domain Responsibilities:**
