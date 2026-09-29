@@ -28,6 +28,12 @@ type Service interface {
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error)
+
+	// ML Models & Advanced Analytics
+	ListMLModels(ctx context.Context) ([]map[string]interface{}, error)
+	LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error)
+	GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error)
 }
 
 type coreInvestService struct {
@@ -159,4 +165,61 @@ func (s *coreInvestService) GetBacktestRun(ctx context.Context, id string) (*cor
 
 func (s *coreInvestService) ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error) {
 	return s.repo.ListBacktestRuns(ctx, limit, offset)
+}
+
+func (s *coreInvestService) ListMLModels(ctx context.Context) ([]map[string]interface{}, error) {
+	return []map[string]interface{}{
+		{
+			"model_id":   "mdl-yolov8-cat-pose-v3",
+			"name":       "CatPose-YOLOv8-Alpha",
+			"version":    "v3.2.0",
+			"accuracy":   0.9845,
+			"drift":      0.012,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -2, 0).Format(time.RFC3339),
+		},
+		{
+			"model_id":   "mdl-whisker-audio-v1",
+			"name":       "PurrAcoustic-Classifier-V1",
+			"version":    "v1.0.4",
+			"accuracy":   0.9620,
+			"drift":      0.008,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
+		},
+	}, nil
+}
+
+func (s *coreInvestService) LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"drift_id":         "drift-018f-99",
+		"status":           "recorded",
+		"confidence_drift": 0.012,
+		"evaluated_at":     time.Now().Format(time.RFC3339),
+		"payload":          payload,
+	}, nil
+}
+
+func (s *coreInvestService) ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"acoustic_id":       "ac-018f-777",
+		"feline_id":         felineID,
+		"vocalization_type": "purring",
+		"frequency_hz":      28.5,
+		"decibel_level":     88.2,
+		"confidence":        0.982,
+	}, nil
+}
+
+func (s *coreInvestService) GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"statement_id":        "stmt-018f-2026",
+		"portfolio_id":        portfolioID,
+		"year":                year,
+		"sharpe_ratio":        2.14,
+		"sortino_ratio":       3.08,
+		"form_1099b_url":      "https://statements.oci.local/form1099b-2026.pdf",
+		"performance_summary": "Superior feline behavioral alpha (+28.45% return)",
+		"generated_at":        time.Now().Format(time.RFC3339),
+	}, nil
 }

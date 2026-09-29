@@ -27,7 +27,7 @@ Internal operational infrastructure supporting the business, its personnel, and 
 
 ### Off-the-Shelf OSS vs. Custom Code Boundary Rules
 
-1. **System of Record for Generic Operations:** ERPNext and Frappe HR are the single source of truth for double-entry bookkeeping, tax accounting, legal payroll processing, standard customer billing, and core HR workflows. Snipe-IT is the source of record for non-networked office physical inventory.
+1. **System of Record for Generic Operations:** ERPNext and Frappe HR are the single source of truth for double-entry bookkeeping, tax accounting, legal payroll processing, standard customer billing, and core HR workflows. Homebox is the source of record for non-networked office physical inventory.
 2. **Custom Go Domain Responsibilities:** Custom Go microservices are reserved strictly for:
    * **OCI Core Domain:** Camera stream processing, observation event ingestion, automated trading algorithms, and real-time investor fund balancing.
    * **OCI Hardware Operations:** Edge camera rigs, observation perches, and custom telemetry that off-the-shelf software cannot model natively.
@@ -57,7 +57,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 * **Customer Identity Provider:** [ZITADEL](https://github.com/zitadel/zitadel) for customer OIDC/SSO authentication.
 * **Office Productivity:** Nextcloud for documents, calendars, contacts, chat, and team collaboration.
 * **ERP & HR System:** ERPNext and Frappe HR for accounting, double-entry bookkeeping, inventory, CRM, HR, payroll, asset tracking, and billing.
-* **Office Asset Tracking:** [Snipe-IT](https://snipeitapp.com/) for non-networked office inventory.
+* **Office Asset Tracking:** [Homebox](https://homebox.software/en/) for non-networked office inventory.
 * **Databases:** PostgreSQL 16 (Relational DB with isolated schemas `workforce`, `facilities`, `core_invest`, `ops`).
 * **Caching & Session Storage:** Valkey (Redis-compatible).
 * **Event Streaming & Queuing:** RabbitMQ with Watermill pub/sub router engine.
@@ -276,7 +276,7 @@ This single command:
 * Checks `kubectl` connectivity to your cluster.
 * Applies all namespaces (`oci-core`, `postgres`, `apps`, `monitoring`, `logging`).
 * Deploys PostgreSQL 16 with persistent volume claims, table constraints, and initial seed records.
-* Deploys Valkey, RabbitMQ, Forgejo, ZITADEL, Nextcloud, Snipe-IT, ERPNext, and Frappe HR.
+* Deploys Valkey, RabbitMQ, Forgejo, ZITADEL, Nextcloud, Homebox, ERPNext, and Frappe HR.
 * Deploys Prometheus, Grafana, Loki, and Promtail monitoring stacks.
 * Waits for core database and queuing workloads to become healthy.
 

@@ -1,11 +1,12 @@
 {
   "name": "employee-portal",
   "version": "1.0.0",
-  "description": "Orange Cat Investments - Employee & Caretaker Portal (Vue SPA)",
+  "description": "Orange Cat Investments - Employee Web Portal (Vue SPA)",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "generate-theme": "node ../../scripts/generate-theme.js",
+    "dev": "npm run generate-theme && vite",
+    "build": "npm run generate-theme && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

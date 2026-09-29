@@ -17,6 +17,14 @@ type Service interface {
 	ListFirmwareReleases(ctx context.Context, deviceType string) ([]*facilities.FirmwareRelease, error)
 	TriggerOTAUpdate(ctx context.Context, assetIDs []string, releaseID string) ([]*facilities.DeviceOTAJob, error)
 	ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error)
+
+	IngestFeederTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	DisburseSnack(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	IngestCollarTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	IngestPerchTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	IngestEnvironmentalTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	ControlPTZ(ctx context.Context, cameraID string, payload map[string]interface{}) (map[string]interface{}, error)
+	CalibrateCameraLens(ctx context.Context, cameraID string) (map[string]interface{}, error)
 }
 
 type facilitiesService struct {
@@ -108,4 +116,32 @@ func (s *facilitiesService) ListOTAJobs(ctx context.Context, assetID string) ([]
 		return nil, errors.New("asset_id is required")
 	}
 	return s.repo.ListOTAJobsByAsset(ctx, assetID)
+}
+
+func (s *facilitiesService) IngestFeederTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"status": "ingested", "telemetry_type": "smart_feeder", "payload": payload}, nil
+}
+
+func (s *facilitiesService) DisburseSnack(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"status": "disbursed", "snack_grams": 15.0, "payload": payload}, nil
+}
+
+func (s *facilitiesService) IngestCollarTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"status": "ingested", "telemetry_type": "smart_collar_biometrics", "payload": payload}, nil
+}
+
+func (s *facilitiesService) IngestPerchTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"status": "ingested", "telemetry_type": "perch_comfort_thermal", "payload": payload}, nil
+}
+
+func (s *facilitiesService) IngestEnvironmentalTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"status": "ingested", "telemetry_type": "environmental_hvac_lux_db", "payload": payload}, nil
+}
+
+func (s *facilitiesService) ControlPTZ(ctx context.Context, cameraID string, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{"camera_id": cameraID, "status": "ptz_adjusted", "payload": payload}, nil
+}
+
+func (s *facilitiesService) CalibrateCameraLens(ctx context.Context, cameraID string) (map[string]interface{}, error) {
+	return map[string]interface{}{"camera_id": cameraID, "status": "lens_calibrated"}, nil
 }

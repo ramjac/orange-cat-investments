@@ -198,35 +198,60 @@ func (h *Handler) IngestFeederTelemetry(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ingested", "telemetry_type": "smart_feeder"})
+	res, err := h.service.IngestFeederTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) DisburseSnack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "disbursed", "snack_grams": 15.0})
+	res, err := h.service.DisburseSnack(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) IngestCollarTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ingested", "telemetry_type": "smart_collar_biometrics"})
+	res, err := h.service.IngestCollarTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) IngestPerchTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ingested", "telemetry_type": "perch_comfort_thermal"})
+	res, err := h.service.IngestPerchTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) IngestEnvironmentalTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "ingested", "telemetry_type": "environmental_hvac_lux_db"})
+	res, err := h.service.IngestEnvironmentalTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) ControlPTZ(w http.ResponseWriter, r *http.Request) {
@@ -234,13 +259,23 @@ func (h *Handler) ControlPTZ(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"camera_id": id, "status": "ptz_adjusted"})
+	res, err := h.service.ControlPTZ(r.Context(), id, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) CalibrateCameraLens(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	id := r.PathValue("id")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"camera_id": id, "status": "lens_calibrated"})
+	res, err := h.service.CalibrateCameraLens(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) TriggerOTAUpdate(w http.ResponseWriter, r *http.Request) {

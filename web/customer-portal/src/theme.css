@@ -1,0 +1,9 @@
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #ea580c;
+  --accent-color: #3b82f6;
+  --background-color: #0f172a;
+  --card-color: #1e293b;
+  --text-color: #f8fafc;
+  --font-family: Inter, system-ui, sans-serif;
+}

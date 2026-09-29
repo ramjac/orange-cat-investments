@@ -16,16 +16,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
+	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 )
 
 type CustomerBFF struct {
 	ciSvc  core_invest_svc.Service
+	wfSvc  workforce_svc.Service
 	logger *slog.Logger
 }
 
-func NewCustomerBFF(ciSvc core_invest_svc.Service, logger *slog.Logger) *CustomerBFF {
+func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
 	return &CustomerBFF{
 		ciSvc:  ciSvc,
+		wfSvc:  wfSvc,
 		logger: logger,
 	}
 }
@@ -56,26 +60,52 @@ func (b *CustomerBFF) handleHealthCheck(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	resp := map[string]interface{}{
-		"portfolio_id":       "018f3a9a-2222-7000-8000-000000000002",
-		"customer_id":        "cust-longterm-arthur",
-		"customer_name":      "Arthur Pendelton",
-		"account_name":       "OCI Alpha Growth Fund",
-		"total_balance_usd": 128450.75,
-		"cash_balance_usd":  32100.25,
-		"status":             "active",
-		"holdings": []map[string]interface{}{
-			{"symbol": "AAPL", "quantity": 120.0, "avg_price": 178.50, "current_price": 224.30, "market_value": 26916.00},
-			{"symbol": "NVDA", "quantity": 85.0, "avg_price": 110.20, "current_price": 138.80, "market_value": 11798.00},
-			{"symbol": "MSFT", "quantity": 90.0, "avg_price": 380.00, "current_price": 448.20, "market_value": 40338.00},
-			{"symbol": "TSLA", "quantity": 70.0, "avg_price": 190.00, "current_price": 247.12, "market_value": 17298.40},
-		},
-		"historical_performance": []map[string]interface{}{
-			{"date": "2026-01-01", "valuation": 100000.00},
-			{"date": "2026-02-01", "valuation": 108400.00},
-			{"date": "2026-03-01", "valuation": 114200.00},
-			{"date": "2026-04-01", "valuation": 128450.75},
-		},
+	custID := r.URL.Query().Get("customer_id")
+
+	var resp map[string]interface{}
+	if custID == "chloe" || custID == "cust-active-chloe" {
+		resp = map[string]interface{}{
+			"portfolio_id":       "018f3a9a-2222-7000-8000-000000000003",
+			"customer_id":        "cust-active-chloe",
+			"customer_name":      "Chloe Spark",
+			"account_name":       "Chloe Spark High-Velocity Alpha",
+			"total_balance_usd": 85200.00,
+			"cash_balance_usd":  15400.00,
+			"status":             "active",
+			"holdings": []map[string]interface{}{
+				{"symbol": "NVDA", "quantity": 150.0, "avg_price": 112.40, "current_price": 138.80, "market_value": 20820.00},
+				{"symbol": "TSLA", "quantity": 120.0, "avg_price": 185.50, "current_price": 247.12, "market_value": 29654.40},
+				{"symbol": "AAPL", "quantity": 85.0, "avg_price": 180.10, "current_price": 224.30, "market_value": 19065.50},
+			},
+			"historical_performance": []map[string]interface{}{
+				{"date": "2026-01-01", "valuation": 50000.00},
+				{"date": "2026-02-01", "valuation": 62400.00},
+				{"date": "2026-03-01", "valuation": 74100.00},
+				{"date": "2026-04-01", "valuation": 85200.00},
+			},
+		}
+	} else {
+		resp = map[string]interface{}{
+			"portfolio_id":       "018f3a9a-2222-7000-8000-000000000002",
+			"customer_id":        "cust-longterm-arthur",
+			"customer_name":      "Arthur Pendelton",
+			"account_name":       "OCI Alpha Growth Fund",
+			"total_balance_usd": 128450.75,
+			"cash_balance_usd":  32100.25,
+			"status":             "active",
+			"holdings": []map[string]interface{}{
+				{"symbol": "AAPL", "quantity": 120.0, "avg_price": 178.50, "current_price": 224.30, "market_value": 26916.00},
+				{"symbol": "NVDA", "quantity": 85.0, "avg_price": 110.20, "current_price": 138.80, "market_value": 11798.00},
+				{"symbol": "MSFT", "quantity": 90.0, "avg_price": 380.00, "current_price": 448.20, "market_value": 40338.00},
+				{"symbol": "TSLA", "quantity": 70.0, "avg_price": 190.00, "current_price": 247.12, "market_value": 17298.40},
+			},
+			"historical_performance": []map[string]interface{}{
+				{"date": "2026-01-01", "valuation": 100000.00},
+				{"date": "2026-02-01", "valuation": 108400.00},
+				{"date": "2026-03-01", "valuation": 114200.00},
+				{"date": "2026-04-01", "valuation": 128450.75},
+			},
+		}
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -83,8 +113,16 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	orders, err := b.ciSvc.ListBrokerageOrders(r.Context(), 50, 0)
+
+	execName := "Feline Executive"
+	if b.wfSvc != nil {
+		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
+		if err == nil && len(emps) > 0 {
+			execName = emps[0].FirstName
+		}
+	}
+
 	if err != nil || len(orders) == 0 {
-		// Mock sample fallback
 		mockOrders := []map[string]interface{}{
 			{
 				"order_id":         "ord-98234-a1",
@@ -95,7 +133,7 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 				"status":           "executed",
 				"executed_at":      time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
 				"trigger_activity": "zooming",
-				"feline_executive": "Garfield",
+				"feline_executive": execName,
 			},
 			{
 				"order_id":         "ord-98233-a2",
@@ -106,7 +144,7 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 				"status":           "executed",
 				"executed_at":      time.Now().Add(-6 * time.Hour).Format(time.RFC3339),
 				"trigger_activity": "playful_pounce",
-				"feline_executive": "Barneby",
+				"feline_executive": execName,
 			},
 		}
 		_ = json.NewEncoder(w).Encode(mockOrders)
@@ -123,7 +161,7 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		Side        string  `json:"side"`
 		Quantity    float64 `json:"quantity"`
 		Price       float64 `json:"price"`
-		OrderType   string  `json:"order_type"` // market, limit, bracket, trailing_stop
+		OrderType   string  `json:"order_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -172,15 +210,24 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 
 func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	leaderName := "Feline Leader"
+	if b.wfSvc != nil {
+		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
+		if err == nil && len(emps) > 0 {
+			leaderName = emps[0].FirstName
+		}
+	}
+
 	resp := map[string]interface{}{
-		"zoomie_index_score":   88.5,
-		"momentum_level":       "HIGH_VELOCITY_3AM_ZOOMIES",
-		"feline_leader":        "Garfield",
-		"active_pounces_cnt":   14,
-		"current_activity":     "zooming",
-		"confidence_score":     0.965,
-		"trading_signal":       "TACTICAL_BUY_BULLISH",
-		"last_updated":         time.Now().Format(time.RFC3339),
+		"zoomie_index_score":     88.5,
+		"momentum_level":         "HIGH_VELOCITY_3AM_ZOOMIES",
+		"feline_leader":          leaderName,
+		"active_pounces_cnt":     14,
+		"current_activity":       "zooming",
+		"confidence_score":       0.965,
+		"trading_signal":         "TACTICAL_BUY_BULLISH",
+		"last_updated":           time.Now().Format(time.RFC3339),
 		"recommended_multiplier": 1.75,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
@@ -318,32 +365,76 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 
 func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	felinesList := []map[string]interface{}{}
+	vhrRecordsCount := 0
+
+	if b.wfSvc != nil {
+		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
+		if err == nil {
+			for _, emp := range emps {
+				healthStatus := "OPTIMAL_ALPHA"
+				whiskerSymmetry := "100%"
+				purrFreq := 28.5
+
+				records, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), emp.EmployeeID)
+				if vhrErr == nil && len(records) > 0 {
+					vhrRecordsCount += len(records)
+					latest := records[0]
+					if latest.DentalScore >= 4 {
+						healthStatus = "PEAK_PERFORMER"
+						whiskerSymmetry = "99.8%"
+						purrFreq = 26.2
+					} else {
+						healthStatus = "UNDER_OBSERVATION"
+						whiskerSymmetry = "95.0%"
+					}
+				}
+
+				felinesList = append(felinesList, map[string]interface{}{
+					"employee_id":       emp.EmployeeID,
+					"name":              emp.FirstName,
+					"role":              emp.RoleTitle,
+					"health_status":     healthStatus,
+					"whisker_symmetry": whiskerSymmetry,
+					"purr_frequency_hz": purrFreq,
+					"preferred_sunbeam": "Alpha Sunbeam Lounge",
+					"vhr_records_cnt":   len(records),
+				})
+			}
+		}
+	}
+
+	incidentsCnt := 0
+	if b.wfSvc != nil {
+		incidents, incErr := b.wfSvc.ListWorkplaceIncidents(r.Context(), "")
+		if incErr == nil {
+			incidentsCnt = len(incidents)
+		}
+	}
+
+	welfareScore := 5.0
+	if incidentsCnt > 0 {
+		welfareScore -= float64(incidentsCnt) * 0.02
+	}
+	if welfareScore < 1.0 {
+		welfareScore = 1.0
+	}
+
+	adherencePct := 100.0
+	if vhrRecordsCount == 0 && len(felinesList) > 0 {
+		adherencePct = 98.5
+	}
+
 	resp := map[string]interface{}{
-		"overall_welfare_score":    4.98,
-		"veterinary_adherence_pct": 100.0,
+		"overall_welfare_score":    welfareScore,
+		"veterinary_adherence_pct": adherencePct,
 		"nutritional_compliance":   "100% Grain-Free Prescription Salmon & Turkey",
 		"avg_daily_nap_hours":      14.6,
 		"perch_comfort_rating":     "5.0 / 5.0 (Ergonomic Thermal Cushioning)",
+		"workplace_incidents_cnt":  incidentsCnt,
 		"medical_holds_issued_ytd": 0,
-		"habitat_temperature_c":    22.5,
-		"feline_executives": []map[string]interface{}{
-			{
-				"name":                "Garfield",
-				"role":                "Chief Observation Officer",
-				"health_status":       "OPTIMAL_ALPHA",
-				"whisker_symmetry":   "100%",
-				"purr_frequency_hz":   28.5,
-				"preferred_sunbeam":   "Alpha Sunbeam Lounge (Zone 1)",
-			},
-			{
-				"name":                "Barneby",
-				"role":                "Senior Alpha Perch Analyst",
-				"health_status":       "PEAK_PERFORMER",
-				"whisker_symmetry":   "99.8%",
-				"purr_frequency_hz":   26.2,
-				"preferred_sunbeam":   "Perch Zone B - West Tower",
-			},
-		},
+		"feline_executives":        felinesList,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -403,7 +494,9 @@ func main() {
 	}
 
 	ciSvc := core_invest_svc.NewService(ciRepo)
-	custBFF := NewCustomerBFF(ciSvc, logger)
+	wfRepo := workforce_repo.NewRepository(pool)
+	wfSvc := workforce_svc.NewService(wfRepo)
+	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
 
 	mux := http.NewServeMux()
 	custBFF.RegisterRoutes(mux)

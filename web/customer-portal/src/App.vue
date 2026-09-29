@@ -11,11 +11,11 @@
       <div class="user-profile">
         <div class="avatar">{{ currentPersona === 'arthur' ? 'AP' : 'CS' }}</div>
         <div class="user-info">
-          <h4>{{ currentPersona === 'arthur' ? 'Arthur Pendelton' : 'Chloe Spark' }}</h4>
-          <span>{{ currentPersona === 'arthur' ? 'Long-Term Value Investor' : 'Short-Term Momentum Alpha Trader' }}</span>
+          <h4>{{ portfolio.customer_name || (currentPersona === 'arthur' ? 'Arthur Pendelton' : 'Chloe Spark') }}</h4>
+          <span>{{ portfolio.account_name || (currentPersona === 'arthur' ? 'Long-Term Value Investor' : 'Short-Term Momentum Alpha Trader') }}</span>
         </div>
         <button class="switch-persona-btn" @click="togglePersona">
-          Switch to {{ currentPersona === 'arthur' ? 'Chloe' : 'Arthur' }}
+          Switch Persona
         </button>
       </div>
     </header>
@@ -90,7 +90,7 @@
 
       <div class="card">
         <h3>Historical Performance</h3>
-        <p class="subtext">Portfolio valuation growth driven by Garfield & Barneby observation alpha.</p>
+        <p class="subtext">Portfolio valuation growth driven by observation alpha.</p>
 
         <div class="chart-mock">
           <div v-for="(p, idx) in portfolio.historical_performance" :key="idx" class="chart-bar-container">
@@ -141,7 +141,7 @@
               <span class="cam-icon">🎥</span>
               <p><strong>RTSP/WebRTC Stream Active:</strong> https://stream.oci.local/webrtc/alpha-lounge-cam1</p>
               <div class="detection-box">
-                🎯 <strong>AI Vision Overlay:</strong> Garfield (98.2% Confidence — Activity: <em>Zooming</em>)
+                🎯 <strong>AI Vision Overlay:</strong> Feline Executive (98.2% Confidence — Activity: <em>Zooming</em>)
               </div>
             </div>
           </div>
@@ -360,17 +360,17 @@
       <div class="card">
         <div class="card-header">
           <h2>🌿 Feline Welfare & ESG Transparency Dashboard</h2>
-          <span class="welfare-badge">Score: {{ esgData.overall_welfare_score }} / 5.0</span>
+          <span class="welfare-badge">Score: {{ esgData.overall_welfare_score.toFixed(2) }} / 5.0</span>
         </div>
 
         <div class="metrics-grid">
           <div class="metric-box">
             <span class="metric-label">Veterinary Adherence</span>
-            <span class="metric-value positive-text">{{ esgData.veterinary_adherence_pct }}%</span>
+            <span class="metric-value positive-text">{{ esgData.veterinary_adherence_pct.toFixed(1) }}%</span>
           </div>
           <div class="metric-box">
-            <span class="metric-label">Avg Daily Nap Hours</span>
-            <span class="metric-value">{{ esgData.avg_daily_nap_hours }} hrs</span>
+            <span class="metric-label">Workplace Incidents</span>
+            <span class="metric-value">{{ esgData.workplace_incidents_cnt }}</span>
           </div>
           <div class="metric-box">
             <span class="metric-label">Perch Comfort Score</span>
@@ -386,6 +386,7 @@
             <p>Whisker Symmetry: <strong>{{ exec.whisker_symmetry }}</strong></p>
             <p>Purr Frequency: <strong>{{ exec.purr_frequency_hz }} Hz</strong></p>
             <p>Sunbeam Zone: <strong>{{ exec.preferred_sunbeam }}</strong></p>
+            <p v-if="exec.vhr_records_cnt !== undefined">VHR Checkups Recorded: <strong>{{ exec.vhr_records_cnt }}</strong></p>
           </div>
         </div>
       </div>
@@ -439,7 +440,7 @@ const streams = ref([
 const zoomieIndex = ref({
   zoomie_index_score: 88.5,
   momentum_level: 'HIGH_VELOCITY_3AM_ZOOMIES',
-  feline_leader: 'Garfield',
+  feline_leader: 'Feline Executive',
   trading_signal: 'TACTICAL_BUY_BULLISH',
   recommended_multiplier: 1.75
 });
@@ -460,14 +461,11 @@ const webhooks = ref([
 ]);
 
 const esgData = ref({
-  overall_welfare_score: 4.98,
+  overall_welfare_score: 5.0,
   veterinary_adherence_pct: 100.0,
-  avg_daily_nap_hours: 14.6,
-  perch_comfort_rating: '5.0 / 5.0',
-  feline_executives: [
-    { name: 'Garfield', role: 'Chief Observation Officer', health_status: 'OPTIMAL_ALPHA', whisker_symmetry: '100%', purr_frequency_hz: 28.5, preferred_sunbeam: 'Alpha Sunbeam Lounge' },
-    { name: 'Barneby', role: 'Senior Alpha Perch Analyst', health_status: 'PEAK_PERFORMER', whisker_symmetry: '99.8%', purr_frequency_hz: 26.2, preferred_sunbeam: 'Perch Zone B - West Tower' }
-  ]
+  workplace_incidents_cnt: 0,
+  perch_comfort_rating: '5.0 / 5.0 (Ergonomic Thermal Cushioning)',
+  feline_executives: []
 });
 
 const orderForm = ref({ symbol: 'AAPL', side: 'buy', quantity: 10, order_type: 'market' });
@@ -475,14 +473,44 @@ const depositForm = ref({ amount_usd: 500, frequency: 'monthly', bank_account: '
 const apiKeyForm = ref({ name: '' });
 const webhookForm = ref({ target_url: '' });
 
+async function fetchESGTransparency() {
+  try {
+    const res = await fetch('/api/v1/customer/transparency/welfare');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.overall_welfare_score !== undefined) {
+        esgData.value = data;
+      }
+    }
+  } catch (e) {
+    // Local fallback
+  }
+}
+
+async function fetchPortfolio() {
+  try {
+    const res = await fetch(`/api/v1/customer/portfolio?customer_id=${currentPersona.value}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.portfolio_id) {
+        portfolio.value = data;
+      }
+    }
+  } catch (e) {
+    // Fallback
+  }
+}
+
 function togglePersona() {
   if (currentPersona.value === 'arthur') {
     currentPersona.value = 'chloe';
     currentTab.value = 'trading';
+    fetchPortfolio();
     showToast('Switched to Chloe Spark (Momentum Trader mode)');
   } else {
     currentPersona.value = 'arthur';
     currentTab.value = 'portfolio';
+    fetchPortfolio();
     showToast('Switched to Arthur Pendelton (Long-Term Investor mode)');
   }
 }
@@ -550,32 +578,33 @@ async function createWebhook() {
 }
 
 onMounted(() => {
-  // Initialized
+  fetchPortfolio();
+  fetchESGTransparency();
 });
 </script>
 
 <style scoped>
-.container { max-width: 1100px; margin: 0 auto; color: #f8fafc; font-family: sans-serif; }
+.container { max-width: 1100px; margin: 0 auto; color: var(--text-color, #f8fafc); font-family: var(--font-family, sans-serif); }
 header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1.5rem; }
 .brand { display: flex; align-items: center; gap: 0.75rem; }
-.brand-title h1 { margin: 0; color: #f97316; font-size: 1.5rem; }
+.brand-title h1 { margin: 0; color: var(--secondary-color, #ea580c); font-size: 1.5rem; }
 .brand-title p { margin: 0; color: #94a3b8; font-size: 0.85rem; }
-.user-profile { display: flex; align-items: center; gap: 0.75rem; background: #1e293b; padding: 0.5rem 1rem; border-radius: 9999px; }
-.avatar { width: 36px; height: 36px; border-radius: 50%; background: #3b82f6; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.user-profile { display: flex; align-items: center; gap: 0.75rem; background: var(--card-color, #1e293b); padding: 0.5rem 1rem; border-radius: 9999px; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-color, #3b82f6); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 .user-info h4 { margin: 0; font-size: 0.85rem; }
 .user-info span { font-size: 0.75rem; color: #94a3b8; }
-.switch-persona-btn { background: #334155; border: none; color: #f8fafc; padding: 0.35rem 0.75rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem; }
+.switch-persona-btn { background: #334155; border: none; color: var(--text-color, #f8fafc); padding: 0.35rem 0.75rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.75rem; }
 
 .nav-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-.tab-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 0.6rem 1rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; }
-.tab-btn.active { background: #ea580c; color: white; border-color: #ea580c; }
+.tab-btn { background: var(--card-color, #1e293b); border: 1px solid #334155; color: #94a3b8; padding: 0.6rem 1rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; }
+.tab-btn.active { background: var(--secondary-color, #ea580c); color: white; border-color: var(--secondary-color, #ea580c); }
 
 .grid-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-.card { background: #1e293b; border-radius: 0.75rem; border: 1px solid #334155; padding: 1.5rem; }
+.card { background: var(--card-color, #1e293b); border-radius: 0.75rem; border: 1px solid #334155; padding: 1.5rem; }
 .subtext { font-size: 0.85rem; color: #94a3b8; margin-top: 0.25rem; margin-bottom: 1rem; }
 
 .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
-.metric-box { background: #0f172a; padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; }
+.metric-box { background: var(--background-color, #0f172a); padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; }
 .metric-label { display: block; font-size: 0.75rem; color: #94a3b8; }
 .metric-value { font-size: 1.25rem; font-weight: bold; }
 .positive-text { color: #4ade80; }
@@ -587,7 +616,7 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 
 .chart-mock { display: flex; align-items: flex-end; gap: 1.5rem; height: 120px; border-bottom: 1px solid #334155; padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
 .chart-bar-container { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.chart-bar { width: 100%; background: #f97316; border-radius: 0.25rem 0.25rem 0 0; }
+.chart-bar { width: 100%; background: var(--secondary-color, #ea580c); border-radius: 0.25rem 0.25rem 0 0; }
 .chart-label { font-size: 0.75rem; color: #94a3b8; margin-top: 0.35rem; }
 
 .side-badge { padding: 0.15rem 0.4rem; border-radius: 0.2rem; font-size: 0.7rem; font-weight: bold; }
@@ -595,24 +624,24 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .side-badge.sell { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .activity-chip { background: #334155; padding: 0.15rem 0.4rem; border-radius: 9999px; font-size: 0.7rem; color: #e2e8f0; }
 
-.video-player-container { background: #0f172a; border-radius: 0.5rem; height: 220px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid #334155; }
+.video-player-container { background: var(--background-color, #0f172a); border-radius: 0.5rem; height: 220px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid #334155; }
 .video-overlay { text-align: center; }
 .cam-icon { font-size: 2.5rem; display: block; }
-.detection-box { background: rgba(249, 115, 22, 0.15); border: 1px solid #f97316; color: #fdba74; padding: 0.5rem 1rem; border-radius: 0.375rem; margin-top: 0.75rem; font-size: 0.85rem; }
+.detection-box { background: rgba(234, 88, 12, 0.15); border: 1px solid var(--secondary-color, #ea580c); color: #fdba74; padding: 0.5rem 1rem; border-radius: 0.375rem; margin-top: 0.75rem; font-size: 0.85rem; }
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .live-indicator { color: #ef4444; font-weight: bold; font-size: 0.8rem; }
 .stream-controls { display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem; }
 .btn-secondary { background: #334155; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; font-size: 0.8rem; cursor: pointer; }
 .stream-stat { font-size: 0.75rem; color: #94a3b8; margin-left: auto; }
 
-.zoomie-badge { background: #ea580c; color: white; font-weight: bold; padding: 0.2rem 0.6rem; border-radius: 0.25rem; font-size: 0.8rem; }
-.zoomie-banner { background: rgba(234, 88, 12, 0.15); border: 1px solid #ea580c; border-radius: 0.5rem; padding: 1rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.zoomie-badge { background: var(--secondary-color, #ea580c); color: white; font-weight: bold; padding: 0.2rem 0.6rem; border-radius: 0.25rem; font-size: 0.8rem; }
+.zoomie-banner { background: rgba(234, 88, 12, 0.15); border: 1px solid var(--secondary-color, #ea580c); border-radius: 0.5rem; padding: 1rem; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
 .zoomie-info h3 { margin: 0 0 0.25rem 0; color: #fdba74; font-size: 1.1rem; }
 .zoomie-info p { margin: 0; font-size: 0.85rem; color: #cbd5e1; }
-.btn-primary-glow { background: #ea580c; color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; box-shadow: 0 0 15px rgba(234, 88, 12, 0.5); }
+.btn-primary-glow { background: var(--secondary-color, #ea580c); color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; box-shadow: 0 0 15px rgba(234, 88, 12, 0.5); }
 
 .ticker-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-top: 1rem; }
-.ticker-card { background: #0f172a; padding: 0.75rem; border-radius: 0.375rem; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+.ticker-card { background: var(--background-color, #0f172a); padding: 0.75rem; border-radius: 0.375rem; border: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
 .ticker-symbol { font-weight: bold; }
 .ticker-price { font-weight: 600; }
 .ticker-change.pos { color: #4ade80; }
@@ -620,16 +649,16 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 
 .form-group { margin-bottom: 1rem; }
 .form-group label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.35rem; }
-.form-control { width: 100%; background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 0.6rem; border-radius: 0.375rem; box-sizing: border-box; }
-.btn-primary { background: #f97316; color: white; border: none; padding: 0.75rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; width: 100%; }
+.form-control { width: 100%; background: var(--background-color, #0f172a); border: 1px solid #334155; color: var(--text-color, #f8fafc); padding: 0.6rem; border-radius: 0.375rem; box-sizing: border-box; }
+.btn-primary { background: var(--secondary-color, #ea580c); color: white; border: none; padding: 0.75rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; width: 100%; }
 
-.key-box { background: #0f172a; border: 1px solid #3b82f6; padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; }
+.key-box { background: var(--background-color, #0f172a); border: 1px solid var(--accent-color, #3b82f6); padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; }
 .key-text { font-size: 0.9rem; color: #60a5fa; word-break: break-all; }
 .code-font { font-family: monospace; }
-.alert-toast { position: fixed; bottom: 2rem; right: 2rem; background: #ea580c; color: white; padding: 1rem 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); font-weight: bold; }
+.alert-toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--secondary-color, #ea580c); color: white; padding: 1rem 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); font-weight: bold; }
 .welfare-badge { background: #16a34a; color: white; padding: 0.2rem 0.6rem; border-radius: 0.25rem; font-size: 0.8rem; font-weight: bold; }
 .feline-esg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-top: 1rem; }
-.feline-esg-card { background: #0f172a; padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; }
-.feline-esg-card h4 { margin: 0 0 0.5rem 0; color: #f97316; }
+.feline-esg-card { background: var(--background-color, #0f172a); padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; }
+.feline-esg-card h4 { margin: 0 0 0.5rem 0; color: var(--secondary-color, #ea580c); }
 .feline-esg-card p { margin: 0.25rem 0; font-size: 0.85rem; color: #cbd5e1; }
 </style>

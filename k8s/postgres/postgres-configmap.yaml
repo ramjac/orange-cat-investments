@@ -472,10 +472,20 @@ data:
         ('018e0000-0000-7000-8000-000000000002', 'v2.1.0-catos', 'edge_camera', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'https://firmware.oci.local/v2.1.0.bin', 'published')
     ON CONFLICT (device_type, version) DO NOTHING;
 
-    -- Core Investment Portfolio
+    -- Seed Workforce Employees
+    INSERT INTO workforce.employees (employee_id, employee_type, first_name, last_name, email, role_title, department, status)
+    VALUES
+        ('018f3a9a-e001-7000-8000-000000000001', 'feline', 'Garfield', NULL, NULL, 'Chief Observation Officer', 'Executive Feline Suite', 'active'),
+        ('018f3a9a-e002-7000-8000-000000000002', 'feline', 'Barneby', NULL, NULL, 'Senior Alpha Perch Analyst', 'Alpha Perch Research', 'active'),
+        ('018f3a9a-e003-7000-8000-000000000003', 'human', 'Alice', 'Vance', 'alice.vance@oci.local', 'Head of Human & Feline Resources', 'Workforce Operations', 'active'),
+        ('018f3a9a-e004-7000-8000-000000000004', 'human', 'Elena', 'Rostova', 'elena.rostova@oci.local', 'Chief Veterinary Officer', 'Feline Health & Welfare', 'active')
+    ON CONFLICT (employee_id) DO NOTHING;
+
+    -- Core Investment Portfolios for Retail Customers
     INSERT INTO core_invest.investment_portfolios (portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status)
     VALUES 
-        ('018f3a9a-2222-7000-8000-000000000002', '018e0000-0000-7000-8000-000000000099', 'OCI Alpha Growth Fund', 100000.00, 25000.00, 'active')
+        ('018f3a9a-2222-7000-8000-000000000002', '018e0000-0000-7000-8000-000000000099', 'OCI Alpha Growth Fund', 128450.75, 32100.25, 'active'),
+        ('018f3a9a-2222-7000-8000-000000000003', '018e0000-0000-7000-8000-000000000098', 'Chloe Spark High-Velocity Alpha', 85200.00, 15400.00, 'active')
     ON CONFLICT (portfolio_id) DO NOTHING;
 
     -- Automated Allocation Strategy

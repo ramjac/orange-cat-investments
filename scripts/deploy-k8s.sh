@@ -40,7 +40,7 @@ echo "3. Deploying PostgreSQL Database..."
 kubectl apply -f "${REPO_ROOT}/k8s/postgres/"
 
 echo ""
-echo "4. Deploying Core Applications (Valkey, RabbitMQ, Forgejo, Zitadel, Nextcloud, Snipe-IT, ERPNext)..."
+echo "4. Deploying Core Applications (Valkey, RabbitMQ, Forgejo, Zitadel, Nextcloud, Homebox, ERPNext)..."
 kubectl apply -f "${REPO_ROOT}/k8s/apps/"
 
 echo ""
@@ -65,7 +65,7 @@ echo "  OCI Platform Workloads Successfully Deployed!              "
 echo "=============================================================="
 echo ""
 echo "Cluster Status:"
-kubectl get pods -A -l 'app in (postgres, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana)' || kubectl get pods -A
+kubectl get pods -A -l 'app in (postgres, valkey, rabbitmq, forgejo, zitadel, homebox, meilisearch, nextcloud, loki, prometheus, grafana)' || kubectl get pods -A
 
 echo ""
 echo "Quickstart: Connect from local machine using port-forwarding:"
