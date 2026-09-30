@@ -73,7 +73,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ## 4. Employee & Customer Personas (Workflow Simulation)
 
-To exercise and simulate the entire software stack using autonomous drivers and AI agents, OCI defines 12 distinct personas across corporate staff, feline executives, and retail investors:
+To exercise and simulate the entire software stack using autonomous drivers and AI agents, OCI defines 10 distinct personas across corporate staff, feline executives, and retail investors:
 
 ### Corporate Staff & Feline Executives
 1. **Garfield (`emp-feline-garfield`)** — Chief Observation Officer (COO)
@@ -84,12 +84,10 @@ To exercise and simulate the entire software stack using autonomous drivers and 
 6. **David Quant (`emp-human-david`)** — Feline Behavioral Data Scientist
 7. **Dr. Elena Rostova (`emp-human-elena`)** — Chief Veterinary Officer & Habitat Specialist
 8. **Frank Operations (`emp-human-frank`)** — Platform Security & K8s Infrastructure Lead
-9. **Rick Newhire (`emp-human-rick`)** — Junior Operations Associate (exercising new hire and onboarding workflows)
-10. **Elise Dev (`emp-human-elise`)** — Software Developer (exercising software dev, CI/CD pipelines, and Forgejo workflows)
 
 ### Retail Investor Customers
-11. **Arthur Pendelton (`cust-longterm-arthur`)** — Long-Term Value Investor (passive regular fund deposits, quarterly performance reviews)
-12. **Chloe Spark (`cust-active-chloe`)** — Short-Term Momentum Alpha Trader (active tactical buy/sell orders on feline zoomies activity spikes)
+9. **Arthur Pendelton (`cust-longterm-arthur`)** — Long-Term Value Investor (passive regular fund deposits, quarterly performance reviews)
+10. **Chloe Spark (`cust-active-chloe`)** — Short-Term Momentum Alpha Trader (active tactical buy/sell orders on feline zoomies activity spikes)
 
 Detailed profile specifications are located in the `personas/` directory.
 
@@ -316,7 +314,7 @@ For users provisioning a fresh, unconfigured bare-metal server (e.g. mini PC, In
 
 ### 6.6 OCI Platform Simulation Driver
 
-The repository includes a comprehensive simulation driver (`simulation/cmd/simulator`) that exercises all 12 OCI personas (Garfield, Barneby, Alice, Bob, Carol, David, Dr. Elena, Frank, Arthur, Chloe, Rick, Elise) through their full daily operational routines:
+The repository includes a comprehensive simulation driver (`simulation/cmd/simulator`) that exercises all 10 OCI personas (Garfield, Barneby, Alice, Bob, Carol, David, Dr. Elena, Frank, Arthur, Chloe) through their full daily operational routines:
 
 ```bash
 # 1. Run in Mock Mode (offline, in-memory):
