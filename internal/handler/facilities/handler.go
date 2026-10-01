@@ -29,6 +29,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /facilities/firmware/ota-jobs", h.ListOTAJobs)
 	mux.HandleFunc("POST /facilities/firmware/ota-jobs", h.TriggerOTAUpdate)
 
+	mux.HandleFunc("POST /facilities/feeders/telemetry", h.IngestFeederTelemetry)
+	mux.HandleFunc("POST /facilities/feeders/disburse", h.DisburseSnack)
+	mux.HandleFunc("POST /facilities/collars/telemetry", h.IngestCollarTelemetry)
+	mux.HandleFunc("POST /facilities/perches/telemetry", h.IngestPerchTelemetry)
+	mux.HandleFunc("POST /facilities/environment/telemetry", h.IngestEnvironmentalTelemetry)
+	mux.HandleFunc("POST /facilities/cameras/{id}/ptz", h.ControlPTZ)
+	mux.HandleFunc("POST /facilities/cameras/{id}/calibrate", h.CalibrateCameraLens)
+
 	// API v1 route aliases
 	mux.HandleFunc("GET /api/v1/facilities/assets", h.ListAssets)
 	mux.HandleFunc("POST /api/v1/facilities/assets", h.CreateAsset)
@@ -41,6 +49,14 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/facilities/firmware/ota-jobs", h.ListOTAJobs)
 	mux.HandleFunc("POST /api/v1/facilities/firmware/ota-jobs", h.TriggerOTAUpdate)
+
+	mux.HandleFunc("POST /api/v1/facilities/feeders/telemetry", h.IngestFeederTelemetry)
+	mux.HandleFunc("POST /api/v1/facilities/feeders/disburse", h.DisburseSnack)
+	mux.HandleFunc("POST /api/v1/facilities/collars/telemetry", h.IngestCollarTelemetry)
+	mux.HandleFunc("POST /api/v1/facilities/perches/telemetry", h.IngestPerchTelemetry)
+	mux.HandleFunc("POST /api/v1/facilities/environment/telemetry", h.IngestEnvironmentalTelemetry)
+	mux.HandleFunc("POST /api/v1/facilities/cameras/{id}/ptz", h.ControlPTZ)
+	mux.HandleFunc("POST /api/v1/facilities/cameras/{id}/calibrate", h.CalibrateCameraLens)
 }
 
 func (h *Handler) GetAssetByID(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +192,90 @@ func (h *Handler) ListOTAJobs(w http.ResponseWriter, r *http.Request) {
 type OTATriggerRequest struct {
 	AssetIDs  []string `json:"asset_ids"`
 	ReleaseID string   `json:"release_id"`
+}
+
+func (h *Handler) IngestFeederTelemetry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.IngestFeederTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) DisburseSnack(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.DisburseSnack(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) IngestCollarTelemetry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.IngestCollarTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) IngestPerchTelemetry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.IngestPerchTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) IngestEnvironmentalTelemetry(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.IngestEnvironmentalTelemetry(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) ControlPTZ(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.ControlPTZ(r.Context(), id, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) CalibrateCameraLens(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	res, err := h.service.CalibrateCameraLens(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) TriggerOTAUpdate(w http.ResponseWriter, r *http.Request) {

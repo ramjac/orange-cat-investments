@@ -3,6 +3,7 @@ package workforce
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
@@ -30,6 +31,15 @@ type Service interface {
 	GetReviewCycle(ctx context.Context, id string) (*workforce.ReviewCycle, error)
 	ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*workforce.ReviewCycle, error)
 	UpdateReviewCycle(ctx context.Context, id string, status, reviewerID *string, score *float64, notes *string, completedAt *time.Time) (*workforce.ReviewCycle, error)
+
+	// Electronic Veterinary Health Records (VHR)
+	CreateVHRRecord(ctx context.Context, rec *workforce.VHRRecord) (*workforce.VHRRecord, error)
+	ListVHRRecords(ctx context.Context, felineID string) ([]*workforce.VHRRecord, error)
+
+	// Workplace Incidents
+	CreateWorkplaceIncident(ctx context.Context, inc *workforce.WorkplaceIncident) (*workforce.WorkplaceIncident, error)
+	ListWorkplaceIncidents(ctx context.Context, status string) ([]*workforce.WorkplaceIncident, error)
+	UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*workforce.WorkplaceIncident, error)
 }
 
 type workforceService struct {
@@ -328,3 +338,46 @@ func (s *workforceService) UpdateReviewCycle(ctx context.Context, id string, sta
 	return s.repo.UpdateReviewCycle(ctx, rc)
 }
 
+func (s *workforceService) CreateVHRRecord(ctx context.Context, rec *workforce.VHRRecord) (*workforce.VHRRecord, error) {
+	if rec == nil || rec.FelineID == "" {
+		return nil, errors.New("feline_id is required for VHR record")
+	}
+	if rec.VisitDate == "" {
+		rec.VisitDate = time.Now().UTC().Format("2006-01-02")
+	}
+	if rec.DentalScore < 1 || rec.DentalScore > 5 {
+		return nil, errors.New("dental score must be between 1 and 5")
+	}
+	return s.repo.CreateVHRRecord(ctx, rec)
+}
+
+func (s *workforceService) ListVHRRecords(ctx context.Context, felineID string) ([]*workforce.VHRRecord, error) {
+	return s.repo.ListVHRRecords(ctx, felineID)
+}
+
+func (s *workforceService) CreateWorkplaceIncident(ctx context.Context, inc *workforce.WorkplaceIncident) (*workforce.WorkplaceIncident, error) {
+	if inc == nil || inc.Title == "" || inc.Description == "" {
+		return nil, errors.New("title and description are required for incident logging")
+	}
+	if inc.Category == "" {
+		inc.Category = "habitat_disruption"
+	}
+	return s.repo.CreateWorkplaceIncident(ctx, inc)
+}
+
+func (s *workforceService) ListWorkplaceIncidents(ctx context.Context, status string) ([]*workforce.WorkplaceIncident, error) {
+	return s.repo.ListWorkplaceIncidents(ctx, status)
+}
+
+func (s *workforceService) UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*workforce.WorkplaceIncident, error) {
+	if id == "" || status == "" {
+		return nil, errors.New("incident id and status are required")
+	}
+	switch status {
+	case "open", "under_review", "resolved":
+		// valid status
+	default:
+		return nil, fmt.Errorf("invalid incident status %q: status must be one of 'open', 'under_review', 'resolved'", status)
+	}
+	return s.repo.UpdateWorkplaceIncidentStatus(ctx, id, status, resolutionNotes)
+}

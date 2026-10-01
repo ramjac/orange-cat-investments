@@ -30,6 +30,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /core-invest/backtesting/runs", h.StartBacktestRun)
 	mux.HandleFunc("GET /core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
 
+	mux.HandleFunc("GET /core-invest/models", h.ListMLModels)
+	mux.HandleFunc("POST /core-invest/models/drift", h.LogModelDrift)
+	mux.HandleFunc("POST /core-invest/audio/classify", h.ClassifyAcoustics)
+	mux.HandleFunc("POST /core-invest/statements/generate", h.GenerateStatement)
+
 	// API v1 route aliases
 	mux.HandleFunc("GET /api/v1/core-invest/streams", h.ListCameraStreams)
 	mux.HandleFunc("POST /api/v1/core-invest/streams", h.RegisterCameraStream)
@@ -42,6 +47,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs", h.ListBacktestRuns)
 	mux.HandleFunc("POST /api/v1/core-invest/backtesting/runs", h.StartBacktestRun)
 	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs/{id}", h.GetBacktestRunByID)
+
+	mux.HandleFunc("GET /api/v1/core-invest/models", h.ListMLModels)
+	mux.HandleFunc("POST /api/v1/core-invest/models/drift", h.LogModelDrift)
+	mux.HandleFunc("POST /api/v1/core-invest/audio/classify", h.ClassifyAcoustics)
+	mux.HandleFunc("POST /api/v1/core-invest/statements/generate", h.GenerateStatement)
 }
 
 func (h *Handler) GetCameraStreamByID(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +242,60 @@ func (h *Handler) StartBacktestRun(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(run)
+}
+
+func (h *Handler) ListMLModels(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	models, err := h.service.ListMLModels(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(models)
+}
+
+func (h *Handler) LogModelDrift(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req map[string]interface{}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.LogModelDrift(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) ClassifyAcoustics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		FelineID string `json:"feline_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	res, err := h.service.ClassifyAcoustics(r.Context(), req.FelineID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *Handler) GenerateStatement(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		PortfolioID string `json:"portfolio_id"`
+		Year        int    `json:"year"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Year == 0 {
+		req.Year = time.Now().Year()
+	}
+	res, err := h.service.GenerateStatement(r.Context(), req.PortfolioID, req.Year)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) GetBacktestRunByID(w http.ResponseWriter, r *http.Request) {

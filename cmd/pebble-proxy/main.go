@@ -20,6 +20,15 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("starting OCI Pebble Companion App Gateway Proxy")
 
+	enablePebbleGateway := os.Getenv("ENABLE_PEBBLE_GATEWAY") != "false"
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && os.Getenv("ENABLE_PEBBLE_GATEWAY") == "" {
+		enablePebbleGateway = false
+	}
+	if !enablePebbleGateway {
+		logger.Info("Pebble companion gateway proxy is disabled via configuration (ENABLE_PEBBLE_GATEWAY=false)")
+		return
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

@@ -38,6 +38,18 @@
         📋 Review Cycles & Assessments
       </button>
       <button
+        :class="['tab-btn', { active: currentTab === 'vhr' }]"
+        @click="currentTab = 'vhr'"
+      >
+        🩺 Electronic Veterinary Health Records (VHR)
+      </button>
+      <button
+        :class="['tab-btn', { active: currentTab === 'incidents' }]"
+        @click="currentTab = 'incidents'"
+      >
+        🚨 Workplace Incidents & Conflict Logs
+      </button>
+      <button
         :class="['tab-btn', { active: currentTab === 'backtest' }]"
         @click="currentTab = 'backtest'"
       >
@@ -123,6 +135,176 @@
             <button type="submit" class="btn-primary">💾 Save Care Schedule</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- TAB 5: Electronic Veterinary Health Records (VHR) -->
+    <div v-else-if="currentTab === 'vhr'" class="grid-layout vhr-layout">
+      <div class="card">
+        <h3>Record Clinical Checkup (VHR)</h3>
+        <p class="subtext">Record veterinary examinations, dental scoring, weight progression, and prescriptions.</p>
+
+        <form @submit.prevent="submitVHRRecord">
+          <div class="form-group">
+            <label>Feline Subject</label>
+            <select class="form-control" v-model="vhrForm.feline_id" required>
+              <option v-for="cat in felineRoster" :key="cat.id" :value="cat.id">
+                {{ cat.avatar }} {{ cat.name }} — {{ cat.title }}
+              </option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Weight (kg)</label>
+              <input type="number" step="0.1" class="form-control" v-model.number="vhrForm.weight_kg" required />
+            </div>
+            <div class="form-group half">
+              <label>Dental Score (1-5)</label>
+              <input type="number" min="1" max="5" class="form-control" v-model.number="vhrForm.dental_score" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Vaccination Status</label>
+            <input type="text" class="form-control" v-model="vhrForm.vaccination_status" required />
+          </div>
+
+          <div class="form-group">
+            <label>Prescriptions / Medications</label>
+            <textarea class="form-control" v-model="vhrForm.prescriptions" rows="2" placeholder="e.g. Joint vitamin supplement with morning kibble"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Clinical Notes</label>
+            <textarea class="form-control" v-model="vhrForm.clinical_notes" rows="3" required placeholder="Describe clinical findings, coat shine, whisker symmetry..."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">💾 Save VHR Clinical Chart</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Clinical Charting History</h2>
+          <span class="feline-id-badge">Total Records: {{ vhrRecords.length }}</span>
+        </div>
+
+        <div class="backtest-table-container">
+          <table class="backtest-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Subject</th>
+                <th>Weight</th>
+                <th>Dental</th>
+                <th>Vaccination</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="rec in vhrRecords" :key="rec.record_id">
+                <td><span class="date-text">{{ rec.visit_date }}</span></td>
+                <td><strong>{{ getStaffName(rec.feline_id) }}</strong></td>
+                <td><strong>{{ rec.weight_kg }} kg</strong></td>
+                <td>⭐ {{ rec.dental_score }} / 5</td>
+                <td><span class="status-badge completed">{{ rec.vaccination_status }}</span></td>
+                <td><span class="reason-cell">{{ rec.clinical_notes }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: Workplace Incidents & Conflict Logging -->
+    <div v-else-if="currentTab === 'incidents'" class="grid-layout incident-layout">
+      <div class="card">
+        <h3>Log Workplace Incident / Dispute</h3>
+        <p class="subtext">Log habitat disputes, perch disruptions, coffee spillages, or treat confiscation.</p>
+
+        <form @submit.prevent="submitIncident">
+          <div class="form-group">
+            <label>Incident Title</label>
+            <input type="text" class="form-control" v-model="incidentForm.title" placeholder="e.g. Unauthorized Alpha Perch Displacement" required />
+          </div>
+
+          <div class="form-group">
+            <label>Category</label>
+            <select class="form-control" v-model="incidentForm.category" required>
+              <option value="perch_dispute">🪑 Perch Displacement Dispute</option>
+              <option value="spillage">☕ Desk Coffee Spillage</option>
+              <option value="unauthorized_treat">🦴 Unauthorized Treat Confiscation</option>
+              <option value="habitat_disruption">🔊 Habitat Disruption</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Involved Feline</label>
+              <select class="form-control" v-model="incidentForm.involved_feline_id">
+                <option v-for="cat in felineRoster" :key="cat.id" :value="cat.id">
+                  {{ cat.avatar }} {{ cat.name }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label>Severity</label>
+              <select class="form-control" v-model="incidentForm.severity" required>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Description</label>
+            <textarea class="form-control" v-model="incidentForm.description" rows="3" required placeholder="Describe what occurred..."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">🚨 Log Incident Report</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Incident Registry</h2>
+          <span class="feline-id-badge">Total: {{ incidentLogs.length }}</span>
+        </div>
+
+        <div class="backtest-table-container">
+          <table class="backtest-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Category</th>
+                <th>Feline</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="inc in incidentLogs" :key="inc.incident_id">
+                <td><strong>{{ inc.title }}</strong></td>
+                <td><span class="activity-chip">{{ inc.category }}</span></td>
+                <td>{{ getStaffName(inc.involved_feline_id) }}</td>
+                <td><span :class="['severity-badge', inc.severity]">{{ inc.severity.toUpperCase() }}</span></td>
+                <td><span :class="['status-badge', inc.status]">{{ inc.status.toUpperCase() }}</span></td>
+                <td>
+                  <button v-if="inc.status !== 'resolved'" class="btn-approve" @click="resolveIncident(inc.incident_id)">✓ Resolve</button>
+                  <span v-else class="text-muted-small">Resolved</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -527,9 +709,7 @@ const staffList = ref([
   { id: 'emp-feline-garfield', name: 'Garfield', role: 'Chief Observation Officer (Feline)', icon: '🐱' },
   { id: 'emp-feline-barneby', name: 'Barneby', role: 'Senior Alpha Perch Analyst (Feline)', icon: '🐈‍⬛' },
   { id: 'emp-human-alice', name: 'Alice Vance', role: 'Head of Human & Feline Resources (Human)', icon: '👩‍💼' },
-  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' },
-  { id: 'emp-human-rick', name: 'Rick Newhire', role: 'Junior Operations Associate (Human)', icon: '🧑‍💼' },
-  { id: 'emp-human-elise', name: 'Elise Dev', role: 'Software Developer (Human)', icon: '👩‍💻' }
+  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' }
 ]);
 
 const selectedFelineId = ref('emp-feline-garfield');
@@ -650,6 +830,161 @@ const reviewCycles = ref([
   }
 ]);
 
+const vhrForm = ref({
+  feline_id: 'emp-feline-garfield',
+  weight_kg: 5.8,
+  dental_score: 5,
+  vaccination_status: 'Up to date (Rabies & FVRCP)',
+  prescriptions: 'Joint vitamin supplement with morning feeding',
+  clinical_notes: 'Whisker symmetry optimal, coat shine excellent, active purr acoustics.'
+});
+
+const vhrRecords = ref([
+  {
+    record_id: 'vhr-018f-0001',
+    feline_id: 'emp-feline-garfield',
+    visit_date: '2026-09-20',
+    weight_kg: 5.8,
+    dental_score: 5,
+    vaccination_status: 'Up to date',
+    clinical_notes: 'Quarterly checkup completed. Perfect health score.'
+  }
+]);
+
+const incidentForm = ref({
+  title: 'Alpha Perch Displacement Incident',
+  category: 'perch_dispute',
+  involved_feline_id: 'emp-feline-garfield',
+  severity: 'medium',
+  description: 'Garfield occupied Barneby perch zone during peak sunbeam alignment.'
+});
+
+const incidentLogs = ref([
+  {
+    incident_id: 'inc-018f-001',
+    title: 'Alpha Perch Displacement Incident',
+    category: 'perch_dispute',
+    involved_feline_id: 'emp-feline-garfield',
+    severity: 'medium',
+    status: 'open',
+    description: 'Garfield occupied Barneby perch zone during peak sunbeam alignment.'
+  }
+]);
+
+async function fetchVHRRecords() {
+  try {
+    const res = await fetch('/api/v1/workforce/vhr');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        vhrRecords.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function submitVHRRecord() {
+  try {
+    const payload = {
+      feline_id: vhrForm.value.feline_id,
+      visit_date: new Date().toISOString(),
+      weight_kg: parseFloat(vhrForm.value.weight_kg),
+      dental_score: parseInt(vhrForm.value.dental_score),
+      vaccination_status: vhrForm.value.vaccination_status,
+      clinical_notes: vhrForm.value.clinical_notes
+    };
+
+    const res = await fetch('/api/v1/workforce/vhr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const created = await res.json();
+    vhrRecords.value.unshift(created);
+    showToast('VHR Clinical Record saved successfully!');
+  } catch (err) {
+    showToast(`Failed to save VHR Clinical Record: ${err.message}`);
+  }
+}
+
+async function fetchIncidents() {
+  try {
+    const res = await fetch('/api/v1/workforce/incidents');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        incidentLogs.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function submitIncident() {
+  try {
+    const payload = {
+      title: incidentForm.value.title,
+      category: incidentForm.value.category,
+      involved_feline_id: incidentForm.value.involved_feline_id || undefined,
+      severity: incidentForm.value.severity,
+      status: 'open',
+      description: incidentForm.value.description
+    };
+
+    const res = await fetch('/api/v1/workforce/incidents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const created = await res.json();
+    incidentLogs.value.unshift(created);
+    showToast('Workplace incident report logged!');
+  } catch (err) {
+    showToast(`Failed to log incident: ${err.message}`);
+  }
+}
+
+async function resolveIncident(id) {
+  try {
+    const res = await fetch(`/api/v1/workforce/incidents/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'resolved',
+        resolution_notes: 'Resolved in incident management console'
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const updated = await res.json();
+    const idx = incidentLogs.value.findIndex(i => i.incident_id === id);
+    if (idx !== -1) {
+      incidentLogs.value[idx] = updated;
+    } else {
+      const inc = incidentLogs.value.find(i => i.incident_id === id);
+      if (inc) inc.status = 'resolved';
+    }
+    showToast('Incident resolved and archived.');
+  } catch (err) {
+    showToast(`Failed to resolve incident: ${err.message}`);
+  }
+}
+
 const backtestForm = ref({
   strategy_id: 'strat-feline-zoomies-v1',
   start_date: '2024-01-01',
@@ -755,6 +1090,41 @@ async function toggleMedicalHold() {
 
 async function saveSchedule() {
   showToast(`Care Schedule saved for ${selectedFeline.value.name}`);
+}
+
+async function fetchEmployees() {
+  try {
+    const res = await fetch('/api/v1/workforce/employees');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.items) && data.items.length > 0) {
+        const fetchedFelines = [];
+        const fetchedStaff = [];
+        for (const emp of data.items) {
+          const icon = emp.employee_type === 'feline' ? (emp.first_name.toLowerCase().includes('barneby') ? '🐈‍⬛' : '🐱') : (emp.first_name.toLowerCase().includes('alice') ? '👩‍💼' : '🩺');
+          const name = emp.last_name ? `${emp.first_name} ${emp.last_name}` : emp.first_name;
+          if (emp.employee_type === 'feline') {
+            fetchedFelines.push({
+              id: emp.employee_id,
+              name: emp.first_name,
+              title: emp.role_title,
+              avatar: icon
+            });
+          }
+          fetchedStaff.push({
+            id: emp.employee_id,
+            name: name,
+            role: `${emp.role_title} (${emp.employee_type === 'feline' ? 'Feline' : 'Human'})`,
+            icon: icon
+          });
+        }
+        if (fetchedFelines.length > 0) felineRoster.value = fetchedFelines;
+        if (fetchedStaff.length > 0) staffList.value = fetchedStaff;
+      }
+    }
+  } catch (e) {
+    // Fallback
+  }
 }
 
 async function fetchLeaveRequests() {
@@ -986,34 +1356,37 @@ async function runBacktest() {
 }
 
 onMounted(() => {
+  fetchEmployees();
   fetchLeaveRequests();
   fetchReviewCycles();
+  fetchVHRRecords();
+  fetchIncidents();
 });
 </script>
 
 <style scoped>
-.container { max-width: 1100px; margin: 0 auto; color: #f8fafc; font-family: sans-serif; }
+.container { max-width: 1100px; margin: 0 auto; color: var(--text-color, #f8fafc); font-family: var(--font-family, sans-serif); }
 header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1.5rem; }
 .brand { display: flex; align-items: center; gap: 0.75rem; }
-.brand-title h1 { margin: 0; color: #f97316; font-size: 1.5rem; }
+.brand-title h1 { margin: 0; color: var(--secondary-color, #ea580c); font-size: 1.5rem; }
 .brand-title p { margin: 0; color: #94a3b8; font-size: 0.85rem; }
-.user-profile { display: flex; align-items: center; gap: 0.75rem; background: #1e293b; padding: 0.5rem 1rem; border-radius: 9999px; }
-.avatar { width: 36px; height: 36px; border-radius: 50%; background: #f97316; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.user-profile { display: flex; align-items: center; gap: 0.75rem; background: var(--card-color, #1e293b); padding: 0.5rem 1rem; border-radius: 9999px; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--secondary-color, #ea580c); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 .user-info h4 { margin: 0; font-size: 0.85rem; }
 .user-info span { font-size: 0.75rem; color: #94a3b8; }
 
 .nav-tabs { display: flex; gap: 1rem; margin-bottom: 1.5rem; }
-.tab-btn { background: #1e293b; border: 1px solid #334155; color: #94a3b8; padding: 0.75rem 1.25rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }
-.tab-btn.active { background: #ea580c; color: white; border-color: #ea580c; }
+.tab-btn { background: var(--card-color, #1e293b); border: 1px solid #334155; color: #94a3b8; padding: 0.75rem 1.25rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+.tab-btn.active { background: var(--secondary-color, #ea580c); color: white; border-color: var(--secondary-color, #ea580c); }
 
 .grid-layout { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; }
 .backtest-layout { grid-template-columns: 380px 1fr; }
 
-.card { background: #1e293b; border-radius: 0.75rem; border: 1px solid #334155; padding: 1.5rem; }
+.card { background: var(--card-color, #1e293b); border-radius: 0.75rem; border: 1px solid #334155; padding: 1.5rem; }
 .subtext { font-size: 0.85rem; color: #94a3b8; margin-top: 0.25rem; margin-bottom: 1rem; }
 .feline-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
-.feline-btn { display: flex; align-items: center; gap: 0.75rem; background: #0f172a; border: 1px solid #334155; padding: 0.75rem; border-radius: 0.5rem; color: #f8fafc; cursor: pointer; text-align: left; }
-.feline-btn.active { border-color: #f97316; background: #1e1b4b; }
+.feline-btn { display: flex; align-items: center; gap: 0.75rem; background: var(--background-color, #0f172a); border: 1px solid #334155; padding: 0.75rem; border-radius: 0.5rem; color: var(--text-color, #f8fafc); cursor: pointer; text-align: left; }
+.feline-btn.active { border-color: var(--secondary-color, #ea580c); background: #1e1b4b; }
 .feline-btn strong { display: block; }
 .feline-btn small { color: #94a3b8; }
 .cat-avatar { font-size: 1.5rem; }
@@ -1029,16 +1402,16 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .form-row { display: flex; gap: 1rem; }
 .form-group.half { flex: 1; }
 .form-group label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.5rem; }
-.form-control { width: 100%; background: #0f172a; border: 1px solid #334155; color: #f8fafc; padding: 0.75rem; border-radius: 0.375rem; box-sizing: border-box; }
+.form-control { width: 100%; background: var(--background-color, #0f172a); border: 1px solid #334155; color: var(--text-color, #f8fafc); padding: 0.75rem; border-radius: 0.375rem; box-sizing: border-box; }
 .code-font { font-family: monospace; }
 textarea.form-control { min-height: 80px; resize: vertical; }
 .time-tags { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
 .time-tag { background: #334155; padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
 .time-tag button { background: none; border: none; color: #94a3b8; cursor: pointer; }
 .add-time-box { display: flex; gap: 0.5rem; }
-.btn-primary { background: #f97316; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; width: 100%; }
+.btn-primary { background: var(--secondary-color, #ea580c); color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; width: 100%; }
 .form-actions { text-align: right; margin-top: 1.5rem; }
-.alert-toast { position: fixed; bottom: 2rem; right: 2rem; background: #3b82f6; color: white; padding: 1rem 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+.alert-toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--accent-color, #3b82f6); color: white; padding: 1rem 1.5rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
 
 .backtest-table-container { overflow-x: auto; }
 .backtest-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
@@ -1050,12 +1423,17 @@ textarea.form-control { min-height: 80px; resize: vertical; }
 .status-badge.pending { background: rgba(234, 179, 8, 0.2); color: #facc15; }
 .status-badge.rejected { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .status-badge.cancelled { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+.severity-badge { padding: 0.15rem 0.4rem; border-radius: 0.2rem; font-size: 0.75rem; font-weight: bold; }
+.severity-badge.low { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+.severity-badge.medium { background: rgba(234, 179, 8, 0.2); color: #facc15; }
+.severity-badge.high { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+.severity-badge.critical { background: rgba(220, 38, 38, 0.4); color: #ef4444; border: 1px solid #ef4444; }
 .positive-text { color: #4ade80; font-weight: bold; }
 
 .leave-layout { grid-template-columns: 380px 1fr; }
 .filter-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-.filter-btn { background: #0f172a; border: 1px solid #334155; color: #94a3b8; padding: 0.35rem 0.75rem; border-radius: 0.375rem; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
-.filter-btn.active { background: #f97316; color: white; border-color: #f97316; font-weight: bold; }
+.filter-btn { background: var(--background-color, #0f172a); border: 1px solid #334155; color: #94a3b8; padding: 0.35rem 0.75rem; border-radius: 0.375rem; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+.filter-btn.active { background: var(--secondary-color, #ea580c); color: white; border-color: var(--secondary-color, #ea580c); font-weight: bold; }
 .compliance-box { margin-top: 1.5rem; padding: 1rem; background: rgba(34, 197, 94, 0.1); border: 1px solid #22c55e; border-radius: 0.5rem; }
 .compliance-box h4 { margin: 0 0 0.5rem 0; color: #86efac; font-size: 0.85rem; }
 .compliance-box p { margin: 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
@@ -1081,7 +1459,7 @@ textarea.form-control { min-height: 80px; resize: vertical; }
 .score-badge { background: rgba(234, 179, 8, 0.2); color: #facc15; font-weight: bold; border-radius: 0.25rem; padding: 0.2rem 0.5rem; font-size: 0.75rem; border: 1px solid #eab308; display: inline-block; }
 .review-action-btn { background: #0284c7; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }
 .review-action-btn:hover { background: #0369a1; }
-.grading-modal-card { margin-top: 1.5rem; padding: 1.25rem; background: #0f172a; border: 1px solid #0284c7; border-radius: 0.5rem; }
+.grading-modal-card { margin-top: 1.5rem; padding: 1.25rem; background: var(--background-color, #0f172a); border: 1px solid #0284c7; border-radius: 0.5rem; }
 .grading-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .grading-header h3 { margin: 0; color: #38bdf8; font-size: 1rem; }
 .close-btn { background: none; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer; }
@@ -1089,7 +1467,7 @@ textarea.form-control { min-height: 80px; resize: vertical; }
 .score-input { font-size: 1.1rem; font-weight: bold; color: #facc15; width: 120px; text-align: center; }
 .score-scale { color: #94a3b8; font-size: 0.9rem; font-weight: bold; }
 .preset-chips { display: flex; gap: 0.35rem; margin-top: 0.5rem; flex-wrap: wrap; }
-.preset-btn { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; cursor: pointer; }
+.preset-btn { background: var(--card-color, #1e293b); border: 1px solid #475569; color: #cbd5e1; padding: 0.2rem 0.5rem; border-radius: 9999px; font-size: 0.75rem; cursor: pointer; }
 .preset-btn:hover { border-color: #facc15; color: #facc15; }
 .grading-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; }
 .btn-save-grading { background: #0284c7; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 0.375rem; font-weight: bold; cursor: pointer; }

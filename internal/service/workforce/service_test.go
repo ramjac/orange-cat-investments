@@ -170,6 +170,34 @@ func TestWorkforceService(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid status")
 	})
+
+	t.Run("Workplace Incidents Status Validation", func(t *testing.T) {
+		inc := &workforce.WorkplaceIncident{
+			Title:       "Perch Dispute",
+			Category:    "perch_dispute",
+			Severity:    "low",
+			Status:      "open",
+			Description: "Two felines contested same sunbeam perch",
+		}
+		created, err := svc.CreateWorkplaceIncident(ctx, inc)
+		assert.NoError(t, err)
+
+		// Valid update to under_review
+		updated, err := svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "under_review", "Manager reviewing")
+		assert.NoError(t, err)
+		assert.Equal(t, "under_review", updated.Status)
+
+		// Valid update to resolved
+		resolved, err := svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "resolved", "Resolved amicably")
+		assert.NoError(t, err)
+		assert.Equal(t, "resolved", resolved.Status)
+
+		// Invalid update should be rejected
+		_, err = svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "invalid_custom_status", "note")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid incident status")
+	})
 }
+
 
 

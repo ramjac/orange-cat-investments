@@ -58,7 +58,8 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ## 3. Mandatory Coding Standards & Principles
 
 ### Domain Boundary & Dual Identity Rules
-1. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
+1. **Database System of Record (No Hardcoded Data):** Do not hardcode domain entity lists, employee rosters, or welfare reports in APIs, services, or web/mobile frontends when that data can be stored in and fetched from the PostgreSQL database. Hardcoding is permitted only for unintegrated external market feeds (e.g. stock tickers) where no database source currently exists.
+2. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
 2. **Dual Identity Provider Model:**
    * **ZITADEL:** Strictly reserved for external customer identity management (`web/customer-portal`).
    * **Forgejo:** System of record for internal employee, employer, staff, and developer identity management (`web/employee-portal`).

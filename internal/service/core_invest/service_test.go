@@ -64,4 +64,20 @@ func TestCoreInvestService(t *testing.T) {
 		_, err = svc.StartBacktestRun(ctx, "strat-001", end, start, "{}")
 		assert.Error(t, err)
 	})
+
+	t.Run("GenerateStatement", func(t *testing.T) {
+		stmt, err := svc.GenerateStatement(ctx, "port-001", 2024)
+		require.NoError(t, err)
+		assert.Equal(t, 2024, stmt["year"])
+		assert.Equal(t, "port-001", stmt["portfolio_id"])
+		assert.Equal(t, "https://statements.oci.local/documents/port-001/2024/form1099b-port-001-2024.pdf", stmt["form_1099b_url"])
+
+		// Invalid portfolio
+		_, err = svc.GenerateStatement(ctx, "", 2024)
+		assert.Error(t, err)
+
+		// Invalid year
+		_, err = svc.GenerateStatement(ctx, "port-001", 1990)
+		assert.Error(t, err)
+	})
 }

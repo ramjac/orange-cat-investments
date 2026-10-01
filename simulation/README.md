@@ -13,7 +13,7 @@ simulation/
 ├── config.go            # Configuration flags (URLs, modes, iteration, delays)
 ├── persona.go           # Persona and Action interface definitions & Registry
 ├── client.go            # HTTP client abstraction supporting live & mock HTTP servers
-├── actions.go           # Persona action suites for all 12 OCI personas
+├── actions.go           # Persona action suites for all 8 OCI personas
 ├── driver.go            # Orchestration engine for running simulation workflows
 ├── driver_test.go       # Unit tests verifying mock simulation execution
 └── cmd/
@@ -25,7 +25,7 @@ simulation/
 
 ## Employee Personas & Daily Simulation Action Mapping
 
-The simulator uses the 12 official OCI personas defined in `personas/` to execute semi-real daily action lists:
+The simulator uses the 8 official OCI personas defined in `personas/` to execute semi-real daily action lists:
 
 ### 1. Garfield (`emp-feline-garfield`) — Chief Observation Officer (COO)
 * **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows.
@@ -76,14 +76,6 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 * **`chloe_momentum_buy_order`**: Executes aggressive momentum buy orders (`POST /core-invest/brokerage/orders`) on feline zoomies activity spikes.
 * **`chloe_take_profit_sell_order`**: Executes tactical take-profit sell orders (`POST /core-invest/brokerage/orders`) as cat activity returns to baseline.
 * **`chloe_audit_execution_log`**: Audits real-time trade order execution logs and settlement status (`GET /core-invest/brokerage/orders`).
-
-### 11. Rick Newhire (`emp-human-rick`) — Junior Operations Associate
-* **`rick_check_onboarding_status`**: Queries employee onboarding status (`GET /api/v1/workforce/employees?status=onboarding`) to track provisioning progress.
-* **`rick_trigger_self_onboarding_webhook`**: Simulates Frappe HR onboarding saga webhooks (`POST /api/v1/webhooks/frappe-hr`) to exercise new hire lifecycle workflows.
-
-### 12. Elise Dev (`emp-human-elise`) — Software Developer
-* **`elise_create_code_review_ticket`**: Submits Forgejo code review & CI/CD workflow tickets (`POST /ops/tickets`) for software development and automated pipeline builds.
-* **`elise_query_developer_tickets`**: Audits active developer IT tickets and build issues (`GET /ops/tickets`).
 
 ---
 

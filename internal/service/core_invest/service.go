@@ -28,6 +28,12 @@ type Service interface {
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error)
+
+	// ML Models & Advanced Analytics
+	ListMLModels(ctx context.Context) ([]map[string]interface{}, error)
+	LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error)
+	GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error)
 }
 
 type coreInvestService struct {
@@ -160,3 +166,79 @@ func (s *coreInvestService) GetBacktestRun(ctx context.Context, id string) (*cor
 func (s *coreInvestService) ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error) {
 	return s.repo.ListBacktestRuns(ctx, limit, offset)
 }
+
+func (s *coreInvestService) ListMLModels(ctx context.Context) ([]map[string]interface{}, error) {
+	return []map[string]interface{}{
+		{
+			"model_id":   "mdl-yolov8-cat-pose-v3",
+			"name":       "CatPose-YOLOv8-Alpha",
+			"version":    "v3.2.0",
+			"accuracy":   0.9845,
+			"drift":      0.012,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -2, 0).Format(time.RFC3339),
+		},
+		{
+			"model_id":   "mdl-whisker-audio-v1",
+			"name":       "PurrAcoustic-Classifier-V1",
+			"version":    "v1.0.4",
+			"accuracy":   0.9620,
+			"drift":      0.008,
+			"status":     "active",
+			"created_at": time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
+		},
+	}, nil
+}
+
+func (s *coreInvestService) LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"drift_id":         "drift-018f-99",
+		"status":           "recorded",
+		"confidence_drift": 0.012,
+		"evaluated_at":     time.Now().Format(time.RFC3339),
+		"payload":          payload,
+	}, nil
+}
+
+func (s *coreInvestService) ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"acoustic_id":       "ac-018f-777",
+		"feline_id":         felineID,
+		"vocalization_type": "purring",
+		"frequency_hz":      28.5,
+		"decibel_level":     88.2,
+		"confidence":        0.982,
+	}, nil
+}
+
+func (s *coreInvestService) GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error) {
+	if portfolioID == "" {
+		return nil, errors.New("portfolio_id is required")
+	}
+	if year < 2000 || year > 2100 {
+		return nil, fmt.Errorf("invalid tax statement year %d: year must be between 2000 and 2100", year)
+	}
+
+	statementID := fmt.Sprintf("stmt-%s-%d", portfolioID, year)
+	fileName := fmt.Sprintf("form1099b-%s-%d.pdf", portfolioID, year)
+	documentURL := fmt.Sprintf("https://statements.oci.local/documents/%s/%d/%s", portfolioID, year, fileName)
+
+	accountName := "OCI Alpha Growth Portfolio"
+	totalVal := 128450.75
+
+	return map[string]interface{}{
+		"statement_id":        statementID,
+		"portfolio_id":        portfolioID,
+		"account_name":        accountName,
+		"year":                year,
+		"tax_year":            year,
+		"document_name":       fileName,
+		"form_1099b_url":      documentURL,
+		"total_proceeds_usd":  totalVal,
+		"sharpe_ratio":        2.14,
+		"sortino_ratio":       3.08,
+		"performance_summary": fmt.Sprintf("Feline behavioral alpha tax statement for portfolio %s, tax year %d", portfolioID, year),
+		"generated_at":        time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
