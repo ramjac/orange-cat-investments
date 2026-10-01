@@ -42,6 +42,11 @@ func main() {
 	offboardingEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 
 	wfHandler := handler.NewWorkforceHandler(wfSvc, onboardingSaga, offboardingEng)
+	enableFeline := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+		enableFeline = false
+	}
+	wfHandler.EnableFelineWorkforce = enableFeline
 
 	mux := http.NewServeMux()
 	wfHandler.RegisterRoutes(mux)

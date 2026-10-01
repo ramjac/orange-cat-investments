@@ -1,7 +1,7 @@
 {
-  "name": "employee-portal",
+  "name": "customer-portal",
   "version": "1.0.0",
-  "description": "Orange Cat Investments - Employee Web Portal (Vue SPA)",
+  "description": "Orange Cat Investments - Customer Web Portal (Vue SPA)",
   "private": true,
   "scripts": {
     "generate-theme": "node ../../scripts/generate-theme.js",

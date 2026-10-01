@@ -53,23 +53,49 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Initialize Core Invest Domain Service & Handlers
-	var ciRepo core_invest_repo.Repository
-	if pool != nil {
-		ciRepo = core_invest_repo.NewRepository(pool)
-	} else {
-		ciRepo = core_invest_repo.NewMockRepository()
+	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
+	enablePebbleGateway := os.Getenv("ENABLE_PEBBLE_GATEWAY") != "false"
+	enableFelineWorkforce := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
+
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" {
+		if os.Getenv("ENABLE_CORE_INVEST") == "" {
+			enableCoreInvest = false
+		}
+		if os.Getenv("ENABLE_PEBBLE_GATEWAY") == "" {
+			enablePebbleGateway = false
+		}
+		if os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+			enableFelineWorkforce = false
+		}
 	}
 
-	ciService := core_invest_svc.NewService(ciRepo)
-	ciHandler := core_invest_handler.NewHandler(ciService)
-	ciHandler.RegisterRoutes(mux)
+	// Initialize Core Invest Domain Service & Handlers (if enabled)
+	if enableCoreInvest {
+		var ciRepo core_invest_repo.Repository
+		if pool != nil {
+			ciRepo = core_invest_repo.NewRepository(pool)
+		} else {
+			ciRepo = core_invest_repo.NewMockRepository()
+		}
 
-	// Initialize Operations & Wearable Alerts Domain Service & Handlers
-	opsRepo := ops_repo.NewRepository(pool)
-	opsService := ops_svc.NewService(opsRepo)
-	opsHandler := ops_handler.NewHandler(opsService)
-	opsHandler.RegisterRoutes(mux)
+		ciService := core_invest_svc.NewService(ciRepo)
+		ciHandler := core_invest_handler.NewHandler(ciService)
+		ciHandler.RegisterRoutes(mux)
+		logger.Info("Core Invest domain routes registered")
+	} else {
+		logger.Info("Core Invest domain disabled via configuration")
+	}
+
+	// Initialize Operations & Wearable Alerts Domain Service & Handlers (if enabled)
+	if enablePebbleGateway {
+		opsRepo := ops_repo.NewRepository(pool)
+		opsService := ops_svc.NewService(opsRepo)
+		opsHandler := ops_handler.NewHandler(opsService)
+		opsHandler.RegisterRoutes(mux)
+		logger.Info("Operations domain routes registered")
+	} else {
+		logger.Info("Operations & Pebble wearable domain disabled via configuration")
+	}
 
 	// Initialize Facilities Domain Service & Handlers
 	var facRepo facilities_repo.Repository
@@ -88,7 +114,13 @@ func main() {
 	onboardSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 	wfHandler := workforce_handler.NewWorkforceHandler(wfSvc, onboardSaga, offboardEng)
+	wfHandler.EnableFelineWorkforce = enableFelineWorkforce
 	wfHandler.RegisterRoutes(mux)
+	if enableFelineWorkforce {
+		logger.Info("Workforce domain routes registered with feline extensions")
+	} else {
+		logger.Info("Workforce domain routes registered (feline extensions disabled)")
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {

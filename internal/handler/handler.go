@@ -12,9 +12,10 @@ import (
 )
 
 type WorkforceHandler struct {
-	wfSvc            wfService.Service
-	onboardingSaga   *saga.OnboardingSaga
-	offboardingEng   *saga.OffboardingEngine
+	wfSvc                 wfService.Service
+	onboardingSaga        *saga.OnboardingSaga
+	offboardingEng        *saga.OffboardingEngine
+	EnableFelineWorkforce bool
 }
 
 func NewWorkforceHandler(
@@ -23,17 +24,15 @@ func NewWorkforceHandler(
 	offboardEng *saga.OffboardingEngine,
 ) *WorkforceHandler {
 	return &WorkforceHandler{
-		wfSvc:          wfSvc,
-		onboardingSaga: onboardSaga,
-		offboardingEng: offboardEng,
+		wfSvc:                 wfSvc,
+		onboardingSaga:        onboardSaga,
+		offboardingEng:        offboardEng,
+		EnableFelineWorkforce: true,
 	}
 }
 
 func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/workforce/employees", h.listEmployees)
-	mux.HandleFunc("GET /api/v1/workforce/care-schedules/{felineId}", h.getCareSchedule)
-	mux.HandleFunc("PUT /api/v1/workforce/care-schedules/{felineId}", h.updateCareSchedule)
-	mux.HandleFunc("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
 	mux.HandleFunc("GET /api/v1/workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /api/v1/workforce/leave-requests", h.createLeaveRequest)
 	mux.HandleFunc("PUT /api/v1/workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
@@ -41,13 +40,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/workforce/review-cycles", h.createReviewCycle)
 	mux.HandleFunc("GET /api/v1/workforce/review-cycles/{id}", h.getReviewCycle)
 	mux.HandleFunc("PUT /api/v1/workforce/review-cycles/{id}", h.updateReviewCycle)
+	mux.HandleFunc("POST /api/v1/workforce/incidents", h.createIncident)
+	mux.HandleFunc("GET /api/v1/workforce/incidents", h.listIncidents)
+	mux.HandleFunc("PUT /api/v1/workforce/incidents/{id}/status", h.updateIncidentStatus)
 	mux.HandleFunc("POST /api/v1/webhooks/frappe-hr", h.handleFrappeHRWebhook)
 
 	// Direct route aliases matching OpenAPI spec
 	mux.HandleFunc("GET /workforce/employees", h.listEmployees)
-	mux.HandleFunc("GET /workforce/care-schedules/{felineId}", h.getCareSchedule)
-	mux.HandleFunc("PUT /workforce/care-schedules/{felineId}", h.updateCareSchedule)
-	mux.HandleFunc("POST /workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
 	mux.HandleFunc("GET /workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /workforce/leave-requests", h.createLeaveRequest)
 	mux.HandleFunc("PUT /workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
@@ -55,7 +54,25 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /workforce/review-cycles", h.createReviewCycle)
 	mux.HandleFunc("GET /workforce/review-cycles/{id}", h.getReviewCycle)
 	mux.HandleFunc("PUT /workforce/review-cycles/{id}", h.updateReviewCycle)
+	mux.HandleFunc("POST /workforce/incidents", h.createIncident)
+	mux.HandleFunc("GET /workforce/incidents", h.listIncidents)
+	mux.HandleFunc("PUT /workforce/incidents/{id}/status", h.updateIncidentStatus)
 	mux.HandleFunc("POST /webhooks/frappe-hr", h.handleFrappeHRWebhook)
+
+	// Feline-specific workforce routes gated by EnableFelineWorkforce
+	if h.EnableFelineWorkforce {
+		mux.HandleFunc("GET /api/v1/workforce/care-schedules/{felineId}", h.getCareSchedule)
+		mux.HandleFunc("PUT /api/v1/workforce/care-schedules/{felineId}", h.updateCareSchedule)
+		mux.HandleFunc("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+		mux.HandleFunc("POST /api/v1/workforce/vhr", h.createVHRRecord)
+		mux.HandleFunc("GET /api/v1/workforce/vhr", h.listVHRRecords)
+
+		mux.HandleFunc("GET /workforce/care-schedules/{felineId}", h.getCareSchedule)
+		mux.HandleFunc("PUT /workforce/care-schedules/{felineId}", h.updateCareSchedule)
+		mux.HandleFunc("POST /workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+		mux.HandleFunc("POST /workforce/vhr", h.createVHRRecord)
+		mux.HandleFunc("GET /workforce/vhr", h.listVHRRecords)
+	}
 }
 
 func (h *WorkforceHandler) listEmployees(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +415,72 @@ func (h *WorkforceHandler) updateReviewCycle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *WorkforceHandler) createVHRRecord(w http.ResponseWriter, r *http.Request) {
+	var rec workforce.VHRRecord
+	if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	created, err := h.wfSvc.CreateVHRRecord(r.Context(), &rec)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *WorkforceHandler) listVHRRecords(w http.ResponseWriter, r *http.Request) {
+	felineID := r.URL.Query().Get("feline_id")
+	records, err := h.wfSvc.ListVHRRecords(r.Context(), felineID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, records)
+}
+
+func (h *WorkforceHandler) createIncident(w http.ResponseWriter, r *http.Request) {
+	var inc workforce.WorkplaceIncident
+	if err := json.NewDecoder(r.Body).Decode(&inc); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	created, err := h.wfSvc.CreateWorkplaceIncident(r.Context(), &inc)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *WorkforceHandler) listIncidents(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	list, err := h.wfSvc.ListWorkplaceIncidents(r.Context(), status)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (h *WorkforceHandler) updateIncidentStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Status          string `json:"status"`
+		ResolutionNotes string `json:"resolution_notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	updated, err := h.wfSvc.UpdateWorkplaceIncidentStatus(r.Context(), id, req.Status, req.ResolutionNotes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, updated)
 }
 

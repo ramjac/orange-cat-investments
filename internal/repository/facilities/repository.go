@@ -71,6 +71,47 @@ type DeviceOTAJob struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
+type FeederTelemetry struct {
+	TelemetryID        string    `json:"telemetry_id"`
+	AssetID            string    `json:"asset_id"`
+	FelineID           *string   `json:"feline_id,omitempty"`
+	FoodDispensedGrams float64   `json:"food_dispensed_grams"`
+	FoodConsumedGrams  float64   `json:"food_consumed_grams"`
+	SnackDisbursed     bool      `json:"snack_disbursed"`
+	DispensedAt        time.Time `json:"dispensed_at"`
+}
+
+type CollarTelemetry struct {
+	TelemetryID         string    `json:"telemetry_id"`
+	AssetID             string    `json:"asset_id"`
+	FelineID            *string   `json:"feline_id,omitempty"`
+	HeartRateBPM        *int      `json:"heart_rate_bpm,omitempty"`
+	PounceGForce        *float64  `json:"pounce_g_force,omitempty"`
+	JumpHeightMeters    *float64  `json:"jump_height_meters,omitempty"`
+	CircadianSleepState *string   `json:"circadian_sleep_state,omitempty"`
+	RecordedAt          time.Time `json:"recorded_at"`
+}
+
+type PerchTelemetry struct {
+	TelemetryID         string    `json:"telemetry_id"`
+	PerchAssetID        string    `json:"perch_asset_id"`
+	PressureMatLoadKG   float64   `json:"pressure_mat_load_kg"`
+	SurfaceTempC        float64   `json:"surface_temp_c"`
+	SunbeamAlignmentPct float64   `json:"sunbeam_alignment_pct"`
+	CushionWearPct      float64   `json:"cushion_wear_pct"`
+	RecordedAt          time.Time `json:"recorded_at"`
+}
+
+type EnvironmentalTelemetry struct {
+	TelemetryID         string    `json:"telemetry_id"`
+	ZoneID              string    `json:"zone_id"`
+	TemperatureC        float64   `json:"temperature_c"`
+	RelativeHumidityPct float64   `json:"relative_humidity_pct"`
+	LightIntensityLux   float64   `json:"light_intensity_lux"`
+	NoiseLevelDB        float64   `json:"noise_level_db"`
+	RecordedAt          time.Time `json:"recorded_at"`
+}
+
 type Repository interface {
 	GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error)
 	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error)
@@ -83,6 +124,10 @@ type Repository interface {
 	CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*DeviceOTAJob, error)
 	UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error)
 	ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*DeviceOTAJob, error)
+	RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error)
+	RecordCollarTelemetry(ctx context.Context, t *CollarTelemetry) (*CollarTelemetry, error)
+	RecordPerchTelemetry(ctx context.Context, t *PerchTelemetry) (*PerchTelemetry, error)
+	RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error)
 }
 
 type pgxRepository struct {
@@ -333,3 +378,84 @@ func (r *pgxRepository) ListOTAJobsByAsset(ctx context.Context, assetID string) 
 	}
 	return list, rows.Err()
 }
+
+func (r *pgxRepository) RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO facilities.feeder_telemetry (asset_id, feline_id, food_dispensed_grams, food_consumed_grams, snack_disbursed, dispensed_at)
+	          VALUES ($1, $2, $3, $4, $5, COALESCE($6, CURRENT_TIMESTAMP))
+	          RETURNING telemetry_id, dispensed_at`
+	var dispensedAt time.Time
+	if t.DispensedAt.IsZero() {
+		dispensedAt = time.Now().UTC()
+	} else {
+		dispensedAt = t.DispensedAt
+	}
+	err := r.db.QueryRow(ctx, query, t.AssetID, t.FelineID, t.FoodDispensedGrams, t.FoodConsumedGrams, t.SnackDisbursed, dispensedAt).Scan(&t.TelemetryID, &t.DispensedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (r *pgxRepository) RecordCollarTelemetry(ctx context.Context, t *CollarTelemetry) (*CollarTelemetry, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO facilities.collar_telemetry (asset_id, feline_id, heart_rate_bpm, pounce_g_force, jump_height_meters, circadian_sleep_state, recorded_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, CURRENT_TIMESTAMP))
+	          RETURNING telemetry_id, recorded_at`
+	var recordedAt time.Time
+	if t.RecordedAt.IsZero() {
+		recordedAt = time.Now().UTC()
+	} else {
+		recordedAt = t.RecordedAt
+	}
+	err := r.db.QueryRow(ctx, query, t.AssetID, t.FelineID, t.HeartRateBPM, t.PounceGForce, t.JumpHeightMeters, t.CircadianSleepState, recordedAt).Scan(&t.TelemetryID, &t.RecordedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (r *pgxRepository) RecordPerchTelemetry(ctx context.Context, t *PerchTelemetry) (*PerchTelemetry, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO facilities.perch_telemetry (perch_asset_id, pressure_mat_load_kg, surface_temp_c, sunbeam_alignment_pct, cushion_wear_pct, recorded_at)
+	          VALUES ($1, $2, $3, $4, $5, COALESCE($6, CURRENT_TIMESTAMP))
+	          RETURNING telemetry_id, recorded_at`
+	var recordedAt time.Time
+	if t.RecordedAt.IsZero() {
+		recordedAt = time.Now().UTC()
+	} else {
+		recordedAt = t.RecordedAt
+	}
+	err := r.db.QueryRow(ctx, query, t.PerchAssetID, t.PressureMatLoadKG, t.SurfaceTempC, t.SunbeamAlignmentPct, t.CushionWearPct, recordedAt).Scan(&t.TelemetryID, &t.RecordedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+func (r *pgxRepository) RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO facilities.environmental_telemetry (zone_id, temperature_c, relative_humidity_pct, light_intensity_lux, noise_level_db, recorded_at)
+	          VALUES ($1, $2, $3, $4, $5, COALESCE($6, CURRENT_TIMESTAMP))
+	          RETURNING telemetry_id, recorded_at`
+	var recordedAt time.Time
+	if t.RecordedAt.IsZero() {
+		recordedAt = time.Now().UTC()
+	} else {
+		recordedAt = t.RecordedAt
+	}
+	err := r.db.QueryRow(ctx, query, t.ZoneID, t.TemperatureC, t.RelativeHumidityPct, t.LightIntensityLux, t.NoiseLevelDB, recordedAt).Scan(&t.TelemetryID, &t.RecordedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+

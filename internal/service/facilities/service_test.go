@@ -64,6 +64,26 @@ func (m *mockRepo) ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*f
 	return []*facilities.DeviceOTAJob{{JobID: "job-1", AssetID: assetID}}, nil
 }
 
+func (m *mockRepo) RecordFeederTelemetry(ctx context.Context, t *facilities.FeederTelemetry) (*facilities.FeederTelemetry, error) {
+	t.TelemetryID = "mock-feeder-123"
+	return t, nil
+}
+
+func (m *mockRepo) RecordCollarTelemetry(ctx context.Context, t *facilities.CollarTelemetry) (*facilities.CollarTelemetry, error) {
+	t.TelemetryID = "mock-collar-123"
+	return t, nil
+}
+
+func (m *mockRepo) RecordPerchTelemetry(ctx context.Context, t *facilities.PerchTelemetry) (*facilities.PerchTelemetry, error) {
+	t.TelemetryID = "mock-perch-123"
+	return t, nil
+}
+
+func (m *mockRepo) RecordEnvironmentalTelemetry(ctx context.Context, t *facilities.EnvironmentalTelemetry) (*facilities.EnvironmentalTelemetry, error) {
+	t.TelemetryID = "mock-env-123"
+	return t, nil
+}
+
 func TestFacilitiesService(t *testing.T) {
 	repo := &mockRepo{}
 	service := NewService(repo)
@@ -108,4 +128,45 @@ func TestFacilitiesService(t *testing.T) {
 	jobs, errOTA := service.TriggerOTAUpdate(context.Background(), []string{"asset-1", "asset-2"}, "release-mock-id")
 	assert.NoError(t, errOTA)
 	assert.Len(t, jobs, 2)
+
+	// Test IngestFeederTelemetry
+	feederRes, errFeeder := service.IngestFeederTelemetry(context.Background(), map[string]interface{}{
+		"asset_id":             "feeder-001",
+		"food_dispensed_grams": 45.0,
+		"food_consumed_grams":  42.5,
+	})
+	assert.NoError(t, errFeeder)
+	assert.Equal(t, "ingested", feederRes["status"])
+	assert.Equal(t, "mock-feeder-123", feederRes["telemetry_id"])
+
+	// Test IngestFeederTelemetry missing asset_id
+	_, errFeederBad := service.IngestFeederTelemetry(context.Background(), map[string]interface{}{
+		"food_dispensed_grams": 45.0,
+	})
+	assert.Error(t, errFeederBad)
+
+	// Test IngestCollarTelemetry
+	collarRes, errCollar := service.IngestCollarTelemetry(context.Background(), map[string]interface{}{
+		"asset_id":       "collar-001",
+		"heart_rate_bpm": 120,
+	})
+	assert.NoError(t, errCollar)
+	assert.Equal(t, "ingested", collarRes["status"])
+
+	// Test IngestPerchTelemetry
+	perchRes, errPerch := service.IngestPerchTelemetry(context.Background(), map[string]interface{}{
+		"perch_asset_id":        "perch-001",
+		"pressure_mat_load_kg": 5.4,
+	})
+	assert.NoError(t, errPerch)
+	assert.Equal(t, "ingested", perchRes["status"])
+
+	// Test IngestEnvironmentalTelemetry
+	envRes, errEnv := service.IngestEnvironmentalTelemetry(context.Background(), map[string]interface{}{
+		"zone_id":       "zone-alpha",
+		"temperature_c": 22.5,
+	})
+	assert.NoError(t, errEnv)
+	assert.Equal(t, "ingested", envRes["status"])
 }
+

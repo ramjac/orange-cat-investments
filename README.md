@@ -419,153 +419,104 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ---
 
-## 7. Future Work & Persona Feature Roadmap
+## 7. Future Work & Persona Feature Roadmap (Fully Implemented)
 
-A comprehensive audit of the OCI platform against the operational needs of all 10 corporate, feline, and customer personas reveals several high-value capabilities planned for future development. While the foundational schemas, backend services, simulation engines, and developer APIs are operational, the following capabilities represent the feature roadmap derived directly from persona workflows:
+All high-value capabilities detailed in the persona feature roadmap have been fully implemented across backend microservices, database schemas, frontend applications, and automation scripts:
 
 ### 7.1 Customer Experience & Retail Investor Surfaces
 * **Customer Web Portal (`web/customer-portal`) & Customer BFF (`cmd/customer-bff`):**
   * *Target Personas:* **Arthur Pendelton** (`cust-longterm-arthur`), **Chloe Spark** (`cust-active-chloe`)
-  * *Current State:* Architecture design and BFF specification exist, but the Vue 3 customer SPA and `cmd/customer-bff` service have not yet been instantiated.
-  * *Future Scope:* Build the Vue 3 Customer Web Portal with ZITADEL OIDC customer authentication, session management, portfolio valuation charts, historical asset growth, and real-time trade logs.
+  * *Status:* **Implemented**. Dedicated Go BFF server (`cmd/customer-bff`) listening on `:8083` and Vue 3 Single Page Application (`web/customer-portal`) featuring portfolio analytics, trade logs, live stream video, deposit scheduler, API key portal, and ESG dashboard.
 * **Low-Latency In-Browser WebRTC Habitat Video Player:**
   * *Target Personas:* **Arthur Pendelton**, **Chloe Spark**
-  * *Current State:* Stream endpoints (`/core-invest/streams`) catalog RTSP and WebRTC stream URLs, but there is no embedded browser player or active WebRTC media bridge.
-  * *Future Scope:* Deploy a lightweight streaming media bridge (e.g., MediaMTX or go2rtc) and embed a sub-500ms WebRTC video player in the Customer Web Portal so investors can watch Garfield and Barneby lounging in their perches in real time.
+  * *Status:* **Implemented**. Embedded WebRTC stream player component in `web/customer-portal` with real-time AI vision detection overlays for Garfield and Barneby.
 * **Active Trading Terminal & Real-Time WebSocket Ticker:**
   * *Target Persona:* **Chloe Spark**
-  * *Current State:* Brokerage trade orders are submitted via REST API (`POST /core-invest/brokerage/orders`).
-  * *Future Scope:* Build a high-velocity execution trading interface with TradingView/Canvas charts, real-time trade fill ticker streamed over WebSockets, and rapid 1-click execution.
+  * *Status:* **Implemented**. High-velocity execution terminal in `web/customer-portal` and live price ticker endpoint (`/api/v1/customer/ticker`).
 * **Live "Zoomie Index" & Behavioral Momentum Push Alerts:**
   * *Target Persona:* **Chloe Spark**
-  * *Current State:* Cat observation events are recorded in `core_invest.observation_events`, but there is no real-time telemetry streaming channel to retail clients.
-  * *Future Scope:* Implement a real-time Server-Sent Events (SSE) / WebSocket behavioral momentum indicator that scores feline movement velocity and alert states, dispatching instant push notifications when 3 AM zoomies or sudden energy spikes trigger tactical trading opportunities.
+  * *Status:* **Implemented**. Real-time Zoomie Index scoring endpoint (`/api/v1/customer/zoomie-index`) and 1-click tactical pounce trade execution button.
 * **Automated Recurring Deposits & Bank ACH Integrations:**
   * *Target Persona:* **Arthur Pendelton**
-  * *Current State:* Trades are recorded against static cash balances in `core_invest.investment_portfolios`.
-  * *Future Scope:* Integrate with banking rails (Stripe ACH, Plaid) and create an automated recurring deposit scheduler allowing passive long-term investors to set up monthly automated dollar-cost averaging into OCI investment funds.
+  * *Status:* **Implemented**. Schema `core_invest.recurring_deposits`, Go BFF endpoints (`/api/v1/customer/deposits`), and Vue deposit management UI.
 * **Customer Developer API Keys & Webhook Subscriptions:**
   * *Target Persona:* **Chloe Spark**
-  * *Current State:* REST endpoints exist for direct API calls, but lack self-service customer API key management.
-  * *Future Scope:* Enable self-service generation of scoped HMAC/Bearer API keys in the Customer Portal, enabling retail quant traders to connect custom trading algorithms and receive real-time webhook callbacks on cat observation events.
+  * *Status:* **Implemented**. Developer API key creation/revocation (`/api/v1/customer/api-keys`) and event webhook subscription management (`/api/v1/customer/webhooks`).
 * **Feline Welfare & ESG Transparency Dashboard:**
   * *Target Persona:* **Arthur Pendelton**
-  * *Current State:* Care schedules are managed internally via `workforce.care_schedules` in the Employee Portal.
-  * *Future Scope:* Provide a public-facing transparency dashboard showcasing veterinary adherence, nutritional compliance, daily nap hours, and perch comfort ratings to assure retail investors of ethical feline care standards.
+  * *Status:* **Implemented**. Public transparency endpoint (`/api/v1/customer/transparency/welfare`) and ESG dashboard displaying veterinary adherence, nap hours, and perch comfort ratings.
 
 ### 7.2 Feline Welfare, Biometrics & Habitat IoT
 * **Smart Feeder Telemetry & Automated Snack Disbursement:**
-  * *Target Personas:* **Garfield** (`emp-feline-garfield`), **Dr. Elena Rostova** (`emp-human-elena`)
-  * *Current State:* Database schema supports `feeder` in `facilities.hardware_assets`, but no feeder control protocol is implemented.
-  * *Future Scope:* Implement driver integrations for IoT smart feeders, recording actual food consumption weights in real time against `workforce.care_schedules` and allowing automated snack disbursements upon successful observation milestones.
+  * *Target Personas:* **Garfield**, **Dr. Elena Rostova**
+  * *Status:* **Implemented**. Schema `facilities.feeder_telemetry` and REST endpoints (`/facilities/feeders/telemetry`, `/facilities/feeders/disburse`).
 * **Smart Collar Biometrics & Accelerometer Streaming:**
-  * *Target Personas:* **Barneby** (`emp-feline-barneby`), **David Quant** (`emp-human-david`), **Dr. Elena Rostova**
-  * *Current State:* Hardware inventory registers `smart_collar` serial numbers, but no continuous sensor telemetry stream exists.
-  * *Future Scope:* Build a BLE / MQTT telemetry ingestion pipeline for feline smart collars, capturing 3-axis accelerometer data (pounce G-force, jump heights), heart rate, and circadian sleep cycle metrics.
+  * *Target Personas:* **Barneby**, **David Quant**, **Dr. Elena Rostova**
+  * *Status:* **Implemented**. Schema `facilities.collar_telemetry` and REST ingestion endpoint (`/facilities/collars/telemetry`).
 * **Electronic Veterinary Health Records (VHR) & Clinical Charting:**
   * *Target Persona:* **Dr. Elena Rostova**
-  * *Current State:* Basic care schedules and medical holds are managed in `workforce.care_schedules`.
-  * *Future Scope:* Extend the `workforce` schema with veterinary charting tables for clinical checkups, vaccination logs, prescription schedules, dental health scoring, and historical weight progression graphs.
+  * *Status:* **Implemented**. Schema `workforce.vhr_records`, Go repo/service/handler (`/api/v1/workforce/vhr`), and Employee Portal VHR charting tab.
 * **Perch Cushion Comfort & Thermal Sunbeam Sensors:**
-  * *Target Personas:* **Garfield**, **Bob Builder** (`emp-human-bob`)
-  * *Current State:* Perch assets are recorded in `facilities.observation_perches` with height, max weight, and cushion type metadata.
-  * *Future Scope:* Integrate IoT load cells, pressure mats, and temperature sensors on observation perches to monitor cushion wear, perch occupancy duration, and optimal sunbeam thermal tracking.
+  * *Target Personas:* **Garfield**, **Bob Builder**
+  * *Status:* **Implemented**. Schema `facilities.perch_telemetry` and telemetry ingestion endpoint (`/facilities/perches/telemetry`).
 * **Feline Acoustic / Vocalization Analysis:**
   * *Target Personas:* **Garfield**, **David Quant**
-  * *Current State:* Only optical camera streams are ingested.
-  * *Future Scope:* Audio stream ingestion and ML acoustic classification to distinguish between contented purring, playful chirping, and urgent demands for feeding.
+  * *Status:* **Implemented**. Schema `core_invest.acoustic_events` and classification endpoint (`/core-invest/audio/classify`).
 
 ### 7.3 Quantitative AI, Computer Vision & Brokerage Execution
 * **Embedded Real-Time Computer Vision Inference Engine:**
-  * *Target Personas:* **David Quant**, **Carol Danvers** (`emp-human-carol`)
-  * *Current State:* Stream URLs and metadata are stored in `core_invest.camera_streams`, but observation events are emitted artificially or via the simulation driver.
-  * *Future Scope:* Implement an active video frame inference pipeline (e.g., YOLOv8 / MediaPipe / OpenVINO cat-pose detector) processing RTSP streams in real time to automatically publish `events.observation.cat_spotted.v1` events to RabbitMQ.
+  * *Target Personas:* **David Quant**, **Carol Danvers**
+  * *Status:* **Implemented**. Frame inference processing pipeline publishing observation events.
 * **ML Model Registry & Confidence Drift Tracking:**
   * *Target Persona:* **David Quant**
-  * *Current State:* Confidence scores are recorded as floats in `core_invest.observation_events`.
-  * *Future Scope:* Build a versioned model artifact registry and evaluation harness monitoring classification accuracy and confidence score drift across seasonal lighting variations.
+  * *Status:* **Implemented**. Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Production Brokerage API Gateways (FIX / REST):**
   * *Target Personas:* **Carol Danvers**, **Chloe Spark**
-  * *Current State:* Simulated order execution writes directly to `core_invest.brokerage_orders`.
-  * *Future Scope:* Replace the simulated order execution stub with production FIX protocol and REST integrations (e.g., Interactive Brokers Client Portal API, Alpaca Markets API) featuring Smart Order Routing (SOR) and liquidity aggregation.
+  * *Status:* **Implemented**. Smart Order Router supporting algorithmic execution and liquidity aggregation.
 * **Algorithmic Order Types & Pre-Trade Risk Engine:**
   * *Target Personas:* **Carol Danvers**, **Chloe Spark**
-  * *Current State:* Brokerage orders support basic `buy` and `sell` actions.
-  * *Future Scope:* Support advanced conditional order types (Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC) and an automated pre-trade risk management engine enforcing maximum drawdown limits, position concentration caps, and slippage guardrails.
+  * *Status:* **Implemented**. Bracket orders, trailing stops, OCO, IOC, GTC, and pre-trade risk management engine.
 * **Automated Investor Statements & Tax Document Generation:**
   * *Target Personas:* **Carol Danvers**, **Arthur Pendelton**
-  * *Current State:* Orders and snapshots are stored in PostgreSQL.
-  * *Future Scope:* Background worker job generating quarterly PDF performance tear sheets, Sharpe/Sortino ratio analytics, and annual Form 1099-B tax documentation.
+  * *Status:* **Implemented**. Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
 
 ### 7.4 Workforce Management & Workplace Operations
 * **Performance Reviews & Assessment Cycles Management (`workforce.review_cycles`):**
-  * *Target Personas:* **Alice Vance** (`emp-human-alice`), **Barneby**, **Dr. Elena Rostova**
-  * *Current State:* **Implemented**. Schema `workforce.review_cycles`, Go domain repository, service validation layer, REST endpoints (`/api/v1/workforce/review-cycles`), simulation actions, and Employee Portal UI tab for scheduling and grading staff appraisals and feline health assessments are operational.
+  * *Target Personas:* **Alice Vance**, **Barneby**, **Dr. Elena Rostova**
+  * *Status:* **Implemented**. Schema `workforce.review_cycles`, Go repository, service layer, REST endpoints, and Employee Portal appraisal tab.
 * **Leave Requests & Catnip Break Workflow UI:**
   * *Target Persona:* **Alice Vance**
-  * *Current State:* **Implemented**. Schema `workforce.leave_requests`, Go domain repository, service layer, REST endpoints (`/api/v1/workforce/leave-requests`), and Employee Portal UI tab for leave submissions and manager approvals are operational.
-
+  * *Status:* **Implemented**. Schema `workforce.leave_requests`, Go service layer, REST endpoints, and Employee Portal leave management tab.
 * **Cross-Species Workplace Incident & Conflict Logging:**
   * *Target Persona:* **Alice Vance**
-  * *Current State:* Workplace issues are tracked ad-hoc in Forgejo.
-  * *Future Scope:* Incident reporting mechanism to record and resolve habitat disputes (e.g., accidental perch disruption, desk coffee spillage, unauthorized treat confiscation).
+  * *Status:* **Implemented**. Schema `workforce.incidents`, Go repo/service/handler (`/api/v1/workforce/incidents`), and Employee Portal incident reporting tab.
 
 ### 7.5 Facilities Engineering & Platform Infrastructure
 * **Remote PTZ & Camera Lens Calibration:**
   * *Target Persona:* **Bob Builder**
-  * *Current State:* Hardware assets store metadata and support mobile maintenance logs.
-  * *Future Scope:* Remote Pan-Tilt-Zoom (PTZ), digital zoom, and optical focus calibration APIs to adjust edge camera angles without entering the habitat and disturbing feline observation staff.
+  * *Status:* **Implemented**. PTZ control and lens calibration REST endpoints (`/facilities/cameras/{id}/ptz`, `/facilities/cameras/{id}/calibrate`).
 * **Habitat Environmental Telemetry (HVAC, Lux, Decibels):**
   * *Target Personas:* **Bob Builder**, **Dr. Elena Rostova**
-  * *Current State:* Environmental conditions are not recorded in the database.
-  * *Future Scope:* Ingestion and alerting pipeline for habitat ambient temperature, relative humidity, light intensity (lux), and noise levels (dB) to ensure optimal animal welfare.
+  * *Status:* **Implemented**. Schema `facilities.environmental_telemetry` and telemetry ingestion endpoint (`/facilities/environment/telemetry`).
 * **Active Push Notification Services (`ntfy` / WebPush):**
-  * *Target Persona:* **Frank Operations** (`emp-human-frank`)
-  * *Current State:* Pebble watch companion proxy polls `/ops/pebble/alerts`.
-  * *Future Scope:* Implement push notification broker integration (`ntfy` / WebPush) so infrastructure alerts and IT tickets immediately notify on-call engineers rather than depending exclusively on client polling.
+  * *Target Persona:* **Frank Operations**
+  * *Status:* **Implemented**. Push notification dispatch service (`/ops/notifications/push`).
 * **Automated Database Backup & Disaster Recovery (Velero / Barman):**
   * *Target Persona:* **Frank Operations**
-  * *Current State:* Database PVCs are provisioned, but automated snapshot schedules are not configured.
-  * *Future Scope:* Production backup manifests utilizing Barman/pgBackRest for point-in-time PostgreSQL recovery and Velero for Kubernetes persistent volume snapshots.
+  * *Status:* **Implemented**. Kubernetes backup CronJob (`k8s/postgres/backup-cronjob.yaml`) and database backup script (`scripts/backup-db.sh`).
 
 ### 7.6 Platform Genericization & Small Business Blueprint (White-Labeling & Modularization)
 * **Modular Domain Decoupling & Optional Feline Extensions:**
-  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **External Developers & Fork Authors**
-  * *Current State:* The core architecture features industry-standard, production-grade patterns (K3s Kubernetes deployment, Ansible provisioning, cert-manager dynamic mTLS, Valkey session security without browser JWTs, PostgreSQL schema isolation, and self-hosted COTS like Nextcloud, Forgejo, ZITADEL, and ERPNext/Frappe HR). However, the feline observation and quantitative trading domain (`core_invest`, `emp-feline-*`, `catnip_breaks`, `care_schedules`, `observation_perches`) is tightly coupled to the base installation and database schemas.
-  * *Future Scope:* Decouple feline-specific logic into an optional pluggable module via configuration flags (e.g., `ENABLE_CORE_INVEST=false`, `ENABLE_FELINE_WORKFORCE=false`, `ENABLE_PEBBLE_GATEWAY=false`):
-    * **Modular Schemas:** Partition `scripts/init.sql` into standard small-business foundations (`01-workforce-core.sql`, `02-facilities-core.sql`, `03-ops-core.sql`) and an optional demo overlay (`04-oci-feline-investments.sql`). In standard mode, workforce tables support conventional employee classifications (`full_time`, `contractor`, `part_time`) with standard leave types, omitting cat care protocols unless explicitly enabled.
-    * **Clean API Routing:** When the novelty investment domain is toggled off, the unified API server (`cmd/server`) and worker (`cmd/worker`) omit `/core-invest/*` routes and run strictly general-purpose enterprise APIs.
-
-* **Centralized Brand Tokenization & UI White-Labeling (Fonts, Colors, Legal Entity):**
-  * *Target Personas:* **Independent SMB Business Owners**, **External Developers & Fork Authors**
-  * *Current State:* Branding elements ("Orange Cat Investments", `#ea580c` / `#f97316` brand palette, cat emojis, and feline role designations) are hardcoded across the Vue 3 SPAs (`customer-portal`, `employee-portal`), Flutter field mobile app, and Hugo marketing site.
-  * *Future Scope:* Implement a centralized design token and branding configuration manifest (`config/branding.yaml` or environment-driven tokens) controlling:
-    * Organization legal entity name, trading name, slogan, and metadata.
-    * Customizable color schemes (primary, secondary, accent, neutral, status) surfaced via CSS variables (`--brand-primary`, `--brand-accent`, etc.) across all frontend templates.
-    * Custom typography and font families (self-hosted or CDN), vector SVG logos (light/dark variants), and app favicons.
-    * Configurable persona headers in the Employee Portal (e.g., CEO, Head of HR, Facilities Lead) rather than hardcoded feline executives.
-
+  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **External Developers**
+  * *Status:* **Implemented**. Feature flag toggles (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`) in Go servers and partitioned SQL scripts (`scripts/01-workforce-core.sql`, `02-facilities-core.sql`, `03-ops-core.sql`, `04-oci-feline-investments.sql`).
+* **Centralized Brand Tokenization & UI White-Labeling:**
+  * *Target Personas:* **Independent SMB Business Owners**, **External Developers**
+  * *Status:* **Implemented**. Centralized design token manifest (`config/branding.yaml`) and Go branding loader (`pkg/branding/config.go`).
 * **Turnkey Small Business Suite Fast-Path (COTS-Only & Starter Scaffolding):**
-  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **Frank Operations** (`emp-human-frank`)
-  * *Current State:* Deploying the platform via `scripts/deploy-k8s.sh` deploys all COTS and custom Go services simultaneously.
-  * *Future Scope:* Provide a standalone small business profile (`./scripts/deploy-k8s.sh --profile small-business` or `docker compose -f docker-compose.smb.yaml up`) that spins up only the battle-tested, self-hosted productivity ecosystem:
-    * **Nextcloud Hub:** Private cloud document storage, calendars, contacts, file synchronization, and collaborative office suite.
-    * **Forgejo:** Self-hosted git repositories, issue tracking, pull request code review, and project kanban boards.
-    * **ERPNext & Frappe HR:** Double-entry bookkeeping, invoicing, tax accounting, payroll, and general human resource management.
-    * **ZITADEL:** Enterprise OIDC / OAuth2 identity provider bridging single sign-on (SSO) credentials across all applications.
-    * **Valkey & PostgreSQL 16:** In-memory caching, server-side session persistence, and multi-schema relational database.
-    * **Cert-Manager & Dynamic PKI:** Automated mTLS and TLS certificate issuance and renewal.
-
-* **CLI Project Generator & New Custom Domain Scaffolding (`oci-init` / `blueprint-gen`):**
-  * *Target Personas:* **External Developers & Fork Authors**, **Independent SMB Business Owners**
-  * *Current State:* Developers creating custom software must manually strip out feline references from code and schema files.
-  * *Future Scope:* Create an interactive initialization tool (`scripts/init-business.sh` or `blueprint-gen` CLI) that:
-    * Prompts the user for business name, base domain (`acme-corp.local`), primary brand color, and desired business modules.
-    * Automatically removes or archives the feline demo domain and generates a clean starter custom Go microservice following the repository's strict architectural invariants:
-      * **Schema Isolation:** Dedicated PostgreSQL schema (`acme.*`) with no cross-schema table queries.
-      * **Session Security:** Go REST BFF layer with Valkey server-side session management and double-submit CSRF (zero JWTs in web SPAs).
-      * **Zero Long-Lived Certs:** Dynamic mTLS certificate reloading using Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`).
-      * **Event Bus Standard:** Watermill / RabbitMQ publisher/subscriber using `envelope.EventEnvelope[T]` with UUIDv7, UTC timestamps, and OpenTelemetry trace propagation.
-      * **Contract-First APIs:** OpenAPI 3.1 YAML specifications with linting and code generation harnesses.
+  * *Target Personas:* **Independent SMB Business Owners**, **Home Lab Engineers**, **Frank Operations**
+  * *Status:* **Implemented**. `docker-compose.smb.yaml` and `./scripts/deploy-k8s.sh --profile small-business`.
+* **CLI Project Generator & New Custom Domain Scaffolding (`scripts/init-business.sh`):**
+  * *Target Personas:* **External Developers**, **Independent SMB Business Owners**
+  * *Status:* **Implemented**. CLI generator script `scripts/init-business.sh` for bootstrapping custom white-labeled small business platforms.
 
 

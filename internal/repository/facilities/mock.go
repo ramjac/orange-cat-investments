@@ -199,3 +199,40 @@ func (m *mockRepository) ListOTAJobsByAsset(ctx context.Context, assetID string)
 		},
 	}, nil
 }
+
+func (m *mockRepository) RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error) {
+	now := time.Now().UTC()
+	t.TelemetryID = "telemetry-feeder-" + time.Now().Format("20060102150405")
+	if t.DispensedAt.IsZero() {
+		t.DispensedAt = now
+	}
+	return t, nil
+}
+
+func (m *mockRepository) RecordCollarTelemetry(ctx context.Context, t *CollarTelemetry) (*CollarTelemetry, error) {
+	now := time.Now().UTC()
+	t.TelemetryID = "telemetry-collar-" + time.Now().Format("20060102150405")
+	if t.RecordedAt.IsZero() {
+		t.RecordedAt = now
+	}
+	return t, nil
+}
+
+func (m *mockRepository) RecordPerchTelemetry(ctx context.Context, t *PerchTelemetry) (*PerchTelemetry, error) {
+	now := time.Now().UTC()
+	t.TelemetryID = "telemetry-perch-" + time.Now().Format("20060102150405")
+	if t.RecordedAt.IsZero() {
+		t.RecordedAt = now
+	}
+	return t, nil
+}
+
+func (m *mockRepository) RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error) {
+	now := time.Now().UTC()
+	t.TelemetryID = "telemetry-env-" + time.Now().Format("20060102150405")
+	if t.RecordedAt.IsZero() {
+		t.RecordedAt = now
+	}
+	return t, nil
+}
+
