@@ -58,3 +58,10 @@ func TestLoadConfig_MissingFileFallback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Orange Cat Investments LLC", cfg.Organization.LegalName)
 }
+
+func TestLoadConfig_ReadErrorPropagated(t *testing.T) {
+	tmpDir := t.TempDir()
+	_, err := branding.LoadConfig(tmpDir)
+	assert.Error(t, err)
+}
+

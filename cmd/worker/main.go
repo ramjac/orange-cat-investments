@@ -122,32 +122,54 @@ func handleBacktestRun(logger *slog.Logger, msg *message.Message) ([]*message.Me
 }
 
 func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *slog.Logger) (*message.Router, error) {
+	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
+	enableFelineWorkforce := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
+
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" {
+		if os.Getenv("ENABLE_CORE_INVEST") == "" {
+			enableCoreInvest = false
+		}
+		if os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+			enableFelineWorkforce = false
+		}
+	}
+
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
 	if err != nil {
 		return nil, err
 	}
 
-	router.AddHandler(
-		"cat_spotted_handler",
-		"events.observation.cat_spotted.v1",
-		ps,
-		"events.investment.allocation_check.v1",
-		ps,
-		func(msg *message.Message) ([]*message.Message, error) {
-			return handleCatSpotted(logger, msg)
-		},
-	)
+	if enableFelineWorkforce && enableCoreInvest {
+		router.AddHandler(
+			"cat_spotted_handler",
+			"events.observation.cat_spotted.v1",
+			ps,
+			"events.investment.allocation_check.v1",
+			ps,
+			func(msg *message.Message) ([]*message.Message, error) {
+				return handleCatSpotted(logger, msg)
+			},
+		)
+		logger.Info("Watermill cat spotted handler registered")
+	} else {
+		logger.Info("Watermill cat spotted handler disabled via configuration")
+	}
 
-	router.AddHandler(
-		"backtest_run_handler",
-		"events.investment.backtest_requested.v1",
-		ps,
-		"events.investment.backtest_completed.v1",
-		ps,
-		func(msg *message.Message) ([]*message.Message, error) {
-			return handleBacktestRun(logger, msg)
-		},
-	)
+	if enableCoreInvest {
+		router.AddHandler(
+			"backtest_run_handler",
+			"events.investment.backtest_requested.v1",
+			ps,
+			"events.investment.backtest_completed.v1",
+			ps,
+			func(msg *message.Message) ([]*message.Message, error) {
+				return handleBacktestRun(logger, msg)
+			},
+		)
+		logger.Info("Watermill backtest handler registered")
+	} else {
+		logger.Info("Watermill backtest handler disabled via configuration")
+	}
 
 	router.AddHandler(
 		"ota_pipeline_handler",
@@ -250,37 +272,51 @@ func main() {
 		}
 	}()
 
-	// Simulate event publisher ticker
-	go func() {
-		<-router.Running()
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
+	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
+	enableFelineWorkforce := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
 
-		event := EventEnvelope[CatSpottedPayload]{
-			EventType:     "observation.cat_spotted.v1",
-			CorrelationID: "correlation-trace-001",
-			Payload: CatSpottedPayload{
-				CameraID:        "CAM-ORANGE-01",
-				FelineID:        "emp-feline-garfield",
-				ActivityType:    "zooming",
-				ConfidenceScore: 0.992,
-			},
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" {
+		if os.Getenv("ENABLE_CORE_INVEST") == "" {
+			enableCoreInvest = false
 		}
+		if os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+			enableFelineWorkforce = false
+		}
+	}
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				event.EventID = watermill.NewUUID()
-				event.OccurredAt = time.Now().UTC()
+	// Simulate event publisher ticker (if feline workforce & core invest enabled)
+	if enableFelineWorkforce && enableCoreInvest {
+		go func() {
+			<-router.Running()
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
 
-				data, _ := json.Marshal(event)
-				msg := message.NewMessage(event.EventID, data)
-				pubSub.Publish("events.observation.cat_spotted.v1", msg)
+			event := EventEnvelope[CatSpottedPayload]{
+				EventType:     "observation.cat_spotted.v1",
+				CorrelationID: "correlation-trace-001",
+				Payload: CatSpottedPayload{
+					CameraID:        "CAM-ORANGE-01",
+					FelineID:        "emp-feline-garfield",
+					ActivityType:    "zooming",
+					ConfidenceScore: 0.992,
+				},
 			}
-		}
-	}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					event.EventID = watermill.NewUUID()
+					event.OccurredAt = time.Now().UTC()
+
+					data, _ := json.Marshal(event)
+					msg := message.NewMessage(event.EventID, data)
+					pubSub.Publish("events.observation.cat_spotted.v1", msg)
+				}
+			}
+		}()
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

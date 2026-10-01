@@ -2,12 +2,12 @@
 
 organization:
   legal_name: "Orange Cat Investments LLC"
-  trading_name: "Acme Corp"
-  tagline: "SMB Self-Hosted Platform & Algorithmic Quantitative Telemetry"
-  base_domain: "acme.local"
+  trading_name: "Orange Cat Investments"
+  tagline: "Feline-Driven Wealth Management & Algorithmic Quantitative Telemetry"
+  base_domain: "oci.local"
 
 branding:
-  primary_color: "#2563eb"
+  primary_color: "#f97316"
   secondary_color: "#ea580c"  # Dark Orange Brand Accent
   accent_color: "#3b82f6"     # Blue Accent
   background_color: "#0f172a" # Slate Dark Background

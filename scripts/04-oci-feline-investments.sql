@@ -23,3 +23,20 @@ CREATE TABLE IF NOT EXISTS core_invest.investment_portfolios (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Feline workforce extensions
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'workforce' AND table_name = 'employees') THEN
+        ALTER TABLE workforce.employees DROP CONSTRAINT IF EXISTS employees_employee_type_check;
+        ALTER TABLE workforce.employees ADD CONSTRAINT employees_employee_type_check 
+            CHECK (employee_type IN ('full_time', 'part_time', 'contractor', 'intern', 'human', 'feline'));
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'workforce' AND table_name = 'leave_requests') THEN
+        ALTER TABLE workforce.leave_requests DROP CONSTRAINT IF EXISTS leave_requests_leave_type_check;
+        ALTER TABLE workforce.leave_requests ADD CONSTRAINT leave_requests_leave_type_check 
+            CHECK (leave_type IN ('vacation', 'sick', 'personal', 'bereavement', 'parental', 'sabbatical', 'catnip_break'));
+    END IF;
+END $$;
+

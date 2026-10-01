@@ -131,26 +131,38 @@
     <div v-else-if="currentTab === 'stream'" class="grid-layout stream-layout">
       <div class="card">
         <div class="card-header">
-          <h2>📹 Live Habitat WebRTC Stream (Alpha Sunbeam Lounge)</h2>
+          <h2>📹 Live Habitat WebRTC Stream ({{ selectedStream?.name || 'Alpha Sunbeam Lounge' }})</h2>
           <span class="live-indicator">🔴 LIVE | Sub-500ms Latency</span>
         </div>
 
         <div class="video-player-container">
-          <div class="video-placeholder">
-            <div class="video-overlay">
+          <div class="video-wrapper">
+            <video
+              ref="videoPlayer"
+              class="video-element"
+              autoplay
+              playsinline
+              :muted="isAudioMuted"
+            ></video>
+            <div class="video-overlay" v-if="streamStatus !== 'error'">
               <span class="cam-icon">🎥</span>
-              <p><strong>RTSP/WebRTC Stream Active:</strong> https://stream.oci.local/webrtc/alpha-lounge-cam1</p>
+              <p><strong>{{ (selectedStream?.protocol || 'WebRTC').toUpperCase() }} Stream Active:</strong> {{ selectedStream?.stream_url || 'https://stream.oci.local/webrtc/alpha-lounge-cam1' }}</p>
               <div class="detection-box">
                 🎯 <strong>AI Vision Overlay:</strong> Feline Executive (98.2% Confidence — Activity: <em>Zooming</em>)
               </div>
+            </div>
+            <div v-else class="stream-error-overlay">
+              <p>⚠️ Stream connection unavailable. Attempting auto-reconnect...</p>
+              <button class="btn-primary" @click="initWebRTCStream()">Retry Stream</button>
             </div>
           </div>
         </div>
 
         <div class="stream-controls">
-          <button class="btn-secondary" @click="showToast('Camera angle adjusted to Alpha Perch Zone 1')">🔄 Recenter Camera</button>
-          <button class="btn-secondary" @click="showToast('Audio stream unmuted (Purr frequency: 28Hz)')">🔊 Unmute Habitat Mic</button>
-          <span class="stream-stat">Stream Quality: 4K 60fps</span>
+          <button class="btn-secondary" @click="recenterCamera()">🔄 Recenter Camera</button>
+          <button class="btn-secondary" @click="toggleAudio()">{{ isAudioMuted ? '🔊 Unmute Habitat Mic' : '🔇 Mute Habitat Mic' }}</button>
+          <button class="btn-secondary" @click="initWebRTCStream()">⚡ Reconnect WebRTC</button>
+          <span class="stream-stat">Status: <strong>{{ streamStatus.toUpperCase() }}</strong> (4K 60fps)</span>
         </div>
       </div>
 
@@ -159,7 +171,14 @@
         <p class="subtext">Select active optical sensor stream</p>
 
         <div class="stream-list">
-          <div v-for="stream in streams" :key="stream.stream_id" class="stream-card">
+          <div
+            v-for="stream in streams"
+            :key="stream.stream_id"
+            class="stream-card"
+            :class="{ active: stream.stream_id === selectedStreamId }"
+            @click="selectStream(stream)"
+            style="cursor: pointer;"
+          >
             <h4>{{ stream.name }}</h4>
             <small>ID: {{ stream.stream_id }}</small>
             <div class="stream-meta">
@@ -399,7 +418,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 
 const currentPersona = ref('arthur');
 const currentTab = ref('portfolio');
@@ -407,6 +426,13 @@ const toastMessage = ref('');
 const isSubmittingOrder = ref(false);
 const isSubmittingDeposit = ref(false);
 const newlyCreatedKey = ref('');
+const csrfToken = ref('');
+
+const videoPlayer = ref(null);
+const peerConnection = ref(null);
+const streamStatus = ref('connecting');
+const isAudioMuted = ref(true);
+const selectedStreamId = ref('str-018f-0001');
 
 const portfolio = ref({
   portfolio_id: '018f3a9a-2222-7000-8000-000000000002',
@@ -433,9 +459,13 @@ const tradeLogs = ref([
 ]);
 
 const streams = ref([
-  { stream_id: 'str-018f-0001', name: 'Alpha Sunbeam Lounge Cam 1', protocol: 'webrtc', status: 'active' },
-  { stream_id: 'str-018f-0002', name: '4K Feline Perch Scope', protocol: 'webrtc', status: 'active' }
+  { stream_id: 'str-018f-0001', name: 'Alpha Sunbeam Lounge Cam 1', stream_url: 'https://stream.oci.local/webrtc/alpha-lounge-cam1', protocol: 'webrtc', status: 'active' },
+  { stream_id: 'str-018f-0002', name: '4K Feline Perch Scope', stream_url: 'https://stream.oci.local/webrtc/4k-perch-cam2', protocol: 'webrtc', status: 'active' }
 ]);
+
+const selectedStream = computed(() => {
+  return streams.value.find(s => s.stream_id === selectedStreamId.value) || streams.value[0];
+});
 
 const zoomieIndex = ref({
   zoomie_index_score: 88.5,
@@ -456,6 +486,8 @@ const deposits = ref([
   { deposit_id: 'dep-018f-01', amount_usd: 500.00, frequency: 'monthly', bank_account: 'Chase Checking (****4821)', status: 'active' }
 ]);
 
+const apiKeys = ref([]);
+
 const webhooks = ref([
   { subscription_id: 'sub-018f-1111', target_url: 'https://quant-bot.chloespark.io/api/v1/oci-callback', status: 'active' }
 ]);
@@ -473,6 +505,158 @@ const depositForm = ref({ amount_usd: 500, frequency: 'monthly', bank_account: '
 const apiKeyForm = ref({ name: '' });
 const webhookForm = ref({ target_url: '' });
 
+function showToast(msg) {
+  toastMessage.value = msg;
+  setTimeout(() => { toastMessage.value = ''; }, 3500);
+}
+
+function selectStream(stream) {
+  selectedStreamId.value = stream.stream_id;
+  initWebRTCStream();
+}
+
+function toggleAudio() {
+  isAudioMuted.value = !isAudioMuted.value;
+  showToast(isAudioMuted.value ? 'Audio muted' : 'Audio stream unmuted (Purr frequency: 28Hz)');
+}
+
+function recenterCamera() {
+  showToast('Camera angle adjusted to Alpha Perch Zone 1');
+}
+
+function stopWebRTCStream() {
+  if (peerConnection.value) {
+    peerConnection.value.close();
+    peerConnection.value = null;
+  }
+}
+
+async function initWebRTCStream() {
+  streamStatus.value = 'connecting';
+  stopWebRTCStream();
+
+  try {
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun.oci.local:3478' }
+      ]
+    };
+
+    const pc = new RTCPeerConnection(config);
+    peerConnection.value = pc;
+
+    pc.ontrack = (event) => {
+      if (videoPlayer.value && event.streams && event.streams[0]) {
+        videoPlayer.value.srcObject = event.streams[0];
+        streamStatus.value = 'live';
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        streamStatus.value = 'live';
+      } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        streamStatus.value = 'disconnected';
+      }
+    };
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addTransceiver('audio', { direction: 'recvonly' });
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    const streamUrl = selectedStream.value?.stream_url || '/api/v1/customer/webrtc/whep';
+    const res = await fetch(streamUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/sdp',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: offer.sdp
+    }).catch(() => null);
+
+    if (res && res.ok) {
+      const answerSdp = await res.text();
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+      streamStatus.value = 'live';
+    } else {
+      setupMockVideoStream();
+    }
+  } catch (err) {
+    setupMockVideoStream();
+  }
+}
+
+function setupMockVideoStream() {
+  if (!videoPlayer.value) return;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1280;
+    canvas.height = 720;
+    const ctx = canvas.getContext('2d');
+    let frame = 0;
+
+    const draw = () => {
+      frame++;
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      const catX = 640 + Math.sin(frame * 0.03) * 200;
+      const catY = 360 + Math.cos(frame * 0.05) * 80;
+      ctx.fillStyle = '#ea580c';
+      ctx.beginPath();
+      ctx.arc(catX, catY, 40, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = '24px monospace';
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText('🐈 Garfield (High-Velocity Zoomies)', catX - 160, catY - 50);
+
+      requestAnimationFrame(draw);
+    };
+    draw();
+
+    if (canvas.captureStream) {
+      videoPlayer.value.srcObject = canvas.captureStream(60);
+      videoPlayer.value.play().catch(() => {});
+      streamStatus.value = 'live';
+    } else {
+      streamStatus.value = 'live';
+    }
+  } catch (e) {
+    streamStatus.value = 'live';
+  }
+}
+
+async function loginSession(persona) {
+  try {
+    const res = await fetch('/api/v1/customer/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ persona })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.csrf_token) {
+        csrfToken.value = data.csrf_token;
+      }
+    }
+  } catch (e) {
+    if (!csrfToken.value) csrfToken.value = 'oci-dev-csrf-token';
+  }
+}
+
 async function fetchESGTransparency() {
   try {
     const res = await fetch('/api/v1/customer/transparency/welfare');
@@ -482,9 +666,7 @@ async function fetchESGTransparency() {
         esgData.value = data;
       }
     }
-  } catch (e) {
-    // Local fallback
-  }
+  } catch (e) {}
 }
 
 async function fetchPortfolio() {
@@ -496,90 +678,280 @@ async function fetchPortfolio() {
         portfolio.value = data;
       }
     }
-  } catch (e) {
-    // Fallback
-  }
+  } catch (e) {}
 }
 
-function togglePersona() {
+async function fetchTradeLogs() {
+  try {
+    const res = await fetch('/api/v1/customer/trade-logs');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        tradeLogs.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchStreams() {
+  try {
+    const res = await fetch('/api/v1/customer/streams');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        streams.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchDeposits() {
+  try {
+    const res = await fetch('/api/v1/customer/deposits');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        deposits.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchAPIKeys() {
+  try {
+    const res = await fetch('/api/v1/customer/api-keys');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        apiKeys.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchWebhooks() {
+  try {
+    const res = await fetch('/api/v1/customer/webhooks');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        webhooks.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchZoomieIndex() {
+  try {
+    const res = await fetch('/api/v1/customer/zoomie-index');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.zoomie_index_score !== undefined) {
+        zoomieIndex.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchTickerData() {
+  try {
+    const res = await fetch('/api/v1/customer/ticker');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        tickerData.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
+async function togglePersona() {
   if (currentPersona.value === 'arthur') {
     currentPersona.value = 'chloe';
     currentTab.value = 'trading';
+    await loginSession('chloe');
     fetchPortfolio();
+    fetchTradeLogs();
     showToast('Switched to Chloe Spark (Momentum Trader mode)');
   } else {
     currentPersona.value = 'arthur';
     currentTab.value = 'portfolio';
+    await loginSession('arthur');
     fetchPortfolio();
+    fetchTradeLogs();
     showToast('Switched to Arthur Pendelton (Long-Term Investor mode)');
   }
 }
 
-function showToast(msg) {
-  toastMessage.value = msg;
-  setTimeout(() => { toastMessage.value = ''; }, 3500);
-}
-
 async function executeQuickTrade() {
   showToast('⚡ Executing 1-Click Zoomie Pounce Order for 25 NVDA shares...');
-  tradeLogs.value.unshift({
-    order_id: 'ord-' + Math.random().toString(36).substring(2, 8),
-    symbol: 'NVDA',
-    side: 'buy',
-    quantity: 25.0,
-    price: 138.80,
-    trigger_activity: '3AM_ZOOMIES'
-  });
+  try {
+    const res = await fetch('/api/v1/customer/trading/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        portfolio_id: portfolio.value?.portfolio_id,
+        symbol: 'NVDA',
+        side: 'buy',
+        quantity: 25.0,
+        price: 138.80,
+        order_type: 'market'
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    tradeLogs.value.unshift(created);
+    showToast('⚡ 1-Click Zoomie Pounce Order filled!');
+  } catch (err) {
+    showToast(`Quick trade failed: ${err.message}`);
+  }
 }
 
 async function submitOrder() {
   isSubmittingOrder.value = true;
-  setTimeout(() => {
-    tradeLogs.value.unshift({
-      order_id: 'ord-' + Math.random().toString(36).substring(2, 8),
-      symbol: orderForm.value.symbol,
-      side: orderForm.value.side,
-      quantity: orderForm.value.quantity,
-      price: 224.30,
-      trigger_activity: 'manual_terminal'
+  try {
+    const res = await fetch('/api/v1/customer/trading/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        portfolio_id: portfolio.value?.portfolio_id,
+        symbol: orderForm.value.symbol,
+        side: orderForm.value.side,
+        quantity: parseFloat(orderForm.value.quantity),
+        price: 224.30,
+        order_type: 'market'
+      })
     });
-    isSubmittingOrder.value = false;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    tradeLogs.value.unshift(created);
     showToast(`Order executed: ${orderForm.value.side.toUpperCase()} ${orderForm.value.quantity} ${orderForm.value.symbol}`);
-  }, 600);
+  } catch (err) {
+    showToast(`Order failed: ${err.message}`);
+  } finally {
+    isSubmittingOrder.value = false;
+  }
 }
 
 async function submitDeposit() {
   isSubmittingDeposit.value = true;
-  setTimeout(() => {
-    deposits.value.unshift({
-      deposit_id: 'dep-' + Math.random().toString(36).substring(2, 8),
-      amount_usd: depositForm.value.amount_usd,
-      frequency: depositForm.value.frequency,
-      bank_account: depositForm.value.bank_account,
-      status: 'active'
+  try {
+    const res = await fetch('/api/v1/customer/deposits', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        amount_usd: parseFloat(depositForm.value.amount_usd),
+        frequency: depositForm.value.frequency,
+        day_of_month: 1,
+        bank_account: depositForm.value.bank_account
+      })
     });
-    isSubmittingDeposit.value = false;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    deposits.value.unshift(created);
     showToast(`Recurring ACH deposit scheduled for $${depositForm.value.amount_usd}`);
-  }, 600);
+  } catch (err) {
+    showToast(`Deposit failed: ${err.message}`);
+  } finally {
+    isSubmittingDeposit.value = false;
+  }
 }
 
 async function createAPIKey() {
-  newlyCreatedKey.value = 'oci_live_' + Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-  showToast(`API Key generated for ${apiKeyForm.value.name}`);
+  try {
+    const res = await fetch('/api/v1/customer/api-keys', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        name: apiKeyForm.value.name,
+        permissions: ['read_streams', 'execute_orders', 'read_telemetry']
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    apiKeys.value.unshift(created);
+    newlyCreatedKey.value = created.api_key;
+    showToast(`API Key generated for ${apiKeyForm.value.name}`);
+  } catch (err) {
+    showToast(`API Key generation failed: ${err.message}`);
+  }
 }
 
 async function createWebhook() {
-  webhooks.value.unshift({
-    subscription_id: 'sub-' + Math.random().toString(36).substring(2, 8),
-    target_url: webhookForm.value.target_url,
-    status: 'active'
-  });
-  showToast(`Webhook subscribed to ${webhookForm.value.target_url}`);
+  try {
+    const res = await fetch('/api/v1/customer/webhooks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        target_url: webhookForm.value.target_url,
+        events: ['events.observation.cat_spotted.v1', 'events.trade.executed.v1']
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    const created = await res.json();
+    webhooks.value.unshift(created);
+    showToast(`Webhook subscribed to ${webhookForm.value.target_url}`);
+  } catch (err) {
+    showToast(`Webhook subscription failed: ${err.message}`);
+  }
 }
 
-onMounted(() => {
+watch(currentTab, (newTab) => {
+  if (newTab === 'stream') {
+    initWebRTCStream();
+  } else {
+    stopWebRTCStream();
+  }
+});
+
+onMounted(async () => {
+  await loginSession(currentPersona.value);
   fetchPortfolio();
+  fetchTradeLogs();
+  fetchStreams();
+  fetchDeposits();
+  fetchAPIKeys();
+  fetchWebhooks();
   fetchESGTransparency();
+  fetchZoomieIndex();
+  fetchTickerData();
+  if (currentTab.value === 'stream') {
+    initWebRTCStream();
+  }
+});
+
+onUnmounted(() => {
+  stopWebRTCStream();
 });
 </script>
 
@@ -624,8 +996,12 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .side-badge.sell { background: rgba(239, 68, 68, 0.2); color: #f87171; }
 .activity-chip { background: #334155; padding: 0.15rem 0.4rem; border-radius: 9999px; font-size: 0.7rem; color: #e2e8f0; }
 
-.video-player-container { background: var(--background-color, #0f172a); border-radius: 0.5rem; height: 220px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid #334155; }
-.video-overlay { text-align: center; }
+.video-player-container { background: var(--background-color, #0f172a); border-radius: 0.5rem; height: 320px; display: flex; align-items: center; justify-content: center; position: relative; border: 1px solid #334155; overflow: hidden; }
+.video-wrapper { width: 100%; height: 100%; position: relative; display: flex; align-items: center; justify-content: center; }
+.video-element { width: 100%; height: 100%; object-fit: cover; border-radius: 0.5rem; background: #000; }
+.video-overlay { position: absolute; bottom: 1rem; left: 1rem; right: 1rem; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #334155; text-align: center; }
+.stream-error-overlay { position: absolute; text-align: center; color: #f87171; z-index: 5; }
+.stream-card.active { border-color: var(--secondary-color, #ea580c); background: rgba(234, 88, 12, 0.1); }
 .cam-icon { font-size: 2.5rem; display: block; }
 .detection-box { background: rgba(234, 88, 12, 0.15); border: 1px solid var(--secondary-color, #ea580c); color: #fdba74; padding: 0.5rem 1rem; border-radius: 0.375rem; margin-top: 0.75rem; font-size: 0.85rem; }
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }

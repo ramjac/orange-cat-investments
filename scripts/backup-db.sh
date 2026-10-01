@@ -6,7 +6,7 @@ set -euo pipefail
 
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-5432}"
-PGUSER="${PGUSER:-oci}"
+PGUSER="${PGUSER:-oci_admin}"
 PGDATABASE="${PGDATABASE:-oci}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 
@@ -21,11 +21,10 @@ echo "Host: ${PGHOST}:${PGPORT} | Database: ${PGDATABASE}"
 echo "Output: ${BACKUP_FILE}"
 echo "=========================================================="
 
-if command -v pg_dump >/dev/null 2>&1; then
-    PGPASSWORD="${PGPASSWORD:-catnip}" pg_dump -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" | gzip > "${BACKUP_FILE}"
-    echo "✅ Database backup complete: ${BACKUP_FILE}"
-else
-    echo "⚠️ pg_dump command not found in host PATH. Simulating backup creation..."
-    echo "-- Mock OCI PostgreSQL Database Backup ${TIMESTAMP}" | gzip > "${BACKUP_FILE}"
-    echo "✅ Simulated backup written to ${BACKUP_FILE}"
+if ! command -v pg_dump >/dev/null 2>&1; then
+    echo "❌ ERROR: pg_dump command not found in host PATH. Cannot execute database backup." >&2
+    exit 1
 fi
+
+PGPASSWORD="${PGPASSWORD:-oci_secure_pass}" pg_dump -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" -d "${PGDATABASE}" | gzip > "${BACKUP_FILE}"
+echo "✅ Database backup complete: ${BACKUP_FILE}"

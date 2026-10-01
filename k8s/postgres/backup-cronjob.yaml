@@ -17,10 +17,16 @@ spec:
             - /bin/sh
             - -c
             - |
+              set -e
               echo "Starting OCI PostgreSQL automated backup..."
-              pg_dump -h postgres-service -U oci -d oci -F c -b -v -f /backups/oci_backup_$(date +%Y%m%d_%H%M%S).dump
+              pg_dump -h postgres-service -U "${POSTGRES_USER}" -d oci -F c -b -v -f /backups/oci_backup_$(date +%Y%m%d_%H%M%S).dump
               echo "Backup completed successfully!"
             env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -34,3 +40,15 @@ spec:
           - name: backup-storage
             persistentVolumeClaim:
               claimName: postgres-backup-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-pvc
+  namespace: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

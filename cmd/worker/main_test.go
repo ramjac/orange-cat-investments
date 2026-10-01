@@ -319,6 +319,53 @@ func TestHandleOTATriggered_DoesNotLogRawPayload(t *testing.T) {
 	assert.Contains(t, logs, "test-msg-uuid-789")
 }
 
+func TestWorkerRouter_FeatureFlags(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+
+	t.Run("DefaultEnabled", func(t *testing.T) {
+		router, err := createRouter(pubSub, watermillLogger, logger)
+		require.NoError(t, err)
+		handlers := router.Handlers()
+		assert.Contains(t, handlers, "cat_spotted_handler")
+		assert.Contains(t, handlers, "backtest_run_handler")
+		assert.Contains(t, handlers, "ota_pipeline_handler")
+	})
+
+	t.Run("FelineDisabled", func(t *testing.T) {
+		t.Setenv("ENABLE_FELINE_WORKFORCE", "false")
+		router, err := createRouter(pubSub, watermillLogger, logger)
+		require.NoError(t, err)
+		handlers := router.Handlers()
+		assert.NotContains(t, handlers, "cat_spotted_handler")
+		assert.Contains(t, handlers, "backtest_run_handler")
+		assert.Contains(t, handlers, "ota_pipeline_handler")
+	})
+
+	t.Run("CoreInvestDisabled", func(t *testing.T) {
+		t.Setenv("ENABLE_CORE_INVEST", "false")
+		router, err := createRouter(pubSub, watermillLogger, logger)
+		require.NoError(t, err)
+		handlers := router.Handlers()
+		assert.NotContains(t, handlers, "cat_spotted_handler")
+		assert.NotContains(t, handlers, "backtest_run_handler")
+		assert.Contains(t, handlers, "ota_pipeline_handler")
+	})
+
+	t.Run("SmallBusinessMode", func(t *testing.T) {
+		t.Setenv("ENABLE_SMALL_BUSINESS_MODE", "true")
+		t.Setenv("ENABLE_CORE_INVEST", "")
+		t.Setenv("ENABLE_FELINE_WORKFORCE", "")
+		router, err := createRouter(pubSub, watermillLogger, logger)
+		require.NoError(t, err)
+		handlers := router.Handlers()
+		assert.NotContains(t, handlers, "cat_spotted_handler")
+		assert.NotContains(t, handlers, "backtest_run_handler")
+		assert.Contains(t, handlers, "ota_pipeline_handler")
+	})
+}
+
 func BenchmarkEventPublishingOriginal(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()

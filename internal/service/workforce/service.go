@@ -3,6 +3,7 @@ package workforce
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
@@ -371,6 +372,12 @@ func (s *workforceService) ListWorkplaceIncidents(ctx context.Context, status st
 func (s *workforceService) UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*workforce.WorkplaceIncident, error) {
 	if id == "" || status == "" {
 		return nil, errors.New("incident id and status are required")
+	}
+	switch status {
+	case "open", "under_review", "resolved":
+		// valid status
+	default:
+		return nil, fmt.Errorf("invalid incident status %q: status must be one of 'open', 'under_review', 'resolved'", status)
 	}
 	return s.repo.UpdateWorkplaceIncidentStatus(ctx, id, status, resolutionNotes)
 }

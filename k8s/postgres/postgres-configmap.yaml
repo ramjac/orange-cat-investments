@@ -151,6 +151,21 @@ data:
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
+        asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        serial_number VARCHAR(100) NOT NULL UNIQUE,
+        asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
+        model VARCHAR(100) NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'maintenance_required', 'offline', 'pending_return', 'decommissioned')),
+        zone_id UUID REFERENCES facilities.location_zones(zone_id),
+        assigned_employee_id UUID REFERENCES workforce.employees(employee_id),
+        last_ping_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
+
     -- Smart Feeder Telemetry
     CREATE TABLE IF NOT EXISTS facilities.feeder_telemetry (
         telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -194,19 +209,6 @@ data:
         light_intensity_lux DECIMAL(8,2) NOT NULL,
         noise_level_db DECIMAL(5,2) NOT NULL,
         recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
-        asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-        serial_number VARCHAR(100) NOT NULL UNIQUE,
-        asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
-        model VARCHAR(100) NOT NULL,
-        status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'maintenance_required', 'offline', 'pending_return', 'decommissioned')),
-        zone_id UUID REFERENCES facilities.location_zones(zone_id),
-        assigned_employee_id UUID REFERENCES workforce.employees(employee_id),
-        last_ping_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Feline Acoustic Vocalization Analysis
@@ -260,21 +262,6 @@ data:
         status VARCHAR(20) NOT NULL DEFAULT 'active',
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
-    -- Recurring ACH Deposits
-    CREATE TABLE IF NOT EXISTS core_invest.recurring_deposits (
-        deposit_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-        customer_id VARCHAR(100) NOT NULL,
-        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
-        amount_usd DECIMAL(14,2) NOT NULL,
-        frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('weekly', 'biweekly', 'monthly')),
-        bank_account VARCHAR(100) NOT NULL,
-        status VARCHAR(20) NOT NULL DEFAULT 'active',
-        next_charge_at TIMESTAMPTZ NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
 
     CREATE TABLE IF NOT EXISTS facilities.observation_perches (
         perch_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -414,6 +401,19 @@ data:
         executed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Recurring ACH Deposits
+    CREATE TABLE IF NOT EXISTS core_invest.recurring_deposits (
+        deposit_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        amount_usd DECIMAL(14,2) NOT NULL,
+        frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('weekly', 'biweekly', 'monthly')),
+        bank_account VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        next_charge_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Backtest Runs (Dynamic Backtesting Workbench)

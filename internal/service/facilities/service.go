@@ -3,6 +3,7 @@ package facilities
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/facilities"
@@ -118,24 +119,233 @@ func (s *facilitiesService) ListOTAJobs(ctx context.Context, assetID string) ([]
 	return s.repo.ListOTAJobsByAsset(ctx, assetID)
 }
 
+func getFloat(m map[string]interface{}, key string) float64 {
+	if val, ok := m[key]; ok {
+		switch v := val.(type) {
+		case float64:
+			return v
+		case float32:
+			return float64(v)
+		case int:
+			return float64(v)
+		case int64:
+			return float64(v)
+		}
+	}
+	return 0
+}
+
+func getString(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if s, ok := val.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 func (s *facilitiesService) IngestFeederTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{"status": "ingested", "telemetry_type": "smart_feeder", "payload": payload}, nil
+	assetID := getString(payload, "asset_id")
+	if assetID == "" {
+		return nil, errors.New("asset_id is required for feeder telemetry")
+	}
+	foodDispensed := getFloat(payload, "food_dispensed_grams")
+	if foodDispensed < 0 {
+		return nil, errors.New("food_dispensed_grams cannot be negative")
+	}
+	foodConsumed := getFloat(payload, "food_consumed_grams")
+	if foodConsumed < 0 {
+		return nil, errors.New("food_consumed_grams cannot be negative")
+	}
+
+	var felineIDPtr *string
+	if felineID := getString(payload, "feline_id"); felineID != "" {
+		felineIDPtr = &felineID
+	}
+	snackDisbursed, _ := payload["snack_disbursed"].(bool)
+
+	rec, err := s.repo.RecordFeederTelemetry(ctx, &facilities.FeederTelemetry{
+		AssetID:            assetID,
+		FelineID:           felineIDPtr,
+		FoodDispensedGrams: foodDispensed,
+		FoodConsumedGrams:  foodConsumed,
+		SnackDisbursed:     snackDisbursed,
+		DispensedAt:        time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist feeder telemetry: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":         "ingested",
+		"telemetry_id":   rec.TelemetryID,
+		"telemetry_type": "smart_feeder",
+		"record":         rec,
+	}, nil
 }
 
 func (s *facilitiesService) DisburseSnack(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{"status": "disbursed", "snack_grams": 15.0, "payload": payload}, nil
+	assetID := getString(payload, "asset_id")
+	if assetID == "" {
+		return nil, errors.New("asset_id is required for snack disbursal")
+	}
+	snackGrams := getFloat(payload, "snack_grams")
+	if snackGrams <= 0 {
+		snackGrams = 15.0
+	}
+
+	var felineIDPtr *string
+	if felineID := getString(payload, "feline_id"); felineID != "" {
+		felineIDPtr = &felineID
+	}
+
+	rec, err := s.repo.RecordFeederTelemetry(ctx, &facilities.FeederTelemetry{
+		AssetID:            assetID,
+		FelineID:           felineIDPtr,
+		FoodDispensedGrams: snackGrams,
+		FoodConsumedGrams:  snackGrams,
+		SnackDisbursed:     true,
+		DispensedAt:        time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to record snack disbursal: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":       "disbursed",
+		"telemetry_id": rec.TelemetryID,
+		"snack_grams":  snackGrams,
+		"record":       rec,
+	}, nil
 }
 
 func (s *facilitiesService) IngestCollarTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{"status": "ingested", "telemetry_type": "smart_collar_biometrics", "payload": payload}, nil
+	assetID := getString(payload, "asset_id")
+	if assetID == "" {
+		return nil, errors.New("asset_id is required for collar telemetry")
+	}
+
+	var felineIDPtr *string
+	if felineID := getString(payload, "feline_id"); felineID != "" {
+		felineIDPtr = &felineID
+	}
+
+	var heartRate *int
+	if hrVal, ok := payload["heart_rate_bpm"]; ok {
+		switch v := hrVal.(type) {
+		case float64:
+			hr := int(v)
+			heartRate = &hr
+		case int:
+			heartRate = &v
+		}
+	}
+
+	var pounceG *float64
+	if gVal, ok := payload["pounce_g_force"]; ok {
+		switch v := gVal.(type) {
+		case float64:
+			pounceG = &v
+		}
+	}
+
+	var jumpM *float64
+	if jVal, ok := payload["jump_height_meters"]; ok {
+		switch v := jVal.(type) {
+		case float64:
+			jumpM = &v
+		}
+	}
+
+	var sleepState *string
+	if state := getString(payload, "circadian_sleep_state"); state != "" {
+		sleepState = &state
+	}
+
+	rec, err := s.repo.RecordCollarTelemetry(ctx, &facilities.CollarTelemetry{
+		AssetID:             assetID,
+		FelineID:            felineIDPtr,
+		HeartRateBPM:        heartRate,
+		PounceGForce:        pounceG,
+		JumpHeightMeters:    jumpM,
+		CircadianSleepState: sleepState,
+		RecordedAt:          time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist collar telemetry: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":         "ingested",
+		"telemetry_id":   rec.TelemetryID,
+		"telemetry_type": "smart_collar_biometrics",
+		"record":         rec,
+	}, nil
 }
 
 func (s *facilitiesService) IngestPerchTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{"status": "ingested", "telemetry_type": "perch_comfort_thermal", "payload": payload}, nil
+	perchAssetID := getString(payload, "perch_asset_id")
+	if perchAssetID == "" {
+		perchAssetID = getString(payload, "asset_id")
+	}
+	if perchAssetID == "" {
+		return nil, errors.New("perch_asset_id is required for perch telemetry")
+	}
+
+	pressureMat := getFloat(payload, "pressure_mat_load_kg")
+	surfaceTemp := getFloat(payload, "surface_temp_c")
+	sunbeamAlignment := getFloat(payload, "sunbeam_alignment_pct")
+	cushionWear := getFloat(payload, "cushion_wear_pct")
+
+	rec, err := s.repo.RecordPerchTelemetry(ctx, &facilities.PerchTelemetry{
+		PerchAssetID:        perchAssetID,
+		PressureMatLoadKG:   pressureMat,
+		SurfaceTempC:        surfaceTemp,
+		SunbeamAlignmentPct: sunbeamAlignment,
+		CushionWearPct:      cushionWear,
+		RecordedAt:          time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist perch telemetry: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":         "ingested",
+		"telemetry_id":   rec.TelemetryID,
+		"telemetry_type": "perch_comfort_thermal",
+		"record":         rec,
+	}, nil
 }
 
 func (s *facilitiesService) IngestEnvironmentalTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error) {
-	return map[string]interface{}{"status": "ingested", "telemetry_type": "environmental_hvac_lux_db", "payload": payload}, nil
+	zoneID := getString(payload, "zone_id")
+	if zoneID == "" {
+		return nil, errors.New("zone_id is required for environmental telemetry")
+	}
+
+	temp := getFloat(payload, "temperature_c")
+	humidity := getFloat(payload, "relative_humidity_pct")
+	lux := getFloat(payload, "light_intensity_lux")
+	noise := getFloat(payload, "noise_level_db")
+
+	rec, err := s.repo.RecordEnvironmentalTelemetry(ctx, &facilities.EnvironmentalTelemetry{
+		ZoneID:              zoneID,
+		TemperatureC:        temp,
+		RelativeHumidityPct: humidity,
+		LightIntensityLux:   lux,
+		NoiseLevelDB:        noise,
+		RecordedAt:          time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to persist environmental telemetry: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":         "ingested",
+		"telemetry_id":   rec.TelemetryID,
+		"telemetry_type": "environmental_hvac_lux_db",
+		"record":         rec,
+	}, nil
 }
 
 func (s *facilitiesService) ControlPTZ(ctx context.Context, cameraID string, payload map[string]interface{}) (map[string]interface{}, error) {

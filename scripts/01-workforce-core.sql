@@ -3,7 +3,7 @@ CREATE SCHEMA IF NOT EXISTS workforce;
 
 CREATE TABLE IF NOT EXISTS workforce.employees (
     employee_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    employee_type VARCHAR(20) NOT NULL CHECK (employee_type IN ('human', 'feline')),
+    employee_type VARCHAR(20) NOT NULL CHECK (employee_type IN ('full_time', 'part_time', 'contractor', 'intern', 'human')),
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100),
     email VARCHAR(255) UNIQUE,
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS workforce.employees (
 CREATE TABLE IF NOT EXISTS workforce.leave_requests (
     leave_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
     employee_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
-    leave_type VARCHAR(30) NOT NULL CHECK (leave_type IN ('vacation', 'sick', 'catnip_break', 'sabbatical')),
+    leave_type VARCHAR(30) NOT NULL CHECK (leave_type IN ('vacation', 'sick', 'personal', 'bereavement', 'parental', 'sabbatical')),
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),

@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,36 +23,312 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 )
 
+type CustomerSession struct {
+	SessionID  string    `json:"session_id"`
+	CustomerID string    `json:"customer_id"`
+	Email      string    `json:"email"`
+	Name       string    `json:"name"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+type SessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*CustomerSession
+}
+
+func NewSessionStore() *SessionStore {
+	store := &SessionStore{
+		sessions: make(map[string]*CustomerSession),
+	}
+	// Seed well-known sessions for local dev and testing
+	store.sessions["sess-arthur-token"] = &CustomerSession{
+		SessionID:  "sess-arthur-token",
+		CustomerID: "cust-longterm-arthur",
+		Email:      "arthur@oci.local",
+		Name:       "Arthur Pendelton",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+	store.sessions["sess-chloe-token"] = &CustomerSession{
+		SessionID:  "sess-chloe-token",
+		CustomerID: "cust-active-chloe",
+		Email:      "chloe@oci.local",
+		Name:       "Chloe Spark",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+	return store
+}
+
+func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[token]
+	if !ok || time.Now().After(sess.ExpiresAt) {
+		return nil, false
+	}
+	return sess, true
+}
+
+func (s *SessionStore) Create(customerID, name, email string) *CustomerSession {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b := make([]byte, 16)
+	_, _ = crand.Read(b)
+	token := "sess-" + hex.EncodeToString(b)
+	sess := &CustomerSession{
+		SessionID:  token,
+		CustomerID: customerID,
+		Email:      email,
+		Name:       name,
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	}
+	s.sessions[token] = sess
+	return sess
+}
+
+func (s *SessionStore) Delete(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
+}
+
+type contextKey string
+
+const customerContextKey contextKey = "customer_session"
+
+func CustomerFromContext(ctx context.Context) *CustomerSession {
+	if s, ok := ctx.Value(customerContextKey).(*CustomerSession); ok {
+		return s
+	}
+	return nil
+}
+
+func generateRandomToken(n int) string {
+	b := make([]byte, n)
+	_, _ = crand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+func getCSRFCookie(r *http.Request) string {
+	if c, err := r.Cookie("csrf_token"); err == nil && c.Value != "" {
+		return c.Value
+	}
+	if c, err := r.Cookie("__Host-csrf-token"); err == nil && c.Value != "" {
+		return c.Value
+	}
+	return ""
+}
+
+func setCSRFCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: false, // Must be readable by client JS for double-submit header
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 type CustomerBFF struct {
-	ciSvc  core_invest_svc.Service
-	wfSvc  workforce_svc.Service
-	logger *slog.Logger
+	ciSvc    core_invest_svc.Service
+	wfSvc    workforce_svc.Service
+	sessions *SessionStore
+	logger   *slog.Logger
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
 	return &CustomerBFF{
-		ciSvc:  ciSvc,
-		wfSvc:  wfSvc,
-		logger: logger,
+		ciSvc:    ciSvc,
+		wfSvc:    wfSvc,
+		sessions: NewSessionStore(),
+		logger:   logger,
 	}
 }
 
+func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var token string
+
+		if c, err := r.Cookie("__Host-customer-session"); err == nil && c.Value != "" {
+			token = c.Value
+		} else if c, err := r.Cookie("customer_session"); err == nil && c.Value != "" {
+			token = c.Value
+		}
+
+		if token == "" {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+
+		if token == "" {
+			token = r.URL.Query().Get("session_token")
+		}
+
+		if token == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+			return
+		}
+
+		sess, ok := b.sessions.Get(token)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: invalid or expired customer session"})
+			return
+		}
+
+		if getCSRFCookie(r) == "" {
+			setCSRFCookie(w, generateRandomToken(16))
+		}
+
+		ctx := context.WithValue(r.Context(), customerContextKey, sess)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (b *CustomerBFF) csrfProtect(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
+			headerToken := r.Header.Get("X-CSRF-Token")
+			cookieToken := getCSRFCookie(r)
+
+			if headerToken == "" || cookieToken == "" || headerToken != cookieToken {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or missing CSRF token"})
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
+	// Public routes
 	mux.HandleFunc("GET /healthz", b.handleHealthCheck)
-	mux.HandleFunc("GET /api/v1/customer/portfolio", b.handleGetPortfolio)
-	mux.HandleFunc("GET /api/v1/customer/trade-logs", b.handleGetTradeLogs)
-	mux.HandleFunc("POST /api/v1/customer/trading/orders", b.handleCreateOrder)
-	mux.HandleFunc("GET /api/v1/customer/ticker", b.handleTickerSSE)
-	mux.HandleFunc("GET /api/v1/customer/zoomie-index", b.handleGetZoomieIndex)
-	mux.HandleFunc("GET /api/v1/customer/deposits", b.handleGetDeposits)
-	mux.HandleFunc("POST /api/v1/customer/deposits", b.handleCreateDeposit)
-	mux.HandleFunc("GET /api/v1/customer/api-keys", b.handleGetAPIKeys)
-	mux.HandleFunc("POST /api/v1/customer/api-keys", b.handleCreateAPIKey)
-	mux.HandleFunc("DELETE /api/v1/customer/api-keys/{id}", b.handleRevokeAPIKey)
-	mux.HandleFunc("GET /api/v1/customer/webhooks", b.handleGetWebhooks)
-	mux.HandleFunc("POST /api/v1/customer/webhooks", b.handleCreateWebhook)
-	mux.HandleFunc("GET /api/v1/customer/transparency/welfare", b.handleGetESGTransparency)
-	mux.HandleFunc("GET /api/v1/customer/streams", b.handleGetStreams)
+	mux.HandleFunc("GET /api/v1/customer/csrf", b.handleGetCSRFToken)
+	mux.HandleFunc("POST /api/v1/customer/auth/login", b.handleLogin)
+	mux.HandleFunc("POST /api/v1/customer/auth/logout", b.handleLogout)
+
+	// Protected read endpoints (Session Auth)
+	mux.Handle("GET /api/v1/customer/auth/session", b.sessionAuth(http.HandlerFunc(b.handleGetSession)))
+	mux.Handle("GET /api/v1/customer/portfolio", b.sessionAuth(http.HandlerFunc(b.handleGetPortfolio)))
+	mux.Handle("GET /api/v1/customer/trade-logs", b.sessionAuth(http.HandlerFunc(b.handleGetTradeLogs)))
+	mux.Handle("GET /api/v1/customer/ticker", b.sessionAuth(http.HandlerFunc(b.handleTickerSSE)))
+	mux.Handle("GET /api/v1/customer/zoomie-index", b.sessionAuth(http.HandlerFunc(b.handleGetZoomieIndex)))
+	mux.Handle("GET /api/v1/customer/deposits", b.sessionAuth(http.HandlerFunc(b.handleGetDeposits)))
+	mux.Handle("GET /api/v1/customer/api-keys", b.sessionAuth(http.HandlerFunc(b.handleGetAPIKeys)))
+	mux.Handle("GET /api/v1/customer/webhooks", b.sessionAuth(http.HandlerFunc(b.handleGetWebhooks)))
+	mux.Handle("GET /api/v1/customer/transparency/welfare", b.sessionAuth(http.HandlerFunc(b.handleGetESGTransparency)))
+	mux.Handle("GET /api/v1/customer/streams", b.sessionAuth(http.HandlerFunc(b.handleGetStreams)))
+
+	// Protected state-changing endpoints (Session Auth + Double-Submit CSRF)
+	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateOrder))))
+	mux.Handle("POST /api/v1/customer/deposits", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateDeposit))))
+	mux.Handle("POST /api/v1/customer/api-keys", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateAPIKey))))
+	mux.Handle("DELETE /api/v1/customer/api-keys/{id}", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleRevokeAPIKey))))
+	mux.Handle("POST /api/v1/customer/webhooks", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateWebhook))))
+}
+
+func (b *CustomerBFF) handleGetCSRFToken(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	token := getCSRFCookie(r)
+	if token == "" {
+		token = generateRandomToken(16)
+		setCSRFCookie(w, token)
+	}
+	w.Header().Set("X-CSRF-Token", token)
+	_ = json.NewEncoder(w).Encode(map[string]string{"csrf_token": token})
+}
+
+func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Persona    string `json:"persona"`
+		CustomerID string `json:"customer_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	var custID, name, email string
+	if req.Persona == "chloe" || req.CustomerID == "cust-active-chloe" {
+		custID = "cust-active-chloe"
+		name = "Chloe Spark"
+		email = "chloe@oci.local"
+	} else {
+		custID = "cust-longterm-arthur"
+		name = "Arthur Pendelton"
+		email = "arthur@oci.local"
+	}
+
+	session := b.sessions.Create(custID, name, email)
+
+	// Set session cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "customer_session",
+		Value:    session.SessionID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "__Host-customer-session",
+		Value:    session.SessionID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+
+	csrfToken := generateRandomToken(16)
+	setCSRFCookie(w, csrfToken)
+	w.Header().Set("X-CSRF-Token", csrfToken)
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":     "authenticated",
+		"session":    session,
+		"csrf_token": csrfToken,
+	})
+}
+
+func (b *CustomerBFF) handleLogout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if c, err := r.Cookie("customer_session"); err == nil {
+		b.sessions.Delete(c.Value)
+	}
+	if c, err := r.Cookie("__Host-customer-session"); err == nil {
+		b.sessions.Delete(c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "customer_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "__Host-customer-session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "logged_out"})
+}
+
+func (b *CustomerBFF) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "no active session"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(session)
 }
 
 func (b *CustomerBFF) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +339,13 @@ func (b *CustomerBFF) handleHealthCheck(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	custID := r.URL.Query().Get("customer_id")
+	custID := ""
+	if session := CustomerFromContext(r.Context()); session != nil {
+		custID = session.CustomerID
+	}
+	if custID == "" {
+		custID = r.URL.Query().Get("customer_id")
+	}
 
 	var resp map[string]interface{}
 	if custID == "chloe" || custID == "cust-active-chloe" {
@@ -155,6 +440,13 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 
 func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
 	var req struct {
 		PortfolioID string  `json:"portfolio_id"`
 		Symbol      string  `json:"symbol"`
@@ -170,7 +462,11 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.PortfolioID == "" {
-		req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+		if session.CustomerID == "cust-active-chloe" || session.CustomerID == "chloe" {
+			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
+		} else {
+			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+		}
 	}
 	if req.Price <= 0 {
 		req.Price = 224.30
@@ -235,10 +531,14 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 
 func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	customerID := "cust-longterm-arthur"
+	if session := CustomerFromContext(r.Context()); session != nil {
+		customerID = session.CustomerID
+	}
 	deposits := []map[string]interface{}{
 		{
 			"deposit_id":     "dep-018f-01",
-			"customer_id":    "cust-longterm-arthur",
+			"customer_id":    customerID,
 			"amount_usd":     500.00,
 			"frequency":      "monthly",
 			"day_of_month":   1,
@@ -252,6 +552,13 @@ func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
 	var req struct {
 		AmountUSD   float64 `json:"amount_usd"`
 		Frequency   string  `json:"frequency"`
@@ -266,7 +573,7 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 
 	created := map[string]interface{}{
 		"deposit_id":     fmt.Sprintf("dep-%d", time.Now().UnixNano()),
-		"customer_id":    "cust-longterm-arthur",
+		"customer_id":    session.CustomerID,
 		"amount_usd":     req.AmountUSD,
 		"frequency":      req.Frequency,
 		"day_of_month":   req.DayOfMonth,
@@ -296,6 +603,13 @@ func (b *CustomerBFF) handleGetAPIKeys(w http.ResponseWriter, r *http.Request) {
 
 func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
 	var req struct {
 		Name        string   `json:"name"`
 		Permissions []string `json:"permissions"`
@@ -306,9 +620,10 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	rawSecret := fmt.Sprintf("oci_live_%x%x", rand.Int63(), rand.Int63())
+	rawSecret := fmt.Sprintf("oci_live_%s", generateRandomToken(16))
 	created := map[string]interface{}{
 		"key_id":      fmt.Sprintf("key-%d", time.Now().UnixNano()),
+		"customer_id": session.CustomerID,
 		"name":        req.Name,
 		"key_prefix":  rawSecret[:12],
 		"api_key":     rawSecret,
@@ -322,7 +637,14 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 
 func (b *CustomerBFF) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+	id := r.PathValue("id")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "revoked", "key_id": id, "customer_id": session.CustomerID})
 }
 
 func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) {
@@ -341,6 +663,13 @@ func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
 	var req struct {
 		TargetURL string   `json:"target_url"`
 		Events    []string `json:"events"`
@@ -353,10 +682,11 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 
 	created := map[string]interface{}{
 		"subscription_id": fmt.Sprintf("sub-%d", time.Now().UnixNano()),
+		"customer_id":     session.CustomerID,
 		"target_url":      req.TargetURL,
 		"events":          req.Events,
 		"status":          "active",
-		"secret":          fmt.Sprintf("whsec_%x", rand.Int63()),
+		"secret":          "whsec_" + generateRandomToken(16),
 		"created_at":      time.Now().Format(time.RFC3339),
 	}
 	w.WriteHeader(http.StatusCreated)

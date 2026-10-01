@@ -871,37 +871,117 @@ const incidentLogs = ref([
   }
 ]);
 
+async function fetchVHRRecords() {
+  try {
+    const res = await fetch('/api/v1/workforce/vhr');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        vhrRecords.value = data;
+      }
+    }
+  } catch (e) {}
+}
+
 async function submitVHRRecord() {
-  vhrRecords.value.unshift({
-    record_id: 'vhr-' + Math.random().toString(36).substring(2, 8),
-    feline_id: vhrForm.value.feline_id,
-    visit_date: new Date().toISOString().split('T')[0],
-    weight_kg: vhrForm.value.weight_kg,
-    dental_score: vhrForm.value.dental_score,
-    vaccination_status: vhrForm.value.vaccination_status,
-    clinical_notes: vhrForm.value.clinical_notes
-  });
-  showToast('VHR Clinical Record saved successfully!');
+  try {
+    const payload = {
+      feline_id: vhrForm.value.feline_id,
+      visit_date: new Date().toISOString(),
+      weight_kg: parseFloat(vhrForm.value.weight_kg),
+      dental_score: parseInt(vhrForm.value.dental_score),
+      vaccination_status: vhrForm.value.vaccination_status,
+      clinical_notes: vhrForm.value.clinical_notes
+    };
+
+    const res = await fetch('/api/v1/workforce/vhr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const created = await res.json();
+    vhrRecords.value.unshift(created);
+    showToast('VHR Clinical Record saved successfully!');
+  } catch (err) {
+    showToast(`Failed to save VHR Clinical Record: ${err.message}`);
+  }
+}
+
+async function fetchIncidents() {
+  try {
+    const res = await fetch('/api/v1/workforce/incidents');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        incidentLogs.value = data;
+      }
+    }
+  } catch (e) {}
 }
 
 async function submitIncident() {
-  incidentLogs.value.unshift({
-    incident_id: 'inc-' + Math.random().toString(36).substring(2, 8),
-    title: incidentForm.value.title,
-    category: incidentForm.value.category,
-    involved_feline_id: incidentForm.value.involved_feline_id,
-    severity: incidentForm.value.severity,
-    status: 'open',
-    description: incidentForm.value.description
-  });
-  showToast('Workplace incident report logged!');
+  try {
+    const payload = {
+      title: incidentForm.value.title,
+      category: incidentForm.value.category,
+      involved_feline_id: incidentForm.value.involved_feline_id || undefined,
+      severity: incidentForm.value.severity,
+      status: 'open',
+      description: incidentForm.value.description
+    };
+
+    const res = await fetch('/api/v1/workforce/incidents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const created = await res.json();
+    incidentLogs.value.unshift(created);
+    showToast('Workplace incident report logged!');
+  } catch (err) {
+    showToast(`Failed to log incident: ${err.message}`);
+  }
 }
 
 async function resolveIncident(id) {
-  const inc = incidentLogs.value.find(i => i.incident_id === id);
-  if (inc) {
-    inc.status = 'resolved';
+  try {
+    const res = await fetch(`/api/v1/workforce/incidents/${id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'resolved',
+        resolution_notes: 'Resolved in incident management console'
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const updated = await res.json();
+    const idx = incidentLogs.value.findIndex(i => i.incident_id === id);
+    if (idx !== -1) {
+      incidentLogs.value[idx] = updated;
+    } else {
+      const inc = incidentLogs.value.find(i => i.incident_id === id);
+      if (inc) inc.status = 'resolved';
+    }
     showToast('Incident resolved and archived.');
+  } catch (err) {
+    showToast(`Failed to resolve incident: ${err.message}`);
   }
 }
 
@@ -1279,6 +1359,8 @@ onMounted(() => {
   fetchEmployees();
   fetchLeaveRequests();
   fetchReviewCycles();
+  fetchVHRRecords();
+  fetchIncidents();
 });
 </script>
 

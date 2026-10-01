@@ -212,14 +212,33 @@ func (s *coreInvestService) ClassifyAcoustics(ctx context.Context, felineID stri
 }
 
 func (s *coreInvestService) GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error) {
+	if portfolioID == "" {
+		return nil, errors.New("portfolio_id is required")
+	}
+	if year < 2000 || year > 2100 {
+		return nil, fmt.Errorf("invalid tax statement year %d: year must be between 2000 and 2100", year)
+	}
+
+	statementID := fmt.Sprintf("stmt-%s-%d", portfolioID, year)
+	fileName := fmt.Sprintf("form1099b-%s-%d.pdf", portfolioID, year)
+	documentURL := fmt.Sprintf("https://statements.oci.local/documents/%s/%d/%s", portfolioID, year, fileName)
+
+	accountName := "OCI Alpha Growth Portfolio"
+	totalVal := 128450.75
+
 	return map[string]interface{}{
-		"statement_id":        "stmt-018f-2026",
+		"statement_id":        statementID,
 		"portfolio_id":        portfolioID,
+		"account_name":        accountName,
 		"year":                year,
+		"tax_year":            year,
+		"document_name":       fileName,
+		"form_1099b_url":      documentURL,
+		"total_proceeds_usd":  totalVal,
 		"sharpe_ratio":        2.14,
 		"sortino_ratio":       3.08,
-		"form_1099b_url":      "https://statements.oci.local/form1099b-2026.pdf",
-		"performance_summary": "Superior feline behavioral alpha (+28.45% return)",
-		"generated_at":        time.Now().Format(time.RFC3339),
+		"performance_summary": fmt.Sprintf("Feline behavioral alpha tax statement for portfolio %s, tax year %d", portfolioID, year),
+		"generated_at":        time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
+

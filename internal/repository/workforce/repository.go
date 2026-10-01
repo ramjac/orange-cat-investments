@@ -1047,6 +1047,12 @@ func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, s
 		return nil, fmt.Errorf("incident with id %s not found", id)
 	}
 
+	switch status {
+	case "open", "under_review", "resolved":
+	default:
+		return nil, fmt.Errorf("invalid incident status %q: status must be one of 'open', 'under_review', 'resolved'", status)
+	}
+
 	inc.Status = status
 	if resolutionNotes != "" {
 		inc.ResolutionNotes = &resolutionNotes

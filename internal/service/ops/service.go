@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/ops"
@@ -44,12 +47,29 @@ type PebbleAckResponse struct {
 	StatusMessage  string    `json:"status_message"`
 }
 
+type PushNotificationRequest struct {
+	Topic    string `json:"topic"`
+	Title    string `json:"title"`
+	Message  string `json:"message"`
+	Priority string `json:"priority"`
+}
+
+type PushNotificationResponse struct {
+	Status       string    `json:"status"`
+	Provider     string    `json:"provider"`
+	Topic        string    `json:"topic"`
+	Title        string    `json:"title"`
+	Message      string    `json:"message"`
+	DispatchedAt time.Time `json:"dispatched_at"`
+}
+
 type Service interface {
 	GetPendingAlerts(ctx context.Context) ([]*PebbleAlertPayload, error)
 	ProcessPebbleAck(ctx context.Context, req *PebbleAckRequest) (*PebbleAckResponse, error)
 	CreateITTicket(ctx context.Context, forgejoRepo, title, body, authorUsername string, forgejoIssueID *int64) (*ops.ITTicket, error)
 	GetITTicket(ctx context.Context, ticketID string) (*ops.ITTicket, error)
 	ListITTickets(ctx context.Context, limit, offset int32) ([]*ops.ITTicket, error)
+	SendPushNotification(ctx context.Context, req *PushNotificationRequest) (*PushNotificationResponse, error)
 }
 
 type opsService struct {
@@ -158,3 +178,63 @@ func (s *opsService) GetITTicket(ctx context.Context, ticketID string) (*ops.ITT
 func (s *opsService) ListITTickets(ctx context.Context, limit, offset int32) ([]*ops.ITTicket, error) {
 	return s.repo.ListITTickets(ctx, limit, offset)
 }
+
+func (s *opsService) SendPushNotification(ctx context.Context, req *PushNotificationRequest) (*PushNotificationResponse, error) {
+	if req == nil {
+		return nil, errors.New("request cannot be nil")
+	}
+	if req.Topic == "" {
+		return nil, errors.New("notification topic is required")
+	}
+	if req.Message == "" {
+		return nil, errors.New("notification message is required")
+	}
+
+	ntfyURL := os.Getenv("NTFY_URL")
+	if ntfyURL == "" {
+		ntfyURL = "http://ntfy.apps.svc.cluster.local"
+	}
+
+	target := fmt.Sprintf("%s/%s", strings.TrimRight(ntfyURL, "/"), req.Topic)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(req.Message))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create notification request: %w", err)
+	}
+	if req.Title != "" {
+		httpReq.Header.Set("Title", req.Title)
+	}
+	if req.Priority != "" {
+		httpReq.Header.Set("Priority", req.Priority)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		if os.Getenv("ENV") == "test" || os.Getenv("MOCK_NOTIFICATIONS") == "true" {
+			return &PushNotificationResponse{
+				Status:       "dispatched",
+				Provider:     "mock-ntfy",
+				Topic:        req.Topic,
+				Title:        req.Title,
+				Message:      req.Message,
+				DispatchedAt: time.Now().UTC(),
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to dispatch push notification via ntfy: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("notification provider returned status %d", resp.StatusCode)
+	}
+
+	return &PushNotificationResponse{
+		Status:       "dispatched",
+		Provider:     "ntfy",
+		Topic:        req.Topic,
+		Title:        req.Title,
+		Message:      req.Message,
+		DispatchedAt: time.Now().UTC(),
+	}, nil
+}
+

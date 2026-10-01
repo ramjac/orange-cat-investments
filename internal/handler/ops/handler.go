@@ -22,6 +22,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/ops/tickets", h.ListTickets)
 	mux.HandleFunc("POST /api/v1/ops/tickets", h.CreateTicket)
 	mux.HandleFunc("POST /api/v1/ops/notifications/push", h.SendPushNotification)
+	mux.HandleFunc("POST /api/v1/ops/notifications", h.SendPushNotification)
 
 	// Fallback/direct path aliases
 	mux.HandleFunc("GET /ops/pebble/alerts", h.GetPebbleAlerts)
@@ -29,6 +30,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ops/tickets", h.ListTickets)
 	mux.HandleFunc("POST /ops/tickets", h.CreateTicket)
 	mux.HandleFunc("POST /ops/notifications/push", h.SendPushNotification)
+	mux.HandleFunc("POST /ops/notifications", h.SendPushNotification)
 }
 
 func (h *Handler) GetPebbleAlerts(w http.ResponseWriter, r *http.Request) {
@@ -100,27 +102,21 @@ type createTicketRequest struct {
 }
 
 func (h *Handler) SendPushNotification(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Topic    string `json:"topic"`
-		Title    string `json:"title"`
-		Message  string `json:"message"`
-		Priority string `json:"priority"`
-	}
+	var req ops.PushNotificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.service.SendPushNotification(r.Context(), &req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":      "dispatched",
-		"provider":    "ntfy/webpush",
-		"topic":       req.Topic,
-		"title":       req.Title,
-		"message":     req.Message,
-		"dispatched_at": "now",
-	})
+	_ = json.NewEncoder(w).Encode(res)
 }
 
 func (h *Handler) CreateTicket(w http.ResponseWriter, r *http.Request) {

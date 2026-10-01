@@ -80,6 +80,17 @@ func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32)
 	}, nil
 }
 
+func (m *mockOpsService) SendPushNotification(ctx context.Context, req *opssvc.PushNotificationRequest) (*opssvc.PushNotificationResponse, error) {
+	return &opssvc.PushNotificationResponse{
+		Status:       "dispatched",
+		Provider:     "ntfy",
+		Topic:        req.Topic,
+		Title:        req.Title,
+		Message:      req.Message,
+		DispatchedAt: time.Now().UTC(),
+	}, nil
+}
+
 func TestOpsHandler(t *testing.T) {
 	svc := &mockOpsService{}
 	handler := NewHandler(svc)
@@ -161,5 +172,30 @@ func TestOpsHandler(t *testing.T) {
 		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
 		assert.NoError(t, err)
 		assert.Equal(t, "created-ticket-123", ticket.TicketID)
+	})
+
+	t.Run("POST /api/v1/ops/notifications", func(t *testing.T) {
+		body := map[string]any{
+			"topic":    "alerts",
+			"title":    "K3s Node High Memory",
+			"message":  "Node memory utilization at 92%",
+			"priority": "high",
+		}
+		data, _ := json.Marshal(body)
+
+		req := httptest.NewRequest("POST", "/api/v1/ops/notifications", bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp opssvc.PushNotificationResponse
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.Equal(t, "dispatched", resp.Status)
+		assert.Equal(t, "ntfy", resp.Provider)
+		assert.Equal(t, "alerts", resp.Topic)
 	})
 }

@@ -7,11 +7,11 @@
 *.dll
 *.so
 *.dylib
-customer-bff
-server
-employee-bff
-pebble-proxy
-worker
+/customer-bff
+/server
+/employee-bff
+/pebble-proxy
+/worker
 backups/
 
 # Test binary, built with `go test -c`
