@@ -504,6 +504,27 @@ func (r *Registry) createBobPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "bob_verify_pebble_wearables",
+				Description: "Verifies assigned Pebble watch hardware assets for on-call alerting",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?asset_type=pebble_watch"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-bob",
+						PersonaName: "Bob Builder",
+						ActionName:  "bob_verify_pebble_wearables",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Verified Pebble watch wearable assets: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }

@@ -48,6 +48,7 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 ### 4. Bob Builder (`emp-human-bob`) — Lead Facilities & Edge Telemetry Engineer
 * **`bob_scan_edge_cameras`**: Scans optical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
 * **`bob_register_camera_rig`**: Registers a new 4K edge camera asset (`POST /facilities/assets`).
+* **`bob_verify_pebble_wearables`**: Verifies assigned Pebble watch hardware assets for on-call alerting (`GET /facilities/assets?asset_type=pebble_watch`).
 
 ### 5. Carol Danvers (`emp-human-carol`) — Chief Investment Officer (CIO)
 * **`carol_query_brokerage_orders`**: Audits execution logs of automated brokerage trade orders (`/core-invest/brokerage/orders`).

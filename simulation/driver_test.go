@@ -144,6 +144,30 @@ func TestDriverSinglePersonaAlice(t *testing.T) {
 	assert.Equal(t, 0, summary.Failures)
 }
 
+func TestDriverSinglePersonaBob(t *testing.T) {
+	cfg := &Config{
+		Mode:          "mock",
+		TargetPersona: "emp-human-bob",
+		Iterations:    1,
+		ActionDelay:   1 * time.Millisecond,
+		Verbose:       false,
+	}
+
+	driver, err := NewDriver(cfg)
+	require.NoError(t, err)
+	defer driver.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	summary, err := driver.Run(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, summary.TotalActions)
+	assert.Equal(t, 3, summary.Successes)
+	assert.Equal(t, 0, summary.Failures)
+}
+
 func TestDriverSinglePersonaRick(t *testing.T) {
 	cfg := &Config{
 		Mode:          "mock",

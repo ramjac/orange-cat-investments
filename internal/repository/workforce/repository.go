@@ -296,6 +296,36 @@ func (r *pgxRepository) seedDefaults() {
 		UpdatedAt:    now,
 	}
 
+	frankID := "emp-human-frank"
+	r.employees[frankID] = &Employee{
+		EmployeeID:   frankID,
+		EmployeeType: "human",
+		FirstName:    "Frank",
+		LastName:     strPtr("Operations"),
+		Email:        strPtr("frank.ops@oci.local"),
+		RoleTitle:    "Platform Security & K8s Infrastructure Lead",
+		Department:   "Platform Security & Infrastructure",
+		Status:       "active",
+		HiredAt:      now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	bobID := "emp-human-bob"
+	r.employees[bobID] = &Employee{
+		EmployeeID:   bobID,
+		EmployeeType: "human",
+		FirstName:    "Bob",
+		LastName:     strPtr("Builder"),
+		Email:        strPtr("bob.builder@oci.local"),
+		RoleTitle:    "Lead Facilities & Edge Telemetry Engineer",
+		Department:   "Habitat Facilities & Infrastructure",
+		Status:       "active",
+		HiredAt:      now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
 	// Seed foundational leave requests & feline catnip breaks
 	garfieldLeaveID := "018e0000-0000-7000-8000-000000000010"
 	r.leaveRequests[garfieldLeaveID] = &LeaveRequest{

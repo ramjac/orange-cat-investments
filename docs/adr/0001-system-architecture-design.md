@@ -67,7 +67,7 @@ The platform's relational persistence is hosted on PostgreSQL 16 using schema is
    * Entities: Human employees, feline staff members, onboarding checklists, feline care/dietary schedules, performance review cycles.
    * Key Invariants: Employees are typed as `human` or `feline`. Feline records require mandatory dietary/habitat care directives.
 2. **`facilities` Schema:**
-   * Entities: Hardware assets (edge cameras, observation perches, smart collars), habitat maintenance logs, location zones, device health metrics.
+   * Entities: Hardware assets (edge cameras, observation perches, smart collars, gateways, feeders, laptops, Pebble watches), habitat maintenance logs, location zones, device health metrics.
    * Key Invariants: Hardware assets maintain operational state (`active`, `maintenance_required`, `decommissioned`).
 3. **`core_invest` Schema:**
    * Entities: Raw & processed cat observation events, investor account balances, portfolio strategy parameters, asset allocation ledger.

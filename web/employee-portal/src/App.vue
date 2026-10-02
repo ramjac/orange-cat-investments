@@ -711,7 +711,9 @@ const staffList = ref([
   { id: 'emp-human-alice', name: 'Alice Vance', role: 'Head of Human & Feline Resources (Human)', icon: '👩‍💼' },
   { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' },
   { id: 'emp-human-rick', name: 'Rick Newhire', role: 'Junior Operations Associate (Human)', icon: '🧑‍💼' },
-  { id: 'emp-human-elise', name: 'Elise Dev', role: 'Software Developer (Human)', icon: '👩‍💻' }
+  { id: 'emp-human-elise', name: 'Elise Dev', role: 'Software Developer (Human)', icon: '👩‍💻' },
+  { id: 'emp-human-frank', name: 'Frank Operations', role: 'Platform Security & K8s Infrastructure Lead (Human)', icon: '🛡️' },
+  { id: 'emp-human-bob', name: 'Bob Builder', role: 'Lead Facilities & Edge Telemetry Engineer (Human)', icon: '🛠️' }
 ]);
 
 const selectedFelineId = ref('emp-feline-garfield');
@@ -1115,6 +1117,10 @@ async function fetchEmployees() {
             icon = '👩‍💻';
           } else if (fname.includes('rick')) {
             icon = '🧑‍💼';
+          } else if (fname.includes('frank')) {
+            icon = '🛡️';
+          } else if (fname.includes('bob')) {
+            icon = '🛠️';
           }
           const name = emp.last_name ? `${emp.first_name} ${emp.last_name}` : emp.first_name;
           if (emp.employee_type === 'feline') {

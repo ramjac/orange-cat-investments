@@ -89,6 +89,16 @@ func (c *Client) initMockServers() error {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		assetType := r.URL.Query().Get("asset_type")
+		if assetType != "" {
+			var filtered []*facilities_repo.HardwareAsset
+			for _, item := range items {
+				if item.AssetType == assetType {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})
 	}

@@ -28,15 +28,55 @@ func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*Har
 		return asset, nil
 	}
 	now := time.Now().UTC()
-	return &HardwareAsset{
-		AssetID:      assetID,
-		SerialNumber: "CAM-ORANGE-01",
-		AssetType:    "edge_camera",
-		Model:        "4K-FelineCam-v2",
-		Status:       "active",
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}, nil
+	frankID := "emp-human-frank"
+	bobID := "emp-human-bob"
+	rickID := "emp-human-rick"
+
+	switch assetID {
+	case "asset-pebble-frank", "PEBBLE-FRANK-01":
+		return &HardwareAsset{
+			AssetID:            "asset-pebble-frank",
+			SerialNumber:       "PEBBLE-FRANK-01",
+			AssetType:          "pebble_watch",
+			Model:              "Pebble Time Steel",
+			Status:             "active",
+			AssignedEmployeeID: &frankID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}, nil
+	case "asset-pebble-bob", "PEBBLE-BOB-01":
+		return &HardwareAsset{
+			AssetID:            "asset-pebble-bob",
+			SerialNumber:       "PEBBLE-BOB-01",
+			AssetType:          "pebble_watch",
+			Model:              "Pebble Time",
+			Status:             "active",
+			AssignedEmployeeID: &bobID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}, nil
+	case "asset-laptop-rick", "MBP-RICK-01":
+		return &HardwareAsset{
+			AssetID:            "asset-laptop-rick",
+			SerialNumber:       "MBP-RICK-01",
+			AssetType:          "laptop",
+			Model:              "MacBook Pro 16-inch M3 Max",
+			Status:             "active",
+			AssignedEmployeeID: &rickID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}, nil
+	default:
+		return &HardwareAsset{
+			AssetID:      assetID,
+			SerialNumber: "CAM-ORANGE-01",
+			AssetType:    "edge_camera",
+			Model:        "4K-FelineCam-v2",
+			Status:       "active",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}, nil
+	}
 }
 
 func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
@@ -46,15 +86,86 @@ func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCrea
 	}
 	if len(list) == 0 {
 		now := time.Now().UTC()
-		list = append(list, &HardwareAsset{
-			AssetID:      "asset-uuid-001",
-			SerialNumber: "CAM-ORANGE-01",
-			AssetType:    "edge_camera",
-			Model:        "4K-FelineCam-v2",
-			Status:       "active",
-			CreatedAt:    now,
-			UpdatedAt:    now,
-		})
+		frankID := "emp-human-frank"
+		bobID := "emp-human-bob"
+		rickID := "emp-human-rick"
+		list = append(list,
+			&HardwareAsset{
+				AssetID:      "asset-uuid-001",
+				SerialNumber: "CAM-ORANGE-01",
+				AssetType:    "edge_camera",
+				Model:        "4K-FelineCam-v2",
+				Status:       "active",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			&HardwareAsset{
+				AssetID:      "asset-perch-001",
+				SerialNumber: "PERCH-HABITAT-01",
+				AssetType:    "observation_perch",
+				Model:        "Ergonomic-Alpha-Perch-V2",
+				Status:       "active",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			&HardwareAsset{
+				AssetID:      "asset-collar-001",
+				SerialNumber: "COLLAR-SMART-01",
+				AssetType:    "smart_collar",
+				Model:        "BioSense-Feline-Tag-V3",
+				Status:       "active",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			&HardwareAsset{
+				AssetID:      "asset-gateway-001",
+				SerialNumber: "GW-HABITAT-01",
+				AssetType:    "gateway",
+				Model:        "Edge-Gateway-IoT-V1",
+				Status:       "active",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			&HardwareAsset{
+				AssetID:      "asset-feeder-001",
+				SerialNumber: "FEEDER-01",
+				AssetType:    "feeder",
+				Model:        "AutoFeed-PortionMaster-V1",
+				Status:       "active",
+				CreatedAt:    now,
+				UpdatedAt:    now,
+			},
+			&HardwareAsset{
+				AssetID:            "asset-pebble-frank",
+				SerialNumber:       "PEBBLE-FRANK-01",
+				AssetType:          "pebble_watch",
+				Model:              "Pebble Time Steel",
+				Status:             "active",
+				AssignedEmployeeID: &frankID,
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			},
+			&HardwareAsset{
+				AssetID:            "asset-pebble-bob",
+				SerialNumber:       "PEBBLE-BOB-01",
+				AssetType:          "pebble_watch",
+				Model:              "Pebble Time",
+				Status:             "active",
+				AssignedEmployeeID: &bobID,
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			},
+			&HardwareAsset{
+				AssetID:            "asset-laptop-rick",
+				SerialNumber:       "MBP-RICK-01",
+				AssetType:          "laptop",
+				Model:              "MacBook Pro 16-inch M3 Max",
+				Status:             "active",
+				AssignedEmployeeID: &rickID,
+				CreatedAt:          now,
+				UpdatedAt:          now,
+			},
+		)
 	}
 	return list, nil
 }

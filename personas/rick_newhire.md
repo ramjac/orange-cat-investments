@@ -12,5 +12,8 @@
 * Exercise Frappe HR status transitions and Go service onboarding sagas across workforce and Forgejo services.
 * Participate in initial workforce training, catnip safety compliance orientation, and team integration exercises.
 
+## Assigned Hardware Assets
+* **MacBook Pro 16-inch M3 Max (`MBP-RICK-M3-01`):** Distributed onboarding laptop workstation (`asset_type: laptop`) provisioned during new hire checklist execution.
+
 ## Biography
 Rick Newhire is an enthusiastic new team member at Orange Cat Investments whose primary role is exercising and validating the company's automated onboarding and employee lifecycle sagas. Working alongside Alice Vance in Workforce Operations, Rick progresses through provisioning checklists, Forgejo account creation, SPIFFE mTLS access setups, receiving his assigned MacBook Pro laptop asset, reading Nextcloud onboarding documentation, and connecting with team members over Nextcloud Chat.
