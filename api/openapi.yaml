@@ -30,7 +30,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
         - name: limit
           in: query
           required: false
@@ -1008,7 +1008,7 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
         model:
           type: string
         status:
@@ -1044,12 +1044,16 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
         model:
           type: string
         zone_id:
           type: string
           format: uuid
+        assigned_employee_id:
+          type: string
+          format: uuid
+          nullable: true
 
     HardwareAssetUpdate:
       type: object

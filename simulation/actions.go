@@ -20,6 +20,8 @@ func (r *Registry) registerAllDefaultPersonas() {
 	r.Register(r.createFrankPersona())
 	r.Register(r.createArthurPersona())
 	r.Register(r.createChloePersona())
+	r.Register(r.createRickPersona())
+	r.Register(r.createElisePersona())
 }
 
 // 1. Garfield - Chief Observation Officer (COO)
@@ -369,6 +371,78 @@ func (r *Registry) createAlicePersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "alice_assign_laptop_to_rick",
+				Description: "Provisions a new MacBook Pro laptop asset in hardware inventory assigned to new hire Rick",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets"
+					payload := map[string]any{
+						"serial_number": fmt.Sprintf("MBP-RICK-%d", time.Now().UnixNano()),
+						"asset_type":    "laptop",
+						"model":         "MacBook Pro 16-inch M3 Max",
+						"zone_id":       "018f3a9a-1111-7000-8000-000000000001",
+						"assigned_to":   "emp-human-rick",
+						"notes":         "Assigned to Rick Newhire during onboarding checklist execution",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-alice",
+						PersonaName: "Alice Vance",
+						ActionName:  "alice_assign_laptop_to_rick",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Assigned new hire laptop asset to Rick: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "alice_publish_onboarding_doc",
+				Description: "Publishes employee handbook in Nextcloud and notifies new hire Rick via Nextcloud Chat",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					docEndpoint := "/nextcloud/api/v1/documents"
+					docPayload := map[string]any{
+						"title":      "OCI New Employee & Feline Care Onboarding Handbook",
+						"content":    "Comprehensive guide on OCI culture, catnip safety compliance, and IT asset allocation.",
+						"author":     "emp-human-alice",
+						"share_with": []string{"emp-human-rick", "emp-human-frank"},
+					}
+					docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
+					if docErr != nil {
+						return nil, fmt.Errorf("failed to create Nextcloud document: %w", docErr)
+					}
+
+					chatEndpoint := "/nextcloud/api/v1/chat/messages"
+					chatPayload := map[string]any{
+						"sender":    "emp-human-alice",
+						"recipient": "emp-human-rick",
+						"room":      "onboarding-general",
+						"message":   "Welcome to OCI, Rick! I published the Onboarding Handbook in Nextcloud and assigned your laptop asset.",
+					}
+					chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
+					if chatErr != nil {
+						return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
+					}
+
+					success := (docResp.StatusCode == http.StatusCreated || docResp.StatusCode == http.StatusOK) &&
+						(chatResp.StatusCode == http.StatusCreated || chatResp.StatusCode == http.StatusOK)
+
+					return &ActionResult{
+						PersonaID:   "emp-human-alice",
+						PersonaName: "Alice Vance",
+						ActionName:  "alice_publish_onboarding_doc",
+						Endpoint:    chatEndpoint,
+						Success:     success,
+						StatusCode:  chatResp.StatusCode,
+						Details:     fmt.Sprintf("ONBOARDING DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -426,6 +500,27 @@ func (r *Registry) createBobPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Registered camera asset response: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "bob_verify_pebble_wearables",
+				Description: "Verifies assigned Pebble watch hardware assets for on-call alerting",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?asset_type=pebble_watch"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-bob",
+						PersonaName: "Bob Builder",
+						ActionName:  "bob_verify_pebble_wearables",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Verified Pebble watch wearable assets: %d bytes", len(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -727,6 +822,49 @@ func (r *Registry) createFrankPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "frank_publish_security_doc",
+				Description: "Writes security architecture standard document in Nextcloud and notifies team via Nextcloud Chat",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					docEndpoint := "/nextcloud/api/v1/documents"
+					docPayload := map[string]any{
+						"title":      "Zero-Trust Microservices & SPIFFE mTLS Security Standard",
+						"content":    "Architecture decision record on zero-static certificates, cert-manager dynamic reloaders, and Valkey session security.",
+						"author":     "emp-human-frank",
+						"share_with": []string{"emp-human-elise", "emp-human-rick", "emp-human-bob"},
+					}
+					docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
+					if docErr != nil {
+						return nil, fmt.Errorf("failed to write security doc in Nextcloud: %w", docErr)
+					}
+
+					chatEndpoint := "/nextcloud/api/v1/chat/messages"
+					chatPayload := map[string]any{
+						"sender":    "emp-human-frank",
+						"recipient": "all-devs",
+						"room":      "devsecops-alerts",
+						"message":   "Published the updated SPIFFE mTLS and Zero-Trust standard document in Nextcloud. Please review!",
+					}
+					chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
+					if chatErr != nil {
+						return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
+					}
+
+					success := (docResp.StatusCode == http.StatusCreated || docResp.StatusCode == http.StatusOK) &&
+						(chatResp.StatusCode == http.StatusCreated || chatResp.StatusCode == http.StatusOK)
+
+					return &ActionResult{
+						PersonaID:   "emp-human-frank",
+						PersonaName: "Frank Operations",
+						ActionName:  "frank_publish_security_doc",
+						Endpoint:    chatEndpoint,
+						Success:     success,
+						StatusCode:  chatResp.StatusCode,
+						Details:     fmt.Sprintf("SECURITY DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -920,6 +1058,277 @@ func (r *Registry) createChloePersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Audited real-time trade executions: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+// 11. Rick Newhire - Junior Operations Associate
+func (r *Registry) createRickPersona() *Persona {
+	return &Persona{
+		ID:         "emp-human-rick",
+		Name:       "Rick Newhire",
+		Type:       "human",
+		RoleTitle:  "Junior Operations Associate",
+		Department: "Workforce Operations",
+		Actions: []Action{
+			{
+				Name:        "rick_onboarding_checklist",
+				Description: "Verifies workforce directory status during onboarding checklist execution",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/employees"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_onboarding_checklist",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Onboarding directory check completed: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_read_nextcloud_docs",
+				Description: "Reads onboarding and security policy documents shared in Nextcloud",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/nextcloud/api/v1/documents"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_read_nextcloud_docs",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Read shared Nextcloud documents: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_send_nextcloud_chat_ack",
+				Description: "Sends Nextcloud Chat response acknowledging receipt of laptop and onboarding documentation",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/nextcloud/api/v1/chat/messages"
+					payload := map[string]any{
+						"sender":    "emp-human-rick",
+						"recipient": "emp-human-alice",
+						"room":      "onboarding-general",
+						"message":   "Thanks Alice! I set up my new MacBook Pro laptop asset and finished reading the Nextcloud handbook.",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_send_nextcloud_chat_ack",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Sent Nextcloud chat ACK to HR: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_check_onboarding_status",
+				Description: "Queries employee onboarding status from workforce directory",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/employees?status=onboarding"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_check_onboarding_status",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Onboarding status queried. Payload: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_trigger_self_onboarding_webhook",
+				Description: "Simulates Frappe HR onboarding saga webhook for new hire lifecycle testing",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/webhooks/frappe-hr"
+					payload := map[string]any{
+						"event":         "employee_created",
+						"employee_id":   "emp-human-rick",
+						"employee_type": "human",
+						"first_name":    "Rick",
+						"last_name":     "Newhire",
+						"email":         "rick.newhire@oci.local",
+						"role_title":    "Junior Operations Associate",
+						"department":    "Workforce Operations",
+						"status":        "onboarding",
+					}
+					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_trigger_self_onboarding_webhook",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Self onboarding saga webhook response: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+
+// 12. Elise Dev - Software Developer
+func (r *Registry) createElisePersona() *Persona {
+	return &Persona{
+		ID:         "emp-human-elise",
+		Name:       "Elise Dev",
+		Type:       "human",
+		RoleTitle:  "Software Developer",
+		Department: "Engineering & Platform Development",
+		Actions: []Action{
+			{
+				Name:        "elise_write_nextcloud_doc",
+				Description: "Creates Vue 3 & Employee BFF architecture specification document in Nextcloud",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/nextcloud/api/v1/documents"
+					payload := map[string]any{
+						"title":      "OCI Employee Portal Vue 3 & BFF Architecture Spec",
+						"content":    "Detailed technical breakdown of Vue 3 SPA components, Valkey session caching, and double-submit CSRF headers.",
+						"author":     "emp-human-elise",
+						"share_with": []string{"emp-human-frank", "emp-human-rick"},
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_write_nextcloud_doc",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Published engineering doc in Nextcloud: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_send_nextcloud_chat",
+				Description: "Sends Nextcloud Chat message with document link to Rick and the development team",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/nextcloud/api/v1/chat/messages"
+					payload := map[string]any{
+						"sender":    "emp-human-elise",
+						"recipient": "emp-human-rick",
+						"room":      "engineering-onboarding",
+						"message":   "Hey Rick, welcome! I posted the Vue 3 & Employee BFF architecture doc in Nextcloud for your onboarding reading.",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_send_nextcloud_chat",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Sent engineering onboarding message via Nextcloud Chat: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_monitor_it_tickets",
+				Description: "Monitors IT helpdesk queue for developer tooling and CI/CD workflow issues",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_monitor_it_tickets",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Checked IT tickets queue for dev tooling requests: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_create_code_review_ticket",
+				Description: "Submits a Forgejo code review & CI/CD workflow ticket for platform builds",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					payload := map[string]any{
+						"forgejo_repo":    "oci/monorepo",
+						"title":           "PR #42: Enhance Go mTLS cert auto-reloader & CI pipeline",
+						"body":            "Automated build and test suite run successfully in Forgejo Actions runner.",
+						"author_username": "emp-human-elise",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_create_code_review_ticket",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Code review ticket submitted: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_query_developer_tickets",
+				Description: "Audits active developer IT tickets and CI build issues",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_query_developer_tickets",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited developer tickets response size: %d bytes", len(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

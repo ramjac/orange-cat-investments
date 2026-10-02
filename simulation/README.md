@@ -13,7 +13,7 @@ simulation/
 ├── config.go            # Configuration flags (URLs, modes, iteration, delays)
 ├── persona.go           # Persona and Action interface definitions & Registry
 ├── client.go            # HTTP client abstraction supporting live & mock HTTP servers
-├── actions.go           # Persona action suites for all 8 OCI personas
+├── actions.go           # Persona action suites for all 12 OCI personas
 ├── driver.go            # Orchestration engine for running simulation workflows
 ├── driver_test.go       # Unit tests verifying mock simulation execution
 └── cmd/
@@ -25,7 +25,7 @@ simulation/
 
 ## Employee Personas & Daily Simulation Action Mapping
 
-The simulator uses the 8 official OCI personas defined in `personas/` to execute semi-real daily action lists:
+The simulator uses the 12 official OCI personas defined in `personas/` to execute semi-real daily action lists:
 
 ### 1. Garfield (`emp-feline-garfield`) — Chief Observation Officer (COO)
 * **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows.
@@ -40,13 +40,15 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 
 ### 3. Alice Vance (`emp-human-alice`) — Head of Human & Feline Resources
 * **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).
-* **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, ZITADEL, and Forgejo identity planes.
+* **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, Forgejo, and internal service planes.
 * **`alice_review_leave_requests`**: Audits pending staff leave requests and feline catnip break compliance (`/api/v1/workforce/leave-requests`).
+* **`alice_assign_laptop_to_rick`**: Provisions a new laptop hardware asset assigned to new hire Rick during onboarding (`POST /facilities/assets`).
+* **`alice_publish_onboarding_doc`**: Publishes the employee onboarding handbook in Nextcloud (`POST /nextcloud/api/v1/documents`) and notifies Rick over Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
 
 ### 4. Bob Builder (`emp-human-bob`) — Lead Facilities & Edge Telemetry Engineer
 * **`bob_scan_edge_cameras`**: Scans optical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
 * **`bob_register_camera_rig`**: Registers a new 4K edge camera asset (`POST /facilities/assets`).
-* **`bob_report_maintenance_ticket`**: Reports hardware maintenance issues and generates service tickets (`POST /facilities/assets/{id}/maintenance`).
+* **`bob_verify_pebble_wearables`**: Verifies assigned Pebble watch hardware assets for on-call alerting (`GET /facilities/assets?asset_type=pebble_watch`).
 
 ### 5. Carol Danvers (`emp-human-carol`) — Chief Investment Officer (CIO)
 * **`carol_query_brokerage_orders`**: Audits execution logs of automated brokerage trade orders (`/core-invest/brokerage/orders`).
@@ -65,6 +67,7 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 * **`frank_monitor_it_tickets`**: Monitors IT helpdesk tickets (`/ops/tickets`) originating from Forgejo issues or automated cluster alerts.
 * **`frank_query_pebble_alerts`**: Queries wearable watch alert payloads (`/ops/pebble/alerts`) formatted for Pebble AppMessage protocol.
 * **`frank_create_it_ticket`**: Submits infrastructure support tickets (`POST /ops/tickets`) for intermediate CA key rotations and dynamic SPIFFE ID mTLS reloads.
+* **`frank_publish_security_doc`**: Writes zero-trust security architecture document in Nextcloud (`POST /nextcloud/api/v1/documents`) and alerts developers via Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
 
 ### 9. Arthur Pendelton (`cust-longterm-arthur`) — Long-Term Value Investor (Customer)
 * **`arthur_review_performance_reports`**: Audits historical quantitative backtest performance and strategy returns (`GET /core-invest/backtesting/runs`).
@@ -76,6 +79,20 @@ The simulator uses the 8 official OCI personas defined in `personas/` to execute
 * **`chloe_momentum_buy_order`**: Executes aggressive momentum buy orders (`POST /core-invest/brokerage/orders`) on feline zoomies activity spikes.
 * **`chloe_take_profit_sell_order`**: Executes tactical take-profit sell orders (`POST /core-invest/brokerage/orders`) as cat activity returns to baseline.
 * **`chloe_audit_execution_log`**: Audits real-time trade order execution logs and settlement status (`GET /core-invest/brokerage/orders`).
+
+### 11. Rick Newhire (`emp-human-rick`) — Junior Operations Associate
+* **`rick_onboarding_checklist`**: Verifies workforce directory status during new hire onboarding (`GET /api/v1/workforce/employees`).
+* **`rick_read_nextcloud_docs`**: Reads shared onboarding guides and security standard documentation in Nextcloud (`GET /nextcloud/api/v1/documents`).
+* **`rick_send_nextcloud_chat_ack`**: Sends Nextcloud Chat message acknowledging receipt of assigned laptop and onboarding documents (`POST /nextcloud/api/v1/chat/messages`).
+* **`rick_check_onboarding_status`**: Queries employee onboarding status (`GET /api/v1/workforce/employees?status=onboarding`) to track provisioning progress.
+* **`rick_trigger_self_onboarding_webhook`**: Simulates Frappe HR onboarding saga webhooks (`POST /api/v1/webhooks/frappe-hr`) to exercise new hire lifecycle workflows.
+
+### 12. Elise Dev (`emp-human-elise`) — Software Developer
+* **`elise_write_nextcloud_doc`**: Publishes Employee Portal Vue 3 & BFF architecture specification document in Nextcloud (`POST /nextcloud/api/v1/documents`).
+* **`elise_send_nextcloud_chat`**: Messages Rick and engineering team via Nextcloud Chat with technical document links (`POST /nextcloud/api/v1/chat/messages`).
+* **`elise_monitor_it_tickets`**: Monitors IT helpdesk ticket queue for developer tooling issues (`GET /ops/tickets`).
+* **`elise_create_code_review_ticket`**: Submits Forgejo code review & CI/CD workflow tickets (`POST /ops/tickets`) for software development and automated pipeline builds.
+* **`elise_query_developer_tickets`**: Audits active developer IT tickets and build issues (`GET /ops/tickets`).
 
 ---
 
@@ -102,9 +119,9 @@ go run ./simulation/cmd/simulator -list-personas
 go run ./simulation/cmd/simulator -mode mock
 ```
 
-### 3. Target a Specific Persona (e.g., Garfield)
+### 3. Target a Specific Persona (e.g., Garfield or Rick)
 ```bash
-go run ./simulation/cmd/simulator -persona emp-feline-garfield
+go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
 ### 4. Drive Live Local / K3s OCI Stack
@@ -122,7 +139,7 @@ go run ./simulation/cmd/simulator \
 | Flag | Default | Description |
 |---|---|---|
 | `-mode` | `mock` | Execution mode: `mock`, `live`, `step`, or `continuous` |
-| `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-bob`, etc.) or `all` |
+| `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-rick`, etc.) or `all` |
 | `-server-url` | `http://localhost:8080` | Target URL for OCI Domain API Server |
 | `-bff-url` | `http://localhost:8081` | Target URL for OCI Employee BFF |
 | `-iterations` | `1` | Number of daily action loops to perform |

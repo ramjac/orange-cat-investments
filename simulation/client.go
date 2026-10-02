@@ -83,22 +83,37 @@ func (c *Client) initMockServers() error {
 	facService := facilities_svc.NewService(facRepo)
 
 	// Register Facilities HTTP Endpoints on serverMux
-	serverMux.HandleFunc("GET /facilities/assets", func(w http.ResponseWriter, r *http.Request) {
+	listAssetsHandler := func(w http.ResponseWriter, r *http.Request) {
 		items, err := facService.ListAssets(r.Context(), 20, nil, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		assetType := r.URL.Query().Get("asset_type")
+		if assetType != "" {
+			var filtered []*facilities_repo.HardwareAsset
+			for _, item := range items {
+				if item.AssetType == assetType {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})
-	})
+	}
+	serverMux.HandleFunc("GET /facilities/assets", listAssetsHandler)
+	serverMux.HandleFunc("GET /api/v1/facilities/assets", listAssetsHandler)
 
-	serverMux.HandleFunc("POST /facilities/assets", func(w http.ResponseWriter, r *http.Request) {
+	createAssetHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			SerialNumber string `json:"serial_number"`
-			AssetType    string `json:"asset_type"`
-			Model        string `json:"model"`
-			ZoneID       string `json:"zone_id"`
+			SerialNumber       string `json:"serial_number"`
+			AssetType          string `json:"asset_type"`
+			Model              string `json:"model"`
+			ZoneID             string `json:"zone_id"`
+			AssignedTo         string `json:"assigned_to"`
+			AssignedEmployeeID string `json:"assigned_employee_id"`
+			Notes              string `json:"notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -111,8 +126,103 @@ func (c *Client) initMockServers() error {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(asset)
-	})
+
+		assigned := req.AssignedTo
+		if assigned == "" {
+			assigned = req.AssignedEmployeeID
+		}
+
+		respMap := map[string]any{
+			"asset_id":      asset.AssetID,
+			"serial_number": asset.SerialNumber,
+			"asset_type":    asset.AssetType,
+			"model":         asset.Model,
+			"zone_id":       asset.ZoneID,
+			"status":        asset.Status,
+			"created_at":    asset.CreatedAt,
+		}
+		if assigned != "" {
+			respMap["assigned_to"] = assigned
+			respMap["assigned_employee_id"] = assigned
+		}
+		if req.Notes != "" {
+			respMap["notes"] = req.Notes
+		}
+		json.NewEncoder(w).Encode(respMap)
+	}
+	serverMux.HandleFunc("POST /facilities/assets", createAssetHandler)
+	serverMux.HandleFunc("POST /api/v1/facilities/assets", createAssetHandler)
+
+	// Nextcloud document and chat endpoints for simulator workflows
+	createDocHandler := func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Title     string   `json:"title"`
+			Content   string   `json:"content"`
+			Author    string   `json:"author"`
+			ShareWith []string `json:"share_with"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{
+			"document_id": fmt.Sprintf("doc-%d", time.Now().UnixNano()),
+			"title":       req.Title,
+			"author":      req.Author,
+			"status":      "published",
+			"shared_with": req.ShareWith,
+			"created_at":  time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	serverMux.HandleFunc("POST /nextcloud/api/v1/documents", createDocHandler)
+	serverMux.HandleFunc("POST /api/v1/nextcloud/documents", createDocHandler)
+
+	listDocsHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"documents": []map[string]any{
+				{
+					"document_id": "doc-001",
+					"title":       "OCI Employee & Feline Onboarding Handbook",
+					"author":      "emp-human-alice",
+				},
+				{
+					"document_id": "doc-002",
+					"title":       "Zero-Trust Microservices & PKI Security Standard",
+					"author":      "emp-human-frank",
+				},
+			},
+		})
+	}
+	serverMux.HandleFunc("GET /nextcloud/api/v1/documents", listDocsHandler)
+	serverMux.HandleFunc("GET /api/v1/nextcloud/documents", listDocsHandler)
+
+	chatHandler := func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Sender    string `json:"sender"`
+			Recipient string `json:"recipient"`
+			Room      string `json:"room"`
+			Message   string `json:"message"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{
+			"message_id": fmt.Sprintf("msg-%d", time.Now().UnixNano()),
+			"sender":     req.Sender,
+			"recipient":  req.Recipient,
+			"room":       req.Room,
+			"status":     "delivered",
+			"sent_at":    time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+	serverMux.HandleFunc("POST /nextcloud/api/v1/chat/messages", chatHandler)
+	serverMux.HandleFunc("POST /api/v1/nextcloud/chat/messages", chatHandler)
 
 	serverMux.HandleFunc("POST /facilities/assets/{id}/maintenance", func(w http.ResponseWriter, r *http.Request) {
 		assetID := r.PathValue("id")

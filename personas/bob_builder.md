@@ -11,5 +11,8 @@
 * Ensure physical habitat safety, perch load capacities, and non-disruptive device installations.
 * Sync offline field maintenance queues via the Flutter mobile app upon returning to connectivity.
 
+## Assigned Hardware Assets
+* **Pebble Time Smartwatch (`PEBBLE-BOB-01`):** Distributed facilities response wearable (`asset_type: pebble_watch`) linked to urgent facilities maintenance tickets (`ops.it_tickets`) and Pebble watch ACK workflows for immediate on-call incident dispatch.
+
 ## Biography
 Bob Builder is a veteran hardware engineer specializing in IoT edge deployments within high-sensitivity biological habitats. Armed with his Flutter mobile maintenance app and a tool belt, Bob is responsible for ensuring that 100% of OCI's edge camera streams and perch telemetry sensors operate with zero downtime. Whether calibrating 4K optical sensors or reinforcing cat trees against high-velocity feline pounces, Bob's hands-on expertise keeps the physical platform operating smoothly.

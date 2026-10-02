@@ -709,7 +709,11 @@ const staffList = ref([
   { id: 'emp-feline-garfield', name: 'Garfield', role: 'Chief Observation Officer (Feline)', icon: '🐱' },
   { id: 'emp-feline-barneby', name: 'Barneby', role: 'Senior Alpha Perch Analyst (Feline)', icon: '🐈‍⬛' },
   { id: 'emp-human-alice', name: 'Alice Vance', role: 'Head of Human & Feline Resources (Human)', icon: '👩‍💼' },
-  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' }
+  { id: 'emp-human-elena', name: 'Dr. Elena Rostova', role: 'Chief Veterinary Officer (Human)', icon: '🩺' },
+  { id: 'emp-human-rick', name: 'Rick Newhire', role: 'Junior Operations Associate (Human)', icon: '🧑‍💼' },
+  { id: 'emp-human-elise', name: 'Elise Dev', role: 'Software Developer (Human)', icon: '👩‍💻' },
+  { id: 'emp-human-frank', name: 'Frank Operations', role: 'Platform Security & K8s Infrastructure Lead (Human)', icon: '🛡️' },
+  { id: 'emp-human-bob', name: 'Bob Builder', role: 'Lead Facilities & Edge Telemetry Engineer (Human)', icon: '🛠️' }
 ]);
 
 const selectedFelineId = ref('emp-feline-garfield');
@@ -1101,7 +1105,23 @@ async function fetchEmployees() {
         const fetchedFelines = [];
         const fetchedStaff = [];
         for (const emp of data.items) {
-          const icon = emp.employee_type === 'feline' ? (emp.first_name.toLowerCase().includes('barneby') ? '🐈‍⬛' : '🐱') : (emp.first_name.toLowerCase().includes('alice') ? '👩‍💼' : '🩺');
+          const fname = emp.first_name.toLowerCase();
+          let icon = '🧑‍💼';
+          if (emp.employee_type === 'feline') {
+            icon = fname.includes('barneby') ? '🐈‍⬛' : '🐱';
+          } else if (fname.includes('alice')) {
+            icon = '👩‍💼';
+          } else if (fname.includes('elena')) {
+            icon = '🩺';
+          } else if (fname.includes('elise')) {
+            icon = '👩‍💻';
+          } else if (fname.includes('rick')) {
+            icon = '🧑‍💼';
+          } else if (fname.includes('frank')) {
+            icon = '🛡️';
+          } else if (fname.includes('bob')) {
+            icon = '🛠️';
+          }
           const name = emp.last_name ? `${emp.first_name} ${emp.last_name}` : emp.first_name;
           if (emp.employee_type === 'feline') {
             fetchedFelines.push({
