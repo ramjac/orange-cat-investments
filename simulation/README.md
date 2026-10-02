@@ -40,7 +40,7 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 
 ### 3. Alice Vance (`emp-human-alice`) — Head of Human & Feline Resources
 * **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).
-* **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, ZITADEL, and Forgejo identity planes.
+* **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, Forgejo, and internal service planes.
 * **`alice_review_leave_requests`**: Audits pending staff leave requests and feline catnip break compliance (`/api/v1/workforce/leave-requests`).
 * **`alice_assign_laptop_to_rick`**: Provisions a new laptop hardware asset assigned to new hire Rick during onboarding (`POST /facilities/assets`).
 * **`alice_publish_onboarding_doc`**: Publishes the employee onboarding handbook in Nextcloud (`POST /nextcloud/api/v1/documents`) and notifies Rick over Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).

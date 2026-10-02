@@ -6,7 +6,7 @@
 * **Department:** Workforce Operations
 
 ## Responsibilities
-* Manage end-to-end employee onboarding and separation sagas across Frappe HR, ZITADEL, Forgejo, and Go services.
+* Manage end-to-end employee onboarding and separation sagas across Frappe HR, Forgejo, and Go services.
 * Provision laptop assets in Snipe-IT / Facilities hardware inventory assigned to new hires such as Rick.
 * Author and publish workforce policy documents in Nextcloud and distribute them to staff via Nextcloud Chat.
 * Oversee joint human performance reviews and feline health/care monthly assessment cycles.
