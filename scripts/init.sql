@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS facilities.location_zones (
 CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
     asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
     serial_number VARCHAR(100) NOT NULL UNIQUE,
-    asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
+    asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder', 'laptop')),
     model VARCHAR(100) NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'maintenance_required', 'offline', 'pending_return', 'decommissioned')),
     zone_id UUID REFERENCES facilities.location_zones(zone_id),
@@ -489,8 +489,17 @@ VALUES
     ('018f3a9a-e001-7000-8000-000000000001', 'feline', 'Garfield', NULL, NULL, 'Chief Observation Officer', 'Executive Feline Suite', 'active'),
     ('018f3a9a-e002-7000-8000-000000000002', 'feline', 'Barneby', NULL, NULL, 'Senior Alpha Perch Analyst', 'Alpha Perch Research', 'active'),
     ('018f3a9a-e003-7000-8000-000000000003', 'human', 'Alice', 'Vance', 'alice.vance@oci.local', 'Head of Human & Feline Resources', 'Workforce Operations', 'active'),
-    ('018f3a9a-e004-7000-8000-000000000004', 'human', 'Elena', 'Rostova', 'elena.rostova@oci.local', 'Chief Veterinary Officer', 'Feline Health & Welfare', 'active')
+    ('018f3a9a-e004-7000-8000-000000000004', 'human', 'Elena', 'Rostova', 'elena.rostova@oci.local', 'Chief Veterinary Officer', 'Feline Health & Welfare', 'active'),
+    ('018f3a9a-e005-7000-8000-000000000005', 'human', 'Rick', 'Newhire', 'rick.newhire@oci.local', 'Junior Operations Associate', 'Workforce Operations', 'onboarding'),
+    ('018f3a9a-e006-7000-8000-000000000006', 'human', 'Elise', 'Dev', 'elise.dev@oci.local', 'Software Developer', 'Engineering & Platform Development', 'active')
 ON CONFLICT (employee_id) DO NOTHING;
+
+-- Seed Initial Onboarding Checklists
+INSERT INTO workforce.onboarding_checklists (checklist_id, employee_id, task_name, category, is_completed, assigned_to)
+VALUES
+    ('018f3a9a-c001-7000-8000-000000000001', '018f3a9a-e005-7000-8000-000000000005', 'Forgejo Account Provisioning & SPIFFE ID Issuance', 'access', false, '018f3a9a-e003-7000-8000-000000000003'),
+    ('018f3a9a-c002-7000-8000-000000000002', '018f3a9a-e005-7000-8000-000000000005', 'Catnip Safety Orientation & Workstation Setup', 'training', false, '018f3a9a-e003-7000-8000-000000000003')
+ON CONFLICT (checklist_id) DO NOTHING;
 
 -- Core Investment Portfolios for Retail Customers
 INSERT INTO core_invest.investment_portfolios (portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status)

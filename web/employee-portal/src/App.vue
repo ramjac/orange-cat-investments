@@ -1103,7 +1103,19 @@ async function fetchEmployees() {
         const fetchedFelines = [];
         const fetchedStaff = [];
         for (const emp of data.items) {
-          const icon = emp.employee_type === 'feline' ? (emp.first_name.toLowerCase().includes('barneby') ? '🐈‍⬛' : '🐱') : (emp.first_name.toLowerCase().includes('alice') ? '👩‍💼' : '🩺');
+          const fname = emp.first_name.toLowerCase();
+          let icon = '🧑‍💼';
+          if (emp.employee_type === 'feline') {
+            icon = fname.includes('barneby') ? '🐈‍⬛' : '🐱';
+          } else if (fname.includes('alice')) {
+            icon = '👩‍💼';
+          } else if (fname.includes('elena')) {
+            icon = '🩺';
+          } else if (fname.includes('elise')) {
+            icon = '👩‍💻';
+          } else if (fname.includes('rick')) {
+            icon = '🧑‍💼';
+          }
           const name = emp.last_name ? `${emp.first_name} ${emp.last_name}` : emp.first_name;
           if (emp.employee_type === 'feline') {
             fetchedFelines.push({
