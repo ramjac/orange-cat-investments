@@ -33,16 +33,6 @@ func TestFacilitiesRepository(t *testing.T) {
 		assert.Equal(t, "asset-uuid-001", assets[0].AssetID)
 	})
 
-	t.Run("ListAssets Filter By AssetType", func(t *testing.T) {
-		pebbleType := "pebble_watch"
-		assets, err := repo.ListAssets(ctx, 10, nil, nil, &pebbleType)
-		require.NoError(t, err)
-		require.NotEmpty(t, assets)
-		for _, a := range assets {
-			assert.Equal(t, "pebble_watch", a.AssetType)
-		}
-	})
-
 	t.Run("CreateAsset", func(t *testing.T) {
 		input := &facilities.HardwareAsset{
 			SerialNumber: "SER-12345",

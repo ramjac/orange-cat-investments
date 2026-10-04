@@ -84,14 +84,20 @@ func (c *Client) initMockServers() error {
 
 	// Register Facilities HTTP Endpoints on serverMux
 	listAssetsHandler := func(w http.ResponseWriter, r *http.Request) {
-		var assetTypePtr *string
-		if assetType := r.URL.Query().Get("asset_type"); assetType != "" {
-			assetTypePtr = &assetType
-		}
-		items, err := facService.ListAssets(r.Context(), 20, nil, nil, assetTypePtr)
+		items, err := facService.ListAssets(r.Context(), 20, nil, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		assetType := r.URL.Query().Get("asset_type")
+		if assetType != "" {
+			var filtered []*facilities_repo.HardwareAsset
+			for _, item := range items {
+				if item.AssetType == assetType {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})

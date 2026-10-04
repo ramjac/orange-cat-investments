@@ -7,7 +7,6 @@ WHERE asset_id = $1;
 SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at
 FROM facilities.hardware_assets
 WHERE ($1::timestamptz IS NULL OR $2::uuid IS NULL OR (created_at, asset_id) < ($1, $2))
-  AND ($4::text IS NULL OR $4::text = '' OR asset_type = $4)
 ORDER BY created_at DESC, asset_id DESC
 LIMIT $3;
 

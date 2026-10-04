@@ -1,7 +1,6 @@
 package facilities
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"testing"
@@ -12,11 +11,9 @@ import (
 func generateMockAssets(size int) []*HardwareAsset {
 	assets := make([]*HardwareAsset, size)
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	types := []string{"edge_camera", "observation_perch", "smart_collar", "gateway", "feeder", "pebble_watch", "laptop"}
 	for i := 0; i < size; i++ {
 		assets[i] = &HardwareAsset{
 			AssetID:   fmt.Sprintf("asset-%08d", i),
-			AssetType: types[i%len(types)],
 			CreatedAt: baseTime.Add(time.Duration(i) * time.Second),
 		}
 	}
@@ -102,80 +99,6 @@ func BenchmarkKeysetPagination_DeepPage(b *testing.B) {
 		res := simulateKeysetPagination(assets, limit, &cursorItem.CreatedAt, &cursorItem.AssetID)
 		if len(res) == 0 {
 			b.Fatal("expected results")
-		}
-	}
-}
-
-// BenchmarkFiltering_InMemory measures fetching 1000 assets and filtering in memory.
-func BenchmarkFiltering_InMemory(b *testing.B) {
-	repo := NewMockRepository()
-	ctx := context.Background()
-	// Seed mock repo with 1000 assets
-	mockR, ok := repo.(*mockRepository)
-	if ok {
-		for i := 0; i < 1000; i++ {
-			assetType := "edge_camera"
-			if i%5 == 0 {
-				assetType = "pebble_watch"
-			}
-			mockR.assets[fmt.Sprintf("asset-%d", i)] = &HardwareAsset{
-				AssetID:   fmt.Sprintf("asset-%d", i),
-				AssetType: assetType,
-				CreatedAt: time.Now().UTC(),
-			}
-		}
-	}
-
-	targetType := "pebble_watch"
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		items, err := repo.ListAssets(ctx, 1000, nil, nil)
-		if err != nil {
-			b.Fatal(err)
-		}
-		var filtered []*HardwareAsset
-		for _, item := range items {
-			if item.AssetType == targetType {
-				filtered = append(filtered, item)
-			}
-		}
-		if len(filtered) == 0 {
-			b.Fatal("expected items")
-		}
-	}
-}
-
-// BenchmarkFiltering_DirectFilter measures filtering directly with limit pushed down.
-func BenchmarkFiltering_DirectFilter(b *testing.B) {
-	repo := NewMockRepository()
-	ctx := context.Background()
-	// Seed mock repo with 1000 assets
-	mockR, ok := repo.(*mockRepository)
-	if ok {
-		for i := 0; i < 1000; i++ {
-			assetType := "edge_camera"
-			if i%5 == 0 {
-				assetType = "pebble_watch"
-			}
-			mockR.assets[fmt.Sprintf("asset-%d", i)] = &HardwareAsset{
-				AssetID:   fmt.Sprintf("asset-%d", i),
-				AssetType: assetType,
-				CreatedAt: time.Now().UTC(),
-			}
-		}
-	}
-
-	targetType := "pebble_watch"
-	b.ResetTimer()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		items, err := repo.ListAssets(ctx, 20, nil, nil, &targetType)
-		if err != nil {
-			b.Fatal(err)
-		}
-		if len(items) == 0 {
-			b.Fatal("expected items")
 		}
 	}
 }

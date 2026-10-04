@@ -79,7 +79,7 @@ func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*Har
 	}
 }
 
-func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error) {
+func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
 	var list []*HardwareAsset
 	for _, a := range m.assets {
 		list = append(list, a)
@@ -167,22 +167,6 @@ func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCrea
 			},
 		)
 	}
-
-	var filterType *string
-	if len(assetType) > 0 {
-		filterType = assetType[0]
-	}
-
-	if filterType != nil && *filterType != "" {
-		var filtered []*HardwareAsset
-		for _, item := range list {
-			if item.AssetType == *filterType {
-				filtered = append(filtered, item)
-			}
-		}
-		list = filtered
-	}
-
 	return list, nil
 }
 

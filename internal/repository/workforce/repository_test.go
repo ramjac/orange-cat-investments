@@ -75,131 +75,134 @@ func TestWorkforceRepository(t *testing.T) {
 	})
 
 	t.Run("Leave Requests Operations", func(t *testing.T) {
-		t.Run("List and Filter", func(t *testing.T) {
-			list, err := repo.ListLeaveRequests(ctx, "", "")
-			assert.NoError(t, err)
-			assert.GreaterOrEqual(t, len(list), 2)
+		// List seeded leave requests
+		list, err := repo.ListLeaveRequests(ctx, "", "")
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(list), 2)
 
-			garfieldList, err := repo.ListLeaveRequests(ctx, "emp-feline-garfield", "")
-			assert.NoError(t, err)
-			assert.NotEmpty(t, garfieldList)
-			assert.Equal(t, "emp-feline-garfield", garfieldList[0].EmployeeID)
-			assert.Equal(t, "catnip_break", garfieldList[0].LeaveType)
+		// Filter by employee
+		garfieldList, err := repo.ListLeaveRequests(ctx, "emp-feline-garfield", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, garfieldList)
+		assert.Equal(t, "emp-feline-garfield", garfieldList[0].EmployeeID)
+		assert.Equal(t, "catnip_break", garfieldList[0].LeaveType)
 
-			pendingList, err := repo.ListLeaveRequests(ctx, "", "pending")
-			assert.NoError(t, err)
-			assert.NotEmpty(t, pendingList)
-			for _, req := range pendingList {
-				assert.Equal(t, "pending", req.Status)
-			}
-		})
+		// Filter by status
+		pendingList, err := repo.ListLeaveRequests(ctx, "", "pending")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, pendingList)
+		for _, req := range pendingList {
+			assert.Equal(t, "pending", req.Status)
+		}
 
-		t.Run("Create Get and Update Status", func(t *testing.T) {
-			reason := "Extended weekend sunbeam rest"
-			newReq := &LeaveRequest{
-				EmployeeID: "emp-feline-garfield",
-				LeaveType:  "catnip_break",
-				StartDate:  "2026-11-01",
-				EndDate:    "2026-11-04",
-				Reason:     &reason,
-			}
-			created, err := repo.CreateLeaveRequest(ctx, newReq)
-			assert.NoError(t, err)
-			assert.NotEmpty(t, created.LeaveID)
-			assert.Equal(t, "pending", created.Status)
-			assert.Equal(t, "2026-11-01", created.StartDate)
+		// Create new leave request
+		reason := "Extended weekend sunbeam rest"
+		newReq := &LeaveRequest{
+			EmployeeID: "emp-feline-garfield",
+			LeaveType:  "catnip_break",
+			StartDate:  "2026-11-01",
+			EndDate:    "2026-11-04",
+			Reason:     &reason,
+		}
+		created, err := repo.CreateLeaveRequest(ctx, newReq)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created.LeaveID)
+		assert.Equal(t, "pending", created.Status)
+		assert.Equal(t, "2026-11-01", created.StartDate)
 
-			fetched, err := repo.GetLeaveRequestByID(ctx, created.LeaveID)
-			assert.NoError(t, err)
-			assert.Equal(t, created.LeaveID, fetched.LeaveID)
-			assert.Equal(t, "Extended weekend sunbeam rest", *fetched.Reason)
+		// Get by ID
+		fetched, err := repo.GetLeaveRequestByID(ctx, created.LeaveID)
+		assert.NoError(t, err)
+		assert.Equal(t, created.LeaveID, fetched.LeaveID)
+		assert.Equal(t, "Extended weekend sunbeam rest", *fetched.Reason)
 
-			updated, err := repo.UpdateLeaveRequestStatus(ctx, created.LeaveID, "approved")
-			assert.NoError(t, err)
-			assert.Equal(t, "approved", updated.Status)
-		})
+		// Update status to approved
+		updated, err := repo.UpdateLeaveRequestStatus(ctx, created.LeaveID, "approved")
+		assert.NoError(t, err)
+		assert.Equal(t, "approved", updated.Status)
 
-		t.Run("Errors for Non-Existent ID", func(t *testing.T) {
-			_, err := repo.GetLeaveRequestByID(ctx, "non-existent-id")
-			assert.Error(t, err)
-			_, err = repo.UpdateLeaveRequestStatus(ctx, "non-existent-id", "rejected")
-			assert.Error(t, err)
-		})
+		// Non-existent ID error handling
+		_, err = repo.GetLeaveRequestByID(ctx, "non-existent-id")
+		assert.Error(t, err)
+		_, err = repo.UpdateLeaveRequestStatus(ctx, "non-existent-id", "rejected")
+		assert.Error(t, err)
 	})
 
 	t.Run("Review Cycles Operations", func(t *testing.T) {
-		t.Run("List and Filter", func(t *testing.T) {
-			list, err := repo.ListReviewCycles(ctx, "", "", "")
-			assert.NoError(t, err)
-			assert.GreaterOrEqual(t, len(list), 3)
+		// List seeded review cycles
+		list, err := repo.ListReviewCycles(ctx, "", "", "")
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(list), 3)
 
-			garfieldList, err := repo.ListReviewCycles(ctx, "emp-feline-garfield", "", "")
-			assert.NoError(t, err)
-			assert.NotEmpty(t, garfieldList)
-			assert.Equal(t, "emp-feline-garfield", garfieldList[0].EmployeeID)
-			assert.Equal(t, "feline_health_assessment", garfieldList[0].ReviewType)
+		// Filter by employee
+		garfieldList, err := repo.ListReviewCycles(ctx, "emp-feline-garfield", "", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, garfieldList)
+		assert.Equal(t, "emp-feline-garfield", garfieldList[0].EmployeeID)
+		assert.Equal(t, "feline_health_assessment", garfieldList[0].ReviewType)
 
-			completedList, err := repo.ListReviewCycles(ctx, "", "completed", "")
-			assert.NoError(t, err)
-			assert.NotEmpty(t, completedList)
-			for _, rc := range completedList {
-				assert.Equal(t, "completed", rc.Status)
-			}
+		// Filter by status
+		completedList, err := repo.ListReviewCycles(ctx, "", "completed", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, completedList)
+		for _, rc := range completedList {
+			assert.Equal(t, "completed", rc.Status)
+		}
 
-			perfList, err := repo.ListReviewCycles(ctx, "", "", "performance")
-			assert.NoError(t, err)
-			assert.NotEmpty(t, perfList)
-			for _, rc := range perfList {
-				assert.Equal(t, "performance", rc.ReviewType)
-			}
-		})
+		// Filter by review type
+		perfList, err := repo.ListReviewCycles(ctx, "", "", "performance")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, perfList)
+		for _, rc := range perfList {
+			assert.Equal(t, "performance", rc.ReviewType)
+		}
 
-		t.Run("Create Get and Update", func(t *testing.T) {
-			notes := "Quarterly agility and sunbeam orientation evaluation"
-			reviewer := "emp-human-elena"
-			newRC := &ReviewCycle{
-				EmployeeID:   "emp-feline-barneby",
-				ReviewType:   "feline_health_assessment",
-				ScheduledFor: "2026-11-15",
-				Status:       "scheduled",
-				ReviewerID:   &reviewer,
-				Notes:        &notes,
-			}
-			created, err := repo.CreateReviewCycle(ctx, newRC)
-			assert.NoError(t, err)
-			assert.NotEmpty(t, created.ReviewID)
-			assert.Equal(t, "scheduled", created.Status)
-			assert.Equal(t, "2026-11-15", created.ScheduledFor)
+		// Create review cycle
+		notes := "Quarterly agility and sunbeam orientation evaluation"
+		reviewer := "emp-human-elena"
+		newRC := &ReviewCycle{
+			EmployeeID:   "emp-feline-barneby",
+			ReviewType:   "feline_health_assessment",
+			ScheduledFor: "2026-11-15",
+			Status:       "scheduled",
+			ReviewerID:   &reviewer,
+			Notes:        &notes,
+		}
+		created, err := repo.CreateReviewCycle(ctx, newRC)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created.ReviewID)
+		assert.Equal(t, "scheduled", created.Status)
+		assert.Equal(t, "2026-11-15", created.ScheduledFor)
 
-			fetched, err := repo.GetReviewCycleByID(ctx, created.ReviewID)
-			assert.NoError(t, err)
-			assert.Equal(t, created.ReviewID, fetched.ReviewID)
-			assert.Equal(t, notes, *fetched.Notes)
+		// Get by ID
+		fetched, err := repo.GetReviewCycleByID(ctx, created.ReviewID)
+		assert.NoError(t, err)
+		assert.Equal(t, created.ReviewID, fetched.ReviewID)
+		assert.Equal(t, notes, *fetched.Notes)
 
-			score := 4.88
-			compNotes := "Outstanding perch balance and high alpha drive"
-			now := time.Now().UTC()
-			updateRC := &ReviewCycle{
-				ReviewID:    created.ReviewID,
-				Status:      "completed",
-				Score:       &score,
-				Notes:       &compNotes,
-				CompletedAt: &now,
-			}
-			updated, err := repo.UpdateReviewCycle(ctx, updateRC)
-			assert.NoError(t, err)
-			assert.Equal(t, "completed", updated.Status)
-			assert.Equal(t, score, *updated.Score)
-			assert.Equal(t, compNotes, *updated.Notes)
-			assert.NotNil(t, updated.CompletedAt)
-		})
+		// Update review cycle (record score and complete)
+		score := 4.88
+		compNotes := "Outstanding perch balance and high alpha drive"
+		now := time.Now().UTC()
+		updateRC := &ReviewCycle{
+			ReviewID:    created.ReviewID,
+			Status:      "completed",
+			Score:       &score,
+			Notes:       &compNotes,
+			CompletedAt: &now,
+		}
+		updated, err := repo.UpdateReviewCycle(ctx, updateRC)
+		assert.NoError(t, err)
+		assert.Equal(t, "completed", updated.Status)
+		assert.Equal(t, score, *updated.Score)
+		assert.Equal(t, compNotes, *updated.Notes)
+		assert.NotNil(t, updated.CompletedAt)
 
-		t.Run("Errors for Non-Existent ID", func(t *testing.T) {
-			_, err := repo.GetReviewCycleByID(ctx, "non-existent-id")
-			assert.Error(t, err)
-			_, err = repo.UpdateReviewCycle(ctx, &ReviewCycle{ReviewID: "non-existent-id"})
-			assert.Error(t, err)
-		})
+		// Non-existent ID error handling
+		_, err = repo.GetReviewCycleByID(ctx, "non-existent-id")
+		assert.Error(t, err)
+		_, err = repo.UpdateReviewCycle(ctx, &ReviewCycle{ReviewID: "non-existent-id"})
+		assert.Error(t, err)
 	})
 }
 
