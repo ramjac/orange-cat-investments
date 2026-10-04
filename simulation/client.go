@@ -292,11 +292,11 @@ func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body 
 	url := baseURL + path
 	var bodyReader io.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to marshal JSON request body: %w", err)
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return nil, nil, fmt.Errorf("failed to encode JSON request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(data)
+		bodyReader = &buf
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
