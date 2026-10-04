@@ -65,6 +65,22 @@ func TestCoreInvestService(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("GetBacktestRun", func(t *testing.T) {
+		run, err := svc.GetBacktestRun(ctx, "backtest-uuid-001")
+		require.NoError(t, err)
+		assert.Equal(t, "backtest-uuid-001", run.BacktestID)
+
+		_, err = svc.GetBacktestRun(ctx, "")
+		assert.Error(t, err)
+		assert.EqualError(t, err, "backtest id cannot be empty")
+	})
+
+	t.Run("ListBacktestRuns", func(t *testing.T) {
+		runs, err := svc.ListBacktestRuns(ctx, 10, 0)
+		require.NoError(t, err)
+		assert.NotEmpty(t, runs)
+	})
+
 	t.Run("ListMLModels", func(t *testing.T) {
 		models, err := svc.ListMLModels(ctx)
 		require.NoError(t, err)
@@ -90,6 +106,12 @@ func TestCoreInvestService(t *testing.T) {
 		assert.Equal(t, 0.012, res["confidence_drift"])
 		assert.Equal(t, payload, res["payload"])
 		assert.NotEmpty(t, res["evaluated_at"])
+
+		// Nil payload test case
+		resNil, err := svc.LogModelDrift(ctx, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "drift-018f-99", resNil["drift_id"])
+		assert.Nil(t, resNil["payload"])
 	})
 
 	t.Run("ClassifyAcoustics", func(t *testing.T) {
@@ -133,24 +155,6 @@ func TestCoreInvestService(t *testing.T) {
 		orders, err := svc.ListBrokerageOrders(ctx, 10, 0)
 		require.NoError(t, err)
 		assert.NotEmpty(t, orders)
-	})
-
-	t.Run("BacktestRunsQueryMethods", func(t *testing.T) {
-		start := time.Now().Add(-24 * time.Hour)
-		end := time.Now()
-		run, err := svc.StartBacktestRun(ctx, "strat-002", start, end, "{}")
-		require.NoError(t, err)
-
-		fetched, err := svc.GetBacktestRun(ctx, run.BacktestID)
-		require.NoError(t, err)
-		assert.Equal(t, run.BacktestID, fetched.BacktestID)
-
-		_, err = svc.GetBacktestRun(ctx, "")
-		assert.Error(t, err)
-
-		runs, err := svc.ListBacktestRuns(ctx, 10, 0)
-		require.NoError(t, err)
-		assert.NotEmpty(t, runs)
 	})
 
 	t.Run("GenerateStatement", func(t *testing.T) {
