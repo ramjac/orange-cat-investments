@@ -232,3 +232,43 @@ func TestCustomerBFF_StateMutations_RequireCSRF(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestCustomerBFF_Webhooks(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	csrfVal := "webhook-test-csrf"
+
+	// 1. GET /api/v1/customer/webhooks must not expose hardcoded or static webhook secrets
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/webhooks", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var webhooks []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &webhooks)
+	require.NoError(t, err)
+	require.Len(t, webhooks, 1)
+	assert.Equal(t, "sub-018f-1111", webhooks[0]["subscription_id"])
+	assert.Nil(t, webhooks[0]["secret"], "GET /webhooks must not include secret field")
+
+	// 2. POST /api/v1/customer/webhooks creates subscription with a dynamically generated secret upon creation
+	body := bytes.NewBufferString(`{"target_url":"https://example.com/callback","events":["events.trade.executed.v1"]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/customer/webhooks", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfVal)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]interface{}
+	err = json.Unmarshal(rec.Body.Bytes(), &created)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/callback", created["target_url"])
+	secretStr, ok := created["secret"].(string)
+	assert.True(t, ok)
+	assert.True(t, len(secretStr) > 6)
+	assert.True(t, secretStr[:6] == "whsec_")
+}
