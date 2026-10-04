@@ -197,6 +197,70 @@ func TestWorkforceService(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid incident status")
 	})
+
+	t.Run("Create & List VHR Records Validations and Workflow", func(t *testing.T) {
+		felineID := "emp-feline-garfield"
+
+		// Validation: nil record
+		_, err := svc.CreateVHRRecord(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feline_id is required")
+
+		// Validation: empty feline_id
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{
+			DentalScore: 3,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feline_id is required")
+
+		// Validation: dental score too low (< 1)
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{
+			FelineID:    felineID,
+			DentalScore: 0,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dental score must be between 1 and 5")
+
+		// Validation: dental score too high (> 5)
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{
+			FelineID:    felineID,
+			DentalScore: 6,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dental score must be between 1 and 5")
+
+		// Happy path: boundary score 1 with explicit VisitDate
+		rec1, err := svc.CreateVHRRecord(ctx, &workforce.VHRRecord{
+			FelineID:          felineID,
+			VisitDate:         "2026-05-01",
+			WeightKG:          5.2,
+			DentalScore:       1,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Routine checkup",
+		})
+		assert.NoError(t, err)
+		assert.NotEmpty(t, rec1.RecordID)
+		assert.Equal(t, "2026-05-01", rec1.VisitDate)
+		assert.Equal(t, 1, rec1.DentalScore)
+
+		// Happy path: boundary score 5 with default VisitDate (empty VisitDate)
+		rec2, err := svc.CreateVHRRecord(ctx, &workforce.VHRRecord{
+			FelineID:          felineID,
+			WeightKG:          5.4,
+			DentalScore:       5,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Pristine feline dental health",
+		})
+		assert.NoError(t, err)
+		assert.NotEmpty(t, rec2.RecordID)
+		assert.NotEmpty(t, rec2.VisitDate)
+		assert.Equal(t, 5, rec2.DentalScore)
+
+		// List VHR Records
+		records, err := svc.ListVHRRecords(ctx, felineID)
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(records), 2)
+	})
 }
 
 
