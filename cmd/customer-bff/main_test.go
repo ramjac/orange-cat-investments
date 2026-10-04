@@ -165,6 +165,19 @@ func TestCustomerBFF_LoginAndSessionFlow(t *testing.T) {
 	assert.Equal(t, "cust-active-chloe", portResp["customer_id"])
 }
 
+func BenchmarkGetESGTransparency(b *testing.B) {
+	_, mux := setupTestBFF()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/transparency/welfare", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+	}
+}
+
 func TestCustomerBFF_StateMutations_RequireCSRF(t *testing.T) {
 	_, mux := setupTestBFF()
 

@@ -702,13 +702,21 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	if b.wfSvc != nil {
 		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
 		if err == nil {
+			vhrByFeline := make(map[string][]*workforce_repo.VHRRecord)
+			allRecords, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), "")
+			if vhrErr == nil {
+				for _, rec := range allRecords {
+					vhrByFeline[rec.FelineID] = append(vhrByFeline[rec.FelineID], rec)
+				}
+			}
+
 			for _, emp := range emps {
 				healthStatus := "OPTIMAL_ALPHA"
 				whiskerSymmetry := "100%"
 				purrFreq := 28.5
 
-				records, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), emp.EmployeeID)
-				if vhrErr == nil && len(records) > 0 {
+				records := vhrByFeline[emp.EmployeeID]
+				if len(records) > 0 {
 					vhrRecordsCount += len(records)
 					latest := records[0]
 					if latest.DentalScore >= 4 {
