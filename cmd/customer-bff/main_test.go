@@ -17,6 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
+	store := NewSessionStore()
+	_, okArthur := store.Get("sess-arthur-token")
+	assert.False(t, okArthur, "sess-arthur-token should not exist by default")
+	_, okChloe := store.Get("sess-chloe-token")
+	assert.False(t, okChloe, "sess-chloe-token should not exist by default")
+
+	store.SeedDevSessions()
+	_, okArthurAfter := store.Get("sess-arthur-token")
+	assert.True(t, okArthurAfter, "sess-arthur-token should exist after SeedDevSessions")
+	_, okChloeAfter := store.Get("sess-chloe-token")
+	assert.True(t, okChloeAfter, "sess-chloe-token should exist after SeedDevSessions")
+}
+
 func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	ciRepo := core_invest_repo.NewMockRepository()
@@ -25,6 +39,7 @@ func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	wfSvc := workforce_svc.NewService(wfRepo)
 
 	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
+	bff.sessions.SeedDevSessions()
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
 	return bff, mux
@@ -165,6 +180,19 @@ func TestCustomerBFF_LoginAndSessionFlow(t *testing.T) {
 	assert.Equal(t, "cust-active-chloe", portResp["customer_id"])
 }
 
+func BenchmarkGetESGTransparency(b *testing.B) {
+	_, mux := setupTestBFF()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/transparency/welfare", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+	}
+}
+
 func TestCustomerBFF_StateMutations_RequireCSRF(t *testing.T) {
 	_, mux := setupTestBFF()
 
@@ -216,4 +244,44 @@ func TestCustomerBFF_StateMutations_RequireCSRF(t *testing.T) {
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestCustomerBFF_Webhooks(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	csrfVal := "webhook-test-csrf"
+
+	// 1. GET /api/v1/customer/webhooks must not expose hardcoded or static webhook secrets
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/webhooks", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var webhooks []map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &webhooks)
+	require.NoError(t, err)
+	require.Len(t, webhooks, 1)
+	assert.Equal(t, "sub-018f-1111", webhooks[0]["subscription_id"])
+	assert.Nil(t, webhooks[0]["secret"], "GET /webhooks must not include secret field")
+
+	// 2. POST /api/v1/customer/webhooks creates subscription with a dynamically generated secret upon creation
+	body := bytes.NewBufferString(`{"target_url":"https://example.com/callback","events":["events.trade.executed.v1"]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/customer/webhooks", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrfVal)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]interface{}
+	err = json.Unmarshal(rec.Body.Bytes(), &created)
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com/callback", created["target_url"])
+	secretStr, ok := created["secret"].(string)
+	assert.True(t, ok)
+	assert.True(t, len(secretStr) > 6)
+	assert.True(t, secretStr[:6] == "whsec_")
 }

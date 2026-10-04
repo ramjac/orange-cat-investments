@@ -114,7 +114,7 @@ type EnvironmentalTelemetry struct {
 
 type Repository interface {
 	GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error)
-	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error)
+	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error)
 	CreateAsset(ctx context.Context, asset *HardwareAsset) (*HardwareAsset, error)
 	CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error)
 	BatchInsertMaintenanceLogs(ctx context.Context, logs []*MaintenanceLog) ([]*MaintenanceLog, error)
@@ -163,16 +163,21 @@ func (r *pgxRepository) GetAssetByID(ctx context.Context, assetID string) (*Hard
 	return &a, nil
 }
 
-func (r *pgxRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
+func (r *pgxRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
+	}
+	var filterAssetType *string
+	if len(assetType) > 0 {
+		filterAssetType = assetType[0]
 	}
 	query := `SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at
               FROM facilities.hardware_assets
               WHERE ($1::timestamptz IS NULL OR $2::uuid IS NULL OR (created_at, asset_id) < ($1, $2))
+                AND ($4::text IS NULL OR $4::text = '' OR asset_type = $4)
               ORDER BY created_at DESC, asset_id DESC
               LIMIT $3`
-	rows, err := r.db.Query(ctx, query, cursorCreatedAt, cursorID, limit)
+	rows, err := r.db.Query(ctx, query, cursorCreatedAt, cursorID, limit, filterAssetType)
 	if err != nil {
 		return nil, err
 	}
@@ -250,20 +255,67 @@ func (r *pgxRepository) BatchInsertMaintenanceLogs(ctx context.Context, logs []*
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	if len(logs) == 0 {
+		return []*MaintenanceLog{}, nil
+	}
 
-	query := `INSERT INTO facilities.maintenance_logs (ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING log_id, synced_at, created_at`
-	result := make([]*MaintenanceLog, len(logs))
+	n := len(logs)
+	ticketIDs := make([]*string, n)
+	assetIDs := make([]string, n)
+	technicianIDs := make([]*string, n)
+	qrCodes := make([]string, n)
+	actions := make([]string, n)
+	notes := make([]*string, n)
+	createdAts := make([]time.Time, n)
+
 	for i, l := range logs {
-		cp := *l
-		if cp.CreatedAt.IsZero() {
-			cp.CreatedAt = time.Now().UTC()
+		ticketIDs[i] = l.TicketID
+		assetIDs[i] = l.AssetID
+		technicianIDs[i] = l.TechnicianID
+		qrCodes[i] = l.QRCodeScanned
+		actions[i] = l.ActionTaken
+		notes[i] = l.Notes
+		if l.CreatedAt.IsZero() {
+			createdAts[i] = time.Now().UTC()
+		} else {
+			createdAts[i] = l.CreatedAt
 		}
-		err := r.db.QueryRow(ctx, query, cp.TicketID, cp.AssetID, cp.TechnicianID, cp.QRCodeScanned, cp.ActionTaken, cp.Notes, cp.CreatedAt).Scan(&cp.LogID, &cp.SyncedAt, &cp.CreatedAt)
-		if err != nil {
+	}
+
+	query := `INSERT INTO facilities.maintenance_logs (
+		ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, created_at
+	) SELECT * FROM UNNEST(
+		$1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[], $7::timestamptz[]
+	) RETURNING log_id, ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, synced_at, created_at`
+
+	rows, err := r.db.Query(ctx, query, ticketIDs, assetIDs, technicianIDs, qrCodes, actions, notes, createdAts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]*MaintenanceLog, 0, n)
+	for rows.Next() {
+		var l MaintenanceLog
+		if err := rows.Scan(
+			&l.LogID,
+			&l.TicketID,
+			&l.AssetID,
+			&l.TechnicianID,
+			&l.QRCodeScanned,
+			&l.ActionTaken,
+			&l.Notes,
+			&l.SyncedAt,
+			&l.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
-		result[i] = &cp
+		result = append(result, &l)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 

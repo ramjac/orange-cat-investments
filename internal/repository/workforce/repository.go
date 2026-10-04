@@ -168,6 +168,14 @@ func NewRepository(db *pgxpool.Pool) Repository {
 
 func (r *pgxRepository) seedDefaults() {
 	now := time.Now().UTC()
+	r.seedEmployees(now)
+	r.seedCareSchedules(now)
+	r.seedChecklists(now)
+	r.seedLeaveRequests(now)
+	r.seedReviewCycles(now)
+}
+
+func (r *pgxRepository) seedEmployees(now time.Time) {
 	garfieldID := "emp-feline-garfield"
 	r.employees[garfieldID] = &Employee{
 		EmployeeID:   garfieldID,
@@ -181,16 +189,6 @@ func (r *pgxRepository) seedDefaults() {
 		UpdatedAt:    now,
 	}
 
-	r.careSchedules[garfieldID] = &CareSchedule{
-		ScheduleID:           "cs-garfield-01",
-		FelineID:             garfieldID,
-		DietaryPlan:          "High-protein salmon pate & prescription kibble",
-		FeedingTimes:         []string{"08:00 AM", "12:00 PM", "06:00 PM"},
-		EmergencyMedicalHold: false,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-	}
-
 	barnebyID := "emp-feline-barneby"
 	r.employees[barnebyID] = &Employee{
 		EmployeeID:   barnebyID,
@@ -202,16 +200,6 @@ func (r *pgxRepository) seedDefaults() {
 		HiredAt:      now,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-	}
-
-	r.careSchedules[barnebyID] = &CareSchedule{
-		ScheduleID:           "cs-barneby-01",
-		FelineID:             barnebyID,
-		DietaryPlan:          "Grain-free organic turkey pate",
-		FeedingTimes:         []string{"07:30 AM", "05:30 PM"},
-		EmergencyMedicalHold: false,
-		CreatedAt:            now,
-		UpdatedAt:            now,
 	}
 
 	aliceID := "emp-human-alice"
@@ -259,28 +247,6 @@ func (r *pgxRepository) seedDefaults() {
 		UpdatedAt:    now,
 	}
 
-	r.checklists["chk-rick-01"] = &OnboardingTask{
-		ChecklistID: "chk-rick-01",
-		EmployeeID:  rickID,
-		TaskName:    "Forgejo Account Provisioning & SPIFFE ID Issuance",
-		Category:    "access",
-		IsCompleted: false,
-		AssignedTo:  &aliceID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-
-	r.checklists["chk-rick-02"] = &OnboardingTask{
-		ChecklistID: "chk-rick-02",
-		EmployeeID:  rickID,
-		TaskName:    "Catnip Safety Orientation & Workstation Setup",
-		Category:    "training",
-		IsCompleted: false,
-		AssignedTo:  &aliceID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-
 	eliseID := "emp-human-elise"
 	r.employees[eliseID] = &Employee{
 		EmployeeID:   eliseID,
@@ -325,8 +291,64 @@ func (r *pgxRepository) seedDefaults() {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
+}
 
-	// Seed foundational leave requests & feline catnip breaks
+func (r *pgxRepository) seedCareSchedules(now time.Time) {
+	garfieldID := "emp-feline-garfield"
+	r.careSchedules[garfieldID] = &CareSchedule{
+		ScheduleID:           "cs-garfield-01",
+		FelineID:             garfieldID,
+		DietaryPlan:          "High-protein salmon pate & prescription kibble",
+		FeedingTimes:         []string{"08:00 AM", "12:00 PM", "06:00 PM"},
+		EmergencyMedicalHold: false,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	barnebyID := "emp-feline-barneby"
+	r.careSchedules[barnebyID] = &CareSchedule{
+		ScheduleID:           "cs-barneby-01",
+		FelineID:             barnebyID,
+		DietaryPlan:          "Grain-free organic turkey pate",
+		FeedingTimes:         []string{"07:30 AM", "05:30 PM"},
+		EmergencyMedicalHold: false,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+}
+
+func (r *pgxRepository) seedChecklists(now time.Time) {
+	aliceID := "emp-human-alice"
+	rickID := "emp-human-rick"
+
+	r.checklists["chk-rick-01"] = &OnboardingTask{
+		ChecklistID: "chk-rick-01",
+		EmployeeID:  rickID,
+		TaskName:    "Forgejo Account Provisioning & SPIFFE ID Issuance",
+		Category:    "access",
+		IsCompleted: false,
+		AssignedTo:  &aliceID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	r.checklists["chk-rick-02"] = &OnboardingTask{
+		ChecklistID: "chk-rick-02",
+		EmployeeID:  rickID,
+		TaskName:    "Catnip Safety Orientation & Workstation Setup",
+		Category:    "training",
+		IsCompleted: false,
+		AssignedTo:  &aliceID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+}
+
+func (r *pgxRepository) seedLeaveRequests(now time.Time) {
+	garfieldID := "emp-feline-garfield"
+	barnebyID := "emp-feline-barneby"
+	elenaID := "emp-human-elena"
+
 	garfieldLeaveID := "018e0000-0000-7000-8000-000000000010"
 	r.leaveRequests[garfieldLeaveID] = &LeaveRequest{
 		LeaveID:    garfieldLeaveID,
@@ -365,8 +387,14 @@ func (r *pgxRepository) seedDefaults() {
 		CreatedAt:  now.Add(-48 * time.Hour),
 		UpdatedAt:  now.Add(-48 * time.Hour),
 	}
+}
 
-	// Seed review cycles (Performance reviews for humans, Health/Care assessments for felines)
+func (r *pgxRepository) seedReviewCycles(now time.Time) {
+	garfieldID := "emp-feline-garfield"
+	barnebyID := "emp-feline-barneby"
+	aliceID := "emp-human-alice"
+	elenaID := "emp-human-elena"
+
 	garfieldReviewID := "018e0000-0000-7000-8000-000000000020"
 	completedAt := now.Add(-72 * time.Hour)
 	garfieldScore := 4.95

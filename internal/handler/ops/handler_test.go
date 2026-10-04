@@ -46,15 +46,15 @@ func (m *mockOpsService) ProcessPebbleAck(ctx context.Context, req *opssvc.Pebbl
 	}, nil
 }
 
-func (m *mockOpsService) CreateITTicket(ctx context.Context, forgejoRepo, title, body, authorUsername string, forgejoIssueID *int64) (*opsrepo.ITTicket, error) {
-	bodyPtr := &body
+func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateITTicketRequest) (*opsrepo.ITTicket, error) {
+	bodyPtr := &req.Body
 	return &opsrepo.ITTicket{
 		TicketID:       "created-ticket-123",
-		ForgejoRepo:    forgejoRepo,
-		Title:          title,
+		ForgejoRepo:    req.ForgejoRepo,
+		Title:          req.Title,
 		Body:           bodyPtr,
 		State:          "open",
-		AuthorUsername: authorUsername,
+		AuthorUsername: req.AuthorUsername,
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
