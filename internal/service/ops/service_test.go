@@ -115,11 +115,24 @@ func TestOpsService(t *testing.T) {
 	})
 
 	t.Run("CreateITTicket", func(t *testing.T) {
-		ticket, err := service.CreateITTicket(ctx, "infra/k3s", "Node Unreachable", "Worker node 1 down", "emp-human-frank", nil)
+		ticket, err := service.CreateITTicket(ctx, &CreateITTicketRequest{
+			ForgejoRepo:    "infra/k3s",
+			Title:          "Node Unreachable",
+			Body:           "Worker node 1 down",
+			AuthorUsername: "emp-human-frank",
+		})
 		assert.NoError(t, err)
 		assert.Equal(t, "created-mock-id", ticket.TicketID)
 
-		_, errInvalid := service.CreateITTicket(ctx, "infra/k3s", "", "", "", nil)
+		_, errNil := service.CreateITTicket(ctx, nil)
+		assert.Error(t, errNil)
+
+		_, errInvalid := service.CreateITTicket(ctx, &CreateITTicketRequest{
+			ForgejoRepo:    "infra/k3s",
+			Title:          "",
+			Body:           "",
+			AuthorUsername: "",
+		})
 		assert.Error(t, errInvalid)
 	})
 

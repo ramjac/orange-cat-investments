@@ -235,7 +235,12 @@ func (c *Client) initMockServers() error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ticket, err := opsService.CreateITTicket(r.Context(), "facilities/assets", req.Title, fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description), "emp-human-bob", nil)
+		ticket, err := opsService.CreateITTicket(r.Context(), &ops_svc.CreateITTicketRequest{
+			ForgejoRepo:    "facilities/assets",
+			Title:          req.Title,
+			Body:           fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description),
+			AuthorUsername: "emp-human-bob",
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
