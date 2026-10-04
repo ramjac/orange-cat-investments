@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockOpsService struct{}
+type mockOpsService struct {
+	lastLimit int32
+}
 
 func (m *mockOpsService) GetPendingAlerts(ctx context.Context) ([]*opssvc.PebbleAlertPayload, error) {
 	return []*opssvc.PebbleAlertPayload{
@@ -44,15 +46,15 @@ func (m *mockOpsService) ProcessPebbleAck(ctx context.Context, req *opssvc.Pebbl
 	}, nil
 }
 
-func (m *mockOpsService) CreateITTicket(ctx context.Context, forgejoRepo, title, body, authorUsername string, forgejoIssueID *int64) (*opsrepo.ITTicket, error) {
-	bodyPtr := &body
+func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateITTicketRequest) (*opsrepo.ITTicket, error) {
+	bodyPtr := &req.Body
 	return &opsrepo.ITTicket{
 		TicketID:       "created-ticket-123",
-		ForgejoRepo:    forgejoRepo,
-		Title:          title,
+		ForgejoRepo:    req.ForgejoRepo,
+		Title:          req.Title,
 		Body:           bodyPtr,
 		State:          "open",
-		AuthorUsername: authorUsername,
+		AuthorUsername: req.AuthorUsername,
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
@@ -69,6 +71,7 @@ func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*ops
 }
 
 func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+	m.lastLimit = limit
 	return []*opsrepo.ITTicket{
 		{
 			TicketID:       "ticket-test-123",
@@ -144,11 +147,22 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, int32(10), svc.lastLimit)
 
 		var result map[string]any
 		err := json.Unmarshal(rec.Body.Bytes(), &result)
 		assert.NoError(t, err)
 		assert.NotNil(t, result["items"])
+	})
+
+	t.Run("GET /api/v1/ops/tickets Limit Capped", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/ops/tickets?limit=500&offset=0", nil)
+		rec := httptest.NewRecorder()
+
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, int32(100), svc.lastLimit)
 	})
 
 	t.Run("POST /api/v1/ops/tickets", func(t *testing.T) {
