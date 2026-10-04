@@ -15,7 +15,7 @@ func (m *mockRepo) GetAssetByID(ctx context.Context, id string) (*facilities.Har
 	return &facilities.HardwareAsset{AssetID: id, SerialNumber: "CAM-MOCK-01"}, nil
 }
 
-func (m *mockRepo) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error) {
+func (m *mockRepo) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error) {
 	return []*facilities.HardwareAsset{
 		{AssetID: "mock-asset-1"},
 	}, nil
@@ -168,5 +168,19 @@ func TestFacilitiesService(t *testing.T) {
 	})
 	assert.NoError(t, errEnv)
 	assert.Equal(t, "ingested", envRes["status"])
+
+	// Test ControlPTZ
+	ptzPayload := map[string]interface{}{"pan": 45, "tilt": 90, "zoom": 2}
+	ptzRes, errPTZ := service.ControlPTZ(context.Background(), "cam-001", ptzPayload)
+	assert.NoError(t, errPTZ)
+	assert.Equal(t, "cam-001", ptzRes["camera_id"])
+	assert.Equal(t, "ptz_adjusted", ptzRes["status"])
+	assert.Equal(t, ptzPayload, ptzRes["payload"])
+
+	// Test CalibrateCameraLens
+	calibRes, errCalib := service.CalibrateCameraLens(context.Background(), "cam-001")
+	assert.NoError(t, errCalib)
+	assert.Equal(t, "cam-001", calibRes["camera_id"])
+	assert.Equal(t, "lens_calibrated", calibRes["status"])
 }
 
