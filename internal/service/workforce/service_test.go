@@ -197,6 +197,44 @@ func TestWorkforceService(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid incident status")
 	})
+
+	t.Run("Update Onboarding Task & Checklist Validations", func(t *testing.T) {
+		// List checklist for seeded employee Rick
+		rickTasks, err := svc.ListOnboardingChecklist(ctx, "emp-human-rick")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, rickTasks)
+
+		taskToUpdate := rickTasks[0]
+		assert.False(t, taskToUpdate.IsCompleted)
+		assert.Nil(t, taskToUpdate.CompletedAt)
+
+		// Happy path: Update task to completed
+		updatedTask, err := svc.UpdateOnboardingTask(ctx, taskToUpdate.ChecklistID, true)
+		assert.NoError(t, err)
+		assert.True(t, updatedTask.IsCompleted)
+		assert.NotNil(t, updatedTask.CompletedAt)
+
+		// Toggle path: Update task back to uncompleted
+		toggledTask, err := svc.UpdateOnboardingTask(ctx, taskToUpdate.ChecklistID, false)
+		assert.NoError(t, err)
+		assert.False(t, toggledTask.IsCompleted)
+		assert.Nil(t, toggledTask.CompletedAt)
+
+		// Validation error: empty taskID for UpdateOnboardingTask
+		_, err = svc.UpdateOnboardingTask(ctx, "", true)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "task id cannot be empty")
+
+		// Repository error: non-existent taskID for UpdateOnboardingTask
+		_, err = svc.UpdateOnboardingTask(ctx, "non-existent-task-id", true)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+
+		// Validation error: empty employeeID for ListOnboardingChecklist
+		_, err = svc.ListOnboardingChecklist(ctx, "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "employee id cannot be empty")
+	})
 }
 
 
