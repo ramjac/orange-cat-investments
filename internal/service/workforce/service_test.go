@@ -19,6 +19,39 @@ func TestWorkforceService(t *testing.T) {
 		assert.Equal(t, "Garfield", emp.FirstName)
 	})
 
+	t.Run("Update Employee Status Workflow & Validations", func(t *testing.T) {
+		// Validation: Missing employee_id
+		_, err := svc.UpdateEmployeeStatus(ctx, "", "active")
+		assert.Error(t, err)
+		assert.Equal(t, "employee id and status are required", err.Error())
+
+		// Validation: Missing status
+		_, err = svc.UpdateEmployeeStatus(ctx, "emp-feline-garfield", "")
+		assert.Error(t, err)
+		assert.Equal(t, "employee id and status are required", err.Error())
+
+		// Validation: Both empty
+		_, err = svc.UpdateEmployeeStatus(ctx, "", "")
+		assert.Error(t, err)
+		assert.Equal(t, "employee id and status are required", err.Error())
+
+		// Repository Error: Non-existent employee ID
+		_, err = svc.UpdateEmployeeStatus(ctx, "non-existent-employee-id", "active")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "employee with id non-existent-employee-id not found")
+
+		// Success: Update employee status
+		updated, err := svc.UpdateEmployeeStatus(ctx, "emp-feline-garfield", "on_leave")
+		assert.NoError(t, err)
+		assert.NotNil(t, updated)
+		assert.Equal(t, "on_leave", updated.Status)
+
+		// Verify that GetEmployee returns the updated status
+		fetched, err := svc.GetEmployee(ctx, "emp-feline-garfield")
+		assert.NoError(t, err)
+		assert.Equal(t, "on_leave", fetched.Status)
+	})
+
 	t.Run("Onboard Feline Employee", func(t *testing.T) {
 		feline := &workforce.Employee{
 			FirstName:    "Sylvester",
