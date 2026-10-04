@@ -17,6 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
+	store := NewSessionStore()
+	_, okArthur := store.Get("sess-arthur-token")
+	assert.False(t, okArthur, "sess-arthur-token should not exist by default")
+	_, okChloe := store.Get("sess-chloe-token")
+	assert.False(t, okChloe, "sess-chloe-token should not exist by default")
+
+	store.SeedDevSessions()
+	_, okArthurAfter := store.Get("sess-arthur-token")
+	assert.True(t, okArthurAfter, "sess-arthur-token should exist after SeedDevSessions")
+	_, okChloeAfter := store.Get("sess-chloe-token")
+	assert.True(t, okChloeAfter, "sess-chloe-token should exist after SeedDevSessions")
+}
+
 func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	ciRepo := core_invest_repo.NewMockRepository()
@@ -25,6 +39,7 @@ func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	wfSvc := workforce_svc.NewService(wfRepo)
 
 	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
+	bff.sessions.SeedDevSessions()
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
 	return bff, mux
