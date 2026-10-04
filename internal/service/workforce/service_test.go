@@ -19,6 +19,59 @@ func TestWorkforceService(t *testing.T) {
 		assert.Equal(t, "Garfield", emp.FirstName)
 	})
 
+	t.Run("List Employees", func(t *testing.T) {
+		// List all employees without filtering
+		all, err := svc.ListEmployees(ctx, "", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, all)
+
+		// Filter by employeeType "feline"
+		felines, err := svc.ListEmployees(ctx, "feline", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, felines)
+		for _, emp := range felines {
+			assert.Equal(t, "feline", emp.EmployeeType)
+		}
+
+		// Filter by employeeType "human"
+		humans, err := svc.ListEmployees(ctx, "human", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, humans)
+		for _, emp := range humans {
+			assert.Equal(t, "human", emp.EmployeeType)
+		}
+
+		// Filter by status "active"
+		actives, err := svc.ListEmployees(ctx, "", "active")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, actives)
+		for _, emp := range actives {
+			assert.Equal(t, "active", emp.Status)
+		}
+
+		// Filter by status "onboarding"
+		onboardings, err := svc.ListEmployees(ctx, "", "onboarding")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, onboardings)
+		for _, emp := range onboardings {
+			assert.Equal(t, "onboarding", emp.Status)
+		}
+
+		// Filter by both employeeType "feline" and status "active"
+		activeFelines, err := svc.ListEmployees(ctx, "feline", "active")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, activeFelines)
+		for _, emp := range activeFelines {
+			assert.Equal(t, "feline", emp.EmployeeType)
+			assert.Equal(t, "active", emp.Status)
+		}
+
+		// Filter with non-matching filter
+		none, err := svc.ListEmployees(ctx, "nonexistent_type", "terminated")
+		assert.NoError(t, err)
+		assert.Empty(t, none)
+	})
+
 	t.Run("Onboard Feline Employee", func(t *testing.T) {
 		feline := &workforce.Employee{
 			FirstName:    "Sylvester",
