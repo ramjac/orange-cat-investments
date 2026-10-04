@@ -63,10 +63,18 @@ type PushNotificationResponse struct {
 	DispatchedAt time.Time `json:"dispatched_at"`
 }
 
+type CreateITTicketRequest struct {
+	ForgejoRepo    string `json:"forgejo_repo"`
+	Title          string `json:"title"`
+	Body           string `json:"body,omitempty"`
+	AuthorUsername string `json:"author_username"`
+	ForgejoIssueID *int64 `json:"forgejo_issue_id,omitempty"`
+}
+
 type Service interface {
 	GetPendingAlerts(ctx context.Context) ([]*PebbleAlertPayload, error)
 	ProcessPebbleAck(ctx context.Context, req *PebbleAckRequest) (*PebbleAckResponse, error)
-	CreateITTicket(ctx context.Context, forgejoRepo, title, body, authorUsername string, forgejoIssueID *int64) (*ops.ITTicket, error)
+	CreateITTicket(ctx context.Context, req *CreateITTicketRequest) (*ops.ITTicket, error)
 	GetITTicket(ctx context.Context, ticketID string) (*ops.ITTicket, error)
 	ListITTickets(ctx context.Context, limit, offset int32) ([]*ops.ITTicket, error)
 	SendPushNotification(ctx context.Context, req *PushNotificationRequest) (*PushNotificationResponse, error)
@@ -146,23 +154,26 @@ func (s *opsService) ProcessPebbleAck(ctx context.Context, req *PebbleAckRequest
 	}, nil
 }
 
-func (s *opsService) CreateITTicket(ctx context.Context, forgejoRepo, title, body, authorUsername string, forgejoIssueID *int64) (*ops.ITTicket, error) {
-	if title == "" || authorUsername == "" {
+func (s *opsService) CreateITTicket(ctx context.Context, req *CreateITTicketRequest) (*ops.ITTicket, error) {
+	if req == nil {
+		return nil, errors.New("request cannot be nil")
+	}
+	if req.Title == "" || req.AuthorUsername == "" {
 		return nil, errors.New("title and author_username are required")
 	}
 
-	bodyPtr := &body
-	if body == "" {
+	bodyPtr := &req.Body
+	if req.Body == "" {
 		bodyPtr = nil
 	}
 
 	ticket := &ops.ITTicket{
-		ForgejoIssueID: forgejoIssueID,
-		ForgejoRepo:    forgejoRepo,
-		Title:          title,
+		ForgejoIssueID: req.ForgejoIssueID,
+		ForgejoRepo:    req.ForgejoRepo,
+		Title:          req.Title,
 		Body:           bodyPtr,
 		State:          "open",
-		AuthorUsername: authorUsername,
+		AuthorUsername: req.AuthorUsername,
 	}
 
 	return s.repo.CreateITTicket(ctx, ticket)

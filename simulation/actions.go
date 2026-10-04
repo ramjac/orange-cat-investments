@@ -297,152 +297,172 @@ func (r *Registry) createAlicePersona() *Persona {
 		RoleTitle:  "Head of Human & Feline Resources",
 		Department: "Workforce Operations",
 		Actions: []Action{
-			{
-				Name:        "alice_workforce_directory",
-				Description: "Queries employee directory across human and feline staff",
-				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/workforce/employees"
-					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
-					if err != nil {
-						return nil, err
-					}
-					return &ActionResult{
-						PersonaID:   "emp-human-alice",
-						PersonaName: "Alice Vance",
-						ActionName:  "alice_workforce_directory",
-						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
-						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Retrieved workforce directory. Size: %d bytes", len(bytes)),
-						Timestamp:   time.Now().UTC(),
-					}, nil
-				},
-			},
-			{
-				Name:        "alice_trigger_onboarding_saga",
-				Description: "Simulates Frappe HR webhook triggering automated employee onboarding saga",
-				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/webhooks/frappe-hr"
-					payload := map[string]any{
-						"event":         "employee_created",
-						"employee_id":   "emp-simulated-newhire",
-						"employee_type": "human",
-						"first_name":    "Nala",
-						"last_name":     "Simba",
-						"email":         "nala@oci.local",
-						"role_title":    "Junior Habitat Specialist",
-						"department":    "Workforce Operations",
-						"status":        "onboarding",
-					}
-					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
-					if err != nil {
-						return nil, err
-					}
-					return &ActionResult{
-						PersonaID:   "emp-human-alice",
-						PersonaName: "Alice Vance",
-						ActionName:  "alice_trigger_onboarding_saga",
-						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
-						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Onboarding saga webhook result: %s", string(bytes)),
-						Timestamp:   time.Now().UTC(),
-					}, nil
-				},
-			},
-			{
-				Name:        "alice_review_leave_requests",
-				Description: "Audits pending staff leave requests and feline catnip break compliance",
-				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/workforce/leave-requests"
-					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
-					if err != nil {
-						return nil, err
-					}
-					return &ActionResult{
-						PersonaID:   "emp-human-alice",
-						PersonaName: "Alice Vance",
-						ActionName:  "alice_review_leave_requests",
-						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
-						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Audited leave requests & feline catnip breaks. Payload: %d bytes", len(bytes)),
-						Timestamp:   time.Now().UTC(),
-					}, nil
-				},
-			},
-			{
-				Name:        "alice_assign_laptop_to_rick",
-				Description: "Provisions a new MacBook Pro laptop asset in hardware inventory assigned to new hire Rick",
-				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/facilities/assets"
-					payload := map[string]any{
-						"serial_number": fmt.Sprintf("MBP-RICK-%d", time.Now().UnixNano()),
-						"asset_type":    "laptop",
-						"model":         "MacBook Pro 16-inch M3 Max",
-						"zone_id":       "018f3a9a-1111-7000-8000-000000000001",
-						"assigned_to":   "emp-human-rick",
-						"notes":         "Assigned to Rick Newhire during onboarding checklist execution",
-					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
-					if err != nil {
-						return nil, err
-					}
-					return &ActionResult{
-						PersonaID:   "emp-human-alice",
-						PersonaName: "Alice Vance",
-						ActionName:  "alice_assign_laptop_to_rick",
-						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
-						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Assigned new hire laptop asset to Rick: %s", string(bytes)),
-						Timestamp:   time.Now().UTC(),
-					}, nil
-				},
-			},
-			{
-				Name:        "alice_publish_onboarding_doc",
-				Description: "Publishes employee handbook in Nextcloud and notifies new hire Rick via Nextcloud Chat",
-				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					docEndpoint := "/nextcloud/api/v1/documents"
-					docPayload := map[string]any{
-						"title":      "OCI New Employee & Feline Care Onboarding Handbook",
-						"content":    "Comprehensive guide on OCI culture, catnip safety compliance, and IT asset allocation.",
-						"author":     "emp-human-alice",
-						"share_with": []string{"emp-human-rick", "emp-human-frank"},
-					}
-					docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
-					if docErr != nil {
-						return nil, fmt.Errorf("failed to create Nextcloud document: %w", docErr)
-					}
+			r.createAliceWorkforceDirectoryAction(),
+			r.createAliceTriggerOnboardingSagaAction(),
+			r.createAliceReviewLeaveRequestsAction(),
+			r.createAliceAssignLaptopAction(),
+			r.createAlicePublishOnboardingDocAction(),
+		},
+	}
+}
 
-					chatEndpoint := "/nextcloud/api/v1/chat/messages"
-					chatPayload := map[string]any{
-						"sender":    "emp-human-alice",
-						"recipient": "emp-human-rick",
-						"room":      "onboarding-general",
-						"message":   "Welcome to OCI, Rick! I published the Onboarding Handbook in Nextcloud and assigned your laptop asset.",
-					}
-					chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
-					if chatErr != nil {
-						return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
-					}
+func (r *Registry) createAliceWorkforceDirectoryAction() Action {
+	return Action{
+		Name:        "alice_workforce_directory",
+		Description: "Queries employee directory across human and feline staff",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/employees"
+			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_workforce_directory",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Retrieved workforce directory. Size: %d bytes", len(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
 
-					success := (docResp.StatusCode == http.StatusCreated || docResp.StatusCode == http.StatusOK) &&
-						(chatResp.StatusCode == http.StatusCreated || chatResp.StatusCode == http.StatusOK)
+func (r *Registry) createAliceTriggerOnboardingSagaAction() Action {
+	return Action{
+		Name:        "alice_trigger_onboarding_saga",
+		Description: "Simulates Frappe HR webhook triggering automated employee onboarding saga",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/webhooks/frappe-hr"
+			payload := map[string]any{
+				"event":         "employee_created",
+				"employee_id":   "emp-simulated-newhire",
+				"employee_type": "human",
+				"first_name":    "Nala",
+				"last_name":     "Simba",
+				"email":         "nala@oci.local",
+				"role_title":    "Junior Habitat Specialist",
+				"department":    "Workforce Operations",
+				"status":        "onboarding",
+			}
+			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_trigger_onboarding_saga",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Onboarding saga webhook result: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
 
-					return &ActionResult{
-						PersonaID:   "emp-human-alice",
-						PersonaName: "Alice Vance",
-						ActionName:  "alice_publish_onboarding_doc",
-						Endpoint:    chatEndpoint,
-						Success:     success,
-						StatusCode:  chatResp.StatusCode,
-						Details:     fmt.Sprintf("ONBOARDING DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
-						Timestamp:   time.Now().UTC(),
-					}, nil
-				},
-			},
+func (r *Registry) createAliceReviewLeaveRequestsAction() Action {
+	return Action{
+		Name:        "alice_review_leave_requests",
+		Description: "Audits pending staff leave requests and feline catnip break compliance",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/leave-requests"
+			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_review_leave_requests",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Audited leave requests & feline catnip breaks. Payload: %d bytes", len(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createAliceAssignLaptopAction() Action {
+	return Action{
+		Name:        "alice_assign_laptop_to_rick",
+		Description: "Provisions a new MacBook Pro laptop asset in hardware inventory assigned to new hire Rick",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/facilities/assets"
+			payload := map[string]any{
+				"serial_number": fmt.Sprintf("MBP-RICK-%d", time.Now().UnixNano()),
+				"asset_type":    "laptop",
+				"model":         "MacBook Pro 16-inch M3 Max",
+				"zone_id":       "018f3a9a-1111-7000-8000-000000000001",
+				"assigned_to":   "emp-human-rick",
+				"notes":         "Assigned to Rick Newhire during onboarding checklist execution",
+			}
+			resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_assign_laptop_to_rick",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Assigned new hire laptop asset to Rick: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createAlicePublishOnboardingDocAction() Action {
+	return Action{
+		Name:        "alice_publish_onboarding_doc",
+		Description: "Publishes employee handbook in Nextcloud and notifies new hire Rick via Nextcloud Chat",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			docEndpoint := "/nextcloud/api/v1/documents"
+			docPayload := map[string]any{
+				"title":      "OCI New Employee & Feline Care Onboarding Handbook",
+				"content":    "Comprehensive guide on OCI culture, catnip safety compliance, and IT asset allocation.",
+				"author":     "emp-human-alice",
+				"share_with": []string{"emp-human-rick", "emp-human-frank"},
+			}
+			docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
+			if docErr != nil {
+				return nil, fmt.Errorf("failed to create Nextcloud document: %w", docErr)
+			}
+
+			chatEndpoint := "/nextcloud/api/v1/chat/messages"
+			chatPayload := map[string]any{
+				"sender":    "emp-human-alice",
+				"recipient": "emp-human-rick",
+				"room":      "onboarding-general",
+				"message":   "Welcome to OCI, Rick! I published the Onboarding Handbook in Nextcloud and assigned your laptop asset.",
+			}
+			chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
+			if chatErr != nil {
+				return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
+			}
+
+			success := (docResp.StatusCode == http.StatusCreated || docResp.StatusCode == http.StatusOK) &&
+				(chatResp.StatusCode == http.StatusCreated || chatResp.StatusCode == http.StatusOK)
+
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_publish_onboarding_doc",
+				Endpoint:    chatEndpoint,
+				Success:     success,
+				StatusCode:  chatResp.StatusCode,
+				Details:     fmt.Sprintf("ONBOARDING DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
 		},
 	}
 }
