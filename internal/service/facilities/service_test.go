@@ -168,5 +168,23 @@ func TestFacilitiesService(t *testing.T) {
 	})
 	assert.NoError(t, errEnv)
 	assert.Equal(t, "ingested", envRes["status"])
+
+	// Test ControlPTZ
+	ptzPayload := map[string]interface{}{
+		"pan":  45,
+		"tilt": -10,
+		"zoom": 2.0,
+	}
+	ptzRes, errPTZ := service.ControlPTZ(context.Background(), "cam-101", ptzPayload)
+	assert.NoError(t, errPTZ)
+	assert.Equal(t, "cam-101", ptzRes["camera_id"])
+	assert.Equal(t, "ptz_adjusted", ptzRes["status"])
+	assert.Equal(t, ptzPayload, ptzRes["payload"])
+
+	// Test CalibrateCameraLens
+	lensRes, errLens := service.CalibrateCameraLens(context.Background(), "cam-101")
+	assert.NoError(t, errLens)
+	assert.Equal(t, "cam-101", lensRes["camera_id"])
+	assert.Equal(t, "lens_calibrated", lensRes["status"])
 }
 
