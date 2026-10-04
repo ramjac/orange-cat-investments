@@ -80,7 +80,12 @@ func (h *Handler) GetAssetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListAssets(w http.ResponseWriter, r *http.Request) {
-	assets, err := h.service.ListAssets(r.Context(), 50, nil, nil)
+	var assetTypePtr *string
+	if at := r.URL.Query().Get("asset_type"); at != "" {
+		assetTypePtr = &at
+	}
+
+	assets, err := h.service.ListAssets(r.Context(), 50, nil, nil, assetTypePtr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
