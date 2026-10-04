@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -122,6 +123,7 @@ type Repository interface {
 	CreateFirmwareRelease(ctx context.Context, release *FirmwareRelease) (*FirmwareRelease, error)
 	ListFirmwareReleases(ctx context.Context, deviceType string) ([]*FirmwareRelease, error)
 	CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*DeviceOTAJob, error)
+	BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error)
 	UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error)
 	ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*DeviceOTAJob, error)
 	RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error)
@@ -392,6 +394,35 @@ func (r *pgxRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*D
 		return nil, err
 	}
 	return job, nil
+}
+
+func (r *pgxRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if len(jobs) == 0 {
+		return []*DeviceOTAJob{}, nil
+	}
+
+	batch := &pgx.Batch{}
+	query := `INSERT INTO facilities.device_ota_jobs (asset_id, release_id, status) VALUES ($1, $2, 'pending') RETURNING job_id, asset_id, release_id, status, error_message, scheduled_at, completed_at, created_at, updated_at`
+	for _, job := range jobs {
+		batch.Queue(query, job.AssetID, job.ReleaseID)
+	}
+
+	br := r.db.SendBatch(ctx, batch)
+	defer br.Close()
+
+	result := make([]*DeviceOTAJob, 0, len(jobs))
+	for i := 0; i < len(jobs); i++ {
+		var j DeviceOTAJob
+		err := br.QueryRow().Scan(&j.JobID, &j.AssetID, &j.ReleaseID, &j.Status, &j.ErrorMessage, &j.ScheduledAt, &j.CompletedAt, &j.CreatedAt, &j.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &j)
+	}
+	return result, nil
 }
 
 func (r *pgxRepository) UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error) {

@@ -58,6 +58,17 @@ func (m *mockRepo) CreateOTAJob(ctx context.Context, job *facilities.DeviceOTAJo
 	return job, nil
 }
 
+func (m *mockRepo) BatchCreateOTAJobs(ctx context.Context, jobs []*facilities.DeviceOTAJob) ([]*facilities.DeviceOTAJob, error) {
+	result := make([]*facilities.DeviceOTAJob, len(jobs))
+	for i, job := range jobs {
+		cp := *job
+		cp.JobID = "job-mock-id"
+		cp.Status = "pending"
+		result[i] = &cp
+	}
+	return result, nil
+}
+
 func (m *mockRepo) UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*facilities.DeviceOTAJob, error) {
 	return &facilities.DeviceOTAJob{JobID: jobID, Status: status}, nil
 }
