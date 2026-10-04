@@ -261,29 +261,77 @@ func TestWorkforceService(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid status")
 	})
 
-	t.Run("Workplace Incidents Status Validation", func(t *testing.T) {
-		inc := &workforce.WorkplaceIncident{
+	t.Run("Workplace Incidents Workflow & List", func(t *testing.T) {
+		// Validations for CreateWorkplaceIncident
+		_, err := svc.CreateWorkplaceIncident(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "title and description are required")
+
+		_, err = svc.CreateWorkplaceIncident(ctx, &workforce.WorkplaceIncident{Description: "Missing title"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "title and description are required")
+
+		_, err = svc.CreateWorkplaceIncident(ctx, &workforce.WorkplaceIncident{Title: "Missing description"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "title and description are required")
+
+		// Create incident with empty category to test default fallback
+		incDefaultCategory := &workforce.WorkplaceIncident{
+			Title:       "Spilled Water Bowl",
+			Description: "Hydro disruption near server rack",
+		}
+		createdDefault, err := svc.CreateWorkplaceIncident(ctx, incDefaultCategory)
+		assert.NoError(t, err)
+		assert.Equal(t, "habitat_disruption", createdDefault.Category)
+
+		inc1 := &workforce.WorkplaceIncident{
 			Title:       "Perch Dispute",
 			Category:    "perch_dispute",
 			Severity:    "low",
 			Status:      "open",
 			Description: "Two felines contested same sunbeam perch",
 		}
-		created, err := svc.CreateWorkplaceIncident(ctx, inc)
+		created1, err := svc.CreateWorkplaceIncident(ctx, inc1)
 		assert.NoError(t, err)
 
 		// Valid update to under_review
-		updated, err := svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "under_review", "Manager reviewing")
+		updated1, err := svc.UpdateWorkplaceIncidentStatus(ctx, created1.IncidentID, "under_review", "Manager reviewing")
 		assert.NoError(t, err)
-		assert.Equal(t, "under_review", updated.Status)
+		assert.Equal(t, "under_review", updated1.Status)
 
-		// Valid update to resolved
-		resolved, err := svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "resolved", "Resolved amicably")
+		inc2 := &workforce.WorkplaceIncident{
+			Title:       "Catnip Storage Breach",
+			Category:    "security_breach",
+			Severity:    "high",
+			Status:      "resolved",
+			Description: "Unauthorized feline accessed secondary vault",
+		}
+		_, err = svc.CreateWorkplaceIncident(ctx, inc2)
 		assert.NoError(t, err)
-		assert.Equal(t, "resolved", resolved.Status)
+
+		// Test ListWorkplaceIncidents - all
+		allIncidents, err := svc.ListWorkplaceIncidents(ctx, "")
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(allIncidents), 3)
+
+		// Test ListWorkplaceIncidents - status filter "under_review"
+		underReviewIncidents, err := svc.ListWorkplaceIncidents(ctx, "under_review")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, underReviewIncidents)
+		for _, item := range underReviewIncidents {
+			assert.Equal(t, "under_review", item.Status)
+		}
+
+		// Test ListWorkplaceIncidents - status filter "resolved"
+		resolvedIncidents, err := svc.ListWorkplaceIncidents(ctx, "resolved")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, resolvedIncidents)
+		for _, item := range resolvedIncidents {
+			assert.Equal(t, "resolved", item.Status)
+		}
 
 		// Invalid update should be rejected
-		_, err = svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "invalid_custom_status", "note")
+		_, err = svc.UpdateWorkplaceIncidentStatus(ctx, created1.IncidentID, "invalid_custom_status", "note")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid incident status")
 	})
