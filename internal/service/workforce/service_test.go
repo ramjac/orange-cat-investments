@@ -19,6 +19,59 @@ func TestWorkforceService(t *testing.T) {
 		assert.Equal(t, "Garfield", emp.FirstName)
 	})
 
+	t.Run("List Employees", func(t *testing.T) {
+		// List all employees without filtering
+		all, err := svc.ListEmployees(ctx, "", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, all)
+
+		// Filter by employeeType "feline"
+		felines, err := svc.ListEmployees(ctx, "feline", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, felines)
+		for _, emp := range felines {
+			assert.Equal(t, "feline", emp.EmployeeType)
+		}
+
+		// Filter by employeeType "human"
+		humans, err := svc.ListEmployees(ctx, "human", "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, humans)
+		for _, emp := range humans {
+			assert.Equal(t, "human", emp.EmployeeType)
+		}
+
+		// Filter by status "active"
+		actives, err := svc.ListEmployees(ctx, "", "active")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, actives)
+		for _, emp := range actives {
+			assert.Equal(t, "active", emp.Status)
+		}
+
+		// Filter by status "onboarding"
+		onboardings, err := svc.ListEmployees(ctx, "", "onboarding")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, onboardings)
+		for _, emp := range onboardings {
+			assert.Equal(t, "onboarding", emp.Status)
+		}
+
+		// Filter by both employeeType "feline" and status "active"
+		activeFelines, err := svc.ListEmployees(ctx, "feline", "active")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, activeFelines)
+		for _, emp := range activeFelines {
+			assert.Equal(t, "feline", emp.EmployeeType)
+			assert.Equal(t, "active", emp.Status)
+		}
+
+		// Filter with non-matching filter
+		none, err := svc.ListEmployees(ctx, "nonexistent_type", "terminated")
+		assert.NoError(t, err)
+		assert.Empty(t, none)
+	})
+
 	t.Run("Onboard Feline Employee", func(t *testing.T) {
 		feline := &workforce.Employee{
 			FirstName:    "Sylvester",
@@ -233,6 +286,90 @@ func TestWorkforceService(t *testing.T) {
 		_, err = svc.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "invalid_custom_status", "note")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid incident status")
+	})
+
+	t.Run("Veterinary Health Records (VHR) Workflow & Validations", func(t *testing.T) {
+		feline1 := "emp-feline-garfield"
+		feline2 := "emp-feline-barneby"
+
+		// Create VHR Record for feline1 with explicit VisitDate
+		rec1 := &workforce.VHRRecord{
+			FelineID:          feline1,
+			VisitDate:         "2026-05-10",
+			WeightKG:          5.8,
+			DentalScore:       4,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Healthy feline, whisker symmetry optimal",
+		}
+		created1, err := svc.CreateVHRRecord(ctx, rec1)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created1.RecordID)
+		assert.Equal(t, feline1, created1.FelineID)
+		assert.Equal(t, "2026-05-10", created1.VisitDate)
+		assert.Equal(t, 4, created1.DentalScore)
+
+		// Create VHR Record for feline1 with empty VisitDate (should default to today)
+		rec2 := &workforce.VHRRecord{
+			FelineID:          feline1,
+			WeightKG:          5.9,
+			DentalScore:       5,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Follow-up checkup",
+		}
+		created2, err := svc.CreateVHRRecord(ctx, rec2)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created2.VisitDate)
+
+		// Create VHR Record for feline2
+		rec3 := &workforce.VHRRecord{
+			FelineID:          feline2,
+			VisitDate:         "2026-06-01",
+			WeightKG:          4.5,
+			DentalScore:       3,
+			VaccinationStatus: "booster_due",
+			ClinicalNotes:     "Barneby routine dental check",
+		}
+		created3, err := svc.CreateVHRRecord(ctx, rec3)
+		assert.NoError(t, err)
+		assert.Equal(t, feline2, created3.FelineID)
+
+		// List VHR Records for feline1
+		records1, err := svc.ListVHRRecords(ctx, feline1)
+		assert.NoError(t, err)
+		assert.Len(t, records1, 2)
+		for _, r := range records1 {
+			assert.Equal(t, feline1, r.FelineID)
+		}
+
+		// List VHR Records with empty felineID (returns all records)
+		allRecords, err := svc.ListVHRRecords(ctx, "")
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, len(allRecords), 3)
+
+		// List VHR Records for non-existent felineID
+		emptyRecords, err := svc.ListVHRRecords(ctx, "non-existent-feline")
+		assert.NoError(t, err)
+		assert.Empty(t, emptyRecords)
+
+		// Validation: nil record
+		_, err = svc.CreateVHRRecord(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feline_id is required for VHR record")
+
+		// Validation: empty feline_id
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{DentalScore: 3})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feline_id is required for VHR record")
+
+		// Validation: dental score < 1
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{FelineID: feline1, DentalScore: 0})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dental score must be between 1 and 5")
+
+		// Validation: dental score > 5
+		_, err = svc.CreateVHRRecord(ctx, &workforce.VHRRecord{FelineID: feline1, DentalScore: 6})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "dental score must be between 1 and 5")
 	})
 }
 
