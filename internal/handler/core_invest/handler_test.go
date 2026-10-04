@@ -29,6 +29,36 @@ func TestCoreInvestHandler(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "stream-uuid-001")
 	})
 
+	t.Run("ListCameraStreamsLimitCap", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/core-invest/streams?limit=150", nil)
+		rec := httptest.NewRecorder()
+
+		h.ListCameraStreams(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "stream-uuid-001")
+	})
+
+	t.Run("ListBrokerageOrdersLimitCap", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders?limit=200", nil)
+		rec := httptest.NewRecorder()
+
+		h.ListBrokerageOrders(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "order-uuid-001")
+	})
+
+	t.Run("ListBacktestRunsLimitCap", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs?limit=500", nil)
+		rec := httptest.NewRecorder()
+
+		h.ListBacktestRuns(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "backtest-uuid-001")
+	})
+
 	t.Run("RegisterCameraStream", func(t *testing.T) {
 		body := handler.CreateStreamRequest{
 			CameraAssetID: "cam-01",

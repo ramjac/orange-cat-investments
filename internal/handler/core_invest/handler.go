@@ -83,6 +83,9 @@ func (h *Handler) ListCameraStreams(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
@@ -131,6 +134,9 @@ func (h *Handler) ListBrokerageOrders(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
@@ -204,6 +210,9 @@ func (h *Handler) ListBacktestRuns(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
