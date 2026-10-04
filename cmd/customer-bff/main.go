@@ -40,22 +40,29 @@ func NewSessionStore() *SessionStore {
 	store := &SessionStore{
 		sessions: make(map[string]*CustomerSession),
 	}
-	// Seed well-known sessions for local dev and testing
-	store.sessions["sess-arthur-token"] = &CustomerSession{
+	if os.Getenv("SEED_DEV_SESSIONS") == "true" || os.Getenv("ENV") == "dev" || os.Getenv("ENV") == "development" {
+		store.SeedDevSessions()
+	}
+	return store
+}
+
+func (s *SessionStore) SeedDevSessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions["sess-arthur-token"] = &CustomerSession{
 		SessionID:  "sess-arthur-token",
 		CustomerID: "cust-longterm-arthur",
 		Email:      "arthur@oci.local",
 		Name:       "Arthur Pendelton",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	store.sessions["sess-chloe-token"] = &CustomerSession{
+	s.sessions["sess-chloe-token"] = &CustomerSession{
 		SessionID:  "sess-chloe-token",
 		CustomerID: "cust-active-chloe",
 		Email:      "chloe@oci.local",
 		Name:       "Chloe Spark",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	return store
 }
 
 func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
@@ -655,7 +662,6 @@ func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) 
 			"target_url":      "https://quant-bot.chloespark.io/api/v1/oci-callback",
 			"events":          []string{"events.observation.cat_spotted.v1", "events.trade.executed.v1"},
 			"status":          "active",
-			"secret":          "whsec_a87f9b0c1d2e3f4a5b6c7d8e9f0a",
 		},
 	}
 	_ = json.NewEncoder(w).Encode(webhooks)
