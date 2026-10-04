@@ -419,7 +419,6 @@ func TestWorkforceService(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "dental score must be between 1 and 5")
 	})
-
 	t.Run("Update Onboarding Task & Checklist Validations", func(t *testing.T) {
 		// List checklist for seeded employee Rick
 		rickTasks, err := svc.ListOnboardingChecklist(ctx, "emp-human-rick")

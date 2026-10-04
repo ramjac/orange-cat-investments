@@ -40,22 +40,29 @@ func NewSessionStore() *SessionStore {
 	store := &SessionStore{
 		sessions: make(map[string]*CustomerSession),
 	}
-	// Seed well-known sessions for local dev and testing
-	store.sessions["sess-arthur-token"] = &CustomerSession{
+	if os.Getenv("SEED_DEV_SESSIONS") == "true" || os.Getenv("ENV") == "dev" || os.Getenv("ENV") == "development" {
+		store.SeedDevSessions()
+	}
+	return store
+}
+
+func (s *SessionStore) SeedDevSessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions["sess-arthur-token"] = &CustomerSession{
 		SessionID:  "sess-arthur-token",
 		CustomerID: "cust-longterm-arthur",
 		Email:      "arthur@oci.local",
 		Name:       "Arthur Pendelton",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	store.sessions["sess-chloe-token"] = &CustomerSession{
+	s.sessions["sess-chloe-token"] = &CustomerSession{
 		SessionID:  "sess-chloe-token",
 		CustomerID: "cust-active-chloe",
 		Email:      "chloe@oci.local",
 		Name:       "Chloe Spark",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	return store
 }
 
 func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
@@ -482,7 +489,14 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		Status:      "executed",
 	}
 
-	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), req.PortfolioID, "OCI Smart Execution Router", req.Symbol, req.Side, req.Quantity, req.Price, nil, nil)
+	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), core_invest_svc.ExecuteBrokerageOrderOpts{
+		PortfolioID: req.PortfolioID,
+		BrokerName:  "OCI Smart Execution Router",
+		Symbol:      req.Symbol,
+		Side:        req.Side,
+		Quantity:    req.Quantity,
+		Price:       req.Price,
+	})
 	if err != nil {
 		now := time.Now()
 		order.OrderID = fmt.Sprintf("ord-%d", now.UnixNano())
@@ -655,7 +669,6 @@ func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) 
 			"target_url":      "https://quant-bot.chloespark.io/api/v1/oci-callback",
 			"events":          []string{"events.observation.cat_spotted.v1", "events.trade.executed.v1"},
 			"status":          "active",
-			"secret":          "whsec_a87f9b0c1d2e3f4a5b6c7d8e9f0a",
 		},
 	}
 	_ = json.NewEncoder(w).Encode(webhooks)
@@ -702,13 +715,21 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	if b.wfSvc != nil {
 		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
 		if err == nil {
+			vhrByFeline := make(map[string][]*workforce_repo.VHRRecord)
+			allRecords, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), "")
+			if vhrErr == nil {
+				for _, rec := range allRecords {
+					vhrByFeline[rec.FelineID] = append(vhrByFeline[rec.FelineID], rec)
+				}
+			}
+
 			for _, emp := range emps {
 				healthStatus := "OPTIMAL_ALPHA"
 				whiskerSymmetry := "100%"
 				purrFreq := 28.5
 
-				records, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), emp.EmployeeID)
-				if vhrErr == nil && len(records) > 0 {
+				records := vhrByFeline[emp.EmployeeID]
+				if len(records) > 0 {
 					vhrRecordsCount += len(records)
 					latest := records[0]
 					if latest.DentalScore >= 4 {
