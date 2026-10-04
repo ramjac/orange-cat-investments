@@ -83,6 +83,9 @@ func (h *Handler) ListCameraStreams(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
@@ -131,6 +134,9 @@ func (h *Handler) ListBrokerageOrders(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
@@ -164,7 +170,16 @@ func (h *Handler) ExecuteBrokerageOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	order, err := h.service.ExecuteBrokerageOrder(r.Context(), req.PortfolioID, req.BrokerName, req.Symbol, req.Side, req.Quantity, req.Price, req.StrategyID, req.EventID)
+	order, err := h.service.ExecuteBrokerageOrder(r.Context(), core_invest.ExecuteBrokerageOrderOpts{
+		PortfolioID: req.PortfolioID,
+		BrokerName:  req.BrokerName,
+		Symbol:      req.Symbol,
+		Side:        req.Side,
+		Quantity:    req.Quantity,
+		Price:       req.Price,
+		StrategyID:  req.StrategyID,
+		EventID:     req.EventID,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -204,6 +219,9 @@ func (h *Handler) ListBacktestRuns(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)

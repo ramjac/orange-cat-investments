@@ -201,6 +201,65 @@ func TestWorkforceRepository(t *testing.T) {
 			assert.Error(t, err)
 		})
 	})
+
+	t.Run("Workplace Incidents Operations", func(t *testing.T) {
+		felineID := "emp-feline-garfield"
+		humanID := "emp-human-alice"
+
+		// Create Workplace Incident
+		newInc := &WorkplaceIncident{
+			Title:            "Laser Pointer Interference",
+			Category:         "safety",
+			InvolvedFelineID: &felineID,
+			InvolvedHumanID:  &humanID,
+			Severity:         "medium",
+			Description:      "Uncalibrated laser beam temporarily disrupted feline observation focus",
+		}
+		created, err := repo.CreateWorkplaceIncident(ctx, newInc)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created.IncidentID)
+		assert.Equal(t, "open", created.Status)
+		assert.Equal(t, "medium", created.Severity)
+		assert.False(t, created.ReportedAt.IsZero())
+
+		// List Workplace Incidents
+		incidents, err := repo.ListWorkplaceIncidents(ctx, "")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, incidents)
+
+		openIncidents, err := repo.ListWorkplaceIncidents(ctx, "open")
+		assert.NoError(t, err)
+		assert.NotEmpty(t, openIncidents)
+		for _, inc := range openIncidents {
+			assert.Equal(t, "open", inc.Status)
+		}
+
+		// Update Workplace Incident Status to under_review
+		reviewNotes := "Safety committee investigating optical dispersion pattern"
+		underReview, err := repo.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "under_review", reviewNotes)
+		assert.NoError(t, err)
+		assert.Equal(t, "under_review", underReview.Status)
+		assert.NotNil(t, underReview.ResolutionNotes)
+		assert.Equal(t, reviewNotes, *underReview.ResolutionNotes)
+		assert.Nil(t, underReview.ResolvedAt)
+
+		// Update Workplace Incident Status to resolved
+		resolveNotes := "Laser pointer recalibrated and safety barrier installed"
+		resolved, err := repo.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "resolved", resolveNotes)
+		assert.NoError(t, err)
+		assert.Equal(t, "resolved", resolved.Status)
+		assert.NotNil(t, resolved.ResolutionNotes)
+		assert.Equal(t, resolveNotes, *resolved.ResolutionNotes)
+		assert.NotNil(t, resolved.ResolvedAt)
+
+		// Error handling: invalid status
+		_, err = repo.UpdateWorkplaceIncidentStatus(ctx, created.IncidentID, "invalid_status", "Notes")
+		assert.Error(t, err)
+
+		// Error handling: non-existent ID
+		_, err = repo.UpdateWorkplaceIncidentStatus(ctx, "non-existent-inc-id", "resolved", "Notes")
+		assert.Error(t, err)
+	})
 }
 
 

@@ -72,6 +72,9 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
@@ -93,14 +96,6 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-type createTicketRequest struct {
-	ForgejoIssueID *int64 `json:"forgejo_issue_id,omitempty"`
-	ForgejoRepo    string `json:"forgejo_repo"`
-	Title          string `json:"title"`
-	Body           string `json:"body,omitempty"`
-	AuthorUsername string `json:"author_username"`
-}
-
 func (h *Handler) SendPushNotification(w http.ResponseWriter, r *http.Request) {
 	var req ops.PushNotificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -120,13 +115,13 @@ func (h *Handler) SendPushNotification(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateTicket(w http.ResponseWriter, r *http.Request) {
-	var req createTicketRequest
+	var req ops.CreateITTicketRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	ticket, err := h.service.CreateITTicket(r.Context(), req.ForgejoRepo, req.Title, req.Body, req.AuthorUsername, req.ForgejoIssueID)
+	ticket, err := h.service.CreateITTicket(r.Context(), &req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
