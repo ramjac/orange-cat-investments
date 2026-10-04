@@ -80,4 +80,26 @@ func TestCoreInvestService(t *testing.T) {
 		_, err = svc.GenerateStatement(ctx, "port-001", 1990)
 		assert.Error(t, err)
 	})
+
+	t.Run("ClassifyAcoustics", func(t *testing.T) {
+		res, err := svc.ClassifyAcoustics(ctx, "feline-001")
+		require.NoError(t, err)
+		assert.Equal(t, "ac-018f-777", res["acoustic_id"])
+		assert.Equal(t, "feline-001", res["feline_id"])
+		assert.Equal(t, "purring", res["vocalization_type"])
+		assert.Equal(t, 28.5, res["frequency_hz"])
+		assert.Equal(t, 88.2, res["decibel_level"])
+		assert.Equal(t, 0.982, res["confidence"])
+	})
+
+	t.Run("LogModelDrift", func(t *testing.T) {
+		payload := map[string]interface{}{"metric": "ks_stat", "value": 0.05}
+		res, err := svc.LogModelDrift(ctx, payload)
+		require.NoError(t, err)
+		assert.Equal(t, "drift-018f-99", res["drift_id"])
+		assert.Equal(t, "recorded", res["status"])
+		assert.Equal(t, 0.012, res["confidence_drift"])
+		assert.Equal(t, payload, res["payload"])
+		assert.NotEmpty(t, res["evaluated_at"])
+	})
 }
