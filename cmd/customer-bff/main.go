@@ -655,7 +655,6 @@ func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) 
 			"target_url":      "https://quant-bot.chloespark.io/api/v1/oci-callback",
 			"events":          []string{"events.observation.cat_spotted.v1", "events.trade.executed.v1"},
 			"status":          "active",
-			"secret":          "whsec_a87f9b0c1d2e3f4a5b6c7d8e9f0a",
 		},
 	}
 	_ = json.NewEncoder(w).Encode(webhooks)
