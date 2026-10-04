@@ -33,6 +33,16 @@ func TestFacilitiesRepository(t *testing.T) {
 		assert.Equal(t, "asset-uuid-001", assets[0].AssetID)
 	})
 
+	t.Run("ListAssets Filter By AssetType", func(t *testing.T) {
+		pebbleType := "pebble_watch"
+		assets, err := repo.ListAssets(ctx, 10, nil, nil, &pebbleType)
+		require.NoError(t, err)
+		require.NotEmpty(t, assets)
+		for _, a := range assets {
+			assert.Equal(t, "pebble_watch", a.AssetType)
+		}
+	})
+
 	t.Run("CreateAsset", func(t *testing.T) {
 		input := &facilities.HardwareAsset{
 			SerialNumber: "SER-12345",
@@ -127,6 +137,9 @@ func TestFacilitiesRepository(t *testing.T) {
 		assert.Error(t, err)
 
 		_, err = pgxRepo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.BatchCreateOTAJobs(ctx, []*facilities.DeviceOTAJob{{AssetID: "asset-1"}})
 		assert.Error(t, err)
 
 		_, err = pgxRepo.UpdateOTAJobStatus(ctx, "job-1", "completed", nil, nil)
@@ -245,6 +258,14 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 	})
 	if err != nil || otaJob.JobID == "" {
 		t.Fatalf("expected OTA job created, got %v, err=%v", otaJob, err)
+	}
+
+	batchJobs, err := repo.BatchCreateOTAJobs(context.Background(), []*facilities.DeviceOTAJob{
+		{AssetID: "asset-002", ReleaseID: release.ReleaseID},
+		{AssetID: "asset-003", ReleaseID: release.ReleaseID},
+	})
+	if err != nil || len(batchJobs) != 2 {
+		t.Fatalf("expected 2 batch OTA jobs created, got %v, err=%v", batchJobs, err)
 	}
 
 	otaJobs, err := repo.ListOTAJobsByAsset(context.Background(), "asset-001")

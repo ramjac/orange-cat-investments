@@ -11,7 +11,7 @@ import (
 
 type Service interface {
 	GetAsset(ctx context.Context, id string) (*facilities.HardwareAsset, error)
-	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error)
+	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error)
 	CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error)
 	SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error)
 	CreateFirmwareRelease(ctx context.Context, release *facilities.FirmwareRelease) (*facilities.FirmwareRelease, error)
@@ -43,11 +43,11 @@ func (s *facilitiesService) GetAsset(ctx context.Context, id string) (*facilitie
 	return s.repo.GetAssetByID(ctx, id)
 }
 
-func (s *facilitiesService) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error) {
+func (s *facilitiesService) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	return s.repo.ListAssets(ctx, limit, cursorCreatedAt, cursorID)
+	return s.repo.ListAssets(ctx, limit, cursorCreatedAt, cursorID, assetType...)
 }
 
 func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error) {
@@ -98,18 +98,14 @@ func (s *facilitiesService) TriggerOTAUpdate(ctx context.Context, assetIDs []str
 	if len(assetIDs) == 0 || releaseID == "" {
 		return nil, errors.New("asset_ids and release_id are required")
 	}
-	jobs := make([]*facilities.DeviceOTAJob, 0, len(assetIDs))
-	for _, assetID := range assetIDs {
-		job, err := s.repo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{
+	jobs := make([]*facilities.DeviceOTAJob, len(assetIDs))
+	for i, assetID := range assetIDs {
+		jobs[i] = &facilities.DeviceOTAJob{
 			AssetID:   assetID,
 			ReleaseID: releaseID,
-		})
-		if err != nil {
-			return nil, err
 		}
-		jobs = append(jobs, job)
 	}
-	return jobs, nil
+	return s.repo.BatchCreateOTAJobs(ctx, jobs)
 }
 
 func (s *facilitiesService) ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error) {

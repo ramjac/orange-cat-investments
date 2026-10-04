@@ -1,6 +1,7 @@
 package facilities
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"testing"
@@ -11,9 +12,11 @@ import (
 func generateMockAssets(size int) []*HardwareAsset {
 	assets := make([]*HardwareAsset, size)
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	types := []string{"edge_camera", "observation_perch", "smart_collar", "gateway", "feeder", "pebble_watch", "laptop"}
 	for i := 0; i < size; i++ {
 		assets[i] = &HardwareAsset{
 			AssetID:   fmt.Sprintf("asset-%08d", i),
+			AssetType: types[i%len(types)],
 			CreatedAt: baseTime.Add(time.Duration(i) * time.Second),
 		}
 	}
@@ -88,6 +91,75 @@ func BenchmarkOffsetPagination_DeepPage(b *testing.B) {
 	}
 }
 
+func generateMockLogs(count int) []*MaintenanceLog {
+	logs := make([]*MaintenanceLog, count)
+	assetID := "018f3a9a-0000-7000-8000-000000000001"
+	ticketID := "018f3a9a-0000-7000-8000-000000000002"
+	techID := "018f3a9a-0000-7000-8000-000000000003"
+	noteStr := "Routine sensor cleaning"
+	now := time.Now().UTC()
+
+	for i := 0; i < count; i++ {
+		logs[i] = &MaintenanceLog{
+			TicketID:      &ticketID,
+			AssetID:       assetID,
+			TechnicianID:  &techID,
+			QRCodeScanned: "QR-CAM-ORANGE-01",
+			ActionTaken:   "Lens recalibration",
+			Notes:         &noteStr,
+			CreatedAt:     now,
+		}
+	}
+	return logs
+}
+
+func BenchmarkBatchInsertPrep_Loop(b *testing.B) {
+	logs := generateMockLogs(100)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result := make([]*MaintenanceLog, len(logs))
+		for j, l := range logs {
+			cp := *l
+			if cp.CreatedAt.IsZero() {
+				cp.CreatedAt = time.Now().UTC()
+			}
+			// Simulate N query row parameter packaging
+			_ = []interface{}{cp.TicketID, cp.AssetID, cp.TechnicianID, cp.QRCodeScanned, cp.ActionTaken, cp.Notes, cp.CreatedAt}
+			result[j] = &cp
+		}
+	}
+}
+
+func BenchmarkBatchInsertPrep_Unnest(b *testing.B) {
+	logs := generateMockLogs(100)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		n := len(logs)
+		ticketIDs := make([]*string, n)
+		assetIDs := make([]string, n)
+		technicianIDs := make([]*string, n)
+		qrCodes := make([]string, n)
+		actions := make([]string, n)
+		notes := make([]*string, n)
+		createdAts := make([]time.Time, n)
+
+		for j, l := range logs {
+			ticketIDs[j] = l.TicketID
+			assetIDs[j] = l.AssetID
+			technicianIDs[j] = l.TechnicianID
+			qrCodes[j] = l.QRCodeScanned
+			actions[j] = l.ActionTaken
+			notes[j] = l.Notes
+			if l.CreatedAt.IsZero() {
+				createdAts[j] = time.Now().UTC()
+			} else {
+				createdAts[j] = l.CreatedAt
+			}
+		}
+		_ = []interface{}{ticketIDs, assetIDs, technicianIDs, qrCodes, actions, notes, createdAts}
+	}
+}
+
 func BenchmarkKeysetPagination_DeepPage(b *testing.B) {
 	assets := generateMockAssets(100000)
 	limit := 20
@@ -99,6 +171,80 @@ func BenchmarkKeysetPagination_DeepPage(b *testing.B) {
 		res := simulateKeysetPagination(assets, limit, &cursorItem.CreatedAt, &cursorItem.AssetID)
 		if len(res) == 0 {
 			b.Fatal("expected results")
+		}
+	}
+}
+
+// BenchmarkFiltering_InMemory measures fetching 1000 assets and filtering in memory.
+func BenchmarkFiltering_InMemory(b *testing.B) {
+	repo := NewMockRepository()
+	ctx := context.Background()
+	// Seed mock repo with 1000 assets
+	mockR, ok := repo.(*mockRepository)
+	if ok {
+		for i := 0; i < 1000; i++ {
+			assetType := "edge_camera"
+			if i%5 == 0 {
+				assetType = "pebble_watch"
+			}
+			mockR.assets[fmt.Sprintf("asset-%d", i)] = &HardwareAsset{
+				AssetID:   fmt.Sprintf("asset-%d", i),
+				AssetType: assetType,
+				CreatedAt: time.Now().UTC(),
+			}
+		}
+	}
+
+	targetType := "pebble_watch"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		items, err := repo.ListAssets(ctx, 1000, nil, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		var filtered []*HardwareAsset
+		for _, item := range items {
+			if item.AssetType == targetType {
+				filtered = append(filtered, item)
+			}
+		}
+		if len(filtered) == 0 {
+			b.Fatal("expected items")
+		}
+	}
+}
+
+// BenchmarkFiltering_DirectFilter measures filtering directly with limit pushed down.
+func BenchmarkFiltering_DirectFilter(b *testing.B) {
+	repo := NewMockRepository()
+	ctx := context.Background()
+	// Seed mock repo with 1000 assets
+	mockR, ok := repo.(*mockRepository)
+	if ok {
+		for i := 0; i < 1000; i++ {
+			assetType := "edge_camera"
+			if i%5 == 0 {
+				assetType = "pebble_watch"
+			}
+			mockR.assets[fmt.Sprintf("asset-%d", i)] = &HardwareAsset{
+				AssetID:   fmt.Sprintf("asset-%d", i),
+				AssetType: assetType,
+				CreatedAt: time.Now().UTC(),
+			}
+		}
+	}
+
+	targetType := "pebble_watch"
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		items, err := repo.ListAssets(ctx, 20, nil, nil, &targetType)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(items) == 0 {
+			b.Fatal("expected items")
 		}
 	}
 }

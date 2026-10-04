@@ -79,7 +79,7 @@ func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*Har
 	}
 }
 
-func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*HardwareAsset, error) {
+func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error) {
 	var list []*HardwareAsset
 	for _, a := range m.assets {
 		list = append(list, a)
@@ -167,6 +167,22 @@ func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCrea
 			},
 		)
 	}
+
+	var filterType *string
+	if len(assetType) > 0 {
+		filterType = assetType[0]
+	}
+
+	if filterType != nil && *filterType != "" {
+		var filtered []*HardwareAsset
+		for _, item := range list {
+			if item.AssetType == *filterType {
+				filtered = append(filtered, item)
+			}
+		}
+		list = filtered
+	}
+
 	return list, nil
 }
 
@@ -264,6 +280,24 @@ func (m *mockRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*
 	job.UpdatedAt = now
 	m.otaJobs[job.AssetID] = append(m.otaJobs[job.AssetID], job)
 	return job, nil
+}
+
+func (m *mockRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error) {
+	now := time.Now().UTC()
+	result := make([]*DeviceOTAJob, len(jobs))
+	for i, job := range jobs {
+		cp := *job
+		if cp.JobID == "" {
+			cp.JobID = "ota-job-uuid-created"
+		}
+		cp.Status = "pending"
+		cp.ScheduledAt = now
+		cp.CreatedAt = now
+		cp.UpdatedAt = now
+		result[i] = &cp
+		m.otaJobs[cp.AssetID] = append(m.otaJobs[cp.AssetID], &cp)
+	}
+	return result, nil
 }
 
 func (m *mockRepository) UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error) {
