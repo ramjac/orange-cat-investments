@@ -482,7 +482,14 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		Status:      "executed",
 	}
 
-	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), req.PortfolioID, "OCI Smart Execution Router", req.Symbol, req.Side, req.Quantity, req.Price, nil, nil)
+	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), core_invest_svc.ExecuteBrokerageOrderOpts{
+		PortfolioID: req.PortfolioID,
+		BrokerName:  "OCI Smart Execution Router",
+		Symbol:      req.Symbol,
+		Side:        req.Side,
+		Quantity:    req.Quantity,
+		Price:       req.Price,
+	})
 	if err != nil {
 		now := time.Now()
 		order.OrderID = fmt.Sprintf("ord-%d", now.UnixNano())

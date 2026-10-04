@@ -39,14 +39,35 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("ExecuteBrokerageOrder", func(t *testing.T) {
-		order, err := svc.ExecuteBrokerageOrder(ctx, "port-001", "InteractiveBrokers", "ORNG", "buy", 100, 50.0, nil, nil)
+		order, err := svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "InteractiveBrokers",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    100,
+			Price:       50.0,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "executed", order.Status)
 
-		_, err = svc.ExecuteBrokerageOrder(ctx, "port-001", "Broker", "ORNG", "invalid", 100, 50.0, nil, nil)
+		_, err = svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "invalid",
+			Quantity:    100,
+			Price:       50.0,
+		})
 		assert.Error(t, err)
 
-		_, err = svc.ExecuteBrokerageOrder(ctx, "port-001", "Broker", "ORNG", "buy", -5, 50.0, nil, nil)
+		_, err = svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    -5,
+			Price:       50.0,
+		})
 		assert.Error(t, err)
 	})
 

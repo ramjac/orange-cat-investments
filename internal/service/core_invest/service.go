@@ -20,7 +20,7 @@ type Service interface {
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*core_invest.CameraStream, error)
 
 	// Automated Brokerage Execution
-	ExecuteBrokerageOrder(ctx context.Context, portfolioID, brokerName, symbol, side string, quantity, price float64, strategyID, eventID *string) (*core_invest.BrokerageOrder, error)
+	ExecuteBrokerageOrder(ctx context.Context, opts ExecuteBrokerageOrderOpts) (*core_invest.BrokerageOrder, error)
 	GetBrokerageOrder(ctx context.Context, id string) (*core_invest.BrokerageOrder, error)
 	ListBrokerageOrders(ctx context.Context, limit, offset int32) ([]*core_invest.BrokerageOrder, error)
 
@@ -79,26 +79,37 @@ func (s *coreInvestService) ListCameraStreams(ctx context.Context, limit, offset
 	return s.repo.ListCameraStreams(ctx, limit, offset)
 }
 
-func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, portfolioID, brokerName, symbol, side string, quantity, price float64, strategyID, eventID *string) (*core_invest.BrokerageOrder, error) {
-	if portfolioID == "" || brokerName == "" || symbol == "" {
+type ExecuteBrokerageOrderOpts struct {
+	PortfolioID string
+	BrokerName  string
+	Symbol      string
+	Side        string
+	Quantity    float64
+	Price       float64
+	StrategyID  *string
+	EventID     *string
+}
+
+func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts ExecuteBrokerageOrderOpts) (*core_invest.BrokerageOrder, error) {
+	if opts.PortfolioID == "" || opts.BrokerName == "" || opts.Symbol == "" {
 		return nil, errors.New("portfolio_id, broker_name, and symbol are required")
 	}
-	if side != "buy" && side != "sell" {
+	if opts.Side != "buy" && opts.Side != "sell" {
 		return nil, errors.New("side must be buy or sell")
 	}
-	if quantity <= 0 || price <= 0 {
+	if opts.Quantity <= 0 || opts.Price <= 0 {
 		return nil, errors.New("quantity and price must be greater than zero")
 	}
 
 	order := &core_invest.BrokerageOrder{
-		PortfolioID: portfolioID,
-		StrategyID:  strategyID,
-		EventID:     eventID,
-		BrokerName:  brokerName,
-		Symbol:      symbol,
-		Side:        side,
-		Quantity:    quantity,
-		Price:       price,
+		PortfolioID: opts.PortfolioID,
+		StrategyID:  opts.StrategyID,
+		EventID:     opts.EventID,
+		BrokerName:  opts.BrokerName,
+		Symbol:      opts.Symbol,
+		Side:        opts.Side,
+		Quantity:    opts.Quantity,
+		Price:       opts.Price,
 		Status:      "pending",
 	}
 
