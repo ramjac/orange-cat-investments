@@ -164,7 +164,16 @@ func (h *Handler) ExecuteBrokerageOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	order, err := h.service.ExecuteBrokerageOrder(r.Context(), req.PortfolioID, req.BrokerName, req.Symbol, req.Side, req.Quantity, req.Price, req.StrategyID, req.EventID)
+	order, err := h.service.ExecuteBrokerageOrder(r.Context(), core_invest.ExecuteBrokerageOrderOpts{
+		PortfolioID: req.PortfolioID,
+		BrokerName:  req.BrokerName,
+		Symbol:      req.Symbol,
+		Side:        req.Side,
+		Quantity:    req.Quantity,
+		Price:       req.Price,
+		StrategyID:  req.StrategyID,
+		EventID:     req.EventID,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
