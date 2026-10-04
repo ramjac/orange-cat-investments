@@ -98,18 +98,14 @@ func (s *facilitiesService) TriggerOTAUpdate(ctx context.Context, assetIDs []str
 	if len(assetIDs) == 0 || releaseID == "" {
 		return nil, errors.New("asset_ids and release_id are required")
 	}
-	jobs := make([]*facilities.DeviceOTAJob, 0, len(assetIDs))
-	for _, assetID := range assetIDs {
-		job, err := s.repo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{
+	jobs := make([]*facilities.DeviceOTAJob, len(assetIDs))
+	for i, assetID := range assetIDs {
+		jobs[i] = &facilities.DeviceOTAJob{
 			AssetID:   assetID,
 			ReleaseID: releaseID,
-		})
-		if err != nil {
-			return nil, err
 		}
-		jobs = append(jobs, job)
 	}
-	return jobs, nil
+	return s.repo.BatchCreateOTAJobs(ctx, jobs)
 }
 
 func (s *facilitiesService) ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error) {

@@ -266,6 +266,24 @@ func (m *mockRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*
 	return job, nil
 }
 
+func (m *mockRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error) {
+	now := time.Now().UTC()
+	result := make([]*DeviceOTAJob, len(jobs))
+	for i, job := range jobs {
+		cp := *job
+		if cp.JobID == "" {
+			cp.JobID = "ota-job-uuid-created"
+		}
+		cp.Status = "pending"
+		cp.ScheduledAt = now
+		cp.CreatedAt = now
+		cp.UpdatedAt = now
+		result[i] = &cp
+		m.otaJobs[cp.AssetID] = append(m.otaJobs[cp.AssetID], &cp)
+	}
+	return result, nil
+}
+
 func (m *mockRepository) UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error) {
 	now := time.Now().UTC()
 	for _, jobs := range m.otaJobs {

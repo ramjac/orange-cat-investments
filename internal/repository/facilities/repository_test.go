@@ -129,6 +129,9 @@ func TestFacilitiesRepository(t *testing.T) {
 		_, err = pgxRepo.CreateOTAJob(ctx, &facilities.DeviceOTAJob{})
 		assert.Error(t, err)
 
+		_, err = pgxRepo.BatchCreateOTAJobs(ctx, []*facilities.DeviceOTAJob{{AssetID: "asset-1"}})
+		assert.Error(t, err)
+
 		_, err = pgxRepo.UpdateOTAJobStatus(ctx, "job-1", "completed", nil, nil)
 		assert.Error(t, err)
 
@@ -245,6 +248,14 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 	})
 	if err != nil || otaJob.JobID == "" {
 		t.Fatalf("expected OTA job created, got %v, err=%v", otaJob, err)
+	}
+
+	batchJobs, err := repo.BatchCreateOTAJobs(context.Background(), []*facilities.DeviceOTAJob{
+		{AssetID: "asset-002", ReleaseID: release.ReleaseID},
+		{AssetID: "asset-003", ReleaseID: release.ReleaseID},
+	})
+	if err != nil || len(batchJobs) != 2 {
+		t.Fatalf("expected 2 batch OTA jobs created, got %v, err=%v", batchJobs, err)
 	}
 
 	otaJobs, err := repo.ListOTAJobsByAsset(context.Background(), "asset-001")
