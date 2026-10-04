@@ -65,6 +65,23 @@ func TestCoreInvestService(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("GetBacktestRun", func(t *testing.T) {
+		run, err := svc.GetBacktestRun(ctx, "backtest-001")
+		require.NoError(t, err)
+		assert.NotNil(t, run)
+		assert.Equal(t, "backtest-001", run.BacktestID)
+
+		_, err = svc.GetBacktestRun(ctx, "")
+		require.Error(t, err)
+		assert.Equal(t, "backtest id cannot be empty", err.Error())
+	})
+
+	t.Run("ListBacktestRuns", func(t *testing.T) {
+		runs, err := svc.ListBacktestRuns(ctx, 10, 0)
+		require.NoError(t, err)
+		assert.NotEmpty(t, runs)
+	})
+
 	t.Run("GenerateStatement", func(t *testing.T) {
 		stmt, err := svc.GenerateStatement(ctx, "port-001", 2024)
 		require.NoError(t, err)
