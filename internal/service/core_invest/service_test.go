@@ -182,6 +182,16 @@ func TestCoreInvestService(t *testing.T) {
 		assert.Len(t, models, 2)
 		assert.Equal(t, "mdl-yolov8-cat-pose-v3", models[0]["model_id"])
 		assert.Equal(t, "mdl-whisker-audio-v1", models[1]["model_id"])
+
+		expectedIDs := []string{"mdl-yolov8-cat-pose-v3", "mdl-whisker-audio-v1"}
+		expectedKeys := []string{"model_id", "name", "version", "accuracy", "drift", "status", "created_at"}
+
+		for i, model := range models {
+			for _, key := range expectedKeys {
+				assert.Contains(t, model, key, "model at index %d should contain key %s", i, key)
+			}
+			assert.Equal(t, expectedIDs[i], model["model_id"])
+		}
 	})
 
 	t.Run("LogModelDrift", func(t *testing.T) {
@@ -214,5 +224,47 @@ func TestCoreInvestService(t *testing.T) {
 		assert.Equal(t, felineID, res["feline_id"])
 		assert.Equal(t, "purring", res["vocalization_type"])
 		assert.Equal(t, 28.5, res["frequency_hz"])
+		assert.Equal(t, 88.2, res["decibel_level"])
+		assert.Equal(t, 0.982, res["confidence"])
+	})
+
+	t.Run("CameraStreamsQueryMethods", func(t *testing.T) {
+		stream, err := svc.RegisterCameraStream(ctx, "cam-02", "rtsp://camera2/stream", "rtsp")
+		require.NoError(t, err)
+
+		fetched, err := svc.GetCameraStream(ctx, stream.StreamID)
+		require.NoError(t, err)
+		assert.Equal(t, stream.StreamID, fetched.StreamID)
+
+		_, err = svc.GetCameraStream(ctx, "")
+		assert.Error(t, err)
+
+		streams, err := svc.ListCameraStreams(ctx, 10, 0)
+		require.NoError(t, err)
+		assert.NotEmpty(t, streams)
+	})
+
+	t.Run("BrokerageOrdersQueryMethods", func(t *testing.T) {
+		order, err := svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-002",
+			BrokerName:  "InteractiveBrokers",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    50,
+			Price:       10.0,
+		})
+		require.NoError(t, err)
+
+		fetched, err := svc.GetBrokerageOrder(ctx, order.OrderID)
+		require.NoError(t, err)
+		assert.Equal(t, order.OrderID, fetched.OrderID)
+
+		_, err = svc.GetBrokerageOrder(ctx, "")
+		assert.Error(t, err)
+
+		orders, err := svc.ListBrokerageOrders(ctx, 10, 0)
+		require.NoError(t, err)
+		assert.NotEmpty(t, orders)
 	})
 }
+
