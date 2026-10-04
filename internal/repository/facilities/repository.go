@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -122,6 +123,7 @@ type Repository interface {
 	CreateFirmwareRelease(ctx context.Context, release *FirmwareRelease) (*FirmwareRelease, error)
 	ListFirmwareReleases(ctx context.Context, deviceType string) ([]*FirmwareRelease, error)
 	CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*DeviceOTAJob, error)
+	BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error)
 	UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error)
 	ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*DeviceOTAJob, error)
 	RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error)
@@ -255,20 +257,67 @@ func (r *pgxRepository) BatchInsertMaintenanceLogs(ctx context.Context, logs []*
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	if len(logs) == 0 {
+		return []*MaintenanceLog{}, nil
+	}
 
-	query := `INSERT INTO facilities.maintenance_logs (ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING log_id, synced_at, created_at`
-	result := make([]*MaintenanceLog, len(logs))
+	n := len(logs)
+	ticketIDs := make([]*string, n)
+	assetIDs := make([]string, n)
+	technicianIDs := make([]*string, n)
+	qrCodes := make([]string, n)
+	actions := make([]string, n)
+	notes := make([]*string, n)
+	createdAts := make([]time.Time, n)
+
 	for i, l := range logs {
-		cp := *l
-		if cp.CreatedAt.IsZero() {
-			cp.CreatedAt = time.Now().UTC()
+		ticketIDs[i] = l.TicketID
+		assetIDs[i] = l.AssetID
+		technicianIDs[i] = l.TechnicianID
+		qrCodes[i] = l.QRCodeScanned
+		actions[i] = l.ActionTaken
+		notes[i] = l.Notes
+		if l.CreatedAt.IsZero() {
+			createdAts[i] = time.Now().UTC()
+		} else {
+			createdAts[i] = l.CreatedAt
 		}
-		err := r.db.QueryRow(ctx, query, cp.TicketID, cp.AssetID, cp.TechnicianID, cp.QRCodeScanned, cp.ActionTaken, cp.Notes, cp.CreatedAt).Scan(&cp.LogID, &cp.SyncedAt, &cp.CreatedAt)
-		if err != nil {
+	}
+
+	query := `INSERT INTO facilities.maintenance_logs (
+		ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, created_at
+	) SELECT * FROM UNNEST(
+		$1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[], $7::timestamptz[]
+	) RETURNING log_id, ticket_id, asset_id, technician_id, qr_code_scanned, action_taken, notes, synced_at, created_at`
+
+	rows, err := r.db.Query(ctx, query, ticketIDs, assetIDs, technicianIDs, qrCodes, actions, notes, createdAts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]*MaintenanceLog, 0, n)
+	for rows.Next() {
+		var l MaintenanceLog
+		if err := rows.Scan(
+			&l.LogID,
+			&l.TicketID,
+			&l.AssetID,
+			&l.TechnicianID,
+			&l.QRCodeScanned,
+			&l.ActionTaken,
+			&l.Notes,
+			&l.SyncedAt,
+			&l.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
-		result[i] = &cp
+		result = append(result, &l)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -345,6 +394,35 @@ func (r *pgxRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*D
 		return nil, err
 	}
 	return job, nil
+}
+
+func (r *pgxRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOTAJob) ([]*DeviceOTAJob, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if len(jobs) == 0 {
+		return []*DeviceOTAJob{}, nil
+	}
+
+	batch := &pgx.Batch{}
+	query := `INSERT INTO facilities.device_ota_jobs (asset_id, release_id, status) VALUES ($1, $2, 'pending') RETURNING job_id, asset_id, release_id, status, error_message, scheduled_at, completed_at, created_at, updated_at`
+	for _, job := range jobs {
+		batch.Queue(query, job.AssetID, job.ReleaseID)
+	}
+
+	br := r.db.SendBatch(ctx, batch)
+	defer br.Close()
+
+	result := make([]*DeviceOTAJob, 0, len(jobs))
+	for i := 0; i < len(jobs); i++ {
+		var j DeviceOTAJob
+		err := br.QueryRow().Scan(&j.JobID, &j.AssetID, &j.ReleaseID, &j.Status, &j.ErrorMessage, &j.ScheduledAt, &j.CompletedAt, &j.CreatedAt, &j.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, &j)
+	}
+	return result, nil
 }
 
 func (r *pgxRepository) UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error) {

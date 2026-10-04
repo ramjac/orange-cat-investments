@@ -2,6 +2,7 @@ package core_invest_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,12 +13,27 @@ import (
 )
 
 type dummyPublisher struct {
-	publishedTopic string
+	publishedTopic   string
+	publishedPayload any
+	err              error
 }
 
 func (p *dummyPublisher) Publish(topic string, payload any) error {
 	p.publishedTopic = topic
-	return nil
+	p.publishedPayload = payload
+	return p.err
+}
+
+type errRepo struct {
+	repo.Repository
+}
+
+func (e *errRepo) CreateBacktestRun(ctx context.Context, run *repo.BacktestRun) (*repo.BacktestRun, error) {
+	return nil, errors.New("db create error")
+}
+
+func (e *errRepo) GetBacktestRunByID(ctx context.Context, id string) (*repo.BacktestRun, error) {
+	return nil, errors.New("db get error")
 }
 
 func TestCoreInvestService(t *testing.T) {
@@ -39,40 +55,103 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("ExecuteBrokerageOrder", func(t *testing.T) {
-		order, err := svc.ExecuteBrokerageOrder(ctx, "port-001", "InteractiveBrokers", "ORNG", "buy", 100, 50.0, nil, nil)
+		order, err := svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "InteractiveBrokers",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    100,
+			Price:       50.0,
+		})
 		require.NoError(t, err)
 		assert.Equal(t, "executed", order.Status)
 
-		_, err = svc.ExecuteBrokerageOrder(ctx, "port-001", "Broker", "ORNG", "invalid", 100, 50.0, nil, nil)
+		_, err = svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "invalid",
+			Quantity:    100,
+			Price:       50.0,
+		})
 		assert.Error(t, err)
 
-		_, err = svc.ExecuteBrokerageOrder(ctx, "port-001", "Broker", "ORNG", "buy", -5, 50.0, nil, nil)
+		_, err = svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    -5,
+			Price:       50.0,
+		})
 		assert.Error(t, err)
 	})
 
 	t.Run("StartBacktestRun", func(t *testing.T) {
 		start := time.Now().Add(-24 * time.Hour)
 		end := time.Now()
-		run, err := svc.StartBacktestRun(ctx, "strat-001", start, end, "{}")
-		require.NoError(t, err)
-		assert.Equal(t, "pending", run.Status)
-		assert.Equal(t, "events.investment.backtest_requested.v1", pub.publishedTopic)
 
-		_, err = svc.StartBacktestRun(ctx, "", start, end, "{}")
-		assert.Error(t, err)
+		t.Run("Success with custom parameters and publisher", func(t *testing.T) {
+			p := &dummyPublisher{}
+			s := service.NewServiceWithPublisher(repository, p)
+			run, err := s.StartBacktestRun(ctx, "strat-001", start, end, `{"lookback":30}`)
+			require.NoError(t, err)
+			assert.Equal(t, "pending", run.Status)
+			assert.Equal(t, "strat-001", run.StrategyID)
+			assert.Equal(t, `{"lookback":30}`, run.Parameters)
+			assert.Equal(t, "events.investment.backtest_requested.v1", p.publishedTopic)
+			payloadMap, ok := p.publishedPayload.(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, run.BacktestID, payloadMap["backtest_id"])
+			assert.Equal(t, "strat-001", payloadMap["strategy_id"])
+		})
 
-		_, err = svc.StartBacktestRun(ctx, "strat-001", end, start, "{}")
-		assert.Error(t, err)
+		t.Run("Success with empty parameters defaulting to json object", func(t *testing.T) {
+			s := service.NewService(repository)
+			run, err := s.StartBacktestRun(ctx, "strat-002", start, end, "")
+			require.NoError(t, err)
+			assert.Equal(t, "{}", run.Parameters)
+		})
+
+		t.Run("Missing strategy_id error", func(t *testing.T) {
+			_, err := svc.StartBacktestRun(ctx, "", start, end, "{}")
+			require.Error(t, err)
+			assert.Equal(t, "strategy_id is required", err.Error())
+		})
+
+		t.Run("end_date before start_date error", func(t *testing.T) {
+			_, err := svc.StartBacktestRun(ctx, "strat-001", end, start, "{}")
+			require.Error(t, err)
+			assert.Equal(t, "end_date must be after start_date", err.Error())
+		})
+
+		t.Run("Repository create error", func(t *testing.T) {
+			failingSvc := service.NewService(&errRepo{Repository: repository})
+			_, err := failingSvc.StartBacktestRun(ctx, "strat-001", start, end, "{}")
+			require.Error(t, err)
+			assert.Equal(t, "db create error", err.Error())
+		})
 	})
 
 	t.Run("GetBacktestRun", func(t *testing.T) {
-		run, err := svc.GetBacktestRun(ctx, "backtest-uuid-001")
-		require.NoError(t, err)
-		assert.Equal(t, "backtest-uuid-001", run.BacktestID)
+		t.Run("Success", func(t *testing.T) {
+			run, err := svc.GetBacktestRun(ctx, "backtest-001")
+			require.NoError(t, err)
+			assert.Equal(t, "backtest-001", run.BacktestID)
+		})
 
-		_, err = svc.GetBacktestRun(ctx, "")
-		assert.Error(t, err)
-		assert.EqualError(t, err, "backtest id cannot be empty")
+		t.Run("Empty ID error", func(t *testing.T) {
+			_, err := svc.GetBacktestRun(ctx, "")
+			require.Error(t, err)
+			assert.Equal(t, "backtest id cannot be empty", err.Error())
+		})
+
+		t.Run("Repository get error", func(t *testing.T) {
+			failingSvc := service.NewService(&errRepo{Repository: repository})
+			_, err := failingSvc.GetBacktestRun(ctx, "backtest-001")
+			require.Error(t, err)
+			assert.Equal(t, "db get error", err.Error())
+		})
 	})
 
 	t.Run("ListBacktestRuns", func(t *testing.T) {
@@ -81,10 +160,28 @@ func TestCoreInvestService(t *testing.T) {
 		assert.NotEmpty(t, runs)
 	})
 
+	t.Run("GenerateStatement", func(t *testing.T) {
+		stmt, err := svc.GenerateStatement(ctx, "port-001", 2024)
+		require.NoError(t, err)
+		assert.Equal(t, 2024, stmt["year"])
+		assert.Equal(t, "port-001", stmt["portfolio_id"])
+		assert.Equal(t, "https://statements.oci.local/documents/port-001/2024/form1099b-port-001-2024.pdf", stmt["form_1099b_url"])
+
+		// Invalid portfolio
+		_, err = svc.GenerateStatement(ctx, "", 2024)
+		assert.Error(t, err)
+
+		// Invalid year
+		_, err = svc.GenerateStatement(ctx, "port-001", 1990)
+		assert.Error(t, err)
+	})
+
 	t.Run("ListMLModels", func(t *testing.T) {
 		models, err := svc.ListMLModels(ctx)
 		require.NoError(t, err)
 		assert.Len(t, models, 2)
+		assert.Equal(t, "mdl-yolov8-cat-pose-v3", models[0]["model_id"])
+		assert.Equal(t, "mdl-whisker-audio-v1", models[1]["model_id"])
 
 		expectedIDs := []string{"mdl-yolov8-cat-pose-v3", "mdl-whisker-audio-v1"}
 		expectedKeys := []string{"model_id", "name", "version", "accuracy", "drift", "status", "created_at"}
@@ -98,14 +195,19 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("LogModelDrift", func(t *testing.T) {
-		payload := map[string]interface{}{"model_id": "mdl-yolov8-cat-pose-v3", "metric": "accuracy_drop"}
+		payload := map[string]interface{}{
+			"model_id":    "mdl-whisker-audio-v1",
+			"metric":      "accuracy",
+			"drift_value": 0.012,
+		}
+
 		res, err := svc.LogModelDrift(ctx, payload)
 		require.NoError(t, err)
-		assert.Equal(t, "recorded", res["status"])
 		assert.Equal(t, "drift-018f-99", res["drift_id"])
+		assert.Equal(t, "recorded", res["status"])
 		assert.Equal(t, 0.012, res["confidence_drift"])
-		assert.Equal(t, payload, res["payload"])
 		assert.NotEmpty(t, res["evaluated_at"])
+		assert.Equal(t, payload, res["payload"])
 
 		// Nil payload test case
 		resNil, err := svc.LogModelDrift(ctx, nil)
@@ -115,10 +217,11 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("ClassifyAcoustics", func(t *testing.T) {
-		res, err := svc.ClassifyAcoustics(ctx, "feline-007")
+		felineID := "feline-123"
+		res, err := svc.ClassifyAcoustics(ctx, felineID)
 		require.NoError(t, err)
 		assert.Equal(t, "ac-018f-777", res["acoustic_id"])
-		assert.Equal(t, "feline-007", res["feline_id"])
+		assert.Equal(t, felineID, res["feline_id"])
 		assert.Equal(t, "purring", res["vocalization_type"])
 		assert.Equal(t, 28.5, res["frequency_hz"])
 		assert.Equal(t, 88.2, res["decibel_level"])
@@ -142,7 +245,14 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("BrokerageOrdersQueryMethods", func(t *testing.T) {
-		order, err := svc.ExecuteBrokerageOrder(ctx, "port-002", "InteractiveBrokers", "ORNG", "buy", 50, 10.0, nil, nil)
+		order, err := svc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-002",
+			BrokerName:  "InteractiveBrokers",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    50,
+			Price:       10.0,
+		})
 		require.NoError(t, err)
 
 		fetched, err := svc.GetBrokerageOrder(ctx, order.OrderID)
@@ -156,20 +266,5 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, orders)
 	})
-
-	t.Run("GenerateStatement", func(t *testing.T) {
-		stmt, err := svc.GenerateStatement(ctx, "port-001", 2024)
-		require.NoError(t, err)
-		assert.Equal(t, 2024, stmt["year"])
-		assert.Equal(t, "port-001", stmt["portfolio_id"])
-		assert.Equal(t, "https://statements.oci.local/documents/port-001/2024/form1099b-port-001-2024.pdf", stmt["form_1099b_url"])
-
-		// Invalid portfolio
-		_, err = svc.GenerateStatement(ctx, "", 2024)
-		assert.Error(t, err)
-
-		// Invalid year
-		_, err = svc.GenerateStatement(ctx, "port-001", 1990)
-		assert.Error(t, err)
-	})
 }
+
