@@ -96,4 +96,44 @@ func TestCoreInvestService(t *testing.T) {
 		_, err = svc.GenerateStatement(ctx, "port-001", 1990)
 		assert.Error(t, err)
 	})
+
+	t.Run("ListMLModels", func(t *testing.T) {
+		models, err := svc.ListMLModels(ctx)
+		require.NoError(t, err)
+		assert.Len(t, models, 2)
+		assert.Equal(t, "mdl-yolov8-cat-pose-v3", models[0]["model_id"])
+		assert.Equal(t, "mdl-whisker-audio-v1", models[1]["model_id"])
+	})
+
+	t.Run("LogModelDrift", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"model_id":    "mdl-whisker-audio-v1",
+			"metric":      "accuracy",
+			"drift_value": 0.012,
+		}
+
+		res, err := svc.LogModelDrift(ctx, payload)
+		require.NoError(t, err)
+		assert.Equal(t, "drift-018f-99", res["drift_id"])
+		assert.Equal(t, "recorded", res["status"])
+		assert.Equal(t, 0.012, res["confidence_drift"])
+		assert.NotEmpty(t, res["evaluated_at"])
+		assert.Equal(t, payload, res["payload"])
+
+		// Nil payload test case
+		resNil, err := svc.LogModelDrift(ctx, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "drift-018f-99", resNil["drift_id"])
+		assert.Nil(t, resNil["payload"])
+	})
+
+	t.Run("ClassifyAcoustics", func(t *testing.T) {
+		felineID := "feline-123"
+		res, err := svc.ClassifyAcoustics(ctx, felineID)
+		require.NoError(t, err)
+		assert.Equal(t, "ac-018f-777", res["acoustic_id"])
+		assert.Equal(t, felineID, res["feline_id"])
+		assert.Equal(t, "purring", res["vocalization_type"])
+		assert.Equal(t, 28.5, res["frequency_hz"])
+	})
 }
