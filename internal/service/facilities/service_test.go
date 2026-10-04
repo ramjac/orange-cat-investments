@@ -15,7 +15,7 @@ func (m *mockRepo) GetAssetByID(ctx context.Context, id string) (*facilities.Har
 	return &facilities.HardwareAsset{AssetID: id, SerialNumber: "CAM-MOCK-01"}, nil
 }
 
-func (m *mockRepo) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string) ([]*facilities.HardwareAsset, error) {
+func (m *mockRepo) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error) {
 	return []*facilities.HardwareAsset{
 		{AssetID: "mock-asset-1"},
 	}, nil
