@@ -50,6 +50,16 @@ func TestCoreInvestRepository(t *testing.T) {
 		updated, err := repo.UpdateBrokerageOrderStatus(ctx, order.OrderID, "executed", &now)
 		require.NoError(t, err)
 		assert.Equal(t, "executed", updated.Status)
+
+		fetchedOrder, err := repo.GetBrokerageOrderByID(ctx, order.OrderID)
+		require.NoError(t, err)
+		assert.Equal(t, order.OrderID, fetchedOrder.OrderID)
+		assert.Equal(t, "executed", fetchedOrder.Status)
+
+		defaultOrder, err := repo.GetBrokerageOrderByID(ctx, "non-existent-order-id")
+		require.NoError(t, err)
+		assert.Equal(t, "non-existent-order-id", defaultOrder.OrderID)
+		assert.Equal(t, "InteractiveBrokers", defaultOrder.BrokerName)
 	})
 
 	t.Run("BacktestRun Operations", func(t *testing.T) {
@@ -69,7 +79,40 @@ func TestCoreInvestRepository(t *testing.T) {
 
 	t.Run("PgxRepository nil DB error", func(t *testing.T) {
 		pgxRepo := core_invest.NewRepository(nil)
+
 		_, err := pgxRepo.GetCameraStreamByID(ctx, "123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database connection is nil")
+
+		_, err = pgxRepo.ListCameraStreams(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateCameraStream(ctx, &core_invest.CameraStream{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.GetBrokerageOrderByID(ctx, "123")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "database connection is nil")
+
+		_, err = pgxRepo.ListBrokerageOrders(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateBrokerageOrder(ctx, &core_invest.BrokerageOrder{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.UpdateBrokerageOrderStatus(ctx, "123", "executed", nil)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.GetBacktestRunByID(ctx, "123")
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListBacktestRuns(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CreateBacktestRun(ctx, &core_invest.BacktestRun{})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.UpdateBacktestRunResults(ctx, "123", "completed", "{}")
 		assert.Error(t, err)
 	})
 }
