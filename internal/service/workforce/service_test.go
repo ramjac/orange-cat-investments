@@ -100,6 +100,43 @@ func TestWorkforceService(t *testing.T) {
 		assert.Equal(t, "Tuna delight", storedCS.DietaryPlan)
 	})
 
+	t.Run("Update and Get Care Schedule", func(t *testing.T) {
+		// Happy path: Update care schedule with valid FelineID
+		notes := "Daily vitamins"
+		cs := &workforce.CareSchedule{
+			FelineID:             "emp-feline-garfield",
+			DietaryPlan:          "Salmon & Catnip Supreme",
+			FeedingTimes:         []string{"08:00 AM", "12:00 PM", "06:00 PM"},
+			SpecialMedicalNeeds:  &notes,
+			EmergencyMedicalHold: false,
+		}
+
+		updated, err := svc.UpdateCareSchedule(ctx, cs)
+		assert.NoError(t, err)
+		assert.Equal(t, "emp-feline-garfield", updated.FelineID)
+		assert.Equal(t, "Salmon & Catnip Supreme", updated.DietaryPlan)
+
+		// Get updated Care Schedule
+		fetched, err := svc.GetCareSchedule(ctx, "emp-feline-garfield")
+		assert.NoError(t, err)
+		assert.Equal(t, "Salmon & Catnip Supreme", fetched.DietaryPlan)
+
+		// Boundary/Validation: nil CareSchedule
+		_, err = svc.UpdateCareSchedule(ctx, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "valid care schedule and feline id required")
+
+		// Boundary/Validation: CareSchedule with empty FelineID
+		_, err = svc.UpdateCareSchedule(ctx, &workforce.CareSchedule{DietaryPlan: "Tuna"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "valid care schedule and feline id required")
+
+		// Boundary/Validation: GetCareSchedule with empty felineID
+		_, err = svc.GetCareSchedule(ctx, "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "feline id cannot be empty")
+	})
+
 	t.Run("Emergency Medical Hold Toggle", func(t *testing.T) {
 		cs, err := svc.SetEmergencyMedicalHold(ctx, "emp-feline-garfield", true)
 		assert.NoError(t, err)
