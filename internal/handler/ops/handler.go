@@ -72,6 +72,9 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = int32(l)
+		if limit > 100 {
+			limit = 100
+		}
 	}
 	if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 		offset = int32(o)
