@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type mockRepo struct{}
+type mockRepo struct {
+	recordFeederTelemetryErr error
+}
 
 func (m *mockRepo) GetAssetByID(ctx context.Context, id string) (*facilities.HardwareAsset, error) {
 	return &facilities.HardwareAsset{AssetID: id, SerialNumber: "CAM-MOCK-01"}, nil
@@ -65,6 +67,9 @@ func (m *mockRepo) ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*f
 }
 
 func (m *mockRepo) RecordFeederTelemetry(ctx context.Context, t *facilities.FeederTelemetry) (*facilities.FeederTelemetry, error) {
+	if m.recordFeederTelemetryErr != nil {
+		return nil, m.recordFeederTelemetryErr
+	}
 	t.TelemetryID = "mock-feeder-123"
 	return t, nil
 }
@@ -170,3 +175,91 @@ func TestFacilitiesService(t *testing.T) {
 	assert.Equal(t, "ingested", envRes["status"])
 }
 
+func TestDisburseSnack(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("missing asset_id returns error", func(t *testing.T) {
+		repo := &mockRepo{}
+		service := NewService(repo)
+
+		res, err := service.DisburseSnack(ctx, map[string]interface{}{
+			"snack_grams": 20.0,
+		})
+		assert.Error(t, err)
+		assert.Nil(t, res)
+		assert.Contains(t, err.Error(), "asset_id is required")
+	})
+
+	t.Run("default snack_grams when missing or non-positive", func(t *testing.T) {
+		repo := &mockRepo{}
+		service := NewService(repo)
+
+		// Test omitted snack_grams
+		res, err := service.DisburseSnack(ctx, map[string]interface{}{
+			"asset_id": "feeder-001",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "disbursed", res["status"])
+		assert.Equal(t, 15.0, res["snack_grams"])
+
+		rec, ok := res["record"].(*facilities.FeederTelemetry)
+		assert.True(t, ok)
+		assert.Equal(t, 15.0, rec.FoodDispensedGrams)
+		assert.Equal(t, 15.0, rec.FoodConsumedGrams)
+		assert.True(t, rec.SnackDisbursed)
+		assert.Nil(t, rec.FelineID)
+
+		// Test non-positive snack_grams (<= 0)
+		resZero, errZero := service.DisburseSnack(ctx, map[string]interface{}{
+			"asset_id":    "feeder-001",
+			"snack_grams": 0,
+		})
+		assert.NoError(t, errZero)
+		assert.Equal(t, 15.0, resZero["snack_grams"])
+
+		resNeg, errNeg := service.DisburseSnack(ctx, map[string]interface{}{
+			"asset_id":    "feeder-001",
+			"snack_grams": -10.0,
+		})
+		assert.NoError(t, errNeg)
+		assert.Equal(t, 15.0, resNeg["snack_grams"])
+	})
+
+	t.Run("custom snack_grams and feline_id", func(t *testing.T) {
+		repo := &mockRepo{}
+		service := NewService(repo)
+
+		res, err := service.DisburseSnack(ctx, map[string]interface{}{
+			"asset_id":    "feeder-002",
+			"snack_grams": 25.5,
+			"feline_id":   "cat-999",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "disbursed", res["status"])
+		assert.Equal(t, 25.5, res["snack_grams"])
+		assert.Equal(t, "mock-feeder-123", res["telemetry_id"])
+
+		rec, ok := res["record"].(*facilities.FeederTelemetry)
+		assert.True(t, ok)
+		assert.Equal(t, "feeder-002", rec.AssetID)
+		assert.Equal(t, 25.5, rec.FoodDispensedGrams)
+		assert.Equal(t, 25.5, rec.FoodConsumedGrams)
+		assert.True(t, rec.SnackDisbursed)
+		assert.NotNil(t, rec.FelineID)
+		assert.Equal(t, "cat-999", *rec.FelineID)
+	})
+
+	t.Run("repository error handling", func(t *testing.T) {
+		repo := &mockRepo{
+			recordFeederTelemetryErr: assert.AnError,
+		}
+		service := NewService(repo)
+
+		res, err := service.DisburseSnack(ctx, map[string]interface{}{
+			"asset_id": "feeder-003",
+		})
+		assert.Error(t, err)
+		assert.Nil(t, res)
+		assert.Contains(t, err.Error(), "failed to record snack disbursal")
+	})
+}
