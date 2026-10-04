@@ -84,20 +84,14 @@ func (c *Client) initMockServers() error {
 
 	// Register Facilities HTTP Endpoints on serverMux
 	listAssetsHandler := func(w http.ResponseWriter, r *http.Request) {
-		items, err := facService.ListAssets(r.Context(), 20, nil, nil)
+		var assetTypePtr *string
+		if assetType := r.URL.Query().Get("asset_type"); assetType != "" {
+			assetTypePtr = &assetType
+		}
+		items, err := facService.ListAssets(r.Context(), 20, nil, nil, assetTypePtr)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-		assetType := r.URL.Query().Get("asset_type")
-		if assetType != "" {
-			var filtered []*facilities_repo.HardwareAsset
-			for _, item := range items {
-				if item.AssetType == assetType {
-					filtered = append(filtered, item)
-				}
-			}
-			items = filtered
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})
@@ -235,7 +229,12 @@ func (c *Client) initMockServers() error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		ticket, err := opsService.CreateITTicket(r.Context(), "facilities/assets", req.Title, fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description), "emp-human-bob", nil)
+		ticket, err := opsService.CreateITTicket(r.Context(), &ops_svc.CreateITTicketRequest{
+			ForgejoRepo:    "facilities/assets",
+			Title:          req.Title,
+			Body:           fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description),
+			AuthorUsername: "emp-human-bob",
+		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
