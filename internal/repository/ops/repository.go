@@ -2,8 +2,11 @@ package ops
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -31,11 +34,45 @@ type Repository interface {
 }
 
 type pgxRepository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	mu      sync.RWMutex
+	tickets map[string]*ITTicket
 }
 
 func NewRepository(db *pgxpool.Pool) Repository {
-	return &pgxRepository{db: db}
+	repo := &pgxRepository{
+		db:      db,
+		tickets: make(map[string]*ITTicket),
+	}
+	repo.seedDefaults()
+	return repo
+}
+
+func (r *pgxRepository) seedDefaults() {
+	now := time.Now().UTC()
+	body001 := "Sample IT ticket body"
+	r.tickets["ticket-001"] = &ITTicket{
+		TicketID:       "ticket-001",
+		ForgejoRepo:    "infra/k3s-cluster",
+		Title:          "K3s Node High Memory Warning",
+		Body:           &body001,
+		State:          "open",
+		AuthorUsername: "emp-human-frank",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	bodyOpen001 := "High priority memory alert on k3s worker node 2"
+	r.tickets["ticket-uuid-open-001"] = &ITTicket{
+		TicketID:       "ticket-uuid-open-001",
+		ForgejoRepo:    "infra/k3s-cluster",
+		Title:          "High Memory Usage Alert",
+		Body:           &bodyOpen001,
+		State:          "open",
+		AuthorUsername: "emp-human-frank",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
 }
 
 func (r *pgxRepository) GetITTicketByID(ctx context.Context, ticketID string) (*ITTicket, error) {
@@ -51,23 +88,23 @@ func (r *pgxRepository) GetITTicketByID(ctx context.Context, ticketID string) (*
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
 	}
 
-	now := time.Now().UTC()
-	body := "Sample IT ticket body"
-	return &ITTicket{
-		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s-cluster",
-		Title:          "K3s Node High Memory Warning",
-		Body:           &body,
-		State:          "open",
-		AuthorUsername: "emp-human-frank",
-		CreatedAt:      now,
-		UpdatedAt:      now,
-	}, nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	ticket, ok := r.tickets[ticketID]
+	if !ok {
+		return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+	}
+	cp := *ticket
+	return &cp, nil
 }
 
 func (r *pgxRepository) ListOpenITTickets(ctx context.Context, limit, offset int32) ([]*ITTicket, error) {
@@ -99,20 +136,17 @@ func (r *pgxRepository) ListOpenITTickets(ctx context.Context, limit, offset int
 		return tickets, rows.Err()
 	}
 
-	now := time.Now().UTC()
-	body := "High priority memory alert on k3s worker node 2"
-	return []*ITTicket{
-		{
-			TicketID:       "ticket-uuid-open-001",
-			ForgejoRepo:    "infra/k3s-cluster",
-			Title:          "High Memory Usage Alert",
-			Body:           &body,
-			State:          "open",
-			AuthorUsername: "emp-human-frank",
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		},
-	}, nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var tickets []*ITTicket
+	for _, t := range r.tickets {
+		if t.State == "open" {
+			cp := *t
+			tickets = append(tickets, &cp)
+		}
+	}
+	return tickets, nil
 }
 
 func (r *pgxRepository) ListITTickets(ctx context.Context, limit, offset int32) ([]*ITTicket, error) {
@@ -143,7 +177,15 @@ func (r *pgxRepository) ListITTickets(ctx context.Context, limit, offset int32) 
 		return tickets, rows.Err()
 	}
 
-	return r.ListOpenITTickets(ctx, limit, offset)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var tickets []*ITTicket
+	for _, t := range r.tickets {
+		cp := *t
+		tickets = append(tickets, &cp)
+	}
+	return tickets, nil
 }
 
 func (r *pgxRepository) CreateITTicket(ctx context.Context, ticket *ITTicket) (*ITTicket, error) {
@@ -168,12 +210,19 @@ func (r *pgxRepository) CreateITTicket(ctx context.Context, ticket *ITTicket) (*
 		return &t, nil
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	now := time.Now().UTC()
-	ticket.TicketID = "ticket-uuid-created"
+	if ticket.TicketID == "" {
+		ticket.TicketID = "ticket-uuid-created"
+	}
 	ticket.State = "open"
 	ticket.CreatedAt = now
 	ticket.UpdatedAt = now
-	return ticket, nil
+	r.tickets[ticket.TicketID] = ticket
+	cp := *ticket
+	return &cp, nil
 }
 
 func (r *pgxRepository) AcknowledgeITTicket(ctx context.Context, ticketID, acknowledgedBy string) (*ITTicket, error) {
@@ -195,25 +244,29 @@ func (r *pgxRepository) AcknowledgeITTicket(ctx context.Context, ticketID, ackno
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	ticket, ok := r.tickets[ticketID]
+	if !ok {
+		return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+	}
+
 	now := time.Now().UTC()
-	body := "High priority alert acknowledged via Pebble watch"
-	return &ITTicket{
-		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s-cluster",
-		Title:          "High Memory Usage Alert",
-		Body:           &body,
-		State:          "acknowledged",
-		AuthorUsername: "emp-human-frank",
-		AcknowledgedAt: &now,
-		AcknowledgedBy: &acknowledgedBy,
-		CreatedAt:      now.Add(-10 * time.Minute),
-		UpdatedAt:      now,
-	}, nil
+	ticket.State = "acknowledged"
+	ticket.AcknowledgedBy = &acknowledgedBy
+	ticket.AcknowledgedAt = &now
+	ticket.UpdatedAt = now
+	cp := *ticket
+	return &cp, nil
 }
 
 func (r *pgxRepository) CloseITTicket(ctx context.Context, ticketID string) (*ITTicket, error) {
@@ -233,19 +286,25 @@ func (r *pgxRepository) CloseITTicket(ctx context.Context, ticketID string) (*IT
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	ticket, ok := r.tickets[ticketID]
+	if !ok {
+		return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+	}
+
 	now := time.Now().UTC()
-	return &ITTicket{
-		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s-cluster",
-		Title:          "High Memory Usage Alert",
-		State:          "closed",
-		AuthorUsername: "emp-human-frank",
-		CreatedAt:      now.Add(-30 * time.Minute),
-		UpdatedAt:      now,
-	}, nil
+	ticket.State = "closed"
+	ticket.UpdatedAt = now
+	cp := *ticket
+	return &cp, nil
 }
