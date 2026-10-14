@@ -300,10 +300,13 @@ func TestVHRRecords(t *testing.T) {
 
 	t.Run("List and Filter VHR Records", func(t *testing.T) {
 		r := NewRepository(nil)
+		vetID := "emp-human-elena"
+		prescriptions := "Amoxicillin 50mg"
 
 		// Create record 1 for Garfield (2026-11-01)
 		rec1 := &VHRRecord{
 			FelineID:          "emp-feline-garfield",
+			VeterinarianID:    &vetID,
 			VisitDate:         "2026-11-01",
 			WeightKG:          5.4,
 			DentalScore:       9,
@@ -313,13 +316,15 @@ func TestVHRRecords(t *testing.T) {
 		c1, err := r.CreateVHRRecord(ctx, rec1)
 		require.NoError(t, err)
 
-		// Create record 2 for Garfield (2026-11-10) - later date
+		// Create record 2 for Garfield (2026-11-10) - later date with prescription
 		rec2 := &VHRRecord{
 			FelineID:          "emp-feline-garfield",
+			VeterinarianID:    &vetID,
 			VisitDate:         "2026-11-10",
 			WeightKG:          5.5,
 			DentalScore:       9,
 			VaccinationStatus: "up_to_date",
+			Prescriptions:     &prescriptions,
 			ClinicalNotes:     "Garfield Visit 2",
 		}
 		c2, err := r.CreateVHRRecord(ctx, rec2)
@@ -328,6 +333,7 @@ func TestVHRRecords(t *testing.T) {
 		// Create record 3 for Barneby (2026-11-05)
 		rec3 := &VHRRecord{
 			FelineID:          "emp-feline-barneby",
+			VeterinarianID:    &vetID,
 			VisitDate:         "2026-11-05",
 			WeightKG:          4.9,
 			DentalScore:       8,
@@ -343,13 +349,20 @@ func TestVHRRecords(t *testing.T) {
 		assert.Len(t, garfieldRecords, 2)
 		// Should be sorted by VisitDate DESC (c2: 2026-11-10 before c1: 2026-11-01)
 		assert.Equal(t, c2.RecordID, garfieldRecords[0].RecordID)
+		assert.Equal(t, "2026-11-10", garfieldRecords[0].VisitDate)
+		assert.Equal(t, 5.5, garfieldRecords[0].WeightKG)
+		assert.Equal(t, &prescriptions, garfieldRecords[0].Prescriptions)
+
 		assert.Equal(t, c1.RecordID, garfieldRecords[1].RecordID)
+		assert.Equal(t, "2026-11-01", garfieldRecords[1].VisitDate)
+		assert.Equal(t, 5.4, garfieldRecords[1].WeightKG)
 
 		// Filter for Barneby
 		barnebyRecords, err := r.ListVHRRecords(ctx, "emp-feline-barneby")
 		require.NoError(t, err)
 		assert.Len(t, barnebyRecords, 1)
 		assert.Equal(t, c3.RecordID, barnebyRecords[0].RecordID)
+		assert.Equal(t, 4.9, barnebyRecords[0].WeightKG)
 
 		// Empty feline ID should list all records sorted by VisitDate DESC
 		allRecords, err := r.ListVHRRecords(ctx, "")

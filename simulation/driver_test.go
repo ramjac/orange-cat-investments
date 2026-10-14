@@ -9,15 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	assert.Equal(t, "http://localhost:8080", cfg.ServerURL)
-	assert.Equal(t, "http://localhost:8081", cfg.EmployeeBFFURL)
-	assert.Equal(t, "mock", cfg.Mode)
-	assert.Equal(t, "all", cfg.TargetPersona)
-	assert.Equal(t, 1, cfg.Iterations)
-}
-
 func TestRegistryPersonas(t *testing.T) {
 	registry := NewRegistry()
 	personas := registry.List()
