@@ -30,7 +30,7 @@ type Service interface {
 	CreateReviewCycle(ctx context.Context, employeeID, reviewType, scheduledFor string, reviewerID, notes *string) (*workforce.ReviewCycle, error)
 	GetReviewCycle(ctx context.Context, id string) (*workforce.ReviewCycle, error)
 	ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*workforce.ReviewCycle, error)
-	UpdateReviewCycle(ctx context.Context, id string, status, reviewerID *string, score *float64, notes *string, completedAt *time.Time) (*workforce.ReviewCycle, error)
+	UpdateReviewCycle(ctx context.Context, params UpdateReviewCycleParams) (*workforce.ReviewCycle, error)
 
 	// Electronic Veterinary Health Records (VHR)
 	CreateVHRRecord(ctx context.Context, rec *workforce.VHRRecord) (*workforce.VHRRecord, error)
@@ -290,49 +290,58 @@ func (s *workforceService) ListReviewCycles(ctx context.Context, employeeID, sta
 	return s.repo.ListReviewCycles(ctx, employeeID, status, reviewType)
 }
 
-func (s *workforceService) UpdateReviewCycle(ctx context.Context, id string, status, reviewerID *string, score *float64, notes *string, completedAt *time.Time) (*workforce.ReviewCycle, error) {
-	if id == "" {
+type UpdateReviewCycleParams struct {
+	ID          string
+	Status      *string
+	ReviewerID  *string
+	Score       *float64
+	Notes       *string
+	CompletedAt *time.Time
+}
+
+func (s *workforceService) UpdateReviewCycle(ctx context.Context, params UpdateReviewCycleParams) (*workforce.ReviewCycle, error) {
+	if params.ID == "" {
 		return nil, errors.New("review cycle id cannot be empty")
 	}
 
-	rc, err := s.repo.GetReviewCycleByID(ctx, id)
+	rc, err := s.repo.GetReviewCycleByID(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	if status != nil {
-		switch *status {
+	if params.Status != nil {
+		switch *params.Status {
 		case "scheduled", "in_progress", "completed", "overdue":
-			rc.Status = *status
+			rc.Status = *params.Status
 		default:
 			return nil, errors.New("invalid status: must be scheduled, in_progress, completed, or overdue")
 		}
 	}
 
-	if reviewerID != nil {
-		rc.ReviewerID = reviewerID
+	if params.ReviewerID != nil {
+		rc.ReviewerID = params.ReviewerID
 	}
 
-	if score != nil {
-		if *score < 0.0 || *score > 5.0 {
+	if params.Score != nil {
+		if *params.Score < 0.0 || *params.Score > 5.0 {
 			return nil, errors.New("score must be between 0.00 and 5.00")
 		}
-		rc.Score = score
+		rc.Score = params.Score
 	}
 
-	if notes != nil {
-		rc.Notes = notes
+	if params.Notes != nil {
+		rc.Notes = params.Notes
 	}
 
 	if rc.Status == "completed" {
-		if completedAt != nil {
-			rc.CompletedAt = completedAt
+		if params.CompletedAt != nil {
+			rc.CompletedAt = params.CompletedAt
 		} else if rc.CompletedAt == nil {
 			now := time.Now().UTC()
 			rc.CompletedAt = &now
 		}
-	} else if completedAt != nil {
-		rc.CompletedAt = completedAt
+	} else if params.CompletedAt != nil {
+		rc.CompletedAt = params.CompletedAt
 	}
 
 	return s.repo.UpdateReviewCycle(ctx, rc)
