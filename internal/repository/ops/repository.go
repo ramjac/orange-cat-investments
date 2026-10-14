@@ -2,9 +2,11 @@ package ops
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
 type ITTicket struct {
@@ -30,11 +32,16 @@ type Repository interface {
 	CloseITTicket(ctx context.Context, ticketID string) (*ITTicket, error)
 }
 
-type pgxRepository struct {
-	db *pgxpool.Pool
+type DBExecutor interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-func NewRepository(db *pgxpool.Pool) Repository {
+type pgxRepository struct {
+	db DBExecutor
+}
+
+func NewRepository(db DBExecutor) Repository {
 	return &pgxRepository{db: db}
 }
 
@@ -51,6 +58,9 @@ func (r *pgxRepository) GetITTicketByID(ctx context.Context, ticketID string) (*
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("ticket not found: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
@@ -195,6 +205,9 @@ func (r *pgxRepository) AcknowledgeITTicket(ctx context.Context, ticketID, ackno
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("ticket not found or already acknowledged/closed: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
@@ -233,6 +246,9 @@ func (r *pgxRepository) CloseITTicket(ctx context.Context, ticketID string) (*IT
 			&t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("ticket not found or already closed: %s", ticketID)
+			}
 			return nil, err
 		}
 		return &t, nil
