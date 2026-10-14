@@ -245,87 +245,138 @@ func TestVHRRecords(t *testing.T) {
 	repo := NewRepository(nil)
 	ctx := context.Background()
 
-	vetID := "emp-human-elena"
-	prescriptions := "Amoxicillin 50mg"
+	t.Run("Create with Auto-Generated ID and Optional Fields", func(t *testing.T) {
+		vetID := "emp-human-elena"
+		prescriptions := "Amoxicillin 50mg daily"
+		rec := &VHRRecord{
+			FelineID:          "emp-feline-garfield",
+			VeterinarianID:    &vetID,
+			VisitDate:         "2026-11-01",
+			WeightKG:          5.4,
+			DentalScore:       9,
+			VaccinationStatus: "up_to_date",
+			Prescriptions:     &prescriptions,
+			ClinicalNotes:     "Excellent wellness checkup and routine teeth cleaning",
+		}
 
-	rec1 := &VHRRecord{
-		FelineID:          "emp-feline-garfield",
-		VeterinarianID:    &vetID,
-		VisitDate:         "2026-10-15",
-		WeightKG:          5.2,
-		DentalScore:       8,
-		VaccinationStatus: "up_to_date",
-		ClinicalNotes:     "Routine health checkup and weight monitoring",
-	}
-
-	rec2 := &VHRRecord{
-		FelineID:          "emp-feline-garfield",
-		VeterinarianID:    &vetID,
-		VisitDate:         "2026-11-01",
-		WeightKG:          5.4,
-		DentalScore:       9,
-		VaccinationStatus: "up_to_date",
-		Prescriptions:     &prescriptions,
-		ClinicalNotes:     "Follow-up wellness checkup and dental cleaning",
-	}
-
-	rec3 := &VHRRecord{
-		FelineID:          "emp-feline-barneby",
-		VeterinarianID:    &vetID,
-		VisitDate:         "2026-10-20",
-		WeightKG:          4.8,
-		DentalScore:       9,
-		VaccinationStatus: "up_to_date",
-		ClinicalNotes:     "Alpha perch readiness & mobility assessment",
-	}
-
-	created1, err := repo.CreateVHRRecord(ctx, rec1)
-	require.NoError(t, err)
-	assert.NotEmpty(t, created1.RecordID)
-	assert.Equal(t, "emp-feline-garfield", created1.FelineID)
-
-	created2, err := repo.CreateVHRRecord(ctx, rec2)
-	require.NoError(t, err)
-	assert.NotEmpty(t, created2.RecordID)
-	assert.Equal(t, "emp-feline-garfield", created2.FelineID)
-
-	created3, err := repo.CreateVHRRecord(ctx, rec3)
-	require.NoError(t, err)
-	assert.NotEmpty(t, created3.RecordID)
-	assert.Equal(t, "emp-feline-barneby", created3.FelineID)
-
-	t.Run("Filter by feline ID and check ordering", func(t *testing.T) {
-		records, err := repo.ListVHRRecords(ctx, "emp-feline-garfield")
+		created, err := repo.CreateVHRRecord(ctx, rec)
 		require.NoError(t, err)
-		require.Len(t, records, 2)
-
-		// Must be ordered by VisitDate DESC ("2026-11-01" before "2026-10-15")
-		assert.Equal(t, created2.RecordID, records[0].RecordID)
-		assert.Equal(t, "2026-11-01", records[0].VisitDate)
-		assert.Equal(t, 5.4, records[0].WeightKG)
-		assert.Equal(t, &prescriptions, records[0].Prescriptions)
-
-		assert.Equal(t, created1.RecordID, records[1].RecordID)
-		assert.Equal(t, "2026-10-15", records[1].VisitDate)
-		assert.Equal(t, 5.2, records[1].WeightKG)
+		assert.NotEmpty(t, created.RecordID)
+		assert.Equal(t, "emp-feline-garfield", created.FelineID)
+		assert.NotNil(t, created.VeterinarianID)
+		assert.Equal(t, vetID, *created.VeterinarianID)
+		assert.Equal(t, "2026-11-01", created.VisitDate)
+		assert.Equal(t, 5.4, created.WeightKG)
+		assert.Equal(t, 9, created.DentalScore)
+		assert.Equal(t, "up_to_date", created.VaccinationStatus)
+		assert.NotNil(t, created.Prescriptions)
+		assert.Equal(t, prescriptions, *created.Prescriptions)
+		assert.Equal(t, "Excellent wellness checkup and routine teeth cleaning", created.ClinicalNotes)
+		assert.False(t, created.CreatedAt.IsZero())
+		assert.False(t, created.UpdatedAt.IsZero())
 	})
 
-	t.Run("List all VHR records when felineID is empty", func(t *testing.T) {
-		records, err := repo.ListVHRRecords(ctx, "")
-		require.NoError(t, err)
-		require.Len(t, records, 3)
+	t.Run("Create with Explicit Custom ID and Nil Optional Fields", func(t *testing.T) {
+		customID := "vhr-custom-999"
+		rec := &VHRRecord{
+			RecordID:          customID,
+			FelineID:          "emp-feline-barneby",
+			VisitDate:         "2026-11-02",
+			WeightKG:          4.8,
+			DentalScore:       8,
+			VaccinationStatus: "pending_booster",
+			ClinicalNotes:     "Routine health check, booster needed",
+		}
 
-		// Must be ordered by VisitDate DESC ("2026-11-01", "2026-10-20", "2026-10-15")
-		assert.Equal(t, "2026-11-01", records[0].VisitDate)
-		assert.Equal(t, "2026-10-20", records[1].VisitDate)
-		assert.Equal(t, "2026-10-15", records[2].VisitDate)
+		created, err := repo.CreateVHRRecord(ctx, rec)
+		require.NoError(t, err)
+		assert.Equal(t, customID, created.RecordID)
+		assert.Equal(t, "emp-feline-barneby", created.FelineID)
+		assert.Nil(t, created.VeterinarianID)
+		assert.Nil(t, created.Prescriptions)
+		assert.False(t, created.CreatedAt.IsZero())
+		assert.False(t, created.UpdatedAt.IsZero())
 	})
 
-	t.Run("Return empty list for non-existent feline ID", func(t *testing.T) {
-		records, err := repo.ListVHRRecords(ctx, "non-existent-feline-id")
+	t.Run("List and Filter VHR Records", func(t *testing.T) {
+		r := NewRepository(nil)
+		vetID := "emp-human-elena"
+		prescriptions := "Amoxicillin 50mg"
+
+		// Create record 1 for Garfield (2026-11-01)
+		rec1 := &VHRRecord{
+			FelineID:          "emp-feline-garfield",
+			VeterinarianID:    &vetID,
+			VisitDate:         "2026-11-01",
+			WeightKG:          5.4,
+			DentalScore:       9,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Garfield Visit 1",
+		}
+		c1, err := r.CreateVHRRecord(ctx, rec1)
 		require.NoError(t, err)
-		assert.NotNil(t, records)
-		assert.Empty(t, records)
+
+		// Create record 2 for Garfield (2026-11-10) - later date with prescription
+		rec2 := &VHRRecord{
+			FelineID:          "emp-feline-garfield",
+			VeterinarianID:    &vetID,
+			VisitDate:         "2026-11-10",
+			WeightKG:          5.5,
+			DentalScore:       9,
+			VaccinationStatus: "up_to_date",
+			Prescriptions:     &prescriptions,
+			ClinicalNotes:     "Garfield Visit 2",
+		}
+		c2, err := r.CreateVHRRecord(ctx, rec2)
+		require.NoError(t, err)
+
+		// Create record 3 for Barneby (2026-11-05)
+		rec3 := &VHRRecord{
+			FelineID:          "emp-feline-barneby",
+			VeterinarianID:    &vetID,
+			VisitDate:         "2026-11-05",
+			WeightKG:          4.9,
+			DentalScore:       8,
+			VaccinationStatus: "up_to_date",
+			ClinicalNotes:     "Barneby Visit 1",
+		}
+		c3, err := r.CreateVHRRecord(ctx, rec3)
+		require.NoError(t, err)
+
+		// Filter for Garfield
+		garfieldRecords, err := r.ListVHRRecords(ctx, "emp-feline-garfield")
+		require.NoError(t, err)
+		assert.Len(t, garfieldRecords, 2)
+		// Should be sorted by VisitDate DESC (c2: 2026-11-10 before c1: 2026-11-01)
+		assert.Equal(t, c2.RecordID, garfieldRecords[0].RecordID)
+		assert.Equal(t, "2026-11-10", garfieldRecords[0].VisitDate)
+		assert.Equal(t, 5.5, garfieldRecords[0].WeightKG)
+		assert.Equal(t, &prescriptions, garfieldRecords[0].Prescriptions)
+
+		assert.Equal(t, c1.RecordID, garfieldRecords[1].RecordID)
+		assert.Equal(t, "2026-11-01", garfieldRecords[1].VisitDate)
+		assert.Equal(t, 5.4, garfieldRecords[1].WeightKG)
+
+		// Filter for Barneby
+		barnebyRecords, err := r.ListVHRRecords(ctx, "emp-feline-barneby")
+		require.NoError(t, err)
+		assert.Len(t, barnebyRecords, 1)
+		assert.Equal(t, c3.RecordID, barnebyRecords[0].RecordID)
+		assert.Equal(t, 4.9, barnebyRecords[0].WeightKG)
+
+		// Empty feline ID should list all records sorted by VisitDate DESC
+		allRecords, err := r.ListVHRRecords(ctx, "")
+		require.NoError(t, err)
+		assert.Len(t, allRecords, 3)
+		assert.Equal(t, "2026-11-10", allRecords[0].VisitDate)
+		assert.Equal(t, "2026-11-05", allRecords[1].VisitDate)
+		assert.Equal(t, "2026-11-01", allRecords[2].VisitDate)
+
+		// Query for a feline with no records
+		noRecords, err := r.ListVHRRecords(ctx, "emp-feline-nonexistent")
+		require.NoError(t, err)
+		assert.NotNil(t, noRecords)
+		assert.Empty(t, noRecords)
 	})
 }
 
