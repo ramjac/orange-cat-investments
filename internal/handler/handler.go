@@ -409,7 +409,14 @@ func (h *WorkforceHandler) updateReviewCycle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	updated, err := h.wfSvc.UpdateReviewCycle(r.Context(), id, req.Status, req.ReviewerID, req.Score, req.Notes, req.CompletedAt)
+	updated, err := h.wfSvc.UpdateReviewCycle(r.Context(), wfService.UpdateReviewCycleParams{
+		ID:          id,
+		Status:      req.Status,
+		ReviewerID:  req.ReviewerID,
+		Score:       req.Score,
+		Notes:       req.Notes,
+		CompletedAt: req.CompletedAt,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

@@ -272,7 +272,12 @@ func TestReviewCycles(t *testing.T) {
 	score := 4.92
 	newStatus := "completed"
 	evalNotes := "Phenomenal alpha perch surveillance metrics and optimal vitals"
-	updated, err := svc.UpdateReviewCycle(ctx, rc.ReviewID, &newStatus, nil, &score, &evalNotes, nil)
+	updated, err := svc.UpdateReviewCycle(ctx, UpdateReviewCycleParams{
+		ID:     rc.ReviewID,
+		Status: &newStatus,
+		Score:  &score,
+		Notes:  &evalNotes,
+	})
 	assert.NoError(t, err)
 	assert.Equal(t, "completed", updated.Status)
 	assert.Equal(t, score, *updated.Score)
@@ -296,19 +301,28 @@ func TestReviewCycles(t *testing.T) {
 
 	// Validation: Score out of range (> 5.0)
 	badScore := 6.5
-	_, err = svc.UpdateReviewCycle(ctx, rc.ReviewID, nil, nil, &badScore, nil, nil)
+	_, err = svc.UpdateReviewCycle(ctx, UpdateReviewCycleParams{
+		ID:    rc.ReviewID,
+		Score: &badScore,
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "score must be between 0.00 and 5.00")
 
 	// Validation: Negative score
 	negScore := -1.0
-	_, err = svc.UpdateReviewCycle(ctx, rc.ReviewID, nil, nil, &negScore, nil, nil)
+	_, err = svc.UpdateReviewCycle(ctx, UpdateReviewCycleParams{
+		ID:    rc.ReviewID,
+		Score: &negScore,
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "score must be between 0.00 and 5.00")
 
 	// Validation: Invalid status update
 	badStatus := "flying_high"
-	_, err = svc.UpdateReviewCycle(ctx, rc.ReviewID, &badStatus, nil, nil, nil, nil)
+	_, err = svc.UpdateReviewCycle(ctx, UpdateReviewCycleParams{
+		ID:     rc.ReviewID,
+		Status: &badStatus,
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid status")
 }
