@@ -137,12 +137,20 @@ func setCSRFCookie(w http.ResponseWriter, token string) {
 	})
 }
 
+type vhrCache struct {
+	mu        sync.RWMutex
+	records   map[string][]*workforce_repo.VHRRecord
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
 type CustomerBFF struct {
 	ciSvc    core_invest_svc.Service
 	wfSvc    workforce_svc.Service
 	sessions *SessionStore
 	logger   *slog.Logger
 	alpaca   *alpaca.Client
+	vhrCache vhrCache
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
@@ -151,11 +159,48 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		wfSvc:    wfSvc,
 		sessions: NewSessionStore(),
 		logger:   logger,
+		vhrCache: vhrCache{
+			ttl: 30 * time.Second,
+		},
 	}
 }
 
 func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
 	b.alpaca = client
+}
+
+func (b *CustomerBFF) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workforce_repo.VHRRecord, error) {
+	b.vhrCache.mu.RLock()
+	if time.Since(b.vhrCache.fetchedAt) < b.vhrCache.ttl && b.vhrCache.records != nil {
+		res := b.vhrCache.records
+		b.vhrCache.mu.RUnlock()
+		return res, nil
+	}
+	b.vhrCache.mu.RUnlock()
+
+	b.vhrCache.mu.Lock()
+	defer b.vhrCache.mu.Unlock()
+
+	if time.Since(b.vhrCache.fetchedAt) < b.vhrCache.ttl && b.vhrCache.records != nil {
+		return b.vhrCache.records, nil
+	}
+
+	allRecords, err := b.wfSvc.ListVHRRecords(ctx, "")
+	if err != nil {
+		if b.vhrCache.records != nil {
+			return b.vhrCache.records, nil
+		}
+		return nil, err
+	}
+
+	vhrByFeline := make(map[string][]*workforce_repo.VHRRecord)
+	for _, rec := range allRecords {
+		vhrByFeline[rec.FelineID] = append(vhrByFeline[rec.FelineID], rec)
+	}
+
+	b.vhrCache.records = vhrByFeline
+	b.vhrCache.fetchedAt = time.Now()
+	return vhrByFeline, nil
 }
 
 func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
@@ -173,10 +218,6 @@ func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
 			if strings.HasPrefix(authHeader, "Bearer ") {
 				token = strings.TrimPrefix(authHeader, "Bearer ")
 			}
-		}
-
-		if token == "" {
-			token = r.URL.Query().Get("session_token")
 		}
 
 		if token == "" {
@@ -803,20 +844,17 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	if b.wfSvc != nil {
 		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
 		if err == nil {
-			vhrByFeline := make(map[string][]*workforce_repo.VHRRecord)
-			allRecords, vhrErr := b.wfSvc.ListVHRRecords(r.Context(), "")
-			if vhrErr == nil {
-				for _, rec := range allRecords {
-					vhrByFeline[rec.FelineID] = append(vhrByFeline[rec.FelineID], rec)
-				}
-			}
+			vhrByFeline, vhrErr := b.getVHRRecordsByFeline(r.Context())
 
 			for _, emp := range emps {
 				healthStatus := "OPTIMAL_ALPHA"
 				whiskerSymmetry := "100%"
 				purrFreq := 28.5
 
-				records := vhrByFeline[emp.EmployeeID]
+				var records []*workforce_repo.VHRRecord
+				if vhrErr == nil && vhrByFeline != nil {
+					records = vhrByFeline[emp.EmployeeID]
+				}
 				if len(records) > 0 {
 					vhrRecordsCount += len(records)
 					latest := records[0]

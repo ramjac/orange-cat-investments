@@ -25,10 +25,10 @@ func setupTestServer() *http.ServeMux {
 	return mux
 }
 
-func TestWorkforceHandlerEndpoints(t *testing.T) {
+func TestWorkforceCareScheduleEndpoints(t *testing.T) {
 	mux := setupTestServer()
 
-	t.Run("Get Garfield Care Schedule", func(t *testing.T) {
+	t.Run("Get Care Schedule", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/care-schedules/emp-feline-garfield", nil)
 		rec := httptest.NewRecorder()
 
@@ -42,7 +42,7 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		assert.False(t, cs.EmergencyMedicalHold)
 	})
 
-	t.Run("Update Garfield Care Schedule", func(t *testing.T) {
+	t.Run("Update Care Schedule", func(t *testing.T) {
 		body := map[string]any{
 			"dietary_plan":           "Laser-guided salmon dinner",
 			"feeding_times":          []string{"07:00 AM", "01:00 PM", "07:00 PM"},
@@ -79,6 +79,10 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, updated.EmergencyMedicalHold)
 	})
+}
+
+func TestWorkforceWebhookEndpoints(t *testing.T) {
+	mux := setupTestServer()
 
 	t.Run("Frappe HR Webhook - Onboarding Event", func(t *testing.T) {
 		payload := FrappeHRWebhookPayload{
@@ -126,9 +130,12 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		assert.Equal(t, "processed", res["status"])
 		assert.Equal(t, "offboarding_engine_executed", res["action"])
 	})
+}
 
-	t.Run("Leave Requests HTTP Endpoints", func(t *testing.T) {
-		// 1. GET /api/v1/workforce/leave-requests (List all)
+func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("List All Leave Requests", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -138,21 +145,24 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		err := json.Unmarshal(rec.Body.Bytes(), &list)
 		assert.NoError(t, err)
 		assert.GreaterOrEqual(t, len(list), 2)
+	})
 
-		// 2. GET /workforce/leave-requests with filter (alias path)
+	t.Run("List Leave Requests With Filter", func(t *testing.T) {
 		reqFilter := httptest.NewRequest("GET", "/workforce/leave-requests?employee_id=emp-feline-garfield&status=approved", nil)
 		recFilter := httptest.NewRecorder()
 		mux.ServeHTTP(recFilter, reqFilter)
 
 		assert.Equal(t, http.StatusOK, recFilter.Code)
 		var filteredList []*workforce.LeaveRequest
-		err = json.Unmarshal(recFilter.Body.Bytes(), &filteredList)
+		err := json.Unmarshal(recFilter.Body.Bytes(), &filteredList)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, filteredList)
 		assert.Equal(t, "emp-feline-garfield", filteredList[0].EmployeeID)
 		assert.Equal(t, "approved", filteredList[0].Status)
+	})
 
-		// 3. POST /api/v1/workforce/leave-requests (Submit request)
+	t.Run("Create and Update Leave Request Status", func(t *testing.T) {
+		// 1. POST /api/v1/workforce/leave-requests (Submit request)
 		createPayload := map[string]any{
 			"employee_id": "emp-feline-barneby",
 			"leave_type":  "catnip_break",
@@ -167,14 +177,14 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, createRec.Code)
 		var created workforce.LeaveRequest
-		err = json.Unmarshal(createRec.Body.Bytes(), &created)
+		err := json.Unmarshal(createRec.Body.Bytes(), &created)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, created.LeaveID)
 		assert.Equal(t, "catnip_break", created.LeaveType)
 		assert.Equal(t, "pending", created.Status)
 		assert.Equal(t, "2026-10-25", created.StartDate)
 
-		// 4. PUT /api/v1/workforce/leave-requests/{id}/status (Approve request)
+		// 2. PUT /api/v1/workforce/leave-requests/{id}/status (Approve request)
 		statusPayload := map[string]string{
 			"status": "approved",
 		}
@@ -188,8 +198,9 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		err = json.Unmarshal(updateRec.Body.Bytes(), &updated)
 		assert.NoError(t, err)
 		assert.Equal(t, "approved", updated.Status)
+	})
 
-		// 5. POST validation error (invalid leave_type)
+	t.Run("Validation Error - Invalid Leave Type", func(t *testing.T) {
 		badPayload := map[string]any{
 			"employee_id": "emp-feline-barneby",
 			"leave_type":  "sleeping_all_day_invalid",
@@ -203,9 +214,12 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, badRec.Code)
 	})
+}
 
-	t.Run("Review Cycles HTTP Endpoints", func(t *testing.T) {
-		// 1. GET /api/v1/workforce/review-cycles (List all)
+func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("List All Review Cycles", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/review-cycles", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -215,22 +229,24 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		err := json.Unmarshal(rec.Body.Bytes(), &list)
 		assert.NoError(t, err)
 		assert.GreaterOrEqual(t, len(list), 3)
+	})
 
-		// 2. GET /workforce/review-cycles with filters (alias path)
+	t.Run("List Review Cycles With Filter", func(t *testing.T) {
 		reqFilter := httptest.NewRequest("GET", "/workforce/review-cycles?employee_id=emp-feline-garfield&status=completed&review_type=feline_health_assessment", nil)
 		recFilter := httptest.NewRecorder()
 		mux.ServeHTTP(recFilter, reqFilter)
 
 		assert.Equal(t, http.StatusOK, recFilter.Code)
 		var filteredList []*workforce.ReviewCycle
-		err = json.Unmarshal(recFilter.Body.Bytes(), &filteredList)
+		err := json.Unmarshal(recFilter.Body.Bytes(), &filteredList)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, filteredList)
 		assert.Equal(t, "emp-feline-garfield", filteredList[0].EmployeeID)
 		assert.Equal(t, "completed", filteredList[0].Status)
 		assert.Equal(t, "feline_health_assessment", filteredList[0].ReviewType)
+	})
 
-		// 3. POST /api/v1/workforce/review-cycles (Schedule review)
+	t.Run("Create, Fetch, and Grade Review Cycle", func(t *testing.T) {
 		reviewerID := "emp-human-alice"
 		notes := "Quarterly executive leadership & perch observation performance check"
 		createPayload := map[string]any{
@@ -247,14 +263,14 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, createRec.Code)
 		var created workforce.ReviewCycle
-		err = json.Unmarshal(createRec.Body.Bytes(), &created)
+		err := json.Unmarshal(createRec.Body.Bytes(), &created)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, created.ReviewID)
 		assert.Equal(t, "performance", created.ReviewType)
 		assert.Equal(t, "scheduled", created.Status)
 		assert.Equal(t, "2026-11-28", created.ScheduledFor)
 
-		// 4. GET /workforce/review-cycles/{id} (Get by ID)
+		// Fetch review cycle by ID
 		getReq := httptest.NewRequest("GET", "/workforce/review-cycles/"+created.ReviewID, nil)
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
@@ -265,7 +281,7 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, created.ReviewID, fetched.ReviewID)
 
-		// 5. PUT /api/v1/workforce/review-cycles/{id} (Grade/complete review)
+		// Grade/complete review cycle
 		score := 4.95
 		status := "completed"
 		evalNotes := "Unmatched alpha instinct, flawless execution on executive naps"
@@ -288,7 +304,19 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		assert.Equal(t, evalNotes, *updated.Notes)
 		assert.NotNil(t, updated.CompletedAt)
 
-		// 6. POST validation error (invalid review_type)
+		// PUT validation error (score out of range)
+		badScorePayload := map[string]any{
+			"score": 9.9,
+		}
+		badScoreData, _ := json.Marshal(badScorePayload)
+		badScoreReq := httptest.NewRequest("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(badScoreData))
+		badScoreRec := httptest.NewRecorder()
+		mux.ServeHTTP(badScoreRec, badScoreReq)
+
+		assert.Equal(t, http.StatusBadRequest, badScoreRec.Code)
+	})
+
+	t.Run("Validation Error - Invalid Review Type", func(t *testing.T) {
 		badPayload := map[string]any{
 			"employee_id":   "emp-feline-garfield",
 			"review_type":   "invalid_type",
@@ -300,18 +328,5 @@ func TestWorkforceHandlerEndpoints(t *testing.T) {
 		mux.ServeHTTP(badRec, badReq)
 
 		assert.Equal(t, http.StatusBadRequest, badRec.Code)
-
-		// 7. PUT validation error (score out of range)
-		badScorePayload := map[string]any{
-			"score": 9.9,
-		}
-		badScoreData, _ := json.Marshal(badScorePayload)
-		badScoreReq := httptest.NewRequest("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(badScoreData))
-		badScoreRec := httptest.NewRecorder()
-		mux.ServeHTTP(badScoreRec, badScoreReq)
-
-		assert.Equal(t, http.StatusBadRequest, badScoreRec.Code)
 	})
 }
-
-

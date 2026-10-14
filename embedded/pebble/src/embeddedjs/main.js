@@ -12,7 +12,6 @@ let currentAlertIndex = 0;
 function updateUI() {
   const pending = queue.getPendingAlerts();
   if (pending.length === 0) {
-    console.log('[OCI-Alerts] All alerts clear. Standard operations active.');
     return;
   }
 
