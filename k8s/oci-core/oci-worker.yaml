@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-worker
+  namespace: oci-core
+  labels:
+    app: oci-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-worker
+  template:
+    metadata:
+      labels:
+        app: oci-worker
+    spec:
+      containers:
+        - name: oci-worker
+          image: localhost:32000/oci-worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENABLE_CORE_INVEST
+              value: "true"
+            - name: ENABLE_FELINE_WORKFORCE
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

@@ -13,6 +13,7 @@ import (
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -414,3 +415,122 @@ func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, tickers)
 }
+
+func TestCustomerBFF_BankIntegration(t *testing.T) {
+	bankMux := http.NewServeMux()
+	bankMux.HandleFunc("GET /accounts", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"accounts": []map[string]interface{}{
+				{
+					"account_id":        "acc_arthur_chase_chk",
+					"institution_name":  "JPMorgan Chase",
+					"account_number":    "****4821",
+					"name":              "Chase Checking (****4821)",
+					"available_balance": 48250.00,
+					"current_balance":   48500.00,
+				},
+			},
+		})
+	})
+	bankMux.HandleFunc("POST /transfer/authorization/create", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var body struct {
+			Amount float64 `json:"amount"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Amount > 10000 {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"authorization": map[string]interface{}{
+					"decision": "declined",
+					"decision_rationale": map[string]string{
+						"code":        "NSF",
+						"description": "Insufficient funds in bank account",
+					},
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"authorization": map[string]interface{}{
+				"decision": "approved",
+			},
+		})
+	})
+	bankMux.HandleFunc("POST /transfer/create", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"transfer": map[string]interface{}{
+				"transfer_id": "tr-test-12345",
+				"status":      "pending",
+			},
+		})
+	})
+
+	bankServer := httptest.NewServer(bankMux)
+	defer bankServer.Close()
+
+	bankClient := plaid.NewClient(plaid.Config{
+		BaseURL: bankServer.URL,
+	})
+
+	mockRepo := core_invest_repo.NewMockRepository()
+	ciSvc := core_invest_svc.NewServiceWithIntegrations(mockRepo, nil, bankClient)
+	wfRepo := workforce_repo.NewRepository(nil)
+	wfSvc := workforce_svc.NewService(wfRepo)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
+	bff.SetBankClient(bankClient)
+	bff.sessions.SeedDevSessions()
+
+	mux := http.NewServeMux()
+	bff.RegisterRoutes(mux)
+
+	// 1. GET /api/v1/customer/bank-accounts
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/bank-accounts", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var bankResp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &bankResp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, bankResp["accounts"])
+
+	// 2. Successful POST /api/v1/customer/deposits with bank pre-authorization
+	csrfVal := "test-bank-csrf"
+	depBody := bytes.NewBufferString(`{
+		"amount_usd": 500.0,
+		"frequency": "monthly",
+		"bank_account": "Chase Checking (****4821)",
+		"account_id": "acc_arthur_chase_chk"
+	}`)
+	depReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/deposits", depBody)
+	depReq.Header.Set("Content-Type", "application/json")
+	depReq.Header.Set("X-CSRF-Token", csrfVal)
+	depReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	depReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	depRec := httptest.NewRecorder()
+	mux.ServeHTTP(depRec, depReq)
+	assert.Equal(t, http.StatusCreated, depRec.Code)
+
+	// 3. Declined POST /api/v1/customer/deposits on NSF
+	nsfBody := bytes.NewBufferString(`{
+		"amount_usd": 50000.0,
+		"frequency": "monthly",
+		"bank_account": "Chase Checking (****4821)",
+		"account_id": "acc_arthur_chase_chk"
+	}`)
+	nsfReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/deposits", nsfBody)
+	nsfReq.Header.Set("Content-Type", "application/json")
+	nsfReq.Header.Set("X-CSRF-Token", csrfVal)
+	nsfReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	nsfReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	nsfRec := httptest.NewRecorder()
+	mux.ServeHTTP(nsfRec, nsfReq)
+	assert.Equal(t, http.StatusBadRequest, nsfRec.Code)
+}
+

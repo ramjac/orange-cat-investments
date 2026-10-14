@@ -22,6 +22,7 @@ import (
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
@@ -150,6 +151,7 @@ type CustomerBFF struct {
 	sessions *SessionStore
 	logger   *slog.Logger
 	alpaca   *alpaca.Client
+	bank     *plaid.Client
 	vhrCache vhrCache
 }
 
@@ -167,6 +169,10 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 
 func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
 	b.alpaca = client
+}
+
+func (b *CustomerBFF) SetBankClient(client *plaid.Client) {
+	b.bank = client
 }
 
 func (b *CustomerBFF) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workforce_repo.VHRRecord, error) {
@@ -276,6 +282,7 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/ticker", b.sessionAuth(http.HandlerFunc(b.handleTickerSSE)))
 	mux.Handle("GET /api/v1/customer/zoomie-index", b.sessionAuth(http.HandlerFunc(b.handleGetZoomieIndex)))
 	mux.Handle("GET /api/v1/customer/deposits", b.sessionAuth(http.HandlerFunc(b.handleGetDeposits)))
+	mux.Handle("GET /api/v1/customer/bank-accounts", b.sessionAuth(http.HandlerFunc(b.handleGetBankAccounts)))
 	mux.Handle("GET /api/v1/customer/api-keys", b.sessionAuth(http.HandlerFunc(b.handleGetAPIKeys)))
 	mux.Handle("GET /api/v1/customer/webhooks", b.sessionAuth(http.HandlerFunc(b.handleGetWebhooks)))
 	mux.Handle("GET /api/v1/customer/transparency/welfare", b.sessionAuth(http.HandlerFunc(b.handleGetESGTransparency)))
@@ -672,12 +679,53 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	customerID := "cust-longterm-arthur"
+	if session := CustomerFromContext(r.Context()); session != nil {
+		customerID = session.CustomerID
+	}
+
+	if b.bank != nil {
+		accs, err := b.bank.GetAccounts(r.Context(), customerID)
+		if err == nil && len(accs) > 0 {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"accounts": accs,
+			})
+			return
+		}
+	}
+
+	// Fallback mock accounts
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"accounts": []map[string]interface{}{
+			{
+				"account_id":        "acc_arthur_chase_chk",
+				"institution_name":  "JPMorgan Chase",
+				"account_number":    "****4821",
+				"name":              "Chase Checking (****4821)",
+				"available_balance": 48250.00,
+				"current_balance":   48500.00,
+			},
+		},
+	})
+}
+
 func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	customerID := "cust-longterm-arthur"
 	if session := CustomerFromContext(r.Context()); session != nil {
 		customerID = session.CustomerID
 	}
+
+	if b.ciSvc != nil {
+		deps, err := b.ciSvc.ListRecurringDeposits(r.Context(), customerID)
+		if err == nil && len(deps) > 0 {
+			_ = json.NewEncoder(w).Encode(deps)
+			return
+		}
+	}
+
 	deposits := []map[string]interface{}{
 		{
 			"deposit_id":     "dep-018f-01",
@@ -707,6 +755,7 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 		Frequency   string  `json:"frequency"`
 		DayOfMonth  int     `json:"day_of_month"`
 		BankAccount string  `json:"bank_account"`
+		AccountID   string  `json:"account_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -714,9 +763,50 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if req.AmountUSD <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "deposit amount must be positive"})
+		return
+	}
+
+	portfolioID := "018f3a9a-2222-7000-8000-000000000002"
+	if session.CustomerID == "cust-active-chloe" {
+		portfolioID = "018f3a9a-2222-7000-8000-000000000003"
+	}
+
+	// If account ID not passed, attempt lookup by customer
+	accountID := req.AccountID
+	if accountID == "" && b.bank != nil {
+		accs, err := b.bank.GetAccounts(r.Context(), session.CustomerID)
+		if err == nil && len(accs) > 0 {
+			accountID = accs[0].AccountID
+		}
+	}
+
+	// Route through core_invest service if available
+	if b.ciSvc != nil {
+		dep, err := b.ciSvc.CreateRecurringDeposit(r.Context(), core_invest_svc.CreateRecurringDepositOpts{
+			CustomerID:  session.CustomerID,
+			PortfolioID: portfolioID,
+			AmountUSD:   req.AmountUSD,
+			Frequency:   req.Frequency,
+			BankAccount: req.BankAccount,
+			AccountID:   accountID,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(dep)
+		return
+	}
+
 	created := map[string]interface{}{
 		"deposit_id":     fmt.Sprintf("dep-%d", time.Now().UnixNano()),
 		"customer_id":    session.CustomerID,
+		"portfolio_id":   portfolioID,
 		"amount_usd":     req.AmountUSD,
 		"frequency":      req.Frequency,
 		"day_of_month":   req.DayOfMonth,
@@ -978,10 +1068,26 @@ func main() {
 			BaseURL:   alpacaURL,
 			DataURL:   os.Getenv("ALPACA_DATA_URL"),
 			APIKey:    os.Getenv("APCA_API_KEY_ID"),
-			APISecret: os.Getenv("APCA_API_SECRET_KEY"),
 		})
-		ciSvc = core_invest_svc.NewServiceWithBroker(ciRepo, alpacaClient)
 		logger.Info("connected Customer BFF to external Alpaca Broker API", "url", alpacaURL)
+	}
+
+	bankURL := os.Getenv("BANK_API_BASE_URL")
+	if bankURL == "" {
+		bankURL = os.Getenv("PLAID_BASE_URL")
+	}
+	var bankClient *plaid.Client
+	if bankURL != "" {
+		bankClient = plaid.NewClient(plaid.Config{
+			BaseURL:  bankURL,
+			ClientID: os.Getenv("PLAID_CLIENT_ID"),
+			Secret:   os.Getenv("PLAID_SECRET"),
+		})
+		logger.Info("connected Customer BFF to external Bank / Plaid API", "url", bankURL)
+	}
+
+	if alpacaClient != nil || bankClient != nil {
+		ciSvc = core_invest_svc.NewServiceWithIntegrations(ciRepo, alpacaClient, bankClient)
 	} else {
 		ciSvc = core_invest_svc.NewService(ciRepo)
 	}
@@ -991,6 +1097,9 @@ func main() {
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
 	if alpacaClient != nil {
 		custBFF.SetAlpacaClient(alpacaClient)
+	}
+	if bankClient != nil {
+		custBFF.SetBankClient(bankClient)
 	}
 
 	mux := http.NewServeMux()

@@ -23,6 +23,7 @@ import (
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
@@ -81,15 +82,33 @@ func main() {
 
 		var ciService core_invest_svc.Service
 		alpacaURL := os.Getenv("ALPACA_BASE_URL")
+		var alpacaClient *alpaca.Client
 		if alpacaURL != "" {
-			alpacaClient := alpaca.NewClient(alpaca.Config{
+			alpacaClient = alpaca.NewClient(alpaca.Config{
 				BaseURL:   alpacaURL,
 				DataURL:   os.Getenv("ALPACA_DATA_URL"),
 				APIKey:    os.Getenv("APCA_API_KEY_ID"),
 				APISecret: os.Getenv("APCA_API_SECRET_KEY"),
 			})
-			ciService = core_invest_svc.NewServiceWithBroker(ciRepo, alpacaClient)
 			logger.Info("Core Invest broker routing configured", "broker_url", alpacaURL)
+		}
+
+		bankURL := os.Getenv("BANK_API_BASE_URL")
+		if bankURL == "" {
+			bankURL = os.Getenv("PLAID_BASE_URL")
+		}
+		var bankClient *plaid.Client
+		if bankURL != "" {
+			bankClient = plaid.NewClient(plaid.Config{
+				BaseURL:  bankURL,
+				ClientID: os.Getenv("PLAID_CLIENT_ID"),
+				Secret:   os.Getenv("PLAID_SECRET"),
+			})
+			logger.Info("Core Invest bank integration configured", "bank_url", bankURL)
+		}
+
+		if alpacaClient != nil || bankClient != nil {
+			ciService = core_invest_svc.NewServiceWithIntegrations(ciRepo, alpacaClient, bankClient)
 		} else {
 			ciService = core_invest_svc.NewService(ciRepo)
 		}

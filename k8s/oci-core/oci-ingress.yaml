@@ -1,0 +1,82 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oci-core-ingress
+  namespace: oci-core
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: public
+  rules:
+    - host: api.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-server-service
+                port:
+                  number: 8080
+    - host: customer-bff.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-service
+                port:
+                  number: 8083
+    - host: customer.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-portal-service
+                port:
+                  number: 5174
+    - host: employee-bff.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-bff-service
+                port:
+                  number: 8081
+    - host: employee.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-portal-service
+                port:
+                  number: 5173
+    - host: pebble-proxy.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-pebble-proxy-service
+                port:
+                  number: 8082
+    - host: auth.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zitadel-service
+                port:
+                  number: 8080

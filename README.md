@@ -69,6 +69,13 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 * **Wearables & Embedded:** Pebble Alloy Embedded JS Companion App (`embedded/pebble`) and Go Gateway Proxy (`cmd/pebble-proxy`).
 * **Backend Services & Tooling:** Go 1.22+.
 
+### Kubernetes Namespace Architecture
+The cluster workload topology is structured into dedicated namespaces for isolation and operational clarity:
+* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**), core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`), and dedicated proprietary database **`postgres-core`** (`workforce`, `facilities`, `core_invest`, `ops`).
+* **`oci-internal`:** Isolates off-the-shelf commercial and open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, backed by their own isolated internal database **`postgres-internal`** (`nextcloud`, `forgejo`, `snipeit`, `erpnext`, `frappe_hr`).
+* **`external-sim`:** Dedicated namespace hosting simulated 3rd-party SaaS / financial APIs (`mock-broker` on `:8089`, `mock-bank` on `:8088`), maintaining complete air-gap isolation from production persistence.
+* **`monitoring` & `logging`:** Cluster observability stacks (Prometheus, Grafana, Loki, Promtail).
+
 ---
 
 ## 4. Employee & Customer Personas (Workflow Simulation)
@@ -336,18 +343,19 @@ chmod +x scripts/deploy-k8s.sh
 
 This single command:
 * Checks `kubectl` connectivity to your cluster.
-* Applies all namespaces (`oci-core`, `postgres`, `apps`, `monitoring`, `logging`).
-* Deploys PostgreSQL 16 with persistent volume claims, table constraints, and initial seed records.
-* Deploys Valkey, RabbitMQ, Forgejo, ZITADEL, Nextcloud, Snipe-IT, ERPNext, and Frappe HR.
+* Applies all namespaces (`oci-core`, `oci-internal`, `external-sim`, `monitoring`, `logging`).
+* Deploys custom OCI applications, customer Zitadel IdP, core infrastructure, and dedicated `postgres-core` database in `oci-core`.
+* Deploys off-the-shelf business applications (Forgejo, Nextcloud, Snipe-IT, ERPNext, Frappe HR) and dedicated `postgres-internal` database in `oci-internal`.
+* Deploys external simulation mocks (Mock Broker, Mock Bank) in `external-sim`.
 * Deploys Prometheus, Grafana, Loki, and Promtail monitoring stacks.
 * Waits for core database and queuing workloads to become healthy.
 
 To connect your local workstation to the cluster services for testing:
 ```bash
-# Forward PostgreSQL, Valkey, and RabbitMQ
-kubectl port-forward -n postgres svc/postgres-service 5432:5432 &
-kubectl port-forward -n apps svc/valkey-service 6379:6379 &
-kubectl port-forward -n apps svc/rabbitmq-service 5672:5672 15672:15672 &
+# Forward PostgreSQL Core, Valkey, and RabbitMQ
+kubectl port-forward -n oci-core svc/postgres-core-service 5432:5432 &
+kubectl port-forward -n oci-core svc/valkey-service 6379:6379 &
+kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &
 ```
 
 > **Clean Reset:** To tear down all OCI workloads and reset the cluster back to a clean state at any time, run `./scripts/cleanup-k8s.sh` (see [Section 6.8](#68-cluster-cleanup--environment-reset)).
@@ -467,7 +475,7 @@ chmod +x scripts/cleanup-k8s.sh
 ```
 
 This automated cleanup routine:
-* Safely deletes all OCI domain applications, databases, logging, monitoring, and namespaces (`apps`, `logging`, `monitoring`, `oci-core`, `postgres`).
+* Safely deletes all OCI domain applications, databases, logging, monitoring, and namespaces (`oci-core`, `oci-internal`, `external-sim`, `postgres`, `monitoring`, `logging`).
 * Deletes and releases OCI persistent volume claims (`postgres-data-pvc`).
 * **Preserves System Infrastructure:** Keeps all cluster system services, storage classes, ingress controllers (e.g. MicroK8s NGINX ingress), container registries, and `kubectl` control plane connectivity intact.
 

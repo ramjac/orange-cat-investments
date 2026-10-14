@@ -6,16 +6,18 @@ import (
 )
 
 type mockRepository struct {
-	streams map[string]*CameraStream
-	orders  map[string]*BrokerageOrder
-	runs    map[string]*BacktestRun
+	streams  map[string]*CameraStream
+	orders   map[string]*BrokerageOrder
+	runs     map[string]*BacktestRun
+	deposits map[string]*RecurringDeposit
 }
 
 func NewMockRepository() Repository {
 	return &mockRepository{
-		streams: make(map[string]*CameraStream),
-		orders:  make(map[string]*BrokerageOrder),
-		runs:    make(map[string]*BacktestRun),
+		streams:  make(map[string]*CameraStream),
+		orders:   make(map[string]*BrokerageOrder),
+		runs:     make(map[string]*BacktestRun),
+		deposits: make(map[string]*RecurringDeposit),
 	}
 }
 
@@ -207,3 +209,52 @@ func (m *mockRepository) UpdateBacktestRunResults(ctx context.Context, id string
 	m.runs[id] = run
 	return run, nil
 }
+
+func (m *mockRepository) CreateRecurringDeposit(ctx context.Context, dep *RecurringDeposit) (*RecurringDeposit, error) {
+	now := time.Now().UTC()
+	dep.DepositID = "deposit-mock-001"
+	dep.CreatedAt = now
+	m.deposits[dep.DepositID] = dep
+	return dep, nil
+}
+
+func (m *mockRepository) ListRecurringDeposits(ctx context.Context, customerID string) ([]*RecurringDeposit, error) {
+	var list []*RecurringDeposit
+	for _, d := range m.deposits {
+		if customerID == "" || d.CustomerID == customerID {
+			list = append(list, d)
+		}
+	}
+	if len(list) == 0 {
+		list = append(list, &RecurringDeposit{
+			DepositID:    "dep-018f-01",
+			CustomerID:   customerID,
+			PortfolioID:  "018f3a9a-2222-7000-8000-000000000002",
+			AmountUSD:    500.00,
+			Frequency:    "monthly",
+			BankAccount:  "Chase Checking (****4821)",
+			Status:       "active",
+			NextChargeAt: time.Now().AddDate(0, 1, 0),
+			CreatedAt:    time.Now().AddDate(0, -1, 0),
+		})
+	}
+	return list, nil
+}
+
+func (m *mockRepository) GetRecurringDepositByID(ctx context.Context, id string) (*RecurringDeposit, error) {
+	if dep, ok := m.deposits[id]; ok {
+		return dep, nil
+	}
+	return &RecurringDeposit{
+		DepositID:    id,
+		CustomerID:   "cust-longterm-arthur",
+		PortfolioID:  "018f3a9a-2222-7000-8000-000000000002",
+		AmountUSD:    500.00,
+		Frequency:    "monthly",
+		BankAccount:  "Chase Checking (****4821)",
+		Status:       "active",
+		NextChargeAt: time.Now().AddDate(0, 1, 0),
+		CreatedAt:    time.Now().UTC(),
+	}, nil
+}
+

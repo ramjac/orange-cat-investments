@@ -47,38 +47,44 @@ echo "2. Applying Namespaces..."
 kubectl apply -f "${REPO_ROOT}/k8s/namespaces/"
 
 echo ""
-echo "3. Deploying PostgreSQL Database..."
-kubectl apply -f "${REPO_ROOT}/k8s/postgres/"
-
 if [[ "${PROFILE}" == "small-business" || "${PROFILE}" == "smb" ]]; then
     echo ""
-    echo "4. Deploying Core SMB Applications (Valkey, RabbitMQ, Forgejo)..."
-    kubectl apply -f "${REPO_ROOT}/k8s/apps/app-secrets.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/apps/valkey.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/apps/rabbitmq.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/apps/forgejo.yaml"
-    echo "Skipping heavyweight COTS (ERPNext, Frappe HR, Nextcloud, Zitadel, Snipe-IT) and monitoring/logging stacks."
+    echo "3. Deploying Core Infrastructure & Custom Apps (oci-core) and Internal Auth (Forgejo)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/postgres-internal.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/forgejo.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
+    echo "Skipping heavyweight COTS (ERPNext, Frappe HR, Nextcloud, Snipe-IT) and monitoring/logging stacks."
 else
     echo ""
-    echo "4. Deploying Core Applications (Valkey, RabbitMQ, Forgejo, Zitadel, Nextcloud, Snipe-IT, ERPNext, Frappe HR)..."
-    kubectl apply -f "${REPO_ROOT}/k8s/apps/"
+    echo "3. Deploying Core Applications & Infrastructure (oci-core)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
 
     echo ""
-    echo "5. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
+    echo "4. Deploying Internal Business Applications (oci-internal)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/"
+
+    echo ""
+    echo "5. Deploying External Simulation Mocks (external-sim)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
+
+    echo ""
+    echo "6. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
     kubectl apply -f "${REPO_ROOT}/k8s/monitoring/"
     kubectl apply -f "${REPO_ROOT}/k8s/logging/"
 fi
 
 echo ""
-echo "6. Waiting for core database and messaging workloads to become ready..."
-echo "Waiting for PostgreSQL..."
-kubectl rollout status statefulset/postgres -n postgres --timeout=120s || true
+echo "7. Waiting for core database and messaging workloads to become ready..."
+echo "Waiting for OCI Core PostgreSQL..."
+kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s || true
 
 echo "Waiting for Valkey..."
-kubectl rollout status deployment/valkey -n apps --timeout=120s || true
+kubectl rollout status deployment/valkey -n oci-core --timeout=120s || true
 
 echo "Waiting for RabbitMQ..."
-kubectl rollout status deployment/rabbitmq -n apps --timeout=120s || true
+kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s || true
 
 echo ""
 echo "=============================================================="
@@ -86,16 +92,16 @@ echo "  OCI Platform Workloads Successfully Deployed!              "
 echo "=============================================================="
 echo ""
 echo "Cluster Status:"
-kubectl get pods -A -l 'app in (postgres, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana)' || kubectl get pods -A
+kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, oci-server, oci-worker)' || kubectl get pods -A
 
 echo ""
 echo "Quickstart: Connect from local machine using port-forwarding:"
-echo "  # Terminal 1: PostgreSQL"
-echo "  kubectl port-forward -n postgres svc/postgres-service 5432:5432"
+echo "  # Terminal 1: PostgreSQL Core"
+echo "  kubectl port-forward -n oci-core svc/postgres-core-service 5432:5432"
 echo ""
 echo "  # Terminal 2: Valkey & RabbitMQ"
-echo "  kubectl port-forward -n apps svc/valkey-service 6379:6379 &"
-echo "  kubectl port-forward -n apps svc/rabbitmq-service 5672:5672 15672:15672 &"
+echo "  kubectl port-forward -n oci-core svc/valkey-service 6379:6379 &"
+echo "  kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &"
 echo ""
 echo "  # Terminal 3: Run OCI Unified API Server"
 echo "  DATABASE_URL='postgres://oci_admin:oci_secure_pass@localhost:5432/oci?sslmode=disable' PORT=8080 go run ./cmd/server"

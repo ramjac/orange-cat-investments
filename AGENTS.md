@@ -25,6 +25,12 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 * **Simulation Driver:**
   * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all 12 personas across corporate staff, feline executives, and retail investors in mock or live execution modes.
 
+### Kubernetes Namespace Architecture:
+* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**) and core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`, and dedicated database **`postgres-core`**).
+* **`oci-internal`:** Dedicated namespace isolating off-the-shelf commercial/open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, powered by their own dedicated internal database (**`postgres-internal`**).
+* **`external-sim`:** Dedicated namespace hosting simulated external 3rd-party SaaS / financial APIs (`mock-broker`, `mock-bank`) completely isolated from production systems.
+* **`monitoring` & `logging`:** Cluster observability and telemetry stacks (Prometheus, Grafana, Loki, Promtail).
+
 ---
 
 ## 2. Directory Structure Conventions
@@ -56,7 +62,13 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 │   └── flutter_app/       # Flutter offline-first field maintenance application
 ├── embedded/              # Embedded firmware & wearable applications
 │   └── pebble/            # Pebble watch companion app (Pebble Alloy / JS / C)
-├── k8s/                   # Kubernetes deployment manifests (PostgreSQL, Valkey, RabbitMQ, COTS)
+├── k8s/                   # Kubernetes deployment manifests
+│   ├── namespaces/        # Core namespace definitions
+│   ├── oci-core/          # Custom OCI apps, Zitadel IdP, core infra (Valkey, RabbitMQ, Meilisearch, postgres-core)
+│   ├── oci-internal/      # Off-the-shelf internal business apps (Nextcloud, Forgejo, ERPNext, Snipe-IT, postgres-internal)
+│   ├── external-sim/      # External simulation microservices (Mock Broker, Mock Bank)
+│   ├── monitoring/        # Prometheus & Grafana stack
+│   └── logging/           # Loki & Promtail aggregation stack
 ├── ansible/               # Ansible playbooks for host & cluster provisioning
 └── internal/              # Core domain logic, handlers, repositories, services, and sagas
     ├── handler/           # HTTP handlers (core_invest, facilities, ops, workforce)
@@ -83,6 +95,13 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 2. **No Sensitive Payload Logging (CWE-532):** Background event workers and HTTP handlers must never log unredacted message payloads, secret keys, or credentials.
 3. **No JWTs in Web SPAs:** Web browser clients authenticate via OIDC/OAuth2 handled at the Go BFF layer. Access tokens are stored exclusively in Valkey. Browsers receive only opaque session cookies (`__Host-customer-session` or `__Host-employee-session`, both `HttpOnly`, `Secure`, `SameSite=Lax`).
 4. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
+
+### Kubernetes Namespace & Database Isolation Standards
+1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (`oci-server`, BFFs, web portals, worker, pebble-proxy), customer identity provider (ZITADEL), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
+2. **COTS Isolation (`oci-internal`):** Commercial and open-source off-the-shelf business platforms (Nextcloud, Forgejo, ERPNext, Frappe HR, Snipe-IT) must be deployed exclusively in `oci-internal` and connect to their dedicated `postgres-internal-service` database. They must connect to shared core resources (like Valkey) via full cluster FQDNs (`valkey-service.oci-core.svc.cluster.local:6379`).
+3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
+4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
+5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.

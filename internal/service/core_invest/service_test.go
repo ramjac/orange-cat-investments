@@ -8,6 +8,7 @@ import (
 
 	repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	service "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -286,6 +287,84 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, orders)
 	})
+
+	t.Run("CreateRecurringDeposit_And_List", func(t *testing.T) {
+		dep, err := svc.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+			CustomerID:  "cust-longterm-arthur",
+			PortfolioID: "018f3a9a-2222-7000-8000-000000000002",
+			AmountUSD:   500.00,
+			Frequency:   "monthly",
+			BankAccount: "Chase Checking (****4821)",
+		})
+		require.NoError(t, err)
+		assert.NotEmpty(t, dep.DepositID)
+		assert.Equal(t, 500.00, dep.AmountUSD)
+
+		list, err := svc.ListRecurringDeposits(ctx, "cust-longterm-arthur")
+		require.NoError(t, err)
+		assert.NotEmpty(t, list)
+	})
+}
+
+type mockBankClient struct {
+	allowTransfer bool
+}
+
+func (m *mockBankClient) CreateTransfer(ctx context.Context, req plaid.CreateTransferRequest) (*plaid.Transfer, error) {
+	return &plaid.Transfer{TransferID: "tr-test-1", Status: "pending", Amount: req.Amount}, nil
+}
+func (m *mockBankClient) GetTransfer(ctx context.Context, transferID string) (*plaid.Transfer, error) {
+	return &plaid.Transfer{TransferID: transferID, Status: "settled"}, nil
+}
+func (m *mockBankClient) AuthorizeTransfer(ctx context.Context, accountID string, amount float64, transferType string) (*plaid.TransferAuthorization, error) {
+	if m.allowTransfer {
+		return &plaid.TransferAuthorization{ID: "auth-1", Decision: "approved"}, nil
+	}
+	return &plaid.TransferAuthorization{
+		ID:       "auth-2",
+		Decision: "declined",
+		DecisionRationale: &plaid.DecisionRationale{
+			Code:        "NSF",
+			Description: "insufficient funds",
+		},
+	}, nil
+}
+func (m *mockBankClient) GetBalances(ctx context.Context, accessToken string, accountIDs []string) ([]plaid.AccountWithBalance, error) {
+	return nil, nil
+}
+func (m *mockBankClient) GetAccounts(ctx context.Context, ownerID string) ([]plaid.Account, error) {
+	return nil, nil
+}
+
+func TestCoreInvestService_WithBankIntegration(t *testing.T) {
+	repository := repo.NewMockRepository()
+	ctx := context.Background()
+
+	// 1. Approved bank client
+	bankOk := &mockBankClient{allowTransfer: true}
+	svcOk := service.NewServiceWithIntegrations(repository, nil, bankOk)
+
+	dep, err := svcOk.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+		CustomerID:  "cust-longterm-arthur",
+		PortfolioID: "port-001",
+		AmountUSD:   250.00,
+		AccountID:   "acc_arthur_chase_chk",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 250.00, dep.AmountUSD)
+
+	// 2. Declined bank client (NSF)
+	bankDeclined := &mockBankClient{allowTransfer: false}
+	svcDeclined := service.NewServiceWithIntegrations(repository, nil, bankDeclined)
+
+	_, err = svcDeclined.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+		CustomerID:  "cust-active-chloe",
+		PortfolioID: "port-002",
+		AmountUSD:   100000.00,
+		AccountID:   "acc_chloe_svcu_chk",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "bank declined deposit authorization")
 }
 
 type mockAlpacaBroker struct {
@@ -317,4 +396,5 @@ func (m *mockAlpacaBroker) ListPositions(ctx context.Context, accountID string) 
 func (m *mockAlpacaBroker) ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error) {
 	return []alpaca.Order{}, nil
 }
+
 

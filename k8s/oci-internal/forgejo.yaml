@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: forgejo
-  namespace: apps
+  namespace: oci-internal
   labels:
     app: forgejo
 spec:
@@ -31,9 +31,9 @@ spec:
             - name: FORGEJO__database__DB_TYPE
               value: postgres
             - name: FORGEJO__database__HOST
-              value: postgres-service.postgres.svc.cluster.local:5432
+              value: postgres-internal-service:5432
             - name: FORGEJO__database__NAME
-              value: oci
+              value: forgejo
             - name: FORGEJO__database__USER
               value: oci_admin
             - name: FORGEJO__database__PASSWD
@@ -53,7 +53,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: forgejo-service
-  namespace: apps
+  namespace: oci-internal
   labels:
     app: forgejo
 spec:

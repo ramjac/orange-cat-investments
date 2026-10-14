@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: zitadel
-  namespace: apps
+  namespace: oci-core
   labels:
     app: zitadel
 spec:
@@ -31,29 +31,35 @@ spec:
             - name: ZITADEL_MASTERKEY
               valueFrom:
                 secretKeyRef:
-                  name: app-secrets
+                  name: oci-core-secrets
                   key: ZITADEL_MASTERKEY
             - name: ZITADEL_DATABASE_POSTGRES_HOST
-              value: postgres-service.postgres.svc.cluster.local
+              value: postgres-core-service.oci-core.svc.cluster.local
             - name: ZITADEL_DATABASE_POSTGRES_PORT
               value: "5432"
             - name: ZITADEL_DATABASE_POSTGRES_DATABASE
               value: oci
             - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
-              value: oci_admin
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: POSTGRES_USER
             - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: app-secrets
+                  name: oci-core-secrets
                   key: POSTGRES_PASSWORD
             - name: ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE
               value: disable
             - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
-              value: oci_admin
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: POSTGRES_USER
             - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: app-secrets
+                  name: oci-core-secrets
                   key: POSTGRES_PASSWORD
             - name: ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE
               value: disable
@@ -69,7 +75,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: zitadel-service
-  namespace: apps
+  namespace: oci-core
   labels:
     app: zitadel
 spec:
