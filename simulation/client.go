@@ -23,18 +23,32 @@ import (
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	bank_engine "github.com/orange-cat-investments/oci/cmd/mock-bank/engine"
+	bank_handler "github.com/orange-cat-investments/oci/cmd/mock-bank/handler"
+	bank_ledger "github.com/orange-cat-investments/oci/cmd/mock-bank/ledger"
+	broker_engine "github.com/orange-cat-investments/oci/cmd/mock-broker/engine"
+	broker_handler "github.com/orange-cat-investments/oci/cmd/mock-broker/handler"
+	broker_ledger "github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 // Client wraps HTTP communication with the OCI stack (Domain API server and Employee BFF).
 type Client struct {
-	serverURL string
-	bffURL    string
-	mode      string
+	serverURL  string
+	bffURL     string
+	custBFFURL string
+	brokerURL  string
+	bankURL    string
+	mode       string
 	httpClient *http.Client
 
 	// Mock server references when running in "mock" mode
-	mockServer *httptest.Server
-	mockBFF    *httptest.Server
+	mockServer  *httptest.Server
+	mockBFF     *httptest.Server
+	mockBroker  *httptest.Server
+	mockBank    *httptest.Server
+	mockCustBFF *httptest.Server
 }
 
 // NewClient constructs a new simulation client. In "mock" mode, it spins up in-memory HTTP test servers.
@@ -42,6 +56,9 @@ func NewClient(cfg *Config) (*Client, error) {
 	c := &Client{
 		serverURL:  strings.TrimSuffix(cfg.ServerURL, "/"),
 		bffURL:     strings.TrimSuffix(cfg.EmployeeBFFURL, "/"),
+		custBFFURL: strings.TrimSuffix(cfg.CustomerBFFURL, "/"),
+		brokerURL:  strings.TrimSuffix(cfg.BrokerURL, "/"),
+		bankURL:    strings.TrimSuffix(cfg.BankURL, "/"),
 		mode:       cfg.Mode,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
@@ -63,14 +80,55 @@ func (c *Client) Close() {
 	if c.mockBFF != nil {
 		c.mockBFF.Close()
 	}
+	if c.mockBroker != nil {
+		c.mockBroker.Close()
+	}
+	if c.mockBank != nil {
+		c.mockBank.Close()
+	}
+	if c.mockCustBFF != nil {
+		c.mockCustBFF.Close()
+	}
 }
 
 func (c *Client) initMockServers() error {
+	// Initialize Mock Broker server
+	brokerStore := broker_ledger.NewStore()
+	mktEngine := broker_engine.NewMarketEngine(brokerStore, time.Second, broker_engine.DefaultAssets())
+	broker_ledger.SeedDefaultAccounts(brokerStore, mktEngine.InitialPrices())
+	brokerHandler := broker_handler.NewHandler(brokerStore, mktEngine)
+	brokerMux := http.NewServeMux()
+	brokerHandler.RegisterRoutes(brokerMux)
+	c.mockBroker = httptest.NewServer(brokerMux)
+	c.brokerURL = c.mockBroker.URL
+
+	// Initialize Mock Bank server
+	bankStore := bank_ledger.NewLedgerStore()
+	bankEng := bank_engine.NewSettlementEngine(bankStore, nil, time.Second)
+	bankHandler := bank_handler.NewHandler(bankStore, bankEng)
+	bankMux := http.NewServeMux()
+	bankHandler.RegisterRoutes(bankMux)
+	c.mockBank = httptest.NewServer(bankMux)
+	c.bankURL = c.mockBank.URL
+
+	// Initialize external clients
+	brokerClient := alpaca.NewClient(alpaca.Config{
+		BaseURL:   c.brokerURL,
+		DataURL:   c.brokerURL,
+		APIKey:    "MOCK_ALPACAKEY",
+		APISecret: "MOCK_SECRET",
+	})
+	bankClient := plaid.NewClient(plaid.Config{
+		BaseURL:  c.bankURL,
+		ClientID: "mock-client-id",
+		Secret:   "mock-secret",
+	})
+
 	// Initialize Domain API Server Mux
 	serverMux := http.NewServeMux()
 
 	ciRepo := core_invest_repo.NewMockRepository()
-	ciService := core_invest_svc.NewService(ciRepo)
+	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
 	ciHandler := core_invest_handler.NewHandler(ciService)
 	ciHandler.RegisterRoutes(serverMux)
 
@@ -262,6 +320,165 @@ func (c *Client) initMockServers() error {
 		})
 	})
 
+	// Customer BFF routes and Mock Customer BFF server
+	custMux := http.NewServeMux()
+	registerCustRoutes := func(mux *http.ServeMux) {
+		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"status":"ok","service":"customer-bff"}`))
+		})
+		mux.HandleFunc("GET /api/v1/customer/bank-accounts", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			customerID := r.URL.Query().Get("customer_id")
+			if customerID == "" {
+				customerID = "cust-longterm-arthur"
+			}
+			accs, err := bankClient.GetAccounts(r.Context(), customerID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"accounts": accs})
+		})
+		mux.HandleFunc("GET /api/v1/customer/portfolio", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			custID := r.URL.Query().Get("customer_id")
+			portfolioID := "018f3a9a-2222-7000-8000-000000000002"
+			if custID == "cust-active-chloe" || custID == "chloe" {
+				portfolioID = "018f3a9a-2222-7000-8000-000000000003"
+			}
+			acc, err := brokerClient.GetAccount(r.Context(), portfolioID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			positions, _ := brokerClient.ListPositions(r.Context(), portfolioID)
+			holdings := make([]map[string]any, 0, len(positions))
+			for _, p := range positions {
+				holdings = append(holdings, map[string]any{
+					"symbol":        p.Symbol,
+					"quantity":      p.Qty,
+					"avg_price":     p.AvgEntryPrice,
+					"current_price": p.CurrentPrice,
+					"market_value":  p.MarketValue,
+				})
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"portfolio_id":      portfolioID,
+				"customer_id":       custID,
+				"total_balance_usd": acc.PortfolioValue,
+				"cash_balance_usd":  acc.Cash,
+				"status":            acc.Status,
+				"holdings":          holdings,
+			})
+		})
+		mux.HandleFunc("GET /api/v1/customer/ticker", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
+			bars, _ := brokerClient.GetLatestBars(r.Context(), symbols)
+			tickerData := make([]map[string]any, 0, len(symbols))
+			for _, sym := range symbols {
+				price := 150.0
+				vol := int64(100000)
+				if b, ok := bars[sym]; ok && b.Close > 0 {
+					price = b.Close
+					vol = b.Volume
+				}
+				tickerData = append(tickerData, map[string]any{
+					"symbol": sym,
+					"price":  price,
+					"volume": vol,
+				})
+			}
+			json.NewEncoder(w).Encode(tickerData)
+		})
+		mux.HandleFunc("POST /api/v1/customer/deposits", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID  string  `json:"customer_id"`
+				PortfolioID string  `json:"portfolio_id"`
+				AmountUSD   float64 `json:"amount_usd"`
+				Frequency   string  `json:"frequency"`
+				BankAccount string  `json:"bank_account"`
+				AccountID   string  `json:"account_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "cust-longterm-arthur"
+			}
+			if req.PortfolioID == "" {
+				if req.CustomerID == "cust-active-chloe" {
+					req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
+				} else {
+					req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+				}
+			}
+			dep, err := ciService.CreateRecurringDeposit(r.Context(), core_invest_svc.CreateRecurringDepositOpts{
+				CustomerID:  req.CustomerID,
+				PortfolioID: req.PortfolioID,
+				AmountUSD:   req.AmountUSD,
+				Frequency:   req.Frequency,
+				BankAccount: req.BankAccount,
+				AccountID:   req.AccountID,
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(dep)
+		})
+		mux.HandleFunc("POST /api/v1/customer/trading/orders", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				PortfolioID string  `json:"portfolio_id"`
+				Symbol      string  `json:"symbol"`
+				Side        string  `json:"side"`
+				Quantity    float64 `json:"quantity"`
+				Price       float64 `json:"price"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.PortfolioID == "" {
+				req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+			}
+			ord, err := ciService.ExecuteBrokerageOrder(r.Context(), core_invest_svc.ExecuteBrokerageOrderOpts{
+				PortfolioID: req.PortfolioID,
+				BrokerName:  "OCI Smart Execution Router",
+				Symbol:      req.Symbol,
+				Side:        req.Side,
+				Quantity:    req.Quantity,
+				Price:       req.Price,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(ord)
+		})
+		mux.HandleFunc("GET /api/v1/customer/trade-logs", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			orders, err := ciService.ListBrokerageOrders(r.Context(), 50, 0)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(orders)
+		})
+	}
+	registerCustRoutes(custMux)
+	registerCustRoutes(serverMux)
+
+	c.mockCustBFF = httptest.NewServer(custMux)
+	c.custBFFURL = c.mockCustBFF.URL
+
 	c.mockServer = httptest.NewServer(serverMux)
 	c.serverURL = c.mockServer.URL
 
@@ -282,14 +499,7 @@ func (c *Client) initMockServers() error {
 	return nil
 }
 
-// Request executes an HTTP request against either the Server or Employee BFF target URL.
-func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body any) (*http.Response, []byte, error) {
-	baseURL := c.serverURL
-	if useBFF {
-		baseURL = c.bffURL
-	}
-
-	url := baseURL + path
+func (c *Client) doRequest(ctx context.Context, fullURL, method string, body any, headers map[string]string) (*http.Response, []byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		var buf bytes.Buffer
@@ -299,7 +509,7 @@ func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body 
 		bodyReader = &buf
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -307,10 +517,13 @@ func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, nil, fmt.Errorf("HTTP request failed (%s %s): %w", method, url, err)
+		return nil, nil, fmt.Errorf("HTTP request failed (%s %s): %w", method, fullURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -320,4 +533,48 @@ func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body 
 	}
 
 	return resp, respBytes, nil
+}
+
+// Do executes an HTTP request against either the Server or Employee BFF target URL.
+func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.serverURL
+	if useBFF {
+		baseURL = c.bffURL
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, nil)
+}
+
+// DoCustomer executes an HTTP request against the Customer BFF target URL.
+func (c *Client) DoCustomer(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.custBFFURL
+	if baseURL == "" {
+		baseURL = c.serverURL
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, nil)
+}
+
+// DoBroker executes an HTTP request directly against the Mock Broker API.
+func (c *Client) DoBroker(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.brokerURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8089"
+	}
+	headers := map[string]string{
+		"APCA-API-KEY-ID":     "MOCK_ALPACAKEY",
+		"APCA-API-SECRET-KEY": "MOCK_SECRET",
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, headers)
+}
+
+// DoBank executes an HTTP request directly against the Mock Bank API.
+func (c *Client) DoBank(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.bankURL
+	if baseURL == "" {
+		baseURL = "http://localhost:8088"
+	}
+	headers := map[string]string{
+		"PLAID-CLIENT-ID": "mock-client-id",
+		"PLAID-SECRET":    "mock-secret",
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }

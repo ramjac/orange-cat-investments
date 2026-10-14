@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mock-bank-credentials
+  namespace: external-sim
+type: Opaque
+stringData:
+  PLAID_CLIENT_ID: "client_oci_sim_01"
+  PLAID_SECRET: "sec_oci_sim_test_8829"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-bank
+  namespace: external-sim
+  labels:
+    app: mock-bank
+    environment: simulated-external
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-bank
+  template:
+    metadata:
+      labels:
+        app: mock-bank
+        environment: simulated-external
+    spec:
+      containers:
+        - name: mock-bank
+          image: localhost:32000/mock-bank:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8088
+              name: http
+          env:
+            - name: PORT
+              value: "8088"
+            - name: PLAID_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: mock-bank-credentials
+                  key: PLAID_CLIENT_ID
+            - name: PLAID_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mock-bank-credentials
+                  key: PLAID_SECRET
+            - name: ACH_TICK_INTERVAL_MS
+              value: "1000"
+            - name: OCI_WEBHOOK_URL
+              value: "http://unified-api.oci-core.svc.cluster.local:8080/api/v1/bank/webhooks"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-bank-service
+  namespace: external-sim
+  labels:
+    app: mock-bank
+spec:
+  ports:
+    - port: 8088
+      targetPort: 8088
+      name: http
+  selector:
+    app: mock-bank
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mock-bank-ingress
+  namespace: external-sim
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: public
+  rules:
+    - host: bank-api.sim.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mock-bank-service
+                port:
+                  number: 8088
+    - host: plaid-api.sim.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mock-bank-service
+                port:
+                  number: 8088

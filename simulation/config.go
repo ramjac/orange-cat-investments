@@ -12,6 +12,15 @@ type Config struct {
 	// EmployeeBFFURL is the base URL for the Employee BFF server (default: http://localhost:8081).
 	EmployeeBFFURL string
 
+	// CustomerBFFURL is the base URL for the Customer BFF server (default: http://localhost:8083).
+	CustomerBFFURL string
+
+	// BrokerURL is the base URL for the external / mock stock broker API (default: http://localhost:8089).
+	BrokerURL string
+
+	// BankURL is the base URL for the external / mock bank API (default: http://localhost:8088).
+	BankURL string
+
 	// Mode determines how simulation actions are executed:
 	// "mock"       - runs against embedded mock server handlers without external dependencies.
 	// "live"       - sends HTTP requests to real running OCI stack services.
@@ -37,6 +46,9 @@ func DefaultConfig() *Config {
 	return &Config{
 		ServerURL:      "http://localhost:8080",
 		EmployeeBFFURL: "http://localhost:8081",
+		CustomerBFFURL: "http://localhost:8083",
+		BrokerURL:      "http://localhost:8089",
+		BankURL:        "http://localhost:8088",
 		Mode:           "mock",
 		TargetPersona:  "all",
 		Iterations:     1,

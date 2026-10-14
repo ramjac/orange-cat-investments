@@ -118,6 +118,7 @@ func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 					summary.Successes++
 				} else {
 					summary.Failures++
+					d.logger.Error("persona action failed", "persona", res.PersonaName, "action", res.ActionName, "details", res.Details)
 				}
 				summary.Results = append(summary.Results, *res)
 

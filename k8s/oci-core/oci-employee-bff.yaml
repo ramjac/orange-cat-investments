@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-employee-bff
+  namespace: oci-core
+  labels:
+    app: oci-employee-bff
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-employee-bff
+  template:
+    metadata:
+      labels:
+        app: oci-employee-bff
+    spec:
+      containers:
+        - name: oci-employee-bff
+          image: localhost:32000/oci-employee-bff:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            - name: PORT
+              value: "8081"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: ENABLE_FELINE_WORKFORCE
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-employee-bff-service
+  namespace: oci-core
+  labels:
+    app: oci-employee-bff
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: http
+  selector:
+    app: oci-employee-bff

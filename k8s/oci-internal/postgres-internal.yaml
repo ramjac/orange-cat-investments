@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-internal-init-script
+  namespace: oci-internal
+data:
+  init.sql: |
+    -- Initialize individual databases for internal COTS business applications
+    SELECT 'CREATE DATABASE nextcloud' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'nextcloud')\gexec
+    SELECT 'CREATE DATABASE forgejo' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'forgejo')\gexec
+    SELECT 'CREATE DATABASE snipeit' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'snipeit')\gexec
+    SELECT 'CREATE DATABASE erpnext' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'erpnext')\gexec
+    SELECT 'CREATE DATABASE frappe_hr' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'frappe_hr')\gexec
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-internal-data-pvc
+  namespace: oci-internal
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-internal
+  namespace: oci-internal
+  labels:
+    app: postgres-internal
+spec:
+  serviceName: postgres-internal-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-internal
+  template:
+    metadata:
+      labels:
+        app: postgres-internal
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: oci_internal
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-internal-data-pvc
+        - name: init-script
+          configMap:
+            name: postgres-internal-init-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-internal-service
+  namespace: oci-internal
+  labels:
+    app: postgres-internal
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: postgres-internal
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-internal-backup-cronjob
+  namespace: oci-internal
+spec:
+  schedule: "0 3 * * *" # Daily at 03:00 AM UTC
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: postgres-backup
+            image: postgres:16-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Starting OCI Internal PostgreSQL automated backup..."
+              pg_dumpall -h postgres-internal-service -U "${POSTGRES_USER}" -f /backups/oci_internal_backup_$(date +%Y%m%d_%H%M%S).sql
+              echo "OCI Internal database backup completed successfully!"
+            env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          restartPolicy: OnFailure
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: postgres-internal-data-pvc

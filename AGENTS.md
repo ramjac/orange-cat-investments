@@ -10,18 +10,26 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 
 ### Key Operational Planes & Tech Stack:
 * **Orchestration & Infrastructure:** K3s Kubernetes, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
-* **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`).
+* **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`). Supports partitioned modular schemas (`01-workforce-core.sql`, `02-facilities-core.sql`, etc.) for white-labeled SMB deployments.
 * **Custom Backend Services:**
-  * **Unified API Server (`cmd/server`):** Serves domain REST APIs across `core-invest`, `facilities`, `ops`, and `workforce`.
-  * **Go REST BFFs (`cmd/customer-bff` & `cmd/employee-bff`):** Connect web/mobile frontends using `net/http` + `chi`. Uses server-side Valkey session management and double-submit CSRF protection.
+  * **Unified API Server (`cmd/server`):** Serves domain REST APIs across `core-invest`, `facilities`, `ops`, and `workforce`. Supports runtime domain feature flags (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`).
+  * **Go REST BFFs (`cmd/customer-bff` & `cmd/employee-bff`):** Connect web/mobile frontends using `net/http`. Uses server-side Valkey session management and double-submit CSRF protection.
   * **Wearable Gateway Proxy (`cmd/pebble-proxy`):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations (`ops.it_tickets`).
   * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, and automated cert-manager CA rotation tickers.
 * **Client Applications:**
-  * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers (Identity Provider: **ZITADEL OIDC**).
-  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule & Emergency Medical Hold management.
+  * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers (Identity Provider: **ZITADEL OIDC**). Features portfolio analytics, WebRTC habitat stream player, trading terminal, and ESG transparency dashboard.
+  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule, Emergency Medical Hold, VHR charting, leave requests, and performance review cycles.
   * **Hugo Marketing Site (`web/marketing`):** Static public marketing website.
   * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app with offline SQLite sync engine, QR scanning, and firmware OTA rollout tracking.
   * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (Embedded JavaScript / RePebble Alloy framework).
+* **Simulation Driver:**
+  * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all 12 personas across corporate staff, feline executives, and retail investors in mock or live execution modes.
+
+### Kubernetes Namespace Architecture:
+* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**) and core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`, and dedicated database **`postgres-core`**).
+* **`oci-internal`:** Dedicated namespace isolating off-the-shelf commercial/open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, powered by their own dedicated internal database (**`postgres-internal`**).
+* **`external-sim`:** Dedicated namespace hosting simulated external 3rd-party SaaS / financial APIs (`mock-broker`, `mock-bank`) completely isolated from production systems.
+* **`monitoring` & `logging`:** Cluster observability and telemetry stacks (Prometheus, Grafana, Loki, Promtail).
 
 ---
 
@@ -30,21 +38,37 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ```text
 .
 ├── api/                   # OpenAPI 3.1 YAML specifications (`openapi.yaml`)
+├── config/                # Platform branding & white-label design token manifest (`branding.yaml`)
 ├── docs/                  # Architecture Decision Records (`adr/`) and specifications
+├── personas/              # Profile specifications for all 12 corporate & customer personas
 ├── proto/                 # Protobuf definitions (`oci/core/`, `oci/ops/`)
-├── pkg/                   # Shared Go packages (`envelope`, `mtls`, `gen/go`, etc.)
+├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `gen/go`)
+│   ├── branding/          # Design token & white-label configuration loader
 │   └── envelope/          # Standard EventEnvelope[T] message wrapper
-├── scripts/               # SQL scripts (`init.sql`) and environment bootstrapping
+├── scripts/               # SQL scripts (`init.sql`, modular schemas) & bootstrapping
 ├── cmd/                   # Go application entrypoints
 │   ├── server/            # Unified API server hosting all 4 domains
-│   ├── employee-bff/      # Employee portal backend-for-frontend
-│   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy
+│   ├── customer-bff/      # Customer portal backend-for-frontend (:8083)
+│   ├── employee-bff/      # Employee portal backend-for-frontend (:8081)
+│   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy (:8082)
 │   └── worker/            # Background worker (Watermill, OTA, CA rotation)
+├── simulation/            # Full platform simulation driver & persona action suites
+│   └── cmd/simulator/     # Standalone simulation CLI (`-mode live|mock`)
 ├── web/                   # Frontend applications
-│   └── employee-portal/   # Vue 3 SPA for employee and feline care management
+│   ├── customer-portal/   # Vue 3 SPA for retail investors and customers (:5174)
+│   ├── employee-portal/   # Vue 3 SPA for employee and feline care management (:5173)
+│   └── marketing/         # Hugo static marketing website
 ├── mobile/                # Mobile applications
 │   └── flutter_app/       # Flutter offline-first field maintenance application
-├── k8s/                   # Kubernetes deployment manifests (PostgreSQL, Valkey, RabbitMQ, COTS)
+├── embedded/              # Embedded firmware & wearable applications
+│   └── pebble/            # Pebble watch companion app (Pebble Alloy / JS / C)
+├── k8s/                   # Kubernetes deployment manifests
+│   ├── namespaces/        # Core namespace definitions
+│   ├── oci-core/          # Custom OCI apps, Zitadel IdP, core infra (Valkey, RabbitMQ, Meilisearch, postgres-core)
+│   ├── oci-internal/      # Off-the-shelf internal business apps (Nextcloud, Forgejo, ERPNext, Snipe-IT, postgres-internal)
+│   ├── external-sim/      # External simulation microservices (Mock Broker, Mock Bank)
+│   ├── monitoring/        # Prometheus & Grafana stack
+│   └── logging/           # Loki & Promtail aggregation stack
 ├── ansible/               # Ansible playbooks for host & cluster provisioning
 └── internal/              # Core domain logic, handlers, repositories, services, and sagas
     ├── handler/           # HTTP handlers (core_invest, facilities, ops, workforce)
@@ -56,20 +80,40 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ---
 
 ## 3. Mandatory Coding Standards & Principles
-
+ 
 ### Domain Boundary & Dual Identity Rules
-1. **Database System of Record (No Hardcoded Data):** Do not hardcode domain entity lists, employee rosters, or welfare reports in APIs, services, or web/mobile frontends when that data can be stored in and fetched from the PostgreSQL database. Hardcoding is permitted only for unintegrated external market feeds (e.g. stock tickers) where no database source currently exists.
+
+1. **Strict Prohibition on Hardcoded Data in Core Apps (`oci-core`):**
+   * **Forbidden in Production Apps:** NEVER hardcode domain entity IDs, customer names, customer IDs, employee names, employee IDs, portfolio IDs, bank account numbers, or persona names in code deployed to `oci-core` applications (`cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, `cmd/pebble-proxy`, `cmd/worker`, `internal/...`, `pkg/...`).
+   * **Dynamic Context Extraction:** All IDs, portfolio references, account identifiers, and customer/employee metadata must be dynamically extracted from HTTP request parameters, JSON payloads, authenticated session context (e.g., `CustomerFromContext` or `EmployeeFromContext`), database repositories (`pgxpool`), or external client lookups.
+   * **Allowed Hardcoding Zones:** Hardcoding of test personas, seed accounts, or fixture entities is permitted ONLY in:
+     - Database seed scripts (`scripts/init.sql`, `scripts/0*-*.sql`) for populating initial demo environments.
+     - Unit and integration tests (`*_test.go`).
+     - Platform simulation driver and persona action suites (`simulation/...`).
+     - Isolated external simulation / mock microservices running in `external-sim` (`cmd/mock-broker/...`, `cmd/mock-bank/...`).
+   * Hardcoding is also permissible for external unintegrated market ticker symbols where no market data feed is connected.
 2. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
-2. **Dual Identity Provider Model:**
+3. **Dual Identity Provider Model:**
    * **ZITADEL:** Strictly reserved for external customer identity management (`web/customer-portal`).
    * **Forgejo:** System of record for internal employee, employer, staff, and developer identity management (`web/employee-portal`).
-3. **COTS vs. Custom Isolation:** ERPNext/Frappe HR remain systems of record for generic accounting and payroll. Custom Go code is reserved for OCI core domain algorithms and hardware asset telemetry. Go microservices interface with COTS via REST/webhooks, never by sharing database tables.
+4. **COTS vs. Custom Isolation:** ERPNext/Frappe HR remain systems of record for generic accounting and payroll. Snipe-IT is the source of record for non-networked office inventory. Custom Go code is reserved for OCI core domain algorithms and hardware asset telemetry. Go microservices interface with COTS via REST/webhooks, never by sharing database tables.
+5. **Platform Modularization & White-Labeling:** When developing or modifying domain features, respect domain feature flags (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`) and utilize design tokens from `config/branding.yaml` / `pkg/branding` rather than hardcoding static brand colors or organizational names.
+6. **Vendor & Product Name Encapsulation (Generic Domain Variable Naming):**
+   * **Driver Package Encapsulation:** It is fine, appropriate, and expected that dedicated driver/adapter client packages (e.g., `pkg/broker/alpaca/client.go` or `pkg/bank/plaid/client.go`) have vendor product names throughout their internal implementation, comments, and package/type definitions.
+   * **Domain-Centric Consumption:** Beyond those specialized driver packages, vendor product names must NOT spread further across the codebase. Consuming application entrypoints (`cmd/...`), services (`internal/service/...`), handlers (`internal/handler/...`), and repositories must use generic, domain-centric variable and field names. For example, use `broker` or `brokerClient` (instead of `alpaca` or `alpacaClient`), and `bank` or `bankClient` (instead of `plaid` or `plaidClient`).
 
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.
 2. **No Sensitive Payload Logging (CWE-532):** Background event workers and HTTP handlers must never log unredacted message payloads, secret keys, or credentials.
 3. **No JWTs in Web SPAs:** Web browser clients authenticate via OIDC/OAuth2 handled at the Go BFF layer. Access tokens are stored exclusively in Valkey. Browsers receive only opaque session cookies (`__Host-customer-session` or `__Host-employee-session`, both `HttpOnly`, `Secure`, `SameSite=Lax`).
 4. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
+
+### Kubernetes Namespace & Database Isolation Standards
+1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (`oci-server`, BFFs, web portals, worker, pebble-proxy), customer identity provider (ZITADEL), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
+2. **COTS Isolation (`oci-internal`):** Commercial and open-source off-the-shelf business platforms (Nextcloud, Forgejo, ERPNext, Frappe HR, Snipe-IT) must be deployed exclusively in `oci-internal` and connect to their dedicated `postgres-internal-service` database. They must connect to shared core resources (like Valkey) via full cluster FQDNs (`valkey-service.oci-core.svc.cluster.local:6379`).
+3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
+4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
+5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
@@ -103,7 +147,18 @@ Before marking any task as complete or submitting code changes, agents must veri
    go test -v -race ./...
    go vet ./...
    ```
-4. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
+4. **Platform Simulation Driver Validation:**
+   Run the 12-persona simulation test suite and driver to verify end-to-end integration:
+   ```bash
+   go test -v ./simulation/...
+   go run ./simulation/cmd/simulator -mode mock
+   ```
+5. **Frontend Theme & Design Token Compilation:**
+   Verify `scripts/generate-theme.js` compiles CSS variables from `config/branding.yaml`:
+   ```bash
+   node scripts/generate-theme.js
+   ```
+6. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
 
 ---
 

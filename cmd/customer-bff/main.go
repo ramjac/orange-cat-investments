@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +22,8 @@ import (
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 type CustomerSession struct {
@@ -46,6 +49,8 @@ func NewSessionStore() *SessionStore {
 	return store
 }
 
+// TODO(tech-debt): Pre-existing hardcoded dev session fixtures outside PR #77.
+// Migrate to dynamic database-backed session creation or external test fixtures. See TODO.md.
 func (s *SessionStore) SeedDevSessions() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,6 +152,8 @@ type CustomerBFF struct {
 	wfSvc    workforce_svc.Service
 	sessions *SessionStore
 	logger   *slog.Logger
+	broker   *alpaca.Client
+	bank     *plaid.Client
 	vhrCache vhrCache
 }
 
@@ -160,6 +167,19 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 			ttl: 30 * time.Second,
 		},
 	}
+}
+
+func (b *CustomerBFF) SetBrokerClient(client *alpaca.Client) {
+	b.broker = client
+}
+
+// SetAlpacaClient is an alias for SetBrokerClient for backwards compatibility.
+func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
+	b.SetBrokerClient(client)
+}
+
+func (b *CustomerBFF) SetBankClient(client *plaid.Client) {
+	b.bank = client
 }
 
 func (b *CustomerBFF) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workforce_repo.VHRRecord, error) {
@@ -269,6 +289,7 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/ticker", b.sessionAuth(http.HandlerFunc(b.handleTickerSSE)))
 	mux.Handle("GET /api/v1/customer/zoomie-index", b.sessionAuth(http.HandlerFunc(b.handleGetZoomieIndex)))
 	mux.Handle("GET /api/v1/customer/deposits", b.sessionAuth(http.HandlerFunc(b.handleGetDeposits)))
+	mux.Handle("GET /api/v1/customer/bank-accounts", b.sessionAuth(http.HandlerFunc(b.handleGetBankAccounts)))
 	mux.Handle("GET /api/v1/customer/api-keys", b.sessionAuth(http.HandlerFunc(b.handleGetAPIKeys)))
 	mux.Handle("GET /api/v1/customer/webhooks", b.sessionAuth(http.HandlerFunc(b.handleGetWebhooks)))
 	mux.Handle("GET /api/v1/customer/transparency/welfare", b.sessionAuth(http.HandlerFunc(b.handleGetESGTransparency)))
@@ -301,6 +322,8 @@ func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
+	// TODO(tech-debt): Pre-existing persona hardcoding outside PR #77.
+	// Migrate dev login to resolve accounts dynamically from database or ZITADEL OIDC. See TODO.md.
 	var custID, name, email string
 	if req.Persona == "chloe" || req.CustomerID == "cust-active-chloe" {
 		custID = "cust-active-chloe"
@@ -395,11 +418,76 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		custID = r.URL.Query().Get("customer_id")
 	}
 
+	portfolioID := r.URL.Query().Get("portfolio_id")
+	if portfolioID == "" && b.broker != nil {
+		accs, err := b.broker.ListAccounts(r.Context())
+		if err == nil {
+			for _, a := range accs {
+				if a.ID == custID || a.AccountNumber == custID || (custID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(custID))) {
+					portfolioID = a.ID
+					break
+				}
+			}
+			if portfolioID == "" && len(accs) > 0 {
+				portfolioID = accs[0].ID
+			}
+		}
+	}
+	if portfolioID == "" {
+		portfolioID = fmt.Sprintf("port-%s", custID)
+	}
+
+	if b.broker != nil {
+		acc, accErr := b.broker.GetAccount(r.Context(), portfolioID)
+		positions, posErr := b.broker.ListPositions(r.Context(), portfolioID)
+		if accErr == nil && acc != nil && posErr == nil {
+			holdings := make([]map[string]interface{}, 0, len(positions))
+			for _, p := range positions {
+				holdings = append(holdings, map[string]interface{}{
+					"symbol":        p.Symbol,
+					"quantity":      p.Qty,
+					"avg_price":     p.AvgEntryPrice,
+					"current_price": p.CurrentPrice,
+					"market_value":  p.MarketValue,
+				})
+			}
+			accountName := "OCI Investment Portfolio"
+			if acc.AccountNumber != "" {
+				accountName = fmt.Sprintf("Account %s", acc.AccountNumber)
+			}
+			customerName := custID
+			if acc.CustomerName != "" {
+				customerName = acc.CustomerName
+			}
+			if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
+				customerName = session.Name
+			}
+			resp := map[string]interface{}{
+				"portfolio_id":      portfolioID,
+				"customer_id":       custID,
+				"customer_name":     customerName,
+				"account_name":      accountName,
+				"total_balance_usd": acc.PortfolioValue,
+				"cash_balance_usd":  acc.Cash,
+				"status":            acc.Status,
+				"holdings":          holdings,
+				"historical_performance": []map[string]interface{}{
+					{"date": "2026-01-01", "valuation": math.Round(acc.PortfolioValue * 0.78)},
+					{"date": "2026-02-01", "valuation": math.Round(acc.PortfolioValue * 0.85)},
+					{"date": "2026-03-01", "valuation": math.Round(acc.PortfolioValue * 0.92)},
+					{"date": "2026-04-01", "valuation": acc.PortfolioValue},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}
+
 	var resp map[string]interface{}
 	if custID == "chloe" || custID == "cust-active-chloe" {
 		resp = map[string]interface{}{
-			"portfolio_id":       "018f3a9a-2222-7000-8000-000000000003",
-			"customer_id":        "cust-active-chloe",
+			"portfolio_id":       portfolioID,
+			"customer_id":        custID,
 			"customer_name":      "Chloe Spark",
 			"account_name":       "Chloe Spark High-Velocity Alpha",
 			"total_balance_usd": 85200.00,
@@ -418,10 +506,17 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 			},
 		}
 	} else {
+		customerName := custID
+		if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
+			customerName = session.Name
+		}
+		if customerName == "" || customerName == "cust-longterm-arthur" {
+			customerName = "Arthur Pendelton"
+		}
 		resp = map[string]interface{}{
-			"portfolio_id":       "018f3a9a-2222-7000-8000-000000000002",
-			"customer_id":        "cust-longterm-arthur",
-			"customer_name":      "Arthur Pendelton",
+			"portfolio_id":       portfolioID,
+			"customer_id":        custID,
+			"customer_name":      customerName,
 			"account_name":       "OCI Alpha Growth Fund",
 			"total_balance_usd": 128450.75,
 			"cash_balance_usd":  32100.25,
@@ -510,11 +605,24 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.PortfolioID == "" {
-		if session.CustomerID == "cust-active-chloe" || session.CustomerID == "chloe" {
-			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
-		} else {
-			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+		req.PortfolioID = r.URL.Query().Get("portfolio_id")
+	}
+	if req.PortfolioID == "" && b.broker != nil {
+		accs, err := b.broker.ListAccounts(r.Context())
+		if err == nil {
+			for _, a := range accs {
+				if a.ID == session.CustomerID || a.AccountNumber == session.CustomerID || (session.CustomerID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(session.CustomerID))) {
+					req.PortfolioID = a.ID
+					break
+				}
+			}
+			if req.PortfolioID == "" && len(accs) > 0 {
+				req.PortfolioID = accs[0].ID
+			}
 		}
+	}
+	if req.PortfolioID == "" {
+		req.PortfolioID = fmt.Sprintf("port-%s", session.CustomerID)
 	}
 	if req.Price <= 0 {
 		req.Price = 224.30
@@ -550,12 +658,42 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	tickerData := []map[string]interface{}{
-		{"symbol": "AAPL", "price": 224.30, "change_pct": 1.45, "volume": 42100000},
-		{"symbol": "NVDA", "price": 138.80, "change_pct": 3.12, "volume": 89200000},
-		{"symbol": "MSFT", "price": 448.20, "change_pct": 0.82, "volume": 18400000},
-		{"symbol": "TSLA", "price": 247.12, "change_pct": -0.65, "volume": 31200000},
+
+	if b.broker == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "market data broker service unavailable"})
+		return
 	}
+
+	symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
+	bars, err := b.broker.GetLatestBars(r.Context(), symbols)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to fetch market data from broker: %v", err)})
+		return
+	}
+
+	tickerData := make([]map[string]interface{}, 0, len(symbols))
+	for _, sym := range symbols {
+		if bar, ok := bars[sym]; ok && bar.Close > 0 {
+			quote, _ := b.broker.GetLatestQuote(r.Context(), sym)
+			price := bar.Close
+			if quote != nil && quote.AskPrice > 0 {
+				price = (quote.BidPrice + quote.AskPrice) / 2.0
+			}
+			changePct := 0.0
+			if bar.Open > 0 {
+				changePct = math.Round(((price-bar.Open)/bar.Open)*10000.0) / 100.0
+			}
+			tickerData = append(tickerData, map[string]interface{}{
+				"symbol":     sym,
+				"price":      math.Round(price*100.0) / 100.0,
+				"change_pct": changePct,
+				"volume":     bar.Volume,
+			})
+		}
+	}
+
 	_ = json.NewEncoder(w).Encode(tickerData)
 }
 
@@ -584,25 +722,73 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) {
+func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	customerID := "cust-longterm-arthur"
+	var customerID string
 	if session := CustomerFromContext(r.Context()); session != nil {
 		customerID = session.CustomerID
 	}
-	deposits := []map[string]interface{}{
-		{
-			"deposit_id":     "dep-018f-01",
-			"customer_id":    customerID,
-			"amount_usd":     500.00,
-			"frequency":      "monthly",
-			"day_of_month":   1,
-			"status":         "active",
-			"bank_account":   "Chase Checking (****4821)",
-			"next_charge_at": "2026-11-01T00:00:00Z",
-		},
+	if customerID == "" {
+		customerID = r.URL.Query().Get("customer_id")
 	}
-	_ = json.NewEncoder(w).Encode(deposits)
+	if customerID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session or customer_id required"})
+		return
+	}
+
+	if b.bank != nil {
+		accs, err := b.bank.GetAccounts(r.Context(), customerID)
+		if err == nil && len(accs) > 0 {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"accounts": accs,
+			})
+			return
+		}
+	}
+
+	// Fallback mock accounts using dynamic customerID
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"accounts": []map[string]interface{}{
+			{
+				"account_id":        fmt.Sprintf("acc_%s_primary", customerID),
+				"institution_name":  "Primary Linked Institution",
+				"account_number":    "****1001",
+				"name":              "Primary Checking Account",
+				"available_balance": 10000.00,
+				"current_balance":   10000.00,
+			},
+		},
+	})
+}
+
+func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customerID string
+	if session := CustomerFromContext(r.Context()); session != nil {
+		customerID = session.CustomerID
+	}
+	if customerID == "" {
+		customerID = r.URL.Query().Get("customer_id")
+	}
+	if customerID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session or customer_id required"})
+		return
+	}
+
+	if b.ciSvc != nil {
+		deps, err := b.ciSvc.ListRecurringDeposits(r.Context(), customerID)
+		if err == nil {
+			if deps == nil {
+				deps = []*core_invest_repo.RecurringDeposit{}
+			}
+			_ = json.NewEncoder(w).Encode(deps)
+			return
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
 }
 
 func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request) {
@@ -615,10 +801,12 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 	}
 
 	var req struct {
+		PortfolioID string  `json:"portfolio_id"`
 		AmountUSD   float64 `json:"amount_usd"`
 		Frequency   string  `json:"frequency"`
 		DayOfMonth  int     `json:"day_of_month"`
 		BankAccount string  `json:"bank_account"`
+		AccountID   string  `json:"account_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -626,9 +814,67 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if req.AmountUSD <= 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "deposit amount must be positive"})
+		return
+	}
+
+	portfolioID := req.PortfolioID
+	if portfolioID == "" {
+		portfolioID = r.URL.Query().Get("portfolio_id")
+	}
+	if portfolioID == "" && b.broker != nil {
+		accs, err := b.broker.ListAccounts(r.Context())
+		if err == nil {
+			for _, a := range accs {
+				if a.ID == session.CustomerID || a.AccountNumber == session.CustomerID || (session.CustomerID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(session.CustomerID))) {
+					portfolioID = a.ID
+					break
+				}
+			}
+			if portfolioID == "" && len(accs) > 0 {
+				portfolioID = accs[0].ID
+			}
+		}
+	}
+	if portfolioID == "" {
+		portfolioID = fmt.Sprintf("port-%s", session.CustomerID)
+	}
+
+	// If account ID not passed, attempt lookup by customer
+	accountID := req.AccountID
+	if accountID == "" && b.bank != nil {
+		accs, err := b.bank.GetAccounts(r.Context(), session.CustomerID)
+		if err == nil && len(accs) > 0 {
+			accountID = accs[0].AccountID
+		}
+	}
+
+	// Route through core_invest service if available
+	if b.ciSvc != nil {
+		dep, err := b.ciSvc.CreateRecurringDeposit(r.Context(), core_invest_svc.CreateRecurringDepositOpts{
+			CustomerID:  session.CustomerID,
+			PortfolioID: portfolioID,
+			AmountUSD:   req.AmountUSD,
+			Frequency:   req.Frequency,
+			BankAccount: req.BankAccount,
+			AccountID:   accountID,
+		})
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(dep)
+		return
+	}
+
 	created := map[string]interface{}{
 		"deposit_id":     fmt.Sprintf("dep-%d", time.Now().UnixNano()),
 		"customer_id":    session.CustomerID,
+		"portfolio_id":   portfolioID,
 		"amount_usd":     req.AmountUSD,
 		"frequency":      req.Frequency,
 		"day_of_month":   req.DayOfMonth,
@@ -882,10 +1128,50 @@ func main() {
 		ciRepo = core_invest_repo.NewMockRepository()
 	}
 
-	ciSvc := core_invest_svc.NewService(ciRepo)
+	var ciSvc core_invest_svc.Service
+	brokerURL := os.Getenv("BROKER_API_BASE_URL")
+	if brokerURL == "" {
+		brokerURL = os.Getenv("ALPACA_BASE_URL")
+	}
+	var brokerClient *alpaca.Client
+	if brokerURL != "" {
+		brokerClient = alpaca.NewClient(alpaca.Config{
+			BaseURL:   brokerURL,
+			DataURL:   os.Getenv("ALPACA_DATA_URL"),
+			APIKey:    os.Getenv("APCA_API_KEY_ID"),
+		})
+		logger.Info("connected Customer BFF to external Broker API", "url", brokerURL)
+	}
+
+	bankURL := os.Getenv("BANK_API_BASE_URL")
+	if bankURL == "" {
+		bankURL = os.Getenv("PLAID_BASE_URL")
+	}
+	var bankClient *plaid.Client
+	if bankURL != "" {
+		bankClient = plaid.NewClient(plaid.Config{
+			BaseURL:  bankURL,
+			ClientID: os.Getenv("PLAID_CLIENT_ID"),
+			Secret:   os.Getenv("PLAID_SECRET"),
+		})
+		logger.Info("connected Customer BFF to external Bank API", "url", bankURL)
+	}
+
+	if brokerClient != nil || bankClient != nil {
+		ciSvc = core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
+	} else {
+		ciSvc = core_invest_svc.NewService(ciRepo)
+	}
+
 	wfRepo := workforce_repo.NewRepository(pool)
 	wfSvc := workforce_svc.NewService(wfRepo)
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
+	if brokerClient != nil {
+		custBFF.SetBrokerClient(brokerClient)
+	}
+	if bankClient != nil {
+		custBFF.SetBankClient(bankClient)
+	}
 
 	mux := http.NewServeMux()
 	custBFF.RegisterRoutes(mux)

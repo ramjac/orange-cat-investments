@@ -39,7 +39,8 @@ func (e *errRepo) GetBacktestRunByID(ctx context.Context, id string) (*repo.Back
 func TestCoreInvestService(t *testing.T) {
 	repository := repo.NewMockRepository()
 	pub := &dummyPublisher{}
-	svc := service.NewServiceWithPublisher(repository, pub)
+	mockBroker := &service.MockBrokerClient{FillPrice: 50.0, Status: "executed"}
+	svc := service.NewServiceWithAll(repository, pub, mockBroker, nil)
 	ctx := context.Background()
 
 	t.Run("RegisterCameraStream", func(t *testing.T) {
@@ -85,6 +86,37 @@ func TestCoreInvestService(t *testing.T) {
 			Price:       50.0,
 		})
 		assert.Error(t, err)
+
+		noBrokerSvc := service.NewServiceWithPublisher(repository, pub)
+		_, err = noBrokerSvc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    10,
+			Price:       50.0,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "broker client is not configured: order execution unavailable")
+	})
+
+	t.Run("ExecuteBrokerageOrderWithBrokerClient", func(t *testing.T) {
+		mockBroker := &service.MockBrokerClient{
+			FillPrice: 228.45,
+			Status:    "filled",
+		}
+		brokerSvc := service.NewServiceWithBroker(repository, mockBroker)
+		order, err := brokerSvc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Alpaca",
+			Symbol:      "AAPL",
+			Side:        "buy",
+			Quantity:    15,
+			Price:       225.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "filled", order.Status)
+		assert.Equal(t, 228.45, order.Price)
 	})
 
 	t.Run("StartBacktestRun", func(t *testing.T) {
@@ -266,5 +298,54 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, orders)
 	})
+
+	t.Run("CreateRecurringDeposit_And_List", func(t *testing.T) {
+		dep, err := svc.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+			CustomerID:  "cust-longterm-arthur",
+			PortfolioID: "018f3a9a-2222-7000-8000-000000000002",
+			AmountUSD:   500.00,
+			Frequency:   "monthly",
+			BankAccount: "Chase Checking (****4821)",
+		})
+		require.NoError(t, err)
+		assert.NotEmpty(t, dep.DepositID)
+		assert.Equal(t, 500.00, dep.AmountUSD)
+
+		list, err := svc.ListRecurringDeposits(ctx, "cust-longterm-arthur")
+		require.NoError(t, err)
+		assert.NotEmpty(t, list)
+	})
 }
+
+func TestCoreInvestService_WithBankIntegration(t *testing.T) {
+	repository := repo.NewMockRepository()
+	ctx := context.Background()
+
+	// 1. Approved bank client
+	bankOk := &service.MockBankClient{AllowTransfer: true}
+	svcOk := service.NewServiceWithIntegrations(repository, nil, bankOk)
+
+	dep, err := svcOk.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+		CustomerID:  "cust-longterm-arthur",
+		PortfolioID: "port-001",
+		AmountUSD:   250.00,
+		AccountID:   "acc_arthur_chase_chk",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 250.00, dep.AmountUSD)
+
+	// 2. Declined bank client (NSF)
+	bankDeclined := &service.MockBankClient{AllowTransfer: false}
+	svcDeclined := service.NewServiceWithIntegrations(repository, nil, bankDeclined)
+
+	_, err = svcDeclined.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
+		CustomerID:  "cust-active-chloe",
+		PortfolioID: "port-002",
+		AmountUSD:   100000.00,
+		AccountID:   "acc_chloe_svcu_chk",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "bank declined deposit authorization")
+}
+
 

@@ -2,20 +2,23 @@ package core_invest
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
 type mockRepository struct {
-	streams map[string]*CameraStream
-	orders  map[string]*BrokerageOrder
-	runs    map[string]*BacktestRun
+	streams  map[string]*CameraStream
+	orders   map[string]*BrokerageOrder
+	runs     map[string]*BacktestRun
+	deposits map[string]*RecurringDeposit
 }
 
 func NewMockRepository() Repository {
 	return &mockRepository{
-		streams: make(map[string]*CameraStream),
-		orders:  make(map[string]*BrokerageOrder),
-		runs:    make(map[string]*BacktestRun),
+		streams:  make(map[string]*CameraStream),
+		orders:   make(map[string]*BrokerageOrder),
+		runs:     make(map[string]*BacktestRun),
+		deposits: make(map[string]*RecurringDeposit),
 	}
 }
 
@@ -207,3 +210,29 @@ func (m *mockRepository) UpdateBacktestRunResults(ctx context.Context, id string
 	m.runs[id] = run
 	return run, nil
 }
+
+func (m *mockRepository) CreateRecurringDeposit(ctx context.Context, dep *RecurringDeposit) (*RecurringDeposit, error) {
+	now := time.Now().UTC()
+	dep.DepositID = "deposit-mock-001"
+	dep.CreatedAt = now
+	m.deposits[dep.DepositID] = dep
+	return dep, nil
+}
+
+func (m *mockRepository) ListRecurringDeposits(ctx context.Context, customerID string) ([]*RecurringDeposit, error) {
+	var list []*RecurringDeposit
+	for _, d := range m.deposits {
+		if customerID == "" || d.CustomerID == customerID {
+			list = append(list, d)
+		}
+	}
+	return list, nil
+}
+
+func (m *mockRepository) GetRecurringDepositByID(ctx context.Context, id string) (*RecurringDeposit, error) {
+	if dep, ok := m.deposits[id]; ok {
+		return dep, nil
+	}
+	return nil, fmt.Errorf("recurring deposit not found: %s", id)
+}
+

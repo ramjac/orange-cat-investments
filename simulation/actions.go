@@ -589,7 +589,7 @@ func (r *Registry) createCarolPersona() *Persona {
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "AAPL",
 						"side":         "buy",
-						"quantity":     100.0,
+						"quantity":     10.0,
 						"price":        225.50,
 					}
 					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
@@ -670,6 +670,27 @@ func (r *Registry) createDavidPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Initiated backtest run: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "david_fetch_market_candlesticks",
+				Description: "Fetches historical OHLCV candlestick bars from mock broker data engine to train quantitative pricing models",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/v2/stocks/NVDA/bars?timeframe=1Min&limit=50"
+					resp, bytes, err := client.DoBroker(ctx, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-david",
+						PersonaName: "David Quant",
+						ActionName:  "david_fetch_market_candlesticks",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Fetched market candlestick bars for NVDA: %d bytes", len(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -929,7 +950,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "SPY",
 						"side":         "buy",
-						"quantity":     25,
+						"quantity":     10,
 						"price":        510.50,
 					}
 					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
@@ -965,6 +986,101 @@ func (r *Registry) createArthurPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Monitored habitat observation streams. Stream count: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_schedule_recurring_ach_deposit",
+				Description: "Schedules automated monthly recurring ACH deposit from linked Chase checking account",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/core-invest/recurring-deposits"
+					payload := map[string]any{
+						"customer_id":  "cust-longterm-arthur",
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"amount_usd":   500.00,
+						"frequency":    "monthly",
+						"bank_account": "Chase Checking (****4821)",
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_schedule_recurring_ach_deposit",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Scheduled recurring ACH deposit: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_audit_linked_bank_accounts",
+				Description: "Audits linked commercial bank accounts and available balances via Customer BFF",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/bank-accounts?customer_id=cust-longterm-arthur"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_audit_linked_bank_accounts",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited linked bank accounts: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_verify_portfolio_holdings",
+				Description: "Verifies equity asset allocation and real-time portfolio market value via Customer BFF",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/portfolio?customer_id=cust-longterm-arthur"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_verify_portfolio_holdings",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Verified portfolio holdings and valuation: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_link_new_bank_account",
+				Description: "Initiates Plaid Link token workflow with linked financial institution via Bank API",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/link/token/create"
+					payload := map[string]any{
+						"client_user_id": "cust-longterm-arthur",
+						"client_name":    "Arthur Pendelton",
+					}
+					resp, bytes, err := client.DoBank(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_link_new_bank_account",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Initiated Plaid Link token session: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -1078,6 +1194,57 @@ func (r *Registry) createChloePersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Audited real-time trade executions: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_query_live_market_quotes",
+				Description: "Queries real-time market data quotes and prices across tracked symbols via Customer BFF",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/ticker"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_query_live_market_quotes",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Queried real-time ticker quotes: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_margin_deposit_nsf_check",
+				Description: "Attempts over-limit ACH capital transfer triggering bank NSF R01 pre-authorization rejection",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/deposits"
+					payload := map[string]any{
+						"customer_id":  "cust-active-chloe",
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000003",
+						"amount_usd":   50000.00,
+						"frequency":    "one_time",
+						"bank_account": "Wells Fargo Checking (****9912)",
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					// $50,000 exceeds Chloe's $12,450.00 balance, so Bank API pre-authorization returns declined (R01 Insufficient Funds)
+					isNSFRejection := resp.StatusCode == http.StatusBadRequest
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_margin_deposit_nsf_check",
+						Endpoint:    endpoint,
+						Success:     isNSFRejection,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Verified Bank API NSF R01 rejection as expected: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

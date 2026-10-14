@@ -12,6 +12,8 @@
 /employee-bff
 /pebble-proxy
 /worker
+bin/
+*.tar
 backups/
 
 # Test binary, built with `go test -c`
