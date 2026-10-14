@@ -364,7 +364,13 @@ func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	created, err := h.wfSvc.CreateReviewCycle(r.Context(), req.EmployeeID, req.ReviewType, req.ScheduledFor, req.ReviewerID, req.Notes)
+	created, err := h.wfSvc.CreateReviewCycle(r.Context(), wfService.CreateReviewCycleParams{
+		EmployeeID:   req.EmployeeID,
+		ReviewType:   req.ReviewType,
+		ScheduledFor: req.ScheduledFor,
+		ReviewerID:   req.ReviewerID,
+		Notes:        req.Notes,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
