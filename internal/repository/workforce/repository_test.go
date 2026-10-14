@@ -53,6 +53,27 @@ func TestWorkforceRepository(t *testing.T) {
 		assert.GreaterOrEqual(t, len(list), 2)
 	})
 
+	t.Run("Update Employee Status Operations", func(t *testing.T) {
+		t.Run("Success Path", func(t *testing.T) {
+			updated, err := repo.UpdateEmployeeStatus(ctx, "emp-feline-garfield", "on_leave")
+			assert.NoError(t, err)
+			assert.NotNil(t, updated)
+			assert.Equal(t, "on_leave", updated.Status)
+
+			// Verify persistence
+			fetched, err := repo.GetEmployeeByID(ctx, "emp-feline-garfield")
+			assert.NoError(t, err)
+			assert.Equal(t, "on_leave", fetched.Status)
+		})
+
+		t.Run("Errors for Non-Existent ID", func(t *testing.T) {
+			updated, err := repo.UpdateEmployeeStatus(ctx, "non-existent-employee-id", "active")
+			assert.Error(t, err)
+			assert.Nil(t, updated)
+			assert.EqualError(t, err, "employee with id non-existent-employee-id not found")
+		})
+	})
+
 	t.Run("Onboarding Checklist Tasks", func(t *testing.T) {
 		task := &OnboardingTask{
 			EmployeeID:  "emp-feline-barneby",
