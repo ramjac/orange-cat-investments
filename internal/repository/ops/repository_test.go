@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpsPgxRepository(t *testing.T) {
@@ -60,5 +62,32 @@ func TestOpsPgxRepository(t *testing.T) {
 		closed, err := repo.CloseITTicket(ctx, "ticket-001")
 		assert.NoError(t, err)
 		assert.Equal(t, "closed", closed.State)
+	})
+
+	t.Run("PgxRepository DB error handling", func(t *testing.T) {
+		// Pass a closed pool or invalid pool to trigger DB query errors
+		pool, err := pgxpool.New(ctx, "postgres://invalid:invalid@127.0.0.1:1/nonexistent?sslmode=disable")
+		require.NoError(t, err)
+		pool.Close()
+
+		dbRepo := NewRepository(pool)
+
+		_, err = dbRepo.ListOpenITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = dbRepo.GetITTicketByID(ctx, "ticket-001")
+		assert.Error(t, err)
+
+		_, err = dbRepo.ListITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = dbRepo.CreateITTicket(ctx, &ITTicket{Title: "Test"})
+		assert.Error(t, err)
+
+		_, err = dbRepo.AcknowledgeITTicket(ctx, "ticket-001", "user")
+		assert.Error(t, err)
+
+		_, err = dbRepo.CloseITTicket(ctx, "ticket-001")
+		assert.Error(t, err)
 	})
 }
