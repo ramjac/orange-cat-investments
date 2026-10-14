@@ -32,3 +32,11 @@ metadata:
   name: apps
   labels:
     name: apps
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-sim
+  labels:
+    name: external-sim
+    environment: simulated-external

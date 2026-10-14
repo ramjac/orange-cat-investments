@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mock-broker-credentials
+  namespace: external-sim
+type: Opaque
+stringData:
+  APCA_API_KEY_ID: "CK_OCI_TEST_KEY_01"
+  APCA_API_SECRET_KEY: "SK_OCI_TEST_SECRET_01"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-broker
+  namespace: external-sim
+  labels:
+    app: mock-broker
+    environment: simulated-external
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-broker
+  template:
+    metadata:
+      labels:
+        app: mock-broker
+        environment: simulated-external
+    spec:
+      containers:
+        - name: mock-broker
+          image: localhost:32000/mock-broker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8089
+              name: http
+          env:
+            - name: PORT
+              value: "8089"
+            - name: APCA_API_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: mock-broker-credentials
+                  key: APCA_API_KEY_ID
+            - name: APCA_API_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mock-broker-credentials
+                  key: APCA_API_SECRET_KEY
+            - name: TICK_INTERVAL_MS
+              value: "1000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8089
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8089
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-broker-service
+  namespace: external-sim
+  labels:
+    app: mock-broker
+spec:
+  ports:
+    - port: 8089
+      targetPort: 8089
+      name: http
+  selector:
+    app: mock-broker
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mock-broker-ingress
+  namespace: external-sim
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: public
+  rules:
+    - host: broker-api.sim.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mock-broker-service
+                port:
+                  number: 8089
+    - host: data-api.sim.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mock-broker-service
+                port:
+                  number: 8089

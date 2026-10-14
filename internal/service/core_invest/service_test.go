@@ -8,6 +8,7 @@ import (
 
 	repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	service "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,6 +86,25 @@ func TestCoreInvestService(t *testing.T) {
 			Price:       50.0,
 		})
 		assert.Error(t, err)
+	})
+
+	t.Run("ExecuteBrokerageOrderWithBrokerClient", func(t *testing.T) {
+		mockBroker := &mockAlpacaBroker{
+			fillPrice: 228.45,
+			status:    "filled",
+		}
+		brokerSvc := service.NewServiceWithBroker(repository, mockBroker)
+		order, err := brokerSvc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Alpaca",
+			Symbol:      "AAPL",
+			Side:        "buy",
+			Quantity:    15,
+			Price:       225.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "filled", order.Status)
+		assert.Equal(t, 228.45, order.Price)
 	})
 
 	t.Run("StartBacktestRun", func(t *testing.T) {
@@ -266,5 +286,35 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, orders)
 	})
+}
+
+type mockAlpacaBroker struct {
+	fillPrice float64
+	status    string
+}
+
+func (m *mockAlpacaBroker) CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error) {
+	now := time.Now().UTC()
+	return &alpaca.Order{
+		ID:             "mock-ord-1",
+		Symbol:         req.Symbol,
+		Qty:            req.Qty,
+		FilledQty:      req.Qty,
+		FilledAvgPrice: &m.fillPrice,
+		Status:         m.status,
+		FilledAt:       &now,
+	}, nil
+}
+
+func (m *mockAlpacaBroker) GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error) {
+	return &alpaca.Account{ID: accountID, Status: "ACTIVE"}, nil
+}
+
+func (m *mockAlpacaBroker) ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error) {
+	return []alpaca.Position{}, nil
+}
+
+func (m *mockAlpacaBroker) ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error) {
+	return []alpaca.Order{}, nil
 }
 

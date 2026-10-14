@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +22,7 @@ import (
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 type CustomerSession struct {
@@ -140,6 +142,7 @@ type CustomerBFF struct {
 	wfSvc    workforce_svc.Service
 	sessions *SessionStore
 	logger   *slog.Logger
+	alpaca   *alpaca.Client
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
@@ -149,6 +152,10 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		sessions: NewSessionStore(),
 		logger:   logger,
 	}
+}
+
+func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
+	b.alpaca = client
 }
 
 func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
@@ -354,6 +361,55 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		custID = r.URL.Query().Get("customer_id")
 	}
 
+	portfolioID := "018f3a9a-2222-7000-8000-000000000002"
+	if custID == "chloe" || custID == "cust-active-chloe" {
+		portfolioID = "018f3a9a-2222-7000-8000-000000000003"
+	}
+
+	if b.alpaca != nil {
+		acc, accErr := b.alpaca.GetAccount(r.Context(), portfolioID)
+		positions, posErr := b.alpaca.ListPositions(r.Context(), portfolioID)
+		if accErr == nil && acc != nil && posErr == nil {
+			holdings := make([]map[string]interface{}, 0, len(positions))
+			for _, p := range positions {
+				holdings = append(holdings, map[string]interface{}{
+					"symbol":        p.Symbol,
+					"quantity":      p.Qty,
+					"avg_price":     p.AvgEntryPrice,
+					"current_price": p.CurrentPrice,
+					"market_value":  p.MarketValue,
+				})
+			}
+			accountName := "OCI Alpha Growth Fund"
+			customerName := "Arthur Pendelton"
+			if custID == "chloe" || custID == "cust-active-chloe" {
+				accountName = "Chloe Spark High-Velocity Alpha"
+				customerName = "Chloe Spark"
+			}
+			if acc.CustomerName != "" {
+				customerName = acc.CustomerName
+			}
+			resp := map[string]interface{}{
+				"portfolio_id":      portfolioID,
+				"customer_id":       custID,
+				"customer_name":     customerName,
+				"account_name":      accountName,
+				"total_balance_usd": acc.PortfolioValue,
+				"cash_balance_usd":  acc.Cash,
+				"status":            acc.Status,
+				"holdings":          holdings,
+				"historical_performance": []map[string]interface{}{
+					{"date": "2026-01-01", "valuation": math.Round(acc.PortfolioValue * 0.78)},
+					{"date": "2026-02-01", "valuation": math.Round(acc.PortfolioValue * 0.85)},
+					{"date": "2026-03-01", "valuation": math.Round(acc.PortfolioValue * 0.92)},
+					{"date": "2026-04-01", "valuation": acc.PortfolioValue},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+	}
+
 	var resp map[string]interface{}
 	if custID == "chloe" || custID == "cust-active-chloe" {
 		resp = map[string]interface{}{
@@ -509,6 +565,38 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if b.alpaca != nil {
+		symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
+		bars, err := b.alpaca.GetLatestBars(r.Context(), symbols)
+		if err == nil && len(bars) > 0 {
+			tickerData := make([]map[string]interface{}, 0, len(symbols))
+			for _, sym := range symbols {
+				if bar, ok := bars[sym]; ok && bar.Close > 0 {
+					quote, _ := b.alpaca.GetLatestQuote(r.Context(), sym)
+					price := bar.Close
+					if quote != nil && quote.AskPrice > 0 {
+						price = (quote.BidPrice + quote.AskPrice) / 2.0
+					}
+					changePct := 0.0
+					if bar.Open > 0 {
+						changePct = math.Round(((price-bar.Open)/bar.Open)*10000.0) / 100.0
+					}
+					tickerData = append(tickerData, map[string]interface{}{
+						"symbol":     sym,
+						"price":      math.Round(price*100.0) / 100.0,
+						"change_pct": changePct,
+						"volume":     bar.Volume,
+					})
+				}
+			}
+			if len(tickerData) > 0 {
+				_ = json.NewEncoder(w).Encode(tickerData)
+				return
+			}
+		}
+	}
+
 	tickerData := []map[string]interface{}{
 		{"symbol": "AAPL", "price": 224.30, "change_pct": 1.45, "volume": 42100000},
 		{"symbol": "NVDA", "price": 138.80, "change_pct": 3.12, "volume": 89200000},
@@ -844,10 +932,28 @@ func main() {
 		ciRepo = core_invest_repo.NewMockRepository()
 	}
 
-	ciSvc := core_invest_svc.NewService(ciRepo)
+	var ciSvc core_invest_svc.Service
+	alpacaURL := os.Getenv("ALPACA_BASE_URL")
+	var alpacaClient *alpaca.Client
+	if alpacaURL != "" {
+		alpacaClient = alpaca.NewClient(alpaca.Config{
+			BaseURL:   alpacaURL,
+			DataURL:   os.Getenv("ALPACA_DATA_URL"),
+			APIKey:    os.Getenv("APCA_API_KEY_ID"),
+			APISecret: os.Getenv("APCA_API_SECRET_KEY"),
+		})
+		ciSvc = core_invest_svc.NewServiceWithBroker(ciRepo, alpacaClient)
+		logger.Info("connected Customer BFF to external Alpaca Broker API", "url", alpacaURL)
+	} else {
+		ciSvc = core_invest_svc.NewService(ciRepo)
+	}
+
 	wfRepo := workforce_repo.NewRepository(pool)
 	wfSvc := workforce_svc.NewService(wfRepo)
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
+	if alpacaClient != nil {
+		custBFF.SetAlpacaClient(alpacaClient)
+	}
 
 	mux := http.NewServeMux()
 	custBFF.RegisterRoutes(mux)

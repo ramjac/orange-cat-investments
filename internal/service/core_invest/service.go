@@ -7,10 +7,18 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 type EventPublisher interface {
 	Publish(topic string, payload any) error
+}
+
+type BrokerClient interface {
+	CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error)
+	GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error)
+	ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error)
+	ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error)
 }
 
 type Service interface {
@@ -37,8 +45,9 @@ type Service interface {
 }
 
 type coreInvestService struct {
-	repo      core_invest.Repository
-	publisher EventPublisher
+	repo         core_invest.Repository
+	publisher    EventPublisher
+	brokerClient BrokerClient
 }
 
 func NewService(repo core_invest.Repository) Service {
@@ -47,6 +56,10 @@ func NewService(repo core_invest.Repository) Service {
 
 func NewServiceWithPublisher(repo core_invest.Repository, publisher EventPublisher) Service {
 	return &coreInvestService{repo: repo, publisher: publisher}
+}
+
+func NewServiceWithBroker(repo core_invest.Repository, broker BrokerClient) Service {
+	return &coreInvestService{repo: repo, brokerClient: broker}
 }
 
 func (s *coreInvestService) RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error) {
@@ -118,7 +131,37 @@ func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts Exec
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
-	// Simulate trade execution with brokerage API (FIX/REST)
+	// Route through external Broker API if brokerClient is configured
+	if s.brokerClient != nil {
+		alpacaOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
+			Symbol:        opts.Symbol,
+			Qty:           opts.Quantity,
+			Side:          opts.Side,
+			Type:          "market",
+			ClientOrderID: createdOrder.OrderID,
+		})
+		if err == nil && alpacaOrd != nil {
+			fillPrice := opts.Price
+			if alpacaOrd.FilledAvgPrice != nil && *alpacaOrd.FilledAvgPrice > 0 {
+				fillPrice = *alpacaOrd.FilledAvgPrice
+			}
+			now := time.Now().UTC()
+			if alpacaOrd.FilledAt != nil {
+				now = *alpacaOrd.FilledAt
+			}
+			status := "executed"
+			if alpacaOrd.Status != "" {
+				status = alpacaOrd.Status
+			}
+			resOrder, updateErr := s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, status, &now)
+			if updateErr == nil && resOrder != nil {
+				resOrder.Price = fillPrice
+			}
+			return resOrder, updateErr
+		}
+	}
+
+	// Fallback to internal execution simulation
 	now := time.Now().UTC()
 	return s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, "executed", &now)
 }

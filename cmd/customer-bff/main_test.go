@@ -13,6 +13,7 @@ import (
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -284,4 +285,86 @@ func TestCustomerBFF_Webhooks(t *testing.T) {
 	assert.True(t, ok)
 	assert.True(t, len(secretStr) > 6)
 	assert.True(t, secretStr[:6] == "whsec_")
+}
+
+func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
+	alpacaMux := http.NewServeMux()
+	arthurID := "018f3a9a-2222-7000-8000-000000000002"
+
+	alpacaMux.HandleFunc("GET /v1/accounts/"+arthurID, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(alpaca.Account{
+			ID:             arthurID,
+			CustomerName:   "Arthur Pendelton",
+			Cash:           45000.0,
+			PortfolioValue: 155000.0,
+			Status:         "ACTIVE",
+		})
+	})
+
+	alpacaMux.HandleFunc("GET /v1/trading/accounts/"+arthurID+"/positions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]alpaca.Position{
+			{
+				Symbol:        "NVDA",
+				Qty:           100.0,
+				AvgEntryPrice: 120.0,
+				CurrentPrice:  140.0,
+				MarketValue:   14000.0,
+			},
+		})
+	})
+
+	alpacaMux.HandleFunc("GET /v2/stocks/bars/latest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"bars": map[string]alpaca.Bar{
+				"AAPL": {Open: 220.0, Close: 225.5, Volume: 50000},
+				"NVDA": {Open: 135.0, Close: 140.0, Volume: 80000},
+			},
+		})
+	})
+
+	alpacaMux.HandleFunc("GET /v2/stocks/AAPL/quotes/latest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"symbol": "AAPL",
+			"quote":  alpaca.Quote{BidPrice: 225.4, AskPrice: 225.6},
+		})
+	})
+
+	alpacaServer := httptest.NewServer(alpacaMux)
+	defer alpacaServer.Close()
+
+	alpacaClient := alpaca.NewClient(alpaca.Config{
+		BaseURL: alpacaServer.URL,
+	})
+
+	bff, mux := setupTestBFF()
+	bff.SetAlpacaClient(alpacaClient)
+
+	// 1. GET /api/v1/customer/portfolio with Alpaca client active
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var portResp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &portResp)
+	require.NoError(t, err)
+	assert.Equal(t, 155000.0, portResp["total_balance_usd"])
+	assert.Equal(t, 45000.0, portResp["cash_balance_usd"])
+
+	// 2. GET /api/v1/customer/ticker with Alpaca client active
+	tReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/ticker", nil)
+	tReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	tRec := httptest.NewRecorder()
+	mux.ServeHTTP(tRec, tReq)
+	assert.Equal(t, http.StatusOK, tRec.Code)
+
+	var tickers []map[string]interface{}
+	err = json.Unmarshal(tRec.Body.Bytes(), &tickers)
+	require.NoError(t, err)
+	assert.NotEmpty(t, tickers)
 }

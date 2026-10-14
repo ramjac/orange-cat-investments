@@ -23,6 +23,7 @@ import (
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 func main() {
@@ -78,7 +79,21 @@ func main() {
 			ciRepo = core_invest_repo.NewMockRepository()
 		}
 
-		ciService := core_invest_svc.NewService(ciRepo)
+		var ciService core_invest_svc.Service
+		alpacaURL := os.Getenv("ALPACA_BASE_URL")
+		if alpacaURL != "" {
+			alpacaClient := alpaca.NewClient(alpaca.Config{
+				BaseURL:   alpacaURL,
+				DataURL:   os.Getenv("ALPACA_DATA_URL"),
+				APIKey:    os.Getenv("APCA_API_KEY_ID"),
+				APISecret: os.Getenv("APCA_API_SECRET_KEY"),
+			})
+			ciService = core_invest_svc.NewServiceWithBroker(ciRepo, alpacaClient)
+			logger.Info("Core Invest broker routing configured", "broker_url", alpacaURL)
+		} else {
+			ciService = core_invest_svc.NewService(ciRepo)
+		}
+
 		ciHandler := core_invest_handler.NewHandler(ciService)
 		ciHandler.RegisterRoutes(mux)
 		logger.Info("Core Invest domain routes registered")
