@@ -246,26 +246,87 @@ func TestVHRRecords(t *testing.T) {
 	ctx := context.Background()
 
 	vetID := "emp-human-elena"
-	rec := &VHRRecord{
+	prescriptions := "Amoxicillin 50mg"
+
+	rec1 := &VHRRecord{
+		FelineID:          "emp-feline-garfield",
+		VeterinarianID:    &vetID,
+		VisitDate:         "2026-10-15",
+		WeightKG:          5.2,
+		DentalScore:       8,
+		VaccinationStatus: "up_to_date",
+		ClinicalNotes:     "Routine health checkup and weight monitoring",
+	}
+
+	rec2 := &VHRRecord{
 		FelineID:          "emp-feline-garfield",
 		VeterinarianID:    &vetID,
 		VisitDate:         "2026-11-01",
 		WeightKG:          5.4,
 		DentalScore:       9,
 		VaccinationStatus: "up_to_date",
-		ClinicalNotes:     "Excellent wellness checkup",
+		Prescriptions:     &prescriptions,
+		ClinicalNotes:     "Follow-up wellness checkup and dental cleaning",
 	}
 
-	created, err := repo.CreateVHRRecord(ctx, rec)
-	require.NoError(t, err)
-	assert.NotEmpty(t, created.RecordID)
-	assert.Equal(t, "emp-feline-garfield", created.FelineID)
-	assert.Equal(t, 5.4, created.WeightKG)
+	rec3 := &VHRRecord{
+		FelineID:          "emp-feline-barneby",
+		VeterinarianID:    &vetID,
+		VisitDate:         "2026-10-20",
+		WeightKG:          4.8,
+		DentalScore:       9,
+		VaccinationStatus: "up_to_date",
+		ClinicalNotes:     "Alpha perch readiness & mobility assessment",
+	}
 
-	records, err := repo.ListVHRRecords(ctx, "emp-feline-garfield")
+	created1, err := repo.CreateVHRRecord(ctx, rec1)
 	require.NoError(t, err)
-	assert.Len(t, records, 1)
-	assert.Equal(t, created.RecordID, records[0].RecordID)
+	assert.NotEmpty(t, created1.RecordID)
+	assert.Equal(t, "emp-feline-garfield", created1.FelineID)
+
+	created2, err := repo.CreateVHRRecord(ctx, rec2)
+	require.NoError(t, err)
+	assert.NotEmpty(t, created2.RecordID)
+	assert.Equal(t, "emp-feline-garfield", created2.FelineID)
+
+	created3, err := repo.CreateVHRRecord(ctx, rec3)
+	require.NoError(t, err)
+	assert.NotEmpty(t, created3.RecordID)
+	assert.Equal(t, "emp-feline-barneby", created3.FelineID)
+
+	t.Run("Filter by feline ID and check ordering", func(t *testing.T) {
+		records, err := repo.ListVHRRecords(ctx, "emp-feline-garfield")
+		require.NoError(t, err)
+		require.Len(t, records, 2)
+
+		// Must be ordered by VisitDate DESC ("2026-11-01" before "2026-10-15")
+		assert.Equal(t, created2.RecordID, records[0].RecordID)
+		assert.Equal(t, "2026-11-01", records[0].VisitDate)
+		assert.Equal(t, 5.4, records[0].WeightKG)
+		assert.Equal(t, &prescriptions, records[0].Prescriptions)
+
+		assert.Equal(t, created1.RecordID, records[1].RecordID)
+		assert.Equal(t, "2026-10-15", records[1].VisitDate)
+		assert.Equal(t, 5.2, records[1].WeightKG)
+	})
+
+	t.Run("List all VHR records when felineID is empty", func(t *testing.T) {
+		records, err := repo.ListVHRRecords(ctx, "")
+		require.NoError(t, err)
+		require.Len(t, records, 3)
+
+		// Must be ordered by VisitDate DESC ("2026-11-01", "2026-10-20", "2026-10-15")
+		assert.Equal(t, "2026-11-01", records[0].VisitDate)
+		assert.Equal(t, "2026-10-20", records[1].VisitDate)
+		assert.Equal(t, "2026-10-15", records[2].VisitDate)
+	})
+
+	t.Run("Return empty list for non-existent feline ID", func(t *testing.T) {
+		records, err := repo.ListVHRRecords(ctx, "non-existent-feline-id")
+		require.NoError(t, err)
+		assert.NotNil(t, records)
+		assert.Empty(t, records)
+	})
 }
 
 func TestWorkplaceIncidents(t *testing.T) {
