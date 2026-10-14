@@ -27,7 +27,7 @@ type Service interface {
 	UpdateLeaveRequestStatus(ctx context.Context, id, status string) (*workforce.LeaveRequest, error)
 
 	// Review Cycles
-	CreateReviewCycle(ctx context.Context, employeeID, reviewType, scheduledFor string, reviewerID, notes *string) (*workforce.ReviewCycle, error)
+	CreateReviewCycle(ctx context.Context, params CreateReviewCycleParams) (*workforce.ReviewCycle, error)
 	GetReviewCycle(ctx context.Context, id string) (*workforce.ReviewCycle, error)
 	ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*workforce.ReviewCycle, error)
 	UpdateReviewCycle(ctx context.Context, params UpdateReviewCycleParams) (*workforce.ReviewCycle, error)
@@ -232,32 +232,40 @@ func (s *workforceService) UpdateLeaveRequestStatus(ctx context.Context, id, sta
 	return s.repo.UpdateLeaveRequestStatus(ctx, id, status)
 }
 
-func (s *workforceService) CreateReviewCycle(ctx context.Context, employeeID, reviewType, scheduledFor string, reviewerID, notes *string) (*workforce.ReviewCycle, error) {
-	if employeeID == "" {
+type CreateReviewCycleParams struct {
+	EmployeeID   string
+	ReviewType   string
+	ScheduledFor string
+	ReviewerID   *string
+	Notes        *string
+}
+
+func (s *workforceService) CreateReviewCycle(ctx context.Context, params CreateReviewCycleParams) (*workforce.ReviewCycle, error) {
+	if params.EmployeeID == "" {
 		return nil, errors.New("employee_id is required")
 	}
-	switch reviewType {
+	switch params.ReviewType {
 	case "performance", "feline_health_assessment":
 		// valid
 	default:
 		return nil, errors.New("invalid review_type: must be performance or feline_health_assessment")
 	}
 
-	if scheduledFor == "" {
+	if params.ScheduledFor == "" {
 		return nil, errors.New("scheduled_for date is required")
 	}
 	const dateLayout = "2006-01-02"
-	if _, err := time.Parse(dateLayout, scheduledFor); err != nil {
+	if _, err := time.Parse(dateLayout, params.ScheduledFor); err != nil {
 		return nil, errors.New("scheduled_for must be in YYYY-MM-DD format")
 	}
 
 	rc := &workforce.ReviewCycle{
-		EmployeeID:   employeeID,
-		ReviewType:   reviewType,
-		ScheduledFor: scheduledFor,
+		EmployeeID:   params.EmployeeID,
+		ReviewType:   params.ReviewType,
+		ScheduledFor: params.ScheduledFor,
 		Status:       "scheduled",
-		ReviewerID:   reviewerID,
-		Notes:        notes,
+		ReviewerID:   params.ReviewerID,
+		Notes:        params.Notes,
 	}
 
 	return s.repo.CreateReviewCycle(ctx, rc)

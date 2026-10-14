@@ -251,7 +251,13 @@ func TestReviewCycles(t *testing.T) {
 
 	notes := "Annual feline agility, sunbeam tracking, and alpha response readiness"
 	reviewer := "emp-human-elena"
-	rc, err := svc.CreateReviewCycle(ctx, "emp-feline-garfield", "feline_health_assessment", "2026-11-20", &reviewer, &notes)
+	rc, err := svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "emp-feline-garfield",
+		ReviewType:   "feline_health_assessment",
+		ScheduledFor: "2026-11-20",
+		ReviewerID:   &reviewer,
+		Notes:        &notes,
+	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, rc.ReviewID)
 	assert.Equal(t, "feline_health_assessment", rc.ReviewType)
@@ -285,17 +291,29 @@ func TestReviewCycles(t *testing.T) {
 	assert.NotNil(t, updated.CompletedAt)
 
 	// Validation: Missing employee_id
-	_, err = svc.CreateReviewCycle(ctx, "", "performance", "2026-11-20", nil, nil)
+	_, err = svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "",
+		ReviewType:   "performance",
+		ScheduledFor: "2026-11-20",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "employee_id is required")
 
 	// Validation: Invalid review_type
-	_, err = svc.CreateReviewCycle(ctx, "emp-feline-garfield", "invalid_type", "2026-11-20", nil, nil)
+	_, err = svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "emp-feline-garfield",
+		ReviewType:   "invalid_type",
+		ScheduledFor: "2026-11-20",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid review_type")
 
 	// Validation: Invalid scheduled_for date format
-	_, err = svc.CreateReviewCycle(ctx, "emp-feline-garfield", "performance", "11-20-2026", nil, nil)
+	_, err = svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "emp-feline-garfield",
+		ReviewType:   "performance",
+		ScheduledFor: "11-20-2026",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "YYYY-MM-DD")
 
