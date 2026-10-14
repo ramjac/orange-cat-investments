@@ -895,6 +895,67 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /core-invest/recurring-deposits:
+    get:
+      summary: List Recurring ACH Deposits
+      operationId: listRecurringDeposits
+      tags:
+        - Core Invest Banking
+      parameters:
+        - name: customer_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of scheduled recurring ACH deposits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecurringDeposit'
+    post:
+      summary: Create Recurring ACH Deposit
+      operationId: createRecurringDeposit
+      tags:
+        - Core Invest Banking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customer_id
+                - portfolio_id
+                - amount_usd
+              properties:
+                customer_id:
+                  type: string
+                portfolio_id:
+                  type: string
+                  format: uuid
+                amount_usd:
+                  type: number
+                frequency:
+                  type: string
+                  enum: [weekly, biweekly, monthly]
+                bank_account:
+                  type: string
+                account_id:
+                  type: string
+      responses:
+        '201':
+          description: Recurring deposit scheduled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringDeposit'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
   /ops/tickets:
     get:
       summary: List IT Helpdesk Tickets
@@ -1930,6 +1991,43 @@ components:
           type: string
         status_message:
           type: string
+
+    RecurringDeposit:
+      type: object
+      required:
+        - deposit_id
+        - customer_id
+        - portfolio_id
+        - amount_usd
+        - frequency
+        - bank_account
+        - status
+        - next_charge_at
+      properties:
+        deposit_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+        portfolio_id:
+          type: string
+          format: uuid
+        amount_usd:
+          type: number
+        frequency:
+          type: string
+          enum: [weekly, biweekly, monthly]
+        bank_account:
+          type: string
+        status:
+          type: string
+          enum: [active, paused, cancelled]
+        next_charge_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
 
     ErrorResponse:
       type: object

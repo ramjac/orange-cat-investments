@@ -7,10 +7,27 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 type EventPublisher interface {
 	Publish(topic string, payload any) error
+}
+
+type BrokerClient interface {
+	CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error)
+	GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error)
+	ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error)
+	ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error)
+}
+
+type BankClient interface {
+	CreateTransfer(ctx context.Context, req plaid.CreateTransferRequest) (*plaid.Transfer, error)
+	GetTransfer(ctx context.Context, transferID string) (*plaid.Transfer, error)
+	AuthorizeTransfer(ctx context.Context, accountID string, amount float64, transferType string) (*plaid.TransferAuthorization, error)
+	GetBalances(ctx context.Context, accessToken string, accountIDs []string) ([]plaid.AccountWithBalance, error)
+	GetAccounts(ctx context.Context, ownerID string) ([]plaid.Account, error)
 }
 
 type Service interface {
@@ -24,6 +41,10 @@ type Service interface {
 	GetBrokerageOrder(ctx context.Context, id string) (*core_invest.BrokerageOrder, error)
 	ListBrokerageOrders(ctx context.Context, limit, offset int32) ([]*core_invest.BrokerageOrder, error)
 
+	// Bank & ACH Deposits
+	CreateRecurringDeposit(ctx context.Context, opts CreateRecurringDepositOpts) (*core_invest.RecurringDeposit, error)
+	ListRecurringDeposits(ctx context.Context, customerID string) ([]*core_invest.RecurringDeposit, error)
+
 	// Dynamic Backtesting Workbench
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
@@ -36,9 +57,20 @@ type Service interface {
 	GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error)
 }
 
+type CreateRecurringDepositOpts struct {
+	CustomerID  string
+	PortfolioID string
+	AmountUSD   float64
+	Frequency   string
+	BankAccount string
+	AccountID   string // External Bank Account ID
+}
+
 type coreInvestService struct {
-	repo      core_invest.Repository
-	publisher EventPublisher
+	repo         core_invest.Repository
+	publisher    EventPublisher
+	brokerClient BrokerClient
+	bankClient   BankClient
 }
 
 func NewService(repo core_invest.Repository) Service {
@@ -47,6 +79,18 @@ func NewService(repo core_invest.Repository) Service {
 
 func NewServiceWithPublisher(repo core_invest.Repository, publisher EventPublisher) Service {
 	return &coreInvestService{repo: repo, publisher: publisher}
+}
+
+func NewServiceWithBroker(repo core_invest.Repository, broker BrokerClient) Service {
+	return &coreInvestService{repo: repo, brokerClient: broker}
+}
+
+func NewServiceWithIntegrations(repo core_invest.Repository, broker BrokerClient, bank BankClient) Service {
+	return &coreInvestService{repo: repo, brokerClient: broker, bankClient: bank}
+}
+
+func NewServiceWithAll(repo core_invest.Repository, publisher EventPublisher, broker BrokerClient, bank BankClient) Service {
+	return &coreInvestService{repo: repo, publisher: publisher, brokerClient: broker, bankClient: bank}
 }
 
 func (s *coreInvestService) RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error) {
@@ -118,9 +162,39 @@ func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts Exec
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
-	// Simulate trade execution with brokerage API (FIX/REST)
+	// Route through external Broker API
+	if s.brokerClient == nil {
+		return nil, errors.New("broker client is not configured: order execution unavailable")
+	}
+
+	brokerOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
+		Symbol:        opts.Symbol,
+		Qty:           opts.Quantity,
+		Side:          opts.Side,
+		Type:          "market",
+		ClientOrderID: createdOrder.OrderID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("broker order creation failed: %w", err)
+	}
+
+	fillPrice := opts.Price
+	if brokerOrd.FilledAvgPrice != nil && *brokerOrd.FilledAvgPrice > 0 {
+		fillPrice = *brokerOrd.FilledAvgPrice
+	}
 	now := time.Now().UTC()
-	return s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, "executed", &now)
+	if brokerOrd.FilledAt != nil {
+		now = *brokerOrd.FilledAt
+	}
+	status := "executed"
+	if brokerOrd.Status != "" {
+		status = brokerOrd.Status
+	}
+	resOrder, updateErr := s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, status, &now)
+	if updateErr == nil && resOrder != nil {
+		resOrder.Price = fillPrice
+	}
+	return resOrder, updateErr
 }
 
 func (s *coreInvestService) GetBrokerageOrder(ctx context.Context, id string) (*core_invest.BrokerageOrder, error) {
@@ -132,6 +206,95 @@ func (s *coreInvestService) GetBrokerageOrder(ctx context.Context, id string) (*
 
 func (s *coreInvestService) ListBrokerageOrders(ctx context.Context, limit, offset int32) ([]*core_invest.BrokerageOrder, error) {
 	return s.repo.ListBrokerageOrders(ctx, limit, offset)
+}
+
+func (s *coreInvestService) CreateRecurringDeposit(ctx context.Context, opts CreateRecurringDepositOpts) (*core_invest.RecurringDeposit, error) {
+	if opts.CustomerID == "" || opts.PortfolioID == "" {
+		return nil, errors.New("customer_id and portfolio_id are required")
+	}
+	if opts.AmountUSD <= 0 {
+		return nil, errors.New("amount must be greater than zero")
+	}
+	if opts.Frequency == "" {
+		opts.Frequency = "monthly"
+	}
+
+	// If bank client is configured, check available balance via authorization
+	if s.bankClient != nil {
+		accountID := opts.AccountID
+		accs, _ := s.bankClient.GetAccounts(ctx, opts.CustomerID)
+		if accountID == "" && len(accs) > 0 {
+			accountID = accs[0].AccountID
+		}
+
+		if opts.BankAccount == "" && len(accs) > 0 {
+			targetAcc := accs[0]
+			for _, a := range accs {
+				if a.AccountID == accountID {
+					targetAcc = a
+					break
+				}
+			}
+			mask := targetAcc.AccountNumber
+			if len(mask) > 4 {
+				mask = mask[len(mask)-4:]
+			}
+			if mask != "" {
+				opts.BankAccount = fmt.Sprintf("%s (****%s)", targetAcc.Name, mask)
+			} else {
+				opts.BankAccount = targetAcc.Name
+			}
+		}
+
+		if accountID != "" {
+			auth, err := s.bankClient.AuthorizeTransfer(ctx, accountID, opts.AmountUSD, "debit")
+			if err != nil {
+				return nil, fmt.Errorf("bank authorization failed: %w", err)
+			}
+			if auth.Decision == "declined" {
+				desc := "insufficient funds"
+				if auth.DecisionRationale != nil && auth.DecisionRationale.Description != "" {
+					desc = auth.DecisionRationale.Description
+				}
+				return nil, fmt.Errorf("bank declined deposit authorization: %s", desc)
+			}
+
+			// Also initiate the first transfer through Bank API
+			_, _ = s.bankClient.CreateTransfer(ctx, plaid.CreateTransferRequest{
+				AccountID:   accountID,
+				Amount:      opts.AmountUSD,
+				Direction:   "debit",
+				Description: fmt.Sprintf("Recurring deposit for portfolio %s", opts.PortfolioID),
+			})
+		}
+	}
+
+	if opts.BankAccount == "" {
+		opts.BankAccount = "Primary Linked Account"
+	}
+
+	nextCharge := time.Now().AddDate(0, 1, 0)
+	if opts.Frequency == "weekly" {
+		nextCharge = time.Now().AddDate(0, 0, 7)
+	} else if opts.Frequency == "biweekly" {
+		nextCharge = time.Now().AddDate(0, 0, 14)
+	}
+
+	dep := &core_invest.RecurringDeposit{
+		CustomerID:   opts.CustomerID,
+		PortfolioID:  opts.PortfolioID,
+		AmountUSD:    opts.AmountUSD,
+		Frequency:    opts.Frequency,
+		BankAccount:  opts.BankAccount,
+		Status:       "active",
+		NextChargeAt: nextCharge,
+	}
+
+	return s.repo.CreateRecurringDeposit(ctx, dep)
+}
+
+func (s *coreInvestService) ListRecurringDeposits(ctx context.Context, customerID string) ([]*core_invest.RecurringDeposit, error) {
+	return s.repo.ListRecurringDeposits(ctx, customerID)
 }
 
 func (s *coreInvestService) StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error) {

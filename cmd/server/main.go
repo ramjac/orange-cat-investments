@@ -23,6 +23,8 @@ import (
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 )
 
 func main() {
@@ -78,7 +80,42 @@ func main() {
 			ciRepo = core_invest_repo.NewMockRepository()
 		}
 
-		ciService := core_invest_svc.NewService(ciRepo)
+		var ciService core_invest_svc.Service
+		brokerURL := os.Getenv("BROKER_API_BASE_URL")
+		if brokerURL == "" {
+			brokerURL = os.Getenv("ALPACA_BASE_URL")
+		}
+		var brokerClient *alpaca.Client
+		if brokerURL != "" {
+			brokerClient = alpaca.NewClient(alpaca.Config{
+				BaseURL:   brokerURL,
+				DataURL:   os.Getenv("ALPACA_DATA_URL"),
+				APIKey:    os.Getenv("APCA_API_KEY_ID"),
+				APISecret: os.Getenv("APCA_API_SECRET_KEY"),
+			})
+			logger.Info("Core Invest broker routing configured", "broker_url", brokerURL)
+		}
+
+		bankURL := os.Getenv("BANK_API_BASE_URL")
+		if bankURL == "" {
+			bankURL = os.Getenv("PLAID_BASE_URL")
+		}
+		var bankClient *plaid.Client
+		if bankURL != "" {
+			bankClient = plaid.NewClient(plaid.Config{
+				BaseURL:  bankURL,
+				ClientID: os.Getenv("PLAID_CLIENT_ID"),
+				Secret:   os.Getenv("PLAID_SECRET"),
+			})
+			logger.Info("Core Invest bank integration configured", "bank_url", bankURL)
+		}
+
+		if brokerClient != nil || bankClient != nil {
+			ciService = core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
+		} else {
+			ciService = core_invest_svc.NewService(ciRepo)
+		}
+
 		ciHandler := core_invest_handler.NewHandler(ciService)
 		ciHandler.RegisterRoutes(mux)
 		logger.Info("Core Invest domain routes registered")

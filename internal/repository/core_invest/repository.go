@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,6 +48,18 @@ type BacktestRun struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type RecurringDeposit struct {
+	DepositID    string    `json:"deposit_id"`
+	CustomerID   string    `json:"customer_id"`
+	PortfolioID  string    `json:"portfolio_id"`
+	AmountUSD    float64   `json:"amount_usd"`
+	Frequency    string    `json:"frequency"`
+	BankAccount  string    `json:"bank_account"`
+	Status       string    `json:"status"`
+	NextChargeAt time.Time `json:"next_charge_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type Repository interface {
 	GetCameraStreamByID(ctx context.Context, id string) (*CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*CameraStream, error)
@@ -61,6 +74,10 @@ type Repository interface {
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*BacktestRun, error)
 	CreateBacktestRun(ctx context.Context, run *BacktestRun) (*BacktestRun, error)
 	UpdateBacktestRunResults(ctx context.Context, id string, status string, results string) (*BacktestRun, error)
+
+	CreateRecurringDeposit(ctx context.Context, dep *RecurringDeposit) (*RecurringDeposit, error)
+	ListRecurringDeposits(ctx context.Context, customerID string) ([]*RecurringDeposit, error)
+	GetRecurringDepositByID(ctx context.Context, id string) (*RecurringDeposit, error)
 }
 
 type pgxRepository struct {
@@ -248,6 +265,69 @@ func (r *pgxRepository) CreateBacktestRun(ctx context.Context, run *BacktestRun)
 		return nil, err
 	}
 	return &b, nil
+}
+
+func (r *pgxRepository) CreateRecurringDeposit(ctx context.Context, dep *RecurringDeposit) (*RecurringDeposit, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO core_invest.recurring_deposits (customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7)
+              RETURNING deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at`
+	var created RecurringDeposit
+	err := r.db.QueryRow(ctx, query, dep.CustomerID, dep.PortfolioID, dep.AmountUSD, dep.Frequency, dep.BankAccount, dep.Status, dep.NextChargeAt).
+		Scan(&created.DepositID, &created.CustomerID, &created.PortfolioID, &created.AmountUSD, &created.Frequency, &created.BankAccount, &created.Status, &created.NextChargeAt, &created.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recurring deposit: %w", err)
+	}
+	return &created, nil
+}
+
+func (r *pgxRepository) ListRecurringDeposits(ctx context.Context, customerID string) ([]*RecurringDeposit, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if customerID == "" {
+		query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
+              FROM core_invest.recurring_deposits ORDER BY created_at DESC`
+		rows, err = r.db.Query(ctx, query)
+	} else {
+		query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
+              FROM core_invest.recurring_deposits WHERE customer_id = $1 ORDER BY created_at DESC`
+		rows, err = r.db.Query(ctx, query, customerID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recurring deposits: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*RecurringDeposit
+	for rows.Next() {
+		var d RecurringDeposit
+		if err := rows.Scan(&d.DepositID, &d.CustomerID, &d.PortfolioID, &d.AmountUSD, &d.Frequency, &d.BankAccount, &d.Status, &d.NextChargeAt, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &d)
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) GetRecurringDepositByID(ctx context.Context, id string) (*RecurringDeposit, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
+              FROM core_invest.recurring_deposits WHERE deposit_id = $1`
+	var d RecurringDeposit
+	err := r.db.QueryRow(ctx, query, id).Scan(&d.DepositID, &d.CustomerID, &d.PortfolioID, &d.AmountUSD, &d.Frequency, &d.BankAccount, &d.Status, &d.NextChargeAt, &d.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recurring deposit: %w", err)
+	}
+	return &d, nil
 }
 
 func (r *pgxRepository) UpdateBacktestRunResults(ctx context.Context, id string, status string, results string) (*BacktestRun, error) {

@@ -35,6 +35,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /core-invest/audio/classify", h.ClassifyAcoustics)
 	mux.HandleFunc("POST /core-invest/statements/generate", h.GenerateStatement)
 
+	mux.HandleFunc("GET /core-invest/recurring-deposits", h.ListRecurringDeposits)
+	mux.HandleFunc("POST /core-invest/recurring-deposits", h.CreateRecurringDeposit)
+
 	// API v1 route aliases
 	mux.HandleFunc("GET /api/v1/core-invest/streams", h.ListCameraStreams)
 	mux.HandleFunc("POST /api/v1/core-invest/streams", h.RegisterCameraStream)
@@ -52,6 +55,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/core-invest/models/drift", h.LogModelDrift)
 	mux.HandleFunc("POST /api/v1/core-invest/audio/classify", h.ClassifyAcoustics)
 	mux.HandleFunc("POST /api/v1/core-invest/statements/generate", h.GenerateStatement)
+
+	mux.HandleFunc("GET /api/v1/core-invest/recurring-deposits", h.ListRecurringDeposits)
+	mux.HandleFunc("POST /api/v1/core-invest/recurring-deposits", h.CreateRecurringDeposit)
 }
 
 func (h *Handler) GetCameraStreamByID(w http.ResponseWriter, r *http.Request) {
@@ -335,3 +341,51 @@ func (h *Handler) GetBacktestRunByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(run)
 }
+
+func (h *Handler) ListRecurringDeposits(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	customerID := r.URL.Query().Get("customer_id")
+	deps, err := h.service.ListRecurringDeposits(r.Context(), customerID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(deps) == 0 {
+		_ = json.NewEncoder(w).Encode([]any{})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(deps)
+}
+
+func (h *Handler) CreateRecurringDeposit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		CustomerID  string  `json:"customer_id"`
+		PortfolioID string  `json:"portfolio_id"`
+		AmountUSD   float64 `json:"amount_usd"`
+		Frequency   string  `json:"frequency"`
+		BankAccount string  `json:"bank_account"`
+		AccountID   string  `json:"account_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	dep, err := h.service.CreateRecurringDeposit(r.Context(), core_invest.CreateRecurringDepositOpts{
+		CustomerID:  req.CustomerID,
+		PortfolioID: req.PortfolioID,
+		AmountUSD:   req.AmountUSD,
+		Frequency:   req.Frequency,
+		BankAccount: req.BankAccount,
+		AccountID:   req.AccountID,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(dep)
+}
+

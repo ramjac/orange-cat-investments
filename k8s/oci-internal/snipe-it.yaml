@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snipe-it
+  namespace: oci-internal
+  labels:
+    app: snipe-it
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snipe-it
+  template:
+    metadata:
+      labels:
+        app: snipe-it
+    spec:
+      containers:
+        - name: snipe-it
+          image: snipe/snipe-it:latest
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: APP_ENV
+              value: production
+            - name: APP_DEBUG
+              value: "false"
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: SNIPEIT_APP_KEY
+            - name: APP_URL
+              value: "http://snipe-it-service.oci-internal.svc.cluster.local"
+            - name: APP_TIMEZONE
+              value: "UTC"
+            - name: DB_CONNECTION
+              value: pgsql
+            - name: DB_HOST
+              value: postgres-internal-service
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_DATABASE
+              value: snipeit
+            - name: DB_USERNAME
+              value: oci_admin
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snipe-it-service
+  namespace: oci-internal
+  labels:
+    app: snipe-it
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: snipe-it
