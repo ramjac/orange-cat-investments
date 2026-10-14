@@ -63,6 +63,31 @@ func TestCustomerBFF_UnauthenticatedProtectedRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
+func TestCustomerBFF_SessionTokenViaURLParamsRejected(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	// GET protected route with session token in query parameter - MUST BE REJECTED
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio?session_token=sess-arthur-token", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unauthorized: valid customer session required")
+
+	// GET protected route with session token via Authorization Bearer header - MUST BE ACCEPTED
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)
+	req.Header.Set("Authorization", "Bearer sess-arthur-token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// GET protected route with session token via Cookie - MUST BE ACCEPTED
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestCustomerBFF_CSRFProtection(t *testing.T) {
 	_, mux := setupTestBFF()
 

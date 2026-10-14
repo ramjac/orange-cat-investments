@@ -214,10 +214,6 @@ func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
 		}
 
 		if token == "" {
-			token = r.URL.Query().Get("session_token")
-		}
-
-		if token == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
