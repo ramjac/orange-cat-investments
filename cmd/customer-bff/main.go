@@ -993,61 +993,77 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(created)
 }
 
-func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func buildFelineExecutiveMap(emp *workforce_repo.Employee, records []*workforce_repo.VHRRecord) map[string]interface{} {
+	healthStatus := "OPTIMAL_ALPHA"
+	whiskerSymmetry := "100%"
+	purrFreq := 28.5
 
+	if len(records) > 0 {
+		latest := records[0]
+		if latest.DentalScore >= 4 {
+			healthStatus = "PEAK_PERFORMER"
+			whiskerSymmetry = "99.8%"
+			purrFreq = 26.2
+		} else {
+			healthStatus = "UNDER_OBSERVATION"
+			whiskerSymmetry = "95.0%"
+		}
+	}
+
+	return map[string]interface{}{
+		"employee_id":       emp.EmployeeID,
+		"name":              emp.FirstName,
+		"role":              emp.RoleTitle,
+		"health_status":     healthStatus,
+		"whisker_symmetry": whiskerSymmetry,
+		"purr_frequency_hz": purrFreq,
+		"preferred_sunbeam": "Alpha Sunbeam Lounge",
+		"vhr_records_cnt":   len(records),
+	}
+}
+
+func (b *CustomerBFF) buildFelineExecutives(ctx context.Context) ([]map[string]interface{}, int) {
 	felinesList := []map[string]interface{}{}
 	vhrRecordsCount := 0
 
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil {
-			vhrByFeline, vhrErr := b.getVHRRecordsByFeline(r.Context())
-
-			for _, emp := range emps {
-				healthStatus := "OPTIMAL_ALPHA"
-				whiskerSymmetry := "100%"
-				purrFreq := 28.5
-
-				var records []*workforce_repo.VHRRecord
-				if vhrErr == nil && vhrByFeline != nil {
-					records = vhrByFeline[emp.EmployeeID]
-				}
-				if len(records) > 0 {
-					vhrRecordsCount += len(records)
-					latest := records[0]
-					if latest.DentalScore >= 4 {
-						healthStatus = "PEAK_PERFORMER"
-						whiskerSymmetry = "99.8%"
-						purrFreq = 26.2
-					} else {
-						healthStatus = "UNDER_OBSERVATION"
-						whiskerSymmetry = "95.0%"
-					}
-				}
-
-				felinesList = append(felinesList, map[string]interface{}{
-					"employee_id":       emp.EmployeeID,
-					"name":              emp.FirstName,
-					"role":              emp.RoleTitle,
-					"health_status":     healthStatus,
-					"whisker_symmetry": whiskerSymmetry,
-					"purr_frequency_hz": purrFreq,
-					"preferred_sunbeam": "Alpha Sunbeam Lounge",
-					"vhr_records_cnt":   len(records),
-				})
-			}
-		}
+	if b.wfSvc == nil {
+		return felinesList, vhrRecordsCount
 	}
 
-	incidentsCnt := 0
-	if b.wfSvc != nil {
-		incidents, incErr := b.wfSvc.ListWorkplaceIncidents(r.Context(), "")
-		if incErr == nil {
-			incidentsCnt = len(incidents)
-		}
+	emps, err := b.wfSvc.ListEmployees(ctx, "feline", "active")
+	if err != nil {
+		return felinesList, vhrRecordsCount
 	}
 
+	vhrByFeline, vhrErr := b.getVHRRecordsByFeline(ctx)
+
+	for _, emp := range emps {
+		var records []*workforce_repo.VHRRecord
+		if vhrErr == nil && vhrByFeline != nil {
+			records = vhrByFeline[emp.EmployeeID]
+		}
+		if len(records) > 0 {
+			vhrRecordsCount += len(records)
+		}
+
+		felinesList = append(felinesList, buildFelineExecutiveMap(emp, records))
+	}
+
+	return felinesList, vhrRecordsCount
+}
+
+func (b *CustomerBFF) getWorkplaceIncidentsCount(ctx context.Context) int {
+	if b.wfSvc == nil {
+		return 0
+	}
+	incidents, incErr := b.wfSvc.ListWorkplaceIncidents(ctx, "")
+	if incErr != nil {
+		return 0
+	}
+	return len(incidents)
+}
+
+func calculateWelfareScore(incidentsCnt int) float64 {
 	welfareScore := 5.0
 	if incidentsCnt > 0 {
 		welfareScore -= float64(incidentsCnt) * 0.02
@@ -1055,11 +1071,23 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	if welfareScore < 1.0 {
 		welfareScore = 1.0
 	}
+	return welfareScore
+}
 
-	adherencePct := 100.0
-	if vhrRecordsCount == 0 && len(felinesList) > 0 {
-		adherencePct = 98.5
+func calculateAdherencePct(vhrRecordsCount, felineCount int) float64 {
+	if vhrRecordsCount == 0 && felineCount > 0 {
+		return 98.5
 	}
+	return 100.0
+}
+
+func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	felinesList, vhrRecordsCount := b.buildFelineExecutives(r.Context())
+	incidentsCnt := b.getWorkplaceIncidentsCount(r.Context())
+	welfareScore := calculateWelfareScore(incidentsCnt)
+	adherencePct := calculateAdherencePct(vhrRecordsCount, len(felinesList))
 
 	resp := map[string]interface{}{
 		"overall_welfare_score":    welfareScore,
