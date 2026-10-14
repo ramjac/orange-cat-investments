@@ -80,15 +80,27 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ---
 
 ## 3. Mandatory Coding Standards & Principles
-
+ 
 ### Domain Boundary & Dual Identity Rules
-1. **Database System of Record (No Hardcoded Data):** Do not hardcode domain entity lists, employee rosters, or welfare reports in APIs, services, or web/mobile frontends when that data can be stored in and fetched from the PostgreSQL database. Hardcoding is permitted only for unintegrated external market feeds (e.g. stock tickers) where no database source currently exists.
+
+1. **Strict Prohibition on Hardcoded Data in Core Apps (`oci-core`):**
+   * **Forbidden in Production Apps:** NEVER hardcode domain entity IDs, customer names, customer IDs, employee names, employee IDs, portfolio IDs, bank account numbers, or persona names in code deployed to `oci-core` applications (`cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, `cmd/pebble-proxy`, `cmd/worker`, `internal/...`, `pkg/...`).
+   * **Dynamic Context Extraction:** All IDs, portfolio references, account identifiers, and customer/employee metadata must be dynamically extracted from HTTP request parameters, JSON payloads, authenticated session context (e.g., `CustomerFromContext` or `EmployeeFromContext`), database repositories (`pgxpool`), or external client lookups.
+   * **Allowed Hardcoding Zones:** Hardcoding of test personas, seed accounts, or fixture entities is permitted ONLY in:
+     - Database seed scripts (`scripts/init.sql`, `scripts/0*-*.sql`) for populating initial demo environments.
+     - Unit and integration tests (`*_test.go`).
+     - Platform simulation driver and persona action suites (`simulation/...`).
+     - Isolated external simulation / mock microservices running in `external-sim` (`cmd/mock-broker/...`, `cmd/mock-bank/...`).
+   * Hardcoding is also permissible for external unintegrated market ticker symbols where no market data feed is connected.
 2. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
 3. **Dual Identity Provider Model:**
    * **ZITADEL:** Strictly reserved for external customer identity management (`web/customer-portal`).
    * **Forgejo:** System of record for internal employee, employer, staff, and developer identity management (`web/employee-portal`).
 4. **COTS vs. Custom Isolation:** ERPNext/Frappe HR remain systems of record for generic accounting and payroll. Snipe-IT is the source of record for non-networked office inventory. Custom Go code is reserved for OCI core domain algorithms and hardware asset telemetry. Go microservices interface with COTS via REST/webhooks, never by sharing database tables.
 5. **Platform Modularization & White-Labeling:** When developing or modifying domain features, respect domain feature flags (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`) and utilize design tokens from `config/branding.yaml` / `pkg/branding` rather than hardcoding static brand colors or organizational names.
+6. **Vendor & Product Name Encapsulation (Generic Domain Variable Naming):**
+   * **Driver Package Encapsulation:** It is fine, appropriate, and expected that dedicated driver/adapter client packages (e.g., `pkg/broker/alpaca/client.go` or `pkg/bank/plaid/client.go`) have vendor product names throughout their internal implementation, comments, and package/type definitions.
+   * **Domain-Centric Consumption:** Beyond those specialized driver packages, vendor product names must NOT spread further across the codebase. Consuming application entrypoints (`cmd/...`), services (`internal/service/...`), handlers (`internal/handler/...`), and repositories must use generic, domain-centric variable and field names. For example, use `broker` or `brokerClient` (instead of `alpaca` or `alpacaClient`), and `bank` or `bankClient` (instead of `plaid` or `plaidClient`).
 
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.

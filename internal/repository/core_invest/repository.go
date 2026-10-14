@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -286,9 +287,19 @@ func (r *pgxRepository) ListRecurringDeposits(ctx context.Context, customerID st
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if customerID == "" {
+		query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
+              FROM core_invest.recurring_deposits ORDER BY created_at DESC`
+		rows, err = r.db.Query(ctx, query)
+	} else {
+		query := `SELECT deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at
               FROM core_invest.recurring_deposits WHERE customer_id = $1 ORDER BY created_at DESC`
-	rows, err := r.db.Query(ctx, query, customerID)
+		rows, err = r.db.Query(ctx, query, customerID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query recurring deposits: %w", err)
 	}

@@ -132,7 +132,9 @@ func (s *opsService) ProcessPebbleAck(ctx context.Context, req *PebbleAckRequest
 
 	ackBy := req.AcknowledgedBy
 	if ackBy == "" {
-		ackBy = "emp-human-frank" // Default on-call engineer persona
+		// TODO(tech-debt): Pre-existing hardcoding outside PR #77.
+		// Refactor to resolve on-call employee ID dynamically from authenticated session or paired Pebble device ID. See TODO.md.
+		ackBy = "emp-human-frank"
 	}
 
 	updatedTicket, err := s.repo.AcknowledgeITTicket(ctx, req.TicketID, ackBy)

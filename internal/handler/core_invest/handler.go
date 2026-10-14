@@ -345,12 +345,13 @@ func (h *Handler) GetBacktestRunByID(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListRecurringDeposits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	customerID := r.URL.Query().Get("customer_id")
-	if customerID == "" {
-		customerID = "cust-longterm-arthur"
-	}
 	deps, err := h.service.ListRecurringDeposits(r.Context(), customerID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(deps) == 0 {
+		_ = json.NewEncoder(w).Encode([]any{})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(deps)

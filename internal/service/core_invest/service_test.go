@@ -90,7 +90,7 @@ func TestCoreInvestService(t *testing.T) {
 	})
 
 	t.Run("ExecuteBrokerageOrderWithBrokerClient", func(t *testing.T) {
-		mockBroker := &mockAlpacaBroker{
+		mockBroker := &mockBrokerClient{
 			fillPrice: 228.45,
 			status:    "filled",
 		}
@@ -367,12 +367,12 @@ func TestCoreInvestService_WithBankIntegration(t *testing.T) {
 	assert.Contains(t, err.Error(), "bank declined deposit authorization")
 }
 
-type mockAlpacaBroker struct {
+type mockBrokerClient struct {
 	fillPrice float64
 	status    string
 }
 
-func (m *mockAlpacaBroker) CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error) {
+func (m *mockBrokerClient) CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error) {
 	now := time.Now().UTC()
 	return &alpaca.Order{
 		ID:             "mock-ord-1",
@@ -385,15 +385,15 @@ func (m *mockAlpacaBroker) CreateOrder(ctx context.Context, accountID string, re
 	}, nil
 }
 
-func (m *mockAlpacaBroker) GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error) {
+func (m *mockBrokerClient) GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error) {
 	return &alpaca.Account{ID: accountID, Status: "ACTIVE"}, nil
 }
 
-func (m *mockAlpacaBroker) ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error) {
+func (m *mockBrokerClient) ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error) {
 	return []alpaca.Position{}, nil
 }
 
-func (m *mockAlpacaBroker) ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error) {
+func (m *mockBrokerClient) ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error) {
 	return []alpaca.Order{}, nil
 }
 

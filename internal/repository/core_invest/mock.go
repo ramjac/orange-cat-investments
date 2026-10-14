@@ -2,6 +2,7 @@ package core_invest
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -225,19 +226,6 @@ func (m *mockRepository) ListRecurringDeposits(ctx context.Context, customerID s
 			list = append(list, d)
 		}
 	}
-	if len(list) == 0 {
-		list = append(list, &RecurringDeposit{
-			DepositID:    "dep-018f-01",
-			CustomerID:   customerID,
-			PortfolioID:  "018f3a9a-2222-7000-8000-000000000002",
-			AmountUSD:    500.00,
-			Frequency:    "monthly",
-			BankAccount:  "Chase Checking (****4821)",
-			Status:       "active",
-			NextChargeAt: time.Now().AddDate(0, 1, 0),
-			CreatedAt:    time.Now().AddDate(0, -1, 0),
-		})
-	}
 	return list, nil
 }
 
@@ -245,16 +233,6 @@ func (m *mockRepository) GetRecurringDepositByID(ctx context.Context, id string)
 	if dep, ok := m.deposits[id]; ok {
 		return dep, nil
 	}
-	return &RecurringDeposit{
-		DepositID:    id,
-		CustomerID:   "cust-longterm-arthur",
-		PortfolioID:  "018f3a9a-2222-7000-8000-000000000002",
-		AmountUSD:    500.00,
-		Frequency:    "monthly",
-		BankAccount:  "Chase Checking (****4821)",
-		Status:       "active",
-		NextChargeAt: time.Now().AddDate(0, 1, 0),
-		CreatedAt:    time.Now().UTC(),
-	}, nil
+	return nil, fmt.Errorf("recurring deposit not found: %s", id)
 }
 

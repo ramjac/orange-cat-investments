@@ -335,10 +335,23 @@ func TestCustomerBFF_Webhooks(t *testing.T) {
 }
 
 func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
-	alpacaMux := http.NewServeMux()
+	brokerMux := http.NewServeMux()
 	arthurID := "018f3a9a-2222-7000-8000-000000000002"
 
-	alpacaMux.HandleFunc("GET /v1/accounts/"+arthurID, func(w http.ResponseWriter, r *http.Request) {
+	brokerMux.HandleFunc("GET /v1/accounts", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]alpaca.Account{
+			{
+				ID:             arthurID,
+				CustomerName:   "Arthur Pendelton",
+				Cash:           45000.0,
+				PortfolioValue: 155000.0,
+				Status:         "ACTIVE",
+			},
+		})
+	})
+
+	brokerMux.HandleFunc("GET /v1/accounts/"+arthurID, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(alpaca.Account{
 			ID:             arthurID,
@@ -349,7 +362,7 @@ func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
 		})
 	})
 
-	alpacaMux.HandleFunc("GET /v1/trading/accounts/"+arthurID+"/positions", func(w http.ResponseWriter, r *http.Request) {
+	brokerMux.HandleFunc("GET /v1/trading/accounts/"+arthurID+"/positions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]alpaca.Position{
 			{
@@ -362,7 +375,7 @@ func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
 		})
 	})
 
-	alpacaMux.HandleFunc("GET /v2/stocks/bars/latest", func(w http.ResponseWriter, r *http.Request) {
+	brokerMux.HandleFunc("GET /v2/stocks/bars/latest", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"bars": map[string]alpaca.Bar{
@@ -372,7 +385,7 @@ func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
 		})
 	})
 
-	alpacaMux.HandleFunc("GET /v2/stocks/AAPL/quotes/latest", func(w http.ResponseWriter, r *http.Request) {
+	brokerMux.HandleFunc("GET /v2/stocks/AAPL/quotes/latest", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"symbol": "AAPL",
@@ -380,15 +393,15 @@ func TestCustomerBFF_AlpacaIntegration(t *testing.T) {
 		})
 	})
 
-	alpacaServer := httptest.NewServer(alpacaMux)
-	defer alpacaServer.Close()
+	brokerServer := httptest.NewServer(brokerMux)
+	defer brokerServer.Close()
 
-	alpacaClient := alpaca.NewClient(alpaca.Config{
-		BaseURL: alpacaServer.URL,
+	brokerClient := alpaca.NewClient(alpaca.Config{
+		BaseURL: brokerServer.URL,
 	})
 
 	bff, mux := setupTestBFF()
-	bff.SetAlpacaClient(alpacaClient)
+	bff.SetBrokerClient(brokerClient)
 
 	// 1. GET /api/v1/customer/portfolio with Alpaca client active
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)

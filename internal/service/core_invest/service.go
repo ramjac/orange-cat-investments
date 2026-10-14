@@ -160,25 +160,25 @@ func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts Exec
 
 	// Route through external Broker API if brokerClient is configured
 	if s.brokerClient != nil {
-		alpacaOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
+		brokerOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
 			Symbol:        opts.Symbol,
 			Qty:           opts.Quantity,
 			Side:          opts.Side,
 			Type:          "market",
 			ClientOrderID: createdOrder.OrderID,
 		})
-		if err == nil && alpacaOrd != nil {
+		if err == nil && brokerOrd != nil {
 			fillPrice := opts.Price
-			if alpacaOrd.FilledAvgPrice != nil && *alpacaOrd.FilledAvgPrice > 0 {
-				fillPrice = *alpacaOrd.FilledAvgPrice
+			if brokerOrd.FilledAvgPrice != nil && *brokerOrd.FilledAvgPrice > 0 {
+				fillPrice = *brokerOrd.FilledAvgPrice
 			}
 			now := time.Now().UTC()
-			if alpacaOrd.FilledAt != nil {
-				now = *alpacaOrd.FilledAt
+			if brokerOrd.FilledAt != nil {
+				now = *brokerOrd.FilledAt
 			}
 			status := "executed"
-			if alpacaOrd.Status != "" {
-				status = alpacaOrd.Status
+			if brokerOrd.Status != "" {
+				status = brokerOrd.Status
 			}
 			resOrder, updateErr := s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, status, &now)
 			if updateErr == nil && resOrder != nil {
@@ -214,17 +214,31 @@ func (s *coreInvestService) CreateRecurringDeposit(ctx context.Context, opts Cre
 	if opts.Frequency == "" {
 		opts.Frequency = "monthly"
 	}
-	if opts.BankAccount == "" {
-		opts.BankAccount = "Chase Checking (****4821)"
-	}
 
 	// If bank client is configured, check available balance via authorization
 	if s.bankClient != nil {
 		accountID := opts.AccountID
-		if accountID == "" {
-			accs, err := s.bankClient.GetAccounts(ctx, opts.CustomerID)
-			if err == nil && len(accs) > 0 {
-				accountID = accs[0].AccountID
+		accs, _ := s.bankClient.GetAccounts(ctx, opts.CustomerID)
+		if accountID == "" && len(accs) > 0 {
+			accountID = accs[0].AccountID
+		}
+
+		if opts.BankAccount == "" && len(accs) > 0 {
+			targetAcc := accs[0]
+			for _, a := range accs {
+				if a.AccountID == accountID {
+					targetAcc = a
+					break
+				}
+			}
+			mask := targetAcc.AccountNumber
+			if len(mask) > 4 {
+				mask = mask[len(mask)-4:]
+			}
+			if mask != "" {
+				opts.BankAccount = fmt.Sprintf("%s (****%s)", targetAcc.Name, mask)
+			} else {
+				opts.BankAccount = targetAcc.Name
 			}
 		}
 
@@ -249,6 +263,10 @@ func (s *coreInvestService) CreateRecurringDeposit(ctx context.Context, opts Cre
 				Description: fmt.Sprintf("Recurring deposit for portfolio %s", opts.PortfolioID),
 			})
 		}
+	}
+
+	if opts.BankAccount == "" {
+		opts.BankAccount = "Primary Linked Account"
 	}
 
 	nextCharge := time.Now().AddDate(0, 1, 0)

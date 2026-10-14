@@ -81,16 +81,19 @@ func main() {
 		}
 
 		var ciService core_invest_svc.Service
-		alpacaURL := os.Getenv("ALPACA_BASE_URL")
-		var alpacaClient *alpaca.Client
-		if alpacaURL != "" {
-			alpacaClient = alpaca.NewClient(alpaca.Config{
-				BaseURL:   alpacaURL,
+		brokerURL := os.Getenv("BROKER_API_BASE_URL")
+		if brokerURL == "" {
+			brokerURL = os.Getenv("ALPACA_BASE_URL")
+		}
+		var brokerClient *alpaca.Client
+		if brokerURL != "" {
+			brokerClient = alpaca.NewClient(alpaca.Config{
+				BaseURL:   brokerURL,
 				DataURL:   os.Getenv("ALPACA_DATA_URL"),
 				APIKey:    os.Getenv("APCA_API_KEY_ID"),
 				APISecret: os.Getenv("APCA_API_SECRET_KEY"),
 			})
-			logger.Info("Core Invest broker routing configured", "broker_url", alpacaURL)
+			logger.Info("Core Invest broker routing configured", "broker_url", brokerURL)
 		}
 
 		bankURL := os.Getenv("BANK_API_BASE_URL")
@@ -107,8 +110,8 @@ func main() {
 			logger.Info("Core Invest bank integration configured", "bank_url", bankURL)
 		}
 
-		if alpacaClient != nil || bankClient != nil {
-			ciService = core_invest_svc.NewServiceWithIntegrations(ciRepo, alpacaClient, bankClient)
+		if brokerClient != nil || bankClient != nil {
+			ciService = core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
 		} else {
 			ciService = core_invest_svc.NewService(ciRepo)
 		}

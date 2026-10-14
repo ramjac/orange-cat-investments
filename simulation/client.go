@@ -112,7 +112,7 @@ func (c *Client) initMockServers() error {
 	c.bankURL = c.mockBank.URL
 
 	// Initialize external clients
-	alpacaClient := alpaca.NewClient(alpaca.Config{
+	brokerClient := alpaca.NewClient(alpaca.Config{
 		BaseURL:   c.brokerURL,
 		DataURL:   c.brokerURL,
 		APIKey:    "MOCK_ALPACAKEY",
@@ -128,7 +128,7 @@ func (c *Client) initMockServers() error {
 	serverMux := http.NewServeMux()
 
 	ciRepo := core_invest_repo.NewMockRepository()
-	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, alpacaClient, bankClient)
+	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
 	ciHandler := core_invest_handler.NewHandler(ciService)
 	ciHandler.RegisterRoutes(serverMux)
 
@@ -347,12 +347,12 @@ func (c *Client) initMockServers() error {
 			if custID == "cust-active-chloe" || custID == "chloe" {
 				portfolioID = "018f3a9a-2222-7000-8000-000000000003"
 			}
-			acc, err := alpacaClient.GetAccount(r.Context(), portfolioID)
+			acc, err := brokerClient.GetAccount(r.Context(), portfolioID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			positions, _ := alpacaClient.ListPositions(r.Context(), portfolioID)
+			positions, _ := brokerClient.ListPositions(r.Context(), portfolioID)
 			holdings := make([]map[string]any, 0, len(positions))
 			for _, p := range positions {
 				holdings = append(holdings, map[string]any{
@@ -375,7 +375,7 @@ func (c *Client) initMockServers() error {
 		mux.HandleFunc("GET /api/v1/customer/ticker", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
-			bars, _ := alpacaClient.GetLatestBars(r.Context(), symbols)
+			bars, _ := brokerClient.GetLatestBars(r.Context(), symbols)
 			tickerData := make([]map[string]any, 0, len(symbols))
 			for _, sym := range symbols {
 				price := 150.0

@@ -222,3 +222,13 @@ func (c *Client) GetPortfolioHistory(ctx context.Context, accountID, period stri
 	}
 	return &history, nil
 }
+
+// ListAccounts returns all brokerage accounts.
+func (c *Client) ListAccounts(ctx context.Context) ([]Account, error) {
+	url := fmt.Sprintf("%s/v1/accounts", c.baseURL)
+	var accounts []Account
+	if err := c.do(ctx, "GET", url, nil, &accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
