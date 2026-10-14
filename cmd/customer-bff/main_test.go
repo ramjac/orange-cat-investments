@@ -19,6 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGenerateRandomToken(t *testing.T) {
+	token, err := generateRandomToken(16)
+	require.NoError(t, err)
+	assert.Len(t, token, 32) // 16 bytes encoded in hex is 32 chars
+
+	token2, err := generateRandomToken(16)
+	require.NoError(t, err)
+	assert.NotEqual(t, token, token2, "subsequent tokens should be cryptographically unique")
+}
+
 func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
 	store := NewSessionStore()
 	_, okArthur := store.Get("sess-arthur-token")
@@ -31,6 +41,20 @@ func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
 	assert.True(t, okArthurAfter, "sess-arthur-token should exist after SeedDevSessions")
 	_, okChloeAfter := store.Get("sess-chloe-token")
 	assert.True(t, okChloeAfter, "sess-chloe-token should exist after SeedDevSessions")
+}
+
+func TestSessionStore_Create(t *testing.T) {
+	store := NewSessionStore()
+	sess, err := store.Create("cust-test-123", "Test User", "test@oci.local")
+	require.NoError(t, err)
+	require.NotNil(t, sess)
+	assert.Equal(t, "cust-test-123", sess.CustomerID)
+	assert.True(t, len(sess.SessionID) > 5)
+	assert.Equal(t, "sess-", sess.SessionID[:5])
+
+	retrieved, ok := store.Get(sess.SessionID)
+	assert.True(t, ok)
+	assert.Equal(t, sess, retrieved)
 }
 
 func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
