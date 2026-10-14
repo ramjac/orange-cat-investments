@@ -199,7 +199,13 @@ func TestLeaveRequests(t *testing.T) {
 	svc, ctx := setupWorkforceService(t)
 
 	reason := "Premium catnip break & laser chasing recharge"
-	req, err := svc.CreateLeaveRequest(ctx, "emp-feline-garfield", "catnip_break", "2026-10-10", "2026-10-12", &reason)
+	req, err := svc.CreateLeaveRequest(ctx, CreateLeaveRequestParams{
+		EmployeeID: "emp-feline-garfield",
+		LeaveType:  "catnip_break",
+		StartDate:  "2026-10-10",
+		EndDate:    "2026-10-12",
+		Reason:     &reason,
+	})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, req.LeaveID)
 	assert.Equal(t, "catnip_break", req.LeaveType)
@@ -221,22 +227,42 @@ func TestLeaveRequests(t *testing.T) {
 	assert.Equal(t, "approved", approved.Status)
 
 	// Validation: Missing employee_id
-	_, err = svc.CreateLeaveRequest(ctx, "", "vacation", "2026-10-10", "2026-10-12", nil)
+	_, err = svc.CreateLeaveRequest(ctx, CreateLeaveRequestParams{
+		EmployeeID: "",
+		LeaveType:  "vacation",
+		StartDate:  "2026-10-10",
+		EndDate:    "2026-10-12",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "employee_id is required")
 
 	// Validation: Invalid leave_type
-	_, err = svc.CreateLeaveRequest(ctx, "emp-feline-garfield", "unsupported_type", "2026-10-10", "2026-10-12", nil)
+	_, err = svc.CreateLeaveRequest(ctx, CreateLeaveRequestParams{
+		EmployeeID: "emp-feline-garfield",
+		LeaveType:  "unsupported_type",
+		StartDate:  "2026-10-10",
+		EndDate:    "2026-10-12",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid leave_type")
 
 	// Validation: Invalid date format
-	_, err = svc.CreateLeaveRequest(ctx, "emp-feline-garfield", "catnip_break", "10-10-2026", "2026-10-12", nil)
+	_, err = svc.CreateLeaveRequest(ctx, CreateLeaveRequestParams{
+		EmployeeID: "emp-feline-garfield",
+		LeaveType:  "catnip_break",
+		StartDate:  "10-10-2026",
+		EndDate:    "2026-10-12",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "YYYY-MM-DD")
 
 	// Validation: End date before start date
-	_, err = svc.CreateLeaveRequest(ctx, "emp-feline-garfield", "catnip_break", "2026-10-15", "2026-10-12", nil)
+	_, err = svc.CreateLeaveRequest(ctx, CreateLeaveRequestParams{
+		EmployeeID: "emp-feline-garfield",
+		LeaveType:  "catnip_break",
+		StartDate:  "2026-10-15",
+		EndDate:    "2026-10-12",
+	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "end_date must be on or after start_date")
 
