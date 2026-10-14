@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,5 +61,34 @@ func TestOpsPgxRepository(t *testing.T) {
 		closed, err := repo.CloseITTicket(ctx, "ticket-001")
 		assert.NoError(t, err)
 		assert.Equal(t, "closed", closed.State)
+	})
+
+	t.Run("PgxRepository DB Error Paths", func(t *testing.T) {
+		pool, _ := pgxpool.New(ctx, "postgres://invalid:invalid@127.0.0.1:54322/invalid?sslmode=disable")
+		pgxRepo := NewRepository(pool)
+
+		_, err := pgxRepo.GetITTicketByID(ctx, "ticket-001")
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListOpenITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		body := "Disk space low"
+		_, err = pgxRepo.CreateITTicket(ctx, &ITTicket{
+			ForgejoRepo:    "infra/k3s-cluster",
+			Title:          "Disk Space Warning",
+			Body:           &body,
+			AuthorUsername: "emp-human-frank",
+		})
+		assert.Error(t, err)
+
+		_, err = pgxRepo.AcknowledgeITTicket(ctx, "ticket-001", "emp-human-frank")
+		assert.Error(t, err)
+
+		_, err = pgxRepo.CloseITTicket(ctx, "ticket-001")
+		assert.Error(t, err)
 	})
 }
