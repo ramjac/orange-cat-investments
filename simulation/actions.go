@@ -33,141 +33,125 @@ func (r *Registry) createGarfieldPersona() *Persona {
 		RoleTitle:  "Chief Observation Officer (COO)",
 		Department: "Core Executive Observation Plane",
 		Actions: []Action{
-			r.createGarfieldMorningZoomiesAction(),
-			r.createGarfieldPerchInspectionAction(),
-			r.createGarfieldCareScheduleAuditAction(),
-			r.createGarfieldSleepInHallwayAction(),
-		},
-	}
-}
+			{
+				Name:        "garfield_morning_zoomies",
+				Description: "Emits observation event during 3 AM morning zoomies",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?asset_type=observation_perch"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-feline-garfield",
+						PersonaName: "Garfield",
+						ActionName:  "garfield_morning_zoomies",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Morning zoomies observation generated. Perches queried: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "garfield_perch_inspection",
+				Description: "Inspects primary habitat zone perches and cushion comfort",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?status=active"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-feline-garfield",
+						PersonaName: "Garfield",
+						ActionName:  "garfield_perch_inspection",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Primary perch inspection verified. Response length: %d", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "garfield_care_schedule_audit",
+				Description: "Queries workforce care schedule to verify lasagna and snack disbursement times",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield"
+					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-feline-garfield",
+						PersonaName: "Garfield",
+						ActionName:  "garfield_care_schedule_audit",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Care schedule audited. Payload: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "garfield_sleep_in_hallway",
+				Description: "Sleeps in the middle of a hallway, with a 1/3 chance of tripping a human employee, sending Garfield to the vet and triggering a workplace injury report",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/facilities/assets?asset_type=observation_perch"
+					resp, _, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
 
-func (r *Registry) createGarfieldMorningZoomiesAction() Action {
-	return Action{
-		Name:        "garfield_morning_zoomies",
-		Description: "Emits observation event during 3 AM morning zoomies",
-		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?asset_type=observation_perch"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
-			if err != nil {
-				return nil, err
-			}
-			return &ActionResult{
-				PersonaID:   "emp-feline-garfield",
-				PersonaName: "Garfield",
-				ActionName:  "garfield_morning_zoomies",
-				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusOK,
-				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Morning zoomies observation generated. Perches queried: %d bytes", len(bytes)),
-				Timestamp:   time.Now().UTC(),
-			}, nil
-		},
-	}
-}
+					tripped := rand.Intn(3) == 0
+					if tripped {
+						vetEndpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
+						vetResp, vetBytes, vetErr := client.Do(ctx, true, "POST", vetEndpoint, map[string]any{
+							"emergency_medical_hold": true,
+						})
+						if vetErr != nil {
+							return nil, fmt.Errorf("failed to toggle vet medical hold: %w", vetErr)
+						}
 
-func (r *Registry) createGarfieldPerchInspectionAction() Action {
-	return Action{
-		Name:        "garfield_perch_inspection",
-		Description: "Inspects primary habitat zone perches and cushion comfort",
-		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?status=active"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
-			if err != nil {
-				return nil, err
-			}
-			return &ActionResult{
-				PersonaID:   "emp-feline-garfield",
-				PersonaName: "Garfield",
-				ActionName:  "garfield_perch_inspection",
-				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusOK,
-				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Primary perch inspection verified. Response length: %d", len(bytes)),
-				Timestamp:   time.Now().UTC(),
-			}, nil
-		},
-	}
-}
+						injuryEndpoint := "/ops/tickets"
+						injuryPayload := map[string]any{
+							"forgejo_repo":    "oci/workforce-safety",
+							"title":           "Workplace Injury Report: Tripped over Garfield in Hallway B",
+							"body":            "Human employee tripped over Garfield while sleeping in hallway. Garfield admitted to vet for checkup.",
+							"author_username": "emp-human-bob",
+						}
+						injResp, injBytes, injErr := client.Do(ctx, false, "POST", injuryEndpoint, injuryPayload)
+						if injErr != nil {
+							return nil, fmt.Errorf("failed to create workplace injury ticket: %w", injErr)
+						}
 
-func (r *Registry) createGarfieldCareScheduleAuditAction() Action {
-	return Action{
-		Name:        "garfield_care_schedule_audit",
-		Description: "Queries workforce care schedule to verify lasagna and snack disbursement times",
-		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
-			if err != nil {
-				return nil, err
-			}
-			return &ActionResult{
-				PersonaID:   "emp-feline-garfield",
-				PersonaName: "Garfield",
-				ActionName:  "garfield_care_schedule_audit",
-				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound,
-				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Care schedule audited. Payload: %s", string(bytes)),
-				Timestamp:   time.Now().UTC(),
-			}, nil
-		},
-	}
-}
+						return &ActionResult{
+							PersonaID:   "emp-feline-garfield",
+							PersonaName: "Garfield",
+							ActionName:  "garfield_sleep_in_hallway",
+							Endpoint:    injuryEndpoint,
+							Success:     (vetResp.StatusCode == http.StatusOK) && (injResp.StatusCode == http.StatusCreated || injResp.StatusCode == http.StatusOK),
+							StatusCode:  injResp.StatusCode,
+							Details:     fmt.Sprintf("TRIPPED! Garfield sent to vet (Hold status %d: %s). Workplace injury ticket created (Status %d: %s)", vetResp.StatusCode, string(vetBytes), injResp.StatusCode, string(injBytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
 
-func (r *Registry) createGarfieldSleepInHallwayAction() Action {
-	return Action{
-		Name:        "garfield_sleep_in_hallway",
-		Description: "Sleeps in the middle of a hallway, with a 1/3 chance of tripping a human employee, sending Garfield to the vet and triggering a workplace injury report",
-		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?asset_type=observation_perch"
-			resp, _, err := client.Do(ctx, false, "GET", endpoint, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			tripped := rand.Intn(3) == 0
-			if !tripped {
-				return &ActionResult{
-					PersonaID:   "emp-feline-garfield",
-					PersonaName: "Garfield",
-					ActionName:  "garfield_sleep_in_hallway",
-					Endpoint:    endpoint,
-					Success:     resp.StatusCode == http.StatusOK,
-					StatusCode:  resp.StatusCode,
-					Details:     "Garfield slept peacefully in the middle of the hallway. Nobody tripped.",
-					Timestamp:   time.Now().UTC(),
-				}, nil
-			}
-
-			vetEndpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
-			vetResp, vetBytes, vetErr := client.Do(ctx, true, "POST", vetEndpoint, map[string]any{
-				"emergency_medical_hold": true,
-			})
-			if vetErr != nil {
-				return nil, fmt.Errorf("failed to toggle vet medical hold: %w", vetErr)
-			}
-
-			injuryEndpoint := "/ops/tickets"
-			injuryPayload := map[string]any{
-				"forgejo_repo":    "oci/workforce-safety",
-				"title":           "Workplace Injury Report: Tripped over Garfield in Hallway B",
-				"body":            "Human employee tripped over Garfield while sleeping in hallway. Garfield admitted to vet for checkup.",
-				"author_username": "emp-human-bob",
-			}
-			injResp, injBytes, injErr := client.Do(ctx, false, "POST", injuryEndpoint, injuryPayload)
-			if injErr != nil {
-				return nil, fmt.Errorf("failed to create workplace injury ticket: %w", injErr)
-			}
-
-			return &ActionResult{
-				PersonaID:   "emp-feline-garfield",
-				PersonaName: "Garfield",
-				ActionName:  "garfield_sleep_in_hallway",
-				Endpoint:    injuryEndpoint,
-				Success:     (vetResp.StatusCode == http.StatusOK) && (injResp.StatusCode == http.StatusCreated || injResp.StatusCode == http.StatusOK),
-				StatusCode:  injResp.StatusCode,
-				Details:     fmt.Sprintf("TRIPPED! Garfield sent to vet (Hold status %d: %s). Workplace injury ticket created (Status %d: %s)", vetResp.StatusCode, string(vetBytes), injResp.StatusCode, string(injBytes)),
-				Timestamp:   time.Now().UTC(),
-			}, nil
+					return &ActionResult{
+						PersonaID:   "emp-feline-garfield",
+						PersonaName: "Garfield",
+						ActionName:  "garfield_sleep_in_hallway",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     "Garfield slept peacefully in the middle of the hallway. Nobody tripped.",
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
