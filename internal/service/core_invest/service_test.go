@@ -8,8 +8,6 @@ import (
 
 	repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	service "github.com/orange-cat-investments/oci/internal/service/core_invest"
-	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
-	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,7 +39,8 @@ func (e *errRepo) GetBacktestRunByID(ctx context.Context, id string) (*repo.Back
 func TestCoreInvestService(t *testing.T) {
 	repository := repo.NewMockRepository()
 	pub := &dummyPublisher{}
-	svc := service.NewServiceWithPublisher(repository, pub)
+	mockBroker := &service.MockBrokerClient{FillPrice: 50.0, Status: "executed"}
+	svc := service.NewServiceWithAll(repository, pub, mockBroker, nil)
 	ctx := context.Background()
 
 	t.Run("RegisterCameraStream", func(t *testing.T) {
@@ -87,12 +86,24 @@ func TestCoreInvestService(t *testing.T) {
 			Price:       50.0,
 		})
 		assert.Error(t, err)
+
+		noBrokerSvc := service.NewServiceWithPublisher(repository, pub)
+		_, err = noBrokerSvc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
+			PortfolioID: "port-001",
+			BrokerName:  "Broker",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    10,
+			Price:       50.0,
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "broker client is not configured: order execution unavailable")
 	})
 
 	t.Run("ExecuteBrokerageOrderWithBrokerClient", func(t *testing.T) {
-		mockBroker := &mockBrokerClient{
-			fillPrice: 228.45,
-			status:    "filled",
+		mockBroker := &service.MockBrokerClient{
+			FillPrice: 228.45,
+			Status:    "filled",
 		}
 		brokerSvc := service.NewServiceWithBroker(repository, mockBroker)
 		order, err := brokerSvc.ExecuteBrokerageOrder(ctx, service.ExecuteBrokerageOrderOpts{
@@ -306,42 +317,12 @@ func TestCoreInvestService(t *testing.T) {
 	})
 }
 
-type mockBankClient struct {
-	allowTransfer bool
-}
-
-func (m *mockBankClient) CreateTransfer(ctx context.Context, req plaid.CreateTransferRequest) (*plaid.Transfer, error) {
-	return &plaid.Transfer{TransferID: "tr-test-1", Status: "pending", Amount: req.Amount}, nil
-}
-func (m *mockBankClient) GetTransfer(ctx context.Context, transferID string) (*plaid.Transfer, error) {
-	return &plaid.Transfer{TransferID: transferID, Status: "settled"}, nil
-}
-func (m *mockBankClient) AuthorizeTransfer(ctx context.Context, accountID string, amount float64, transferType string) (*plaid.TransferAuthorization, error) {
-	if m.allowTransfer {
-		return &plaid.TransferAuthorization{ID: "auth-1", Decision: "approved"}, nil
-	}
-	return &plaid.TransferAuthorization{
-		ID:       "auth-2",
-		Decision: "declined",
-		DecisionRationale: &plaid.DecisionRationale{
-			Code:        "NSF",
-			Description: "insufficient funds",
-		},
-	}, nil
-}
-func (m *mockBankClient) GetBalances(ctx context.Context, accessToken string, accountIDs []string) ([]plaid.AccountWithBalance, error) {
-	return nil, nil
-}
-func (m *mockBankClient) GetAccounts(ctx context.Context, ownerID string) ([]plaid.Account, error) {
-	return nil, nil
-}
-
 func TestCoreInvestService_WithBankIntegration(t *testing.T) {
 	repository := repo.NewMockRepository()
 	ctx := context.Background()
 
 	// 1. Approved bank client
-	bankOk := &mockBankClient{allowTransfer: true}
+	bankOk := &service.MockBankClient{AllowTransfer: true}
 	svcOk := service.NewServiceWithIntegrations(repository, nil, bankOk)
 
 	dep, err := svcOk.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
@@ -354,7 +335,7 @@ func TestCoreInvestService_WithBankIntegration(t *testing.T) {
 	assert.Equal(t, 250.00, dep.AmountUSD)
 
 	// 2. Declined bank client (NSF)
-	bankDeclined := &mockBankClient{allowTransfer: false}
+	bankDeclined := &service.MockBankClient{AllowTransfer: false}
 	svcDeclined := service.NewServiceWithIntegrations(repository, nil, bankDeclined)
 
 	_, err = svcDeclined.CreateRecurringDeposit(ctx, service.CreateRecurringDepositOpts{
@@ -365,36 +346,6 @@ func TestCoreInvestService_WithBankIntegration(t *testing.T) {
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "bank declined deposit authorization")
-}
-
-type mockBrokerClient struct {
-	fillPrice float64
-	status    string
-}
-
-func (m *mockBrokerClient) CreateOrder(ctx context.Context, accountID string, req alpaca.CreateOrderRequest) (*alpaca.Order, error) {
-	now := time.Now().UTC()
-	return &alpaca.Order{
-		ID:             "mock-ord-1",
-		Symbol:         req.Symbol,
-		Qty:            req.Qty,
-		FilledQty:      req.Qty,
-		FilledAvgPrice: &m.fillPrice,
-		Status:         m.status,
-		FilledAt:       &now,
-	}, nil
-}
-
-func (m *mockBrokerClient) GetAccount(ctx context.Context, accountID string) (*alpaca.Account, error) {
-	return &alpaca.Account{ID: accountID, Status: "ACTIVE"}, nil
-}
-
-func (m *mockBrokerClient) ListPositions(ctx context.Context, accountID string) ([]alpaca.Position, error) {
-	return []alpaca.Position{}, nil
-}
-
-func (m *mockBrokerClient) ListOrders(ctx context.Context, accountID string, status string, limit int) ([]alpaca.Order, error) {
-	return []alpaca.Order{}, nil
 }
 
 

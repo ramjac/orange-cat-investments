@@ -589,7 +589,7 @@ func (r *Registry) createCarolPersona() *Persona {
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "AAPL",
 						"side":         "buy",
-						"quantity":     100.0,
+						"quantity":     10.0,
 						"price":        225.50,
 					}
 					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
@@ -950,7 +950,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "SPY",
 						"side":         "buy",
-						"quantity":     25,
+						"quantity":     10,
 						"price":        510.50,
 					}
 					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)

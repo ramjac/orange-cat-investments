@@ -16,7 +16,8 @@ import (
 
 func TestCoreInvestHandler(t *testing.T) {
 	repository := repo.NewMockRepository()
-	svc := service.NewService(repository)
+	mockBroker := &service.MockBrokerClient{FillPrice: 50.0, Status: "executed"}
+	svc := service.NewServiceWithBroker(repository, mockBroker)
 	h := handler.NewHandler(svc)
 
 	t.Run("ListCameraStreams", func(t *testing.T) {
@@ -104,6 +105,29 @@ func TestCoreInvestHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, rec.Code)
 		assert.Contains(t, rec.Body.String(), "executed")
+	})
+
+	t.Run("ExecuteBrokerageOrder_NoBrokerConfigured", func(t *testing.T) {
+		unconfiguredSvc := service.NewService(repository)
+		unconfiguredH := handler.NewHandler(unconfiguredSvc)
+
+		body := handler.CreateOrderRequest{
+			PortfolioID: "port-01",
+			BrokerName:  "InteractiveBrokers",
+			Symbol:      "ORNG",
+			Side:        "buy",
+			Quantity:    100,
+			Price:       50,
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		req := httptest.NewRequest(http.MethodPost, "/core-invest/brokerage/orders", bytes.NewBuffer(jsonBody))
+		rec := httptest.NewRecorder()
+
+		unconfiguredH.ExecuteBrokerageOrder(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "broker client is not configured: order execution unavailable")
 	})
 
 	t.Run("GetBrokerageOrderByID", func(t *testing.T) {

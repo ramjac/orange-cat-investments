@@ -89,6 +89,10 @@ func NewServiceWithIntegrations(repo core_invest.Repository, broker BrokerClient
 	return &coreInvestService{repo: repo, brokerClient: broker, bankClient: bank}
 }
 
+func NewServiceWithAll(repo core_invest.Repository, publisher EventPublisher, broker BrokerClient, bank BankClient) Service {
+	return &coreInvestService{repo: repo, publisher: publisher, brokerClient: broker, bankClient: bank}
+}
+
 func (s *coreInvestService) RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error) {
 	if cameraAssetID == "" || streamURL == "" {
 		return nil, errors.New("camera_asset_id and stream_url are required")
@@ -158,39 +162,39 @@ func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts Exec
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
-	// Route through external Broker API if brokerClient is configured
-	if s.brokerClient != nil {
-		brokerOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
-			Symbol:        opts.Symbol,
-			Qty:           opts.Quantity,
-			Side:          opts.Side,
-			Type:          "market",
-			ClientOrderID: createdOrder.OrderID,
-		})
-		if err == nil && brokerOrd != nil {
-			fillPrice := opts.Price
-			if brokerOrd.FilledAvgPrice != nil && *brokerOrd.FilledAvgPrice > 0 {
-				fillPrice = *brokerOrd.FilledAvgPrice
-			}
-			now := time.Now().UTC()
-			if brokerOrd.FilledAt != nil {
-				now = *brokerOrd.FilledAt
-			}
-			status := "executed"
-			if brokerOrd.Status != "" {
-				status = brokerOrd.Status
-			}
-			resOrder, updateErr := s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, status, &now)
-			if updateErr == nil && resOrder != nil {
-				resOrder.Price = fillPrice
-			}
-			return resOrder, updateErr
-		}
+	// Route through external Broker API
+	if s.brokerClient == nil {
+		return nil, errors.New("broker client is not configured: order execution unavailable")
 	}
 
-	// Fallback to internal execution simulation
+	brokerOrd, err := s.brokerClient.CreateOrder(ctx, opts.PortfolioID, alpaca.CreateOrderRequest{
+		Symbol:        opts.Symbol,
+		Qty:           opts.Quantity,
+		Side:          opts.Side,
+		Type:          "market",
+		ClientOrderID: createdOrder.OrderID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("broker order creation failed: %w", err)
+	}
+
+	fillPrice := opts.Price
+	if brokerOrd.FilledAvgPrice != nil && *brokerOrd.FilledAvgPrice > 0 {
+		fillPrice = *brokerOrd.FilledAvgPrice
+	}
 	now := time.Now().UTC()
-	return s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, "executed", &now)
+	if brokerOrd.FilledAt != nil {
+		now = *brokerOrd.FilledAt
+	}
+	status := "executed"
+	if brokerOrd.Status != "" {
+		status = brokerOrd.Status
+	}
+	resOrder, updateErr := s.repo.UpdateBrokerageOrderStatus(ctx, createdOrder.OrderID, status, &now)
+	if updateErr == nil && resOrder != nil {
+		resOrder.Price = fillPrice
+	}
+	return resOrder, updateErr
 }
 
 func (s *coreInvestService) GetBrokerageOrder(ctx context.Context, id string) (*core_invest.BrokerageOrder, error) {

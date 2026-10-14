@@ -132,7 +132,7 @@ func TestCustomerBFF_CSRFProtection(t *testing.T) {
 	assert.Equal(t, "NVDA", orderResp["symbol"])
 	assert.Equal(t, "buy", orderResp["side"])
 	// Context propagation: Arthur gets Arthur's portfolio
-	assert.Equal(t, "018f3a9a-2222-7000-8000-000000000002", orderResp["portfolio_id"])
+	assert.Equal(t, "port-cust-longterm-arthur", orderResp["portfolio_id"])
 }
 
 func TestCustomerBFF_ContextPropagation_Chloe(t *testing.T) {
@@ -153,7 +153,7 @@ func TestCustomerBFF_ContextPropagation_Chloe(t *testing.T) {
 	err := json.Unmarshal(rec.Body.Bytes(), &orderResp)
 	require.NoError(t, err)
 	// Context propagation: Chloe gets Chloe's portfolio
-	assert.Equal(t, "018f3a9a-2222-7000-8000-000000000003", orderResp["portfolio_id"])
+	assert.Equal(t, "port-cust-active-chloe", orderResp["portfolio_id"])
 }
 
 func TestCustomerBFF_LoginAndSessionFlow(t *testing.T) {

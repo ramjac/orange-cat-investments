@@ -605,11 +605,24 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if req.PortfolioID == "" {
-		if session.CustomerID == "cust-active-chloe" || session.CustomerID == "chloe" {
-			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
-		} else {
-			req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+		req.PortfolioID = r.URL.Query().Get("portfolio_id")
+	}
+	if req.PortfolioID == "" && b.broker != nil {
+		accs, err := b.broker.ListAccounts(r.Context())
+		if err == nil {
+			for _, a := range accs {
+				if a.ID == session.CustomerID || a.AccountNumber == session.CustomerID || (session.CustomerID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(session.CustomerID))) {
+					req.PortfolioID = a.ID
+					break
+				}
+			}
+			if req.PortfolioID == "" && len(accs) > 0 {
+				req.PortfolioID = accs[0].ID
+			}
 		}
+	}
+	if req.PortfolioID == "" {
+		req.PortfolioID = fmt.Sprintf("port-%s", session.CustomerID)
 	}
 	if req.Price <= 0 {
 		req.Price = 224.30
@@ -646,43 +659,41 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if b.broker != nil {
-		symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
-		bars, err := b.broker.GetLatestBars(r.Context(), symbols)
-		if err == nil && len(bars) > 0 {
-			tickerData := make([]map[string]interface{}, 0, len(symbols))
-			for _, sym := range symbols {
-				if bar, ok := bars[sym]; ok && bar.Close > 0 {
-					quote, _ := b.broker.GetLatestQuote(r.Context(), sym)
-					price := bar.Close
-					if quote != nil && quote.AskPrice > 0 {
-						price = (quote.BidPrice + quote.AskPrice) / 2.0
-					}
-					changePct := 0.0
-					if bar.Open > 0 {
-						changePct = math.Round(((price-bar.Open)/bar.Open)*10000.0) / 100.0
-					}
-					tickerData = append(tickerData, map[string]interface{}{
-						"symbol":     sym,
-						"price":      math.Round(price*100.0) / 100.0,
-						"change_pct": changePct,
-						"volume":     bar.Volume,
-					})
-				}
+	if b.broker == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "market data broker service unavailable"})
+		return
+	}
+
+	symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
+	bars, err := b.broker.GetLatestBars(r.Context(), symbols)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to fetch market data from broker: %v", err)})
+		return
+	}
+
+	tickerData := make([]map[string]interface{}, 0, len(symbols))
+	for _, sym := range symbols {
+		if bar, ok := bars[sym]; ok && bar.Close > 0 {
+			quote, _ := b.broker.GetLatestQuote(r.Context(), sym)
+			price := bar.Close
+			if quote != nil && quote.AskPrice > 0 {
+				price = (quote.BidPrice + quote.AskPrice) / 2.0
 			}
-			if len(tickerData) > 0 {
-				_ = json.NewEncoder(w).Encode(tickerData)
-				return
+			changePct := 0.0
+			if bar.Open > 0 {
+				changePct = math.Round(((price-bar.Open)/bar.Open)*10000.0) / 100.0
 			}
+			tickerData = append(tickerData, map[string]interface{}{
+				"symbol":     sym,
+				"price":      math.Round(price*100.0) / 100.0,
+				"change_pct": changePct,
+				"volume":     bar.Volume,
+			})
 		}
 	}
 
-	tickerData := []map[string]interface{}{
-		{"symbol": "AAPL", "price": 224.30, "change_pct": 1.45, "volume": 42100000},
-		{"symbol": "NVDA", "price": 138.80, "change_pct": 3.12, "volume": 89200000},
-		{"symbol": "MSFT", "price": 448.20, "change_pct": 0.82, "volume": 18400000},
-		{"symbol": "TSLA", "price": 247.12, "change_pct": -0.65, "volume": 31200000},
-	}
 	_ = json.NewEncoder(w).Encode(tickerData)
 }
 
