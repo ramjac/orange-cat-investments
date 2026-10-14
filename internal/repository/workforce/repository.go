@@ -176,11 +176,6 @@ func (r *pgxRepository) seedDefaults() {
 }
 
 func (r *pgxRepository) seedEmployees(now time.Time) {
-	r.seedFelineEmployees(now)
-	r.seedHumanEmployees(now)
-}
-
-func (r *pgxRepository) seedFelineEmployees(now time.Time) {
 	garfieldID := "emp-feline-garfield"
 	r.employees[garfieldID] = &Employee{
 		EmployeeID:   garfieldID,
@@ -206,9 +201,7 @@ func (r *pgxRepository) seedFelineEmployees(now time.Time) {
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-}
 
-func (r *pgxRepository) seedHumanEmployees(now time.Time) {
 	aliceID := "emp-human-alice"
 	r.employees[aliceID] = &Employee{
 		EmployeeID:   aliceID,
