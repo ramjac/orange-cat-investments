@@ -80,11 +80,13 @@ func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
 	return sess, true
 }
 
-func (s *SessionStore) Create(customerID, name, email string) *CustomerSession {
+func (s *SessionStore) Create(customerID, name, email string) (*CustomerSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	b := make([]byte, 16)
-	_, _ = crand.Read(b)
+	if _, err := crand.Read(b); err != nil {
+		return nil, fmt.Errorf("failed to generate random session token: %w", err)
+	}
 	token := "sess-" + hex.EncodeToString(b)
 	sess := &CustomerSession{
 		SessionID:  token,
@@ -94,7 +96,7 @@ func (s *SessionStore) Create(customerID, name, email string) *CustomerSession {
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
 	s.sessions[token] = sess
-	return sess
+	return sess, nil
 }
 
 func (s *SessionStore) Delete(token string) {
@@ -114,10 +116,12 @@ func CustomerFromContext(ctx context.Context) *CustomerSession {
 	return nil
 }
 
-func generateRandomToken(n int) string {
+func generateRandomToken(n int) (string, error) {
 	b := make([]byte, n)
-	_, _ = crand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := crand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func getCSRFCookie(r *http.Request) string {
@@ -293,7 +297,9 @@ func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
 		}
 
 		if getCSRFCookie(r) == "" {
-			setCSRFCookie(w, generateRandomToken(16))
+			if token, err := generateRandomToken(16); err == nil {
+				setCSRFCookie(w, token)
+			}
 		}
 
 		ctx := context.WithValue(r.Context(), customerContextKey, sess)
@@ -351,7 +357,13 @@ func (b *CustomerBFF) handleGetCSRFToken(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	token := getCSRFCookie(r)
 	if token == "" {
-		token = generateRandomToken(16)
+		var err error
+		token, err = generateRandomToken(16)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate csrf token"})
+			return
+		}
 		setCSRFCookie(w, token)
 	}
 	w.Header().Set("X-CSRF-Token", token)
@@ -379,7 +391,12 @@ func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
 		email = "arthur@oci.local"
 	}
 
-	session := b.sessions.Create(custID, name, email)
+	session, err := b.sessions.Create(custID, name, email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to create session"})
+		return
+	}
 
 	// Set session cookies
 	http.SetCookie(w, &http.Cookie{
@@ -399,7 +416,12 @@ func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Expires:  session.ExpiresAt,
 	})
 
-	csrfToken := generateRandomToken(16)
+	csrfToken, err := generateRandomToken(16)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate csrf token"})
+		return
+	}
 	setCSRFCookie(w, csrfToken)
 	w.Header().Set("X-CSRF-Token", csrfToken)
 
@@ -961,7 +983,13 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	rawSecret := fmt.Sprintf("oci_live_%s", generateRandomToken(16))
+	tok, err := generateRandomToken(16)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate api key"})
+		return
+	}
+	rawSecret := fmt.Sprintf("oci_live_%s", tok)
 	created := map[string]interface{}{
 		"key_id":      fmt.Sprintf("key-%d", time.Now().UnixNano()),
 		"customer_id": session.CustomerID,
@@ -1020,13 +1048,19 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	tok, err := generateRandomToken(16)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate webhook secret"})
+		return
+	}
 	created := map[string]interface{}{
 		"subscription_id": fmt.Sprintf("sub-%d", time.Now().UnixNano()),
 		"customer_id":     session.CustomerID,
 		"target_url":      req.TargetURL,
 		"events":          req.Events,
 		"status":          "active",
-		"secret":          "whsec_" + generateRandomToken(16),
+		"secret":          "whsec_" + tok,
 		"created_at":      time.Now().Format(time.RFC3339),
 	}
 	w.WriteHeader(http.StatusCreated)
