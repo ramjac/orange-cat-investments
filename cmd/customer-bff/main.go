@@ -147,14 +147,22 @@ type vhrCache struct {
 	ttl       time.Duration
 }
 
+type felineCache struct {
+	mu        sync.RWMutex
+	felines   []*workforce_repo.Employee
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
 type CustomerBFF struct {
-	ciSvc    core_invest_svc.Service
-	wfSvc    workforce_svc.Service
-	sessions *SessionStore
-	logger   *slog.Logger
-	broker   *alpaca.Client
-	bank     *plaid.Client
-	vhrCache vhrCache
+	ciSvc       core_invest_svc.Service
+	wfSvc       workforce_svc.Service
+	sessions    *SessionStore
+	logger      *slog.Logger
+	broker      *alpaca.Client
+	bank        *plaid.Client
+	vhrCache    vhrCache
+	felineCache felineCache
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
@@ -164,6 +172,9 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		sessions: NewSessionStore(),
 		logger:   logger,
 		vhrCache: vhrCache{
+			ttl: 30 * time.Second,
+		},
+		felineCache: felineCache{
 			ttl: 30 * time.Second,
 		},
 	}
@@ -180,6 +191,39 @@ func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
 
 func (b *CustomerBFF) SetBankClient(client *plaid.Client) {
 	b.bank = client
+}
+
+func (b *CustomerBFF) getActiveFelines(ctx context.Context) ([]*workforce_repo.Employee, error) {
+	if b.wfSvc == nil {
+		return nil, nil
+	}
+
+	b.felineCache.mu.RLock()
+	if time.Since(b.felineCache.fetchedAt) < b.felineCache.ttl && b.felineCache.felines != nil {
+		res := b.felineCache.felines
+		b.felineCache.mu.RUnlock()
+		return res, nil
+	}
+	b.felineCache.mu.RUnlock()
+
+	b.felineCache.mu.Lock()
+	defer b.felineCache.mu.Unlock()
+
+	if time.Since(b.felineCache.fetchedAt) < b.felineCache.ttl && b.felineCache.felines != nil {
+		return b.felineCache.felines, nil
+	}
+
+	emps, err := b.wfSvc.ListEmployees(ctx, "feline", "active")
+	if err != nil {
+		if b.felineCache.felines != nil {
+			return b.felineCache.felines, nil
+		}
+		return nil, err
+	}
+
+	b.felineCache.felines = emps
+	b.felineCache.fetchedAt = time.Now()
+	return emps, nil
 }
 
 func (b *CustomerBFF) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workforce_repo.VHRRecord, error) {
@@ -543,11 +587,9 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 	orders, err := b.ciSvc.ListBrokerageOrders(r.Context(), 50, 0)
 
 	execName := "Feline Executive"
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil && len(emps) > 0 {
-			execName = emps[0].FirstName
-		}
+	emps, errEmp := b.getActiveFelines(r.Context())
+	if errEmp == nil && len(emps) > 0 {
+		execName = emps[0].FirstName
 	}
 
 	if err != nil || len(orders) == 0 {
@@ -701,11 +743,9 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 
 	leaderName := "Feline Leader"
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil && len(emps) > 0 {
-			leaderName = emps[0].FirstName
-		}
+	emps, err := b.getActiveFelines(r.Context())
+	if err == nil && len(emps) > 0 {
+		leaderName = emps[0].FirstName
 	}
 
 	resp := map[string]interface{}{
@@ -1026,11 +1066,7 @@ func (b *CustomerBFF) buildFelineExecutives(ctx context.Context) ([]map[string]i
 	felinesList := []map[string]interface{}{}
 	vhrRecordsCount := 0
 
-	if b.wfSvc == nil {
-		return felinesList, vhrRecordsCount
-	}
-
-	emps, err := b.wfSvc.ListEmployees(ctx, "feline", "active")
+	emps, err := b.getActiveFelines(ctx)
 	if err != nil {
 		return felinesList, vhrRecordsCount
 	}
