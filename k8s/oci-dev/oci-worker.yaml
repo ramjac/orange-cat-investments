@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-worker-dev
+  namespace: oci-dev
+  labels:
+    app: oci-worker-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-worker-dev
+  template:
+    metadata:
+      labels:
+        app: oci-worker-dev
+    spec:
+      containers:
+        - name: oci-worker-dev
+          image: localhost:32000/oci-worker:dev-latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: DATABASE_URL
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: RABBITMQ_URL
+            - name: VALKEY_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: VALKEY_ADDR
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

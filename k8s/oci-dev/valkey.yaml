@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-dev
+  namespace: oci-dev
+  labels:
+    app: valkey-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey-dev
+  template:
+    metadata:
+      labels:
+        app: valkey-dev
+    spec:
+      containers:
+        - name: valkey-dev
+          image: valkey/valkey:7.2-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-dev-service
+  namespace: oci-dev
+  labels:
+    app: valkey-dev
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app: valkey-dev

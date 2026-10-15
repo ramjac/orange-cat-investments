@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS workforce.care_schedules (
     emergency_medical_hold BOOLEAN NOT NULL DEFAULT FALSE,
     caretaker_id UUID REFERENCES workforce.employees(employee_id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_workforce_care_schedules_feline_id UNIQUE (feline_id)
 );
 
 -- Review Cycles (Performance reviews for humans, Health/Care assessments for felines)
@@ -150,11 +151,11 @@ CREATE TABLE IF NOT EXISTS facilities.location_zones (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Hardware Assets (Edge cameras, Observation perches, Smart collars, Gateways, Laptops, Pebble watches)
+-- Hardware Assets (Edge cameras, Habitat gateways, Network switches, Laptops, Workstations, Pebble watches)
 CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
     asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
     serial_number VARCHAR(100) NOT NULL UNIQUE,
-    asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder', 'laptop', 'pebble_watch')),
+    asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'gateway', 'networking_switch', 'laptop', 'workstation', 'pebble_watch', 'smartphone')),
     model VARCHAR(100) NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'maintenance_required', 'offline', 'pending_return', 'decommissioned')),
     zone_id UUID REFERENCES facilities.location_zones(zone_id),
@@ -166,40 +167,6 @@ CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
 
 CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
 
--- Smart Feeder Telemetry
-CREATE TABLE IF NOT EXISTS facilities.feeder_telemetry (
-    telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
-    feline_id UUID REFERENCES workforce.employees(employee_id),
-    food_dispensed_grams DECIMAL(6,2) NOT NULL,
-    food_consumed_grams DECIMAL(6,2) NOT NULL,
-    snack_disbursed BOOLEAN NOT NULL DEFAULT FALSE,
-    dispensed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Smart Collar Biometrics & Accelerometer Telemetry
-CREATE TABLE IF NOT EXISTS facilities.collar_telemetry (
-    telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
-    feline_id UUID REFERENCES workforce.employees(employee_id),
-    heart_rate_bpm INT,
-    pounce_g_force DECIMAL(5,2),
-    jump_height_meters DECIMAL(4,2),
-    circadian_sleep_state VARCHAR(30),
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Perch Cushion Comfort & Thermal Sensors
-CREATE TABLE IF NOT EXISTS facilities.perch_telemetry (
-    telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    perch_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
-    pressure_mat_load_kg DECIMAL(5,2) NOT NULL,
-    surface_temp_c DECIMAL(4,2) NOT NULL,
-    sunbeam_alignment_pct DECIMAL(5,2) NOT NULL,
-    cushion_wear_pct DECIMAL(5,2) NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Environmental Telemetry (HVAC, Lux, Decibels)
 CREATE TABLE IF NOT EXISTS facilities.environmental_telemetry (
     telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -208,17 +175,6 @@ CREATE TABLE IF NOT EXISTS facilities.environmental_telemetry (
     relative_humidity_pct DECIMAL(5,2) NOT NULL,
     light_intensity_lux DECIMAL(8,2) NOT NULL,
     noise_level_db DECIMAL(5,2) NOT NULL,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Feline Acoustic Vocalization Analysis
-CREATE TABLE IF NOT EXISTS core_invest.acoustic_events (
-    acoustic_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    feline_id UUID REFERENCES workforce.employees(employee_id),
-    vocalization_type VARCHAR(50) NOT NULL CHECK (vocalization_type IN ('purring', 'chirping', 'meowing', 'trilling', 'demanding_feed')),
-    frequency_hz DECIMAL(6,2) NOT NULL,
-    decibel_level DECIMAL(5,2) NOT NULL,
-    confidence DECIMAL(5,4) NOT NULL,
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -263,19 +219,6 @@ CREATE TABLE IF NOT EXISTS core_invest.webhook_subscriptions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Observation Perches (Habitat specific details)
-CREATE TABLE IF NOT EXISTS facilities.observation_perches (
-    perch_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    asset_id UUID NOT NULL UNIQUE REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
-    height_meters DECIMAL(4,2) NOT NULL,
-    max_weight_kg DECIMAL(4,2) NOT NULL,
-    cushion_type VARCHAR(50) NOT NULL,
-    is_occupied BOOLEAN NOT NULL DEFAULT FALSE,
-    current_feline_id UUID REFERENCES workforce.employees(employee_id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Maintenance Tickets
 CREATE TABLE IF NOT EXISTS facilities.maintenance_tickets (
     ticket_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -294,7 +237,7 @@ CREATE TABLE IF NOT EXISTS facilities.maintenance_tickets (
 -- Firmware Releases (OTA updates for edge devices)
 CREATE TABLE IF NOT EXISTS facilities.firmware_releases (
     release_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
-    device_type VARCHAR(50) NOT NULL CHECK (device_type IN ('edge_camera', 'observation_perch', 'smart_collar', 'gateway', 'feeder')),
+    device_type VARCHAR(50) NOT NULL CHECK (device_type IN ('edge_camera', 'gateway', 'networking_switch', 'pebble_watch', 'workstation', 'smartphone')),
     version VARCHAR(50) NOT NULL,
     file_url TEXT NOT NULL,
     checksum VARCHAR(64) NOT NULL,
@@ -472,8 +415,8 @@ INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, mod
 VALUES 
     ('018e0000-0000-7000-8000-000000000001', 'QR-CAM-ORANGE-01', 'edge_camera', 'FelineCam-Pro-X', 'active', '018f3a9a-1111-7000-8000-000000000001'),
     ('018f3a9a-3333-7000-8000-000000000003', 'CAM-RIG-2025-01', 'edge_camera', '4K-Feline-Scope-V1', 'active', '018f3a9a-1111-7000-8000-000000000001'),
-    ('018f3a9a-5555-7000-8000-000000000005', 'PERCH-HABITAT-01', 'observation_perch', 'Ergonomic-Alpha-Perch-V2', 'active', '018f3a9a-1111-7000-8000-000000000001'),
-    ('018f3a9a-6666-7000-8000-000000000006', 'COLLAR-SMART-01', 'smart_collar', 'BioSense-Feline-Tag-V3', 'active', '018f3a9a-1111-7000-8000-000000000001')
+    ('018f3a9a-5555-7000-8000-000000000005', 'SW-CORE-01', 'networking_switch', 'Cisco-Catalyst-SMB-24P', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+    ('018f3a9a-6666-7000-8000-000000000006', 'GW-HABITAT-01', 'gateway', 'Edge-Gateway-IoT-V1', 'active', '018f3a9a-1111-7000-8000-000000000001')
 ON CONFLICT (serial_number) DO NOTHING;
 
 -- Firmware Release Catalog

@@ -639,12 +639,12 @@ function setupMockVideoStream() {
   }
 }
 
-async function loginSession(persona) {
+async function loginSession(customerID, name, email) {
   try {
     const res = await fetch('/api/v1/customer/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ persona })
+      body: JSON.stringify({ customer_id: customerID, name, email })
     });
     if (res.ok) {
       const data = await res.json();
@@ -769,14 +769,14 @@ async function togglePersona() {
   if (currentPersona.value === 'arthur') {
     currentPersona.value = 'chloe';
     currentTab.value = 'trading';
-    await loginSession('chloe');
+    await loginSession('018e0000-0000-7000-8000-000000000098', 'Chloe Spark', 'chloe@oci.local');
     fetchPortfolio();
     fetchTradeLogs();
     showToast('Switched to Chloe Spark (Momentum Trader mode)');
   } else {
     currentPersona.value = 'arthur';
     currentTab.value = 'portfolio';
-    await loginSession('arthur');
+    await loginSession('018e0000-0000-7000-8000-000000000099', 'Arthur Pendelton', 'arthur@oci.local');
     fetchPortfolio();
     fetchTradeLogs();
     showToast('Switched to Arthur Pendelton (Long-Term Investor mode)');
@@ -935,7 +935,11 @@ watch(currentTab, (newTab) => {
 });
 
 onMounted(async () => {
-  await loginSession(currentPersona.value);
+  if (currentPersona.value === 'chloe') {
+    await loginSession('018e0000-0000-7000-8000-000000000098', 'Chloe Spark', 'chloe@oci.local');
+  } else {
+    await loginSession('018e0000-0000-7000-8000-000000000099', 'Arthur Pendelton', 'arthur@oci.local');
+  }
   fetchPortfolio();
   fetchTradeLogs();
   fetchStreams();

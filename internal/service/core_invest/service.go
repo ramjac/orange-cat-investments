@@ -53,8 +53,20 @@ type Service interface {
 	// ML Models & Advanced Analytics
 	ListMLModels(ctx context.Context) ([]map[string]interface{}, error)
 	LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
-	ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error)
 	GenerateStatement(ctx context.Context, portfolioID string, year int) (map[string]interface{}, error)
+
+	// Portfolios
+	GetPortfolio(ctx context.Context, customerOrPortfolioID string) (*core_invest.Portfolio, error)
+	CreatePortfolio(ctx context.Context, p *core_invest.Portfolio) (*core_invest.Portfolio, error)
+
+	// API Keys & Webhooks
+	CreateCustomerAPIKey(ctx context.Context, key *core_invest.CustomerAPIKey) (*core_invest.CustomerAPIKey, error)
+	ListCustomerAPIKeys(ctx context.Context, customerID string) ([]*core_invest.CustomerAPIKey, error)
+	RevokeCustomerAPIKey(ctx context.Context, customerID, keyID string) error
+
+	CreateWebhookSubscription(ctx context.Context, sub *core_invest.WebhookSubscription) (*core_invest.WebhookSubscription, error)
+	ListWebhookSubscriptions(ctx context.Context, customerID string) ([]*core_invest.WebhookSubscription, error)
+	DeleteWebhookSubscription(ctx context.Context, customerID, subscriptionID string) error
 }
 
 type CreateRecurringDepositOpts struct {
@@ -356,15 +368,6 @@ func (s *coreInvestService) ListMLModels(ctx context.Context) ([]map[string]inte
 			"status":     "active",
 			"created_at": time.Now().AddDate(0, -2, 0).Format(time.RFC3339),
 		},
-		{
-			"model_id":   "mdl-whisker-audio-v1",
-			"name":       "PurrAcoustic-Classifier-V1",
-			"version":    "v1.0.4",
-			"accuracy":   0.9620,
-			"drift":      0.008,
-			"status":     "active",
-			"created_at": time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
-		},
 	}, nil
 }
 
@@ -375,17 +378,6 @@ func (s *coreInvestService) LogModelDrift(ctx context.Context, payload map[strin
 		"confidence_drift": 0.012,
 		"evaluated_at":     time.Now().Format(time.RFC3339),
 		"payload":          payload,
-	}, nil
-}
-
-func (s *coreInvestService) ClassifyAcoustics(ctx context.Context, felineID string) (map[string]interface{}, error) {
-	return map[string]interface{}{
-		"acoustic_id":       "ac-018f-777",
-		"feline_id":         felineID,
-		"vocalization_type": "purring",
-		"frequency_hz":      28.5,
-		"decibel_level":     88.2,
-		"confidence":        0.982,
 	}, nil
 }
 
@@ -419,4 +411,65 @@ func (s *coreInvestService) GenerateStatement(ctx context.Context, portfolioID s
 		"generated_at":        time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
+
+func (s *coreInvestService) GetPortfolio(ctx context.Context, customerOrPortfolioID string) (*core_invest.Portfolio, error) {
+	if customerOrPortfolioID == "" {
+		return nil, errors.New("customer_id or portfolio_id is required")
+	}
+	p, err := s.repo.GetPortfolioByCustomerID(ctx, customerOrPortfolioID)
+	if err == nil && p != nil {
+		return p, nil
+	}
+	return s.repo.GetPortfolioByID(ctx, customerOrPortfolioID)
+}
+
+func (s *coreInvestService) CreatePortfolio(ctx context.Context, p *core_invest.Portfolio) (*core_invest.Portfolio, error) {
+	if p == nil || p.CustomerID == "" {
+		return nil, errors.New("customer_id is required to create portfolio")
+	}
+	return s.repo.CreatePortfolio(ctx, p)
+}
+
+func (s *coreInvestService) CreateCustomerAPIKey(ctx context.Context, key *core_invest.CustomerAPIKey) (*core_invest.CustomerAPIKey, error) {
+	if key == nil || key.CustomerID == "" {
+		return nil, errors.New("customer_id is required to create api key")
+	}
+	return s.repo.CreateAPIKey(ctx, key)
+}
+
+func (s *coreInvestService) ListCustomerAPIKeys(ctx context.Context, customerID string) ([]*core_invest.CustomerAPIKey, error) {
+	if customerID == "" {
+		return nil, errors.New("customer_id is required")
+	}
+	return s.repo.ListAPIKeys(ctx, customerID)
+}
+
+func (s *coreInvestService) RevokeCustomerAPIKey(ctx context.Context, customerID, keyID string) error {
+	if customerID == "" || keyID == "" {
+		return errors.New("customer_id and key_id are required")
+	}
+	return s.repo.RevokeAPIKey(ctx, customerID, keyID)
+}
+
+func (s *coreInvestService) CreateWebhookSubscription(ctx context.Context, sub *core_invest.WebhookSubscription) (*core_invest.WebhookSubscription, error) {
+	if sub == nil || sub.CustomerID == "" || sub.TargetURL == "" {
+		return nil, errors.New("customer_id and target_url are required")
+	}
+	return s.repo.CreateWebhook(ctx, sub)
+}
+
+func (s *coreInvestService) ListWebhookSubscriptions(ctx context.Context, customerID string) ([]*core_invest.WebhookSubscription, error) {
+	if customerID == "" {
+		return nil, errors.New("customer_id is required")
+	}
+	return s.repo.ListWebhooks(ctx, customerID)
+}
+
+func (s *coreInvestService) DeleteWebhookSubscription(ctx context.Context, customerID, subscriptionID string) error {
+	if customerID == "" || subscriptionID == "" {
+		return errors.New("customer_id and subscription_id are required")
+	}
+	return s.repo.DeleteWebhook(ctx, customerID, subscriptionID)
+}
+
 

@@ -50,7 +50,7 @@ The platform's relational persistence is hosted on PostgreSQL 16 using schema is
 +------------------------------------+------------------------------------+
 | Schema: workforce                  | Schema: facilities                 |
 | - employees (human & feline)       | - hardware_assets                  |
-| - onboarding_checklists            | - observation_perches              |
+| - onboarding_checklists            | - firmware_releases                |
 | - care_schedules                   | - maintenance_tickets              |
 | - review_cycles                    | - asset_telemetry_logs             |
 +------------------------------------+------------------------------------+

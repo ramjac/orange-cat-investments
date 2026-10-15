@@ -1,0 +1,72 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oci-dev-ingress
+  namespace: oci-dev
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: public
+  rules:
+    - host: dev.api.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-server-dev-service
+                port:
+                  number: 8080
+    - host: dev.customer-bff.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-dev-service
+                port:
+                  number: 8083
+    - host: dev.customer.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-portal-dev-service
+                port:
+                  number: 5174
+    - host: dev.employee-bff.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-bff-dev-service
+                port:
+                  number: 8081
+    - host: dev.employee.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-portal-dev-service
+                port:
+                  number: 5173
+    - host: dev.pebble-proxy.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-pebble-proxy-dev-service
+                port:
+                  number: 8082

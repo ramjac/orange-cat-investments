@@ -12,6 +12,73 @@ servers:
     description: Employee BFF (Forgejo OAuth2 Auth)
 
 paths:
+  /employee/csrf:
+    get:
+      summary: Get CSRF Token
+      operationId: getEmployeeCSRFToken
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: CSRF token successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  csrf_token:
+                    type: string
+  /employee/auth/login:
+    post:
+      summary: Employee Login
+      operationId: employeeLogin
+      tags:
+        - Employee Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - employee_id
+                - role
+              properties:
+                employee_id:
+                  type: string
+                role:
+                  type: string
+                name:
+                  type: string
+                email:
+                  type: string
+                department:
+                  type: string
+      responses:
+        '200':
+          description: Successfully authenticated
+        '400':
+          description: Bad request
+  /employee/auth/logout:
+    post:
+      summary: Employee Logout
+      operationId: employeeLogout
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: Successfully logged out
+  /employee/auth/session:
+    get:
+      summary: Get Current Employee Session
+      operationId: getEmployeeSession
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: Active employee session details
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
   /facilities/assets:
     get:
       summary: List Hardware Assets
@@ -30,7 +97,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+            enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         - name: limit
           in: query
           required: false
@@ -212,7 +279,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+            enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
       responses:
         '200':
           description: List of firmware releases
@@ -1069,7 +1136,7 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+          enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         model:
           type: string
         status:
@@ -1105,7 +1172,7 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+          enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         model:
           type: string
         zone_id:
@@ -1259,7 +1326,7 @@ components:
           format: uuid
         device_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
         version:
           type: string
         file_url:
@@ -1289,7 +1356,7 @@ components:
       properties:
         device_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
         version:
           type: string
         file_url:

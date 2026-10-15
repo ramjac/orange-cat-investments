@@ -46,8 +46,8 @@ func TestFacilitiesRepository(t *testing.T) {
 	t.Run("CreateAsset", func(t *testing.T) {
 		input := &facilities.HardwareAsset{
 			SerialNumber: "SER-12345",
-			AssetType:    "feeder",
-			Model:        "AutoFeed-v1",
+			AssetType:    "networking_switch",
+			Model:        "Cisco-24P",
 			Status:       "pending",
 		}
 		created, err := repo.CreateAsset(ctx, input)

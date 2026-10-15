@@ -441,3 +441,78 @@ func TestWorkplaceIncidents(t *testing.T) {
 	_, err = repo.UpdateWorkplaceIncidentStatus(ctx, "non-existent-inc-id", "resolved", "Notes")
 	assert.Error(t, err)
 }
+
+func TestWorkforcePgxRepository_NilDB(t *testing.T) {
+	repo := &pgxRepository{db: nil}
+	ctx := context.Background()
+
+	_, err := repo.GetEmployeeByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListEmployees(ctx, "", "")
+	assert.Error(t, err)
+
+	_, err = repo.CreateEmployee(ctx, &Employee{})
+	assert.Error(t, err)
+
+	_, err = repo.UpdateEmployeeStatus(ctx, "any", "active")
+	assert.Error(t, err)
+
+	_, err = repo.CreateOnboardingTask(ctx, &OnboardingTask{})
+	assert.Error(t, err)
+
+	_, err = repo.ListOnboardingChecklist(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateOnboardingTask(ctx, "any", true)
+	assert.Error(t, err)
+
+	_, err = repo.GetCareScheduleByFelineID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.UpsertCareSchedule(ctx, &CareSchedule{})
+	assert.Error(t, err)
+
+	_, err = repo.SetEmergencyMedicalHold(ctx, "any", true)
+	assert.Error(t, err)
+
+	_, err = repo.CreateLeaveRequest(ctx, &LeaveRequest{})
+	assert.Error(t, err)
+
+	_, err = repo.GetLeaveRequestByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListLeaveRequests(ctx, "", "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateLeaveRequestStatus(ctx, "any", "approved")
+	assert.Error(t, err)
+
+	_, err = repo.CreateReviewCycle(ctx, &ReviewCycle{})
+	assert.Error(t, err)
+
+	_, err = repo.GetReviewCycleByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListReviewCycles(ctx, "", "", "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateReviewCycle(ctx, &ReviewCycle{})
+	assert.Error(t, err)
+
+	_, err = repo.CreateVHRRecord(ctx, &VHRRecord{})
+	assert.Error(t, err)
+
+	_, err = repo.ListVHRRecords(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.CreateWorkplaceIncident(ctx, &WorkplaceIncident{})
+	assert.Error(t, err)
+
+	_, err = repo.ListWorkplaceIncidents(ctx, "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateWorkplaceIncidentStatus(ctx, "any", "resolved", "notes")
+	assert.Error(t, err)
+}
+

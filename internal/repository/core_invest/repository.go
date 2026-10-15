@@ -60,6 +60,42 @@ type RecurringDeposit struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type Portfolio struct {
+	PortfolioID     string                   `json:"portfolio_id"`
+	CustomerID      string                   `json:"customer_id"`
+	CustomerName    string                   `json:"customer_name,omitempty"`
+	AccountName     string                   `json:"account_name"`
+	TotalBalanceUSD float64                  `json:"total_balance_usd"`
+	CashBalanceUSD  float64                  `json:"cash_balance_usd"`
+	Status          string                   `json:"status"`
+	Holdings        []map[string]interface{} `json:"holdings,omitempty"`
+	HistoricalPerf  []map[string]interface{} `json:"historical_performance,omitempty"`
+	CreatedAt       time.Time                `json:"created_at"`
+	UpdatedAt       time.Time                `json:"updated_at"`
+}
+
+type CustomerAPIKey struct {
+	KeyID       string    `json:"key_id"`
+	CustomerID  string    `json:"customer_id"`
+	KeyPrefix   string    `json:"key_prefix"`
+	KeyHash     string    `json:"key_hash,omitempty"`
+	APIKey      string    `json:"api_key,omitempty"`
+	Name        string    `json:"name"`
+	Status      string    `json:"status"`
+	Permissions []string  `json:"permissions,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type WebhookSubscription struct {
+	SubscriptionID string    `json:"subscription_id"`
+	CustomerID     string    `json:"customer_id"`
+	TargetURL      string    `json:"target_url"`
+	Events         []string  `json:"events"`
+	Secret         string    `json:"secret,omitempty"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type Repository interface {
 	GetCameraStreamByID(ctx context.Context, id string) (*CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*CameraStream, error)
@@ -78,6 +114,21 @@ type Repository interface {
 	CreateRecurringDeposit(ctx context.Context, dep *RecurringDeposit) (*RecurringDeposit, error)
 	ListRecurringDeposits(ctx context.Context, customerID string) ([]*RecurringDeposit, error)
 	GetRecurringDepositByID(ctx context.Context, id string) (*RecurringDeposit, error)
+
+	// Portfolios
+	GetPortfolioByCustomerID(ctx context.Context, customerID string) (*Portfolio, error)
+	GetPortfolioByID(ctx context.Context, portfolioID string) (*Portfolio, error)
+	CreatePortfolio(ctx context.Context, p *Portfolio) (*Portfolio, error)
+
+	// API Keys
+	CreateAPIKey(ctx context.Context, key *CustomerAPIKey) (*CustomerAPIKey, error)
+	ListAPIKeys(ctx context.Context, customerID string) ([]*CustomerAPIKey, error)
+	RevokeAPIKey(ctx context.Context, customerID, keyID string) error
+
+	// Webhooks
+	CreateWebhook(ctx context.Context, sub *WebhookSubscription) (*WebhookSubscription, error)
+	ListWebhooks(ctx context.Context, customerID string) ([]*WebhookSubscription, error)
+	DeleteWebhook(ctx context.Context, customerID, subscriptionID string) error
 }
 
 type pgxRepository struct {
@@ -346,3 +397,169 @@ func (r *pgxRepository) UpdateBacktestRunResults(ctx context.Context, id string,
 	}
 	return &b, nil
 }
+
+func (r *pgxRepository) GetPortfolioByCustomerID(ctx context.Context, customerID string) (*Portfolio, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status, created_at, updated_at
+              FROM core_invest.investment_portfolios
+              WHERE customer_id::text = $1 OR portfolio_id::text = $1
+              ORDER BY created_at ASC LIMIT 1`
+	var p Portfolio
+	err := r.db.QueryRow(ctx, query, customerID).Scan(&p.PortfolioID, &p.CustomerID, &p.AccountName, &p.TotalBalanceUSD, &p.CashBalanceUSD, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *pgxRepository) GetPortfolioByID(ctx context.Context, portfolioID string) (*Portfolio, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status, created_at, updated_at
+              FROM core_invest.investment_portfolios
+              WHERE portfolio_id::text = $1
+              LIMIT 1`
+	var p Portfolio
+	err := r.db.QueryRow(ctx, query, portfolioID).Scan(&p.PortfolioID, &p.CustomerID, &p.AccountName, &p.TotalBalanceUSD, &p.CashBalanceUSD, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+func (r *pgxRepository) CreatePortfolio(ctx context.Context, p *Portfolio) (*Portfolio, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO core_invest.investment_portfolios (customer_id, account_name, total_balance_usd, cash_balance_usd, status)
+              VALUES ($1, $2, $3, $4, $5)
+              RETURNING portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status, created_at, updated_at`
+	var created Portfolio
+	status := p.Status
+	if status == "" {
+		status = "active"
+	}
+	err := r.db.QueryRow(ctx, query, p.CustomerID, p.AccountName, p.TotalBalanceUSD, p.CashBalanceUSD, status).
+		Scan(&created.PortfolioID, &created.CustomerID, &created.AccountName, &created.TotalBalanceUSD, &created.CashBalanceUSD, &created.Status, &created.CreatedAt, &created.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create portfolio: %w", err)
+	}
+	return &created, nil
+}
+
+func (r *pgxRepository) CreateAPIKey(ctx context.Context, key *CustomerAPIKey) (*CustomerAPIKey, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO core_invest.customer_api_keys (customer_id, key_prefix, key_hash, name, status)
+              VALUES ($1, $2, $3, $4, $5)
+              RETURNING key_id, customer_id, key_prefix, name, status, created_at`
+	var created CustomerAPIKey
+	status := key.Status
+	if status == "" {
+		status = "active"
+	}
+	err := r.db.QueryRow(ctx, query, key.CustomerID, key.KeyPrefix, key.KeyHash, key.Name, status).
+		Scan(&created.KeyID, &created.CustomerID, &created.KeyPrefix, &created.Name, &created.Status, &created.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create api key: %w", err)
+	}
+	created.Permissions = key.Permissions
+	return &created, nil
+}
+
+func (r *pgxRepository) ListAPIKeys(ctx context.Context, customerID string) ([]*CustomerAPIKey, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT key_id, customer_id, key_prefix, name, status, created_at
+              FROM core_invest.customer_api_keys
+              WHERE customer_id = $1 AND status != 'revoked'
+              ORDER BY created_at DESC`
+	rows, err := r.db.Query(ctx, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query api keys: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*CustomerAPIKey
+	for rows.Next() {
+		var k CustomerAPIKey
+		if err := rows.Scan(&k.KeyID, &k.CustomerID, &k.KeyPrefix, &k.Name, &k.Status, &k.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &k)
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) RevokeAPIKey(ctx context.Context, customerID, keyID string) error {
+	if r.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE core_invest.customer_api_keys
+              SET status = 'revoked'
+              WHERE customer_id = $1 AND (key_id::text = $2 OR key_prefix = $2)`
+	_, err := r.db.Exec(ctx, query, customerID, keyID)
+	return err
+}
+
+func (r *pgxRepository) CreateWebhook(ctx context.Context, sub *WebhookSubscription) (*WebhookSubscription, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO core_invest.webhook_subscriptions (customer_id, target_url, events, secret, status)
+              VALUES ($1, $2, $3, $4, $5)
+              RETURNING subscription_id, customer_id, target_url, events, status, created_at`
+	var created WebhookSubscription
+	status := sub.Status
+	if status == "" {
+		status = "active"
+	}
+	err := r.db.QueryRow(ctx, query, sub.CustomerID, sub.TargetURL, sub.Events, sub.Secret, status).
+		Scan(&created.SubscriptionID, &created.CustomerID, &created.TargetURL, &created.Events, &created.Status, &created.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create webhook: %w", err)
+	}
+	return &created, nil
+}
+
+func (r *pgxRepository) ListWebhooks(ctx context.Context, customerID string) ([]*WebhookSubscription, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT subscription_id, customer_id, target_url, events, status, created_at
+              FROM core_invest.webhook_subscriptions
+              WHERE customer_id = $1 AND status != 'deleted'
+              ORDER BY created_at DESC`
+	rows, err := r.db.Query(ctx, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query webhooks: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*WebhookSubscription
+	for rows.Next() {
+		var w WebhookSubscription
+		if err := rows.Scan(&w.SubscriptionID, &w.CustomerID, &w.TargetURL, &w.Events, &w.Status, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &w)
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) DeleteWebhook(ctx context.Context, customerID, subscriptionID string) error {
+	if r.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE core_invest.webhook_subscriptions
+              SET status = 'deleted'
+              WHERE customer_id = $1 AND subscription_id::text = $2`
+	_, err := r.db.Exec(ctx, query, customerID, subscriptionID)
+	return err
+}
+

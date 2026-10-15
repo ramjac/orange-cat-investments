@@ -44,9 +44,9 @@ func (r *Registry) createGarfieldPersona() *Persona {
 func (r *Registry) createGarfieldMorningZoomiesAction() Action {
 	return Action{
 		Name:        "garfield_morning_zoomies",
-		Description: "Emits observation event during 3 AM morning zoomies",
+		Description: "Emits observation event during 3 AM morning zoomies via optical camera stream",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?asset_type=observation_perch"
+			endpoint := "/facilities/assets?asset_type=edge_camera"
 			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
@@ -58,7 +58,7 @@ func (r *Registry) createGarfieldMorningZoomiesAction() Action {
 				Endpoint:    endpoint,
 				Success:     resp.StatusCode == http.StatusOK,
 				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Morning zoomies observation generated. Perches queried: %d bytes", len(bytes)),
+				Details:     fmt.Sprintf("Morning zoomies observation generated via optical camera stream. Cameras queried: %d bytes", len(bytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},
@@ -68,7 +68,7 @@ func (r *Registry) createGarfieldMorningZoomiesAction() Action {
 func (r *Registry) createGarfieldPerchInspectionAction() Action {
 	return Action{
 		Name:        "garfield_perch_inspection",
-		Description: "Inspects primary habitat zone perches and cushion comfort",
+		Description: "Inspects primary habitat active hardware assets",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/facilities/assets?status=active"
 			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
@@ -82,7 +82,7 @@ func (r *Registry) createGarfieldPerchInspectionAction() Action {
 				Endpoint:    endpoint,
 				Success:     resp.StatusCode == http.StatusOK,
 				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Primary perch inspection verified. Response length: %d", len(bytes)),
+				Details:     fmt.Sprintf("Primary habitat active hardware inspection verified. Response length: %d", len(bytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},
@@ -118,7 +118,7 @@ func (r *Registry) createGarfieldSleepInHallwayAction() Action {
 		Name:        "garfield_sleep_in_hallway",
 		Description: "Sleeps in the middle of a hallway, with a 1/3 chance of tripping a human employee, sending Garfield to the vet and triggering a workplace injury report",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?asset_type=observation_perch"
+			endpoint := "/facilities/assets?status=active"
 			resp, _, err := client.Do(ctx, false, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
@@ -191,9 +191,9 @@ func (r *Registry) createBarnebyPersona() *Persona {
 func (r *Registry) createBarnebySunbeamTrackingAction() Action {
 	return Action{
 		Name:        "barneby_sunbeam_tracking",
-		Description: "Monitors secondary observation perch and tracks high-frequency sunbeam telemetry",
+		Description: "Monitors habitat optical camera streams and tracks high-frequency sunbeam alignment",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/facilities/assets?asset_type=smart_collar"
+			endpoint := "/facilities/assets?asset_type=edge_camera"
 			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
@@ -205,7 +205,7 @@ func (r *Registry) createBarnebySunbeamTrackingAction() Action {
 				Endpoint:    endpoint,
 				Success:     resp.StatusCode == http.StatusOK,
 				StatusCode:  resp.StatusCode,
-				Details:     fmt.Sprintf("Sunbeam tracking telemetry synced. Smart collar assets read: %d bytes", len(bytes)),
+				Details:     fmt.Sprintf("Sunbeam tracking telemetry synced via optical camera stream. Cameras read: %d bytes", len(bytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},

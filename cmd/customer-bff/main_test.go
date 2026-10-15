@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
@@ -36,11 +37,14 @@ func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
 	_, okChloe := store.Get("sess-chloe-token")
 	assert.False(t, okChloe, "sess-chloe-token should not exist by default")
 
-	store.SeedDevSessions()
-	_, okArthurAfter := store.Get("sess-arthur-token")
-	assert.True(t, okArthurAfter, "sess-arthur-token should exist after SeedDevSessions")
-	_, okChloeAfter := store.Get("sess-chloe-token")
-	assert.True(t, okChloeAfter, "sess-chloe-token should exist after SeedDevSessions")
+	store.SetSession(&CustomerSession{
+		SessionID:  "sess-test-token",
+		CustomerID: "cust-test",
+		ExpiresAt:  time.Now().Add(time.Hour),
+	})
+	sess, okAfter := store.Get("sess-test-token")
+	assert.True(t, okAfter)
+	assert.Equal(t, "cust-test", sess.CustomerID)
 }
 
 func TestSessionStore_Create_And_GenerateRandomToken(t *testing.T) {
@@ -69,7 +73,20 @@ func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	wfSvc := workforce_svc.NewService(wfRepo)
 
 	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
-	bff.sessions.SeedDevSessions()
+	bff.sessions.SetSession(&CustomerSession{
+		SessionID:  "sess-arthur-token",
+		CustomerID: "cust-longterm-arthur",
+		Email:      "arthur@oci.local",
+		Name:       "Arthur Pendelton",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	})
+	bff.sessions.SetSession(&CustomerSession{
+		SessionID:  "sess-chloe-token",
+		CustomerID: "cust-active-chloe",
+		Email:      "chloe@oci.local",
+		Name:       "Chloe Spark",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	})
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
 	return bff, mux
@@ -188,7 +205,7 @@ func TestCustomerBFF_LoginAndSessionFlow(t *testing.T) {
 	_, mux := setupTestBFF()
 
 	// 1. Login as Chloe
-	loginBody := bytes.NewBufferString(`{"persona":"chloe"}`)
+	loginBody := bytes.NewBufferString(`{"customer_id":"cust-active-chloe","name":"Chloe Spark","email":"chloe@oci.local"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/auth/login", loginBody)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -537,7 +554,13 @@ func TestCustomerBFF_BankIntegration(t *testing.T) {
 
 	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
 	bff.SetBankClient(bankClient)
-	bff.sessions.SeedDevSessions()
+	bff.sessions.SetSession(&CustomerSession{
+		SessionID:  "sess-arthur-token",
+		CustomerID: "cust-longterm-arthur",
+		Email:      "arthur@oci.local",
+		Name:       "Arthur Pendelton",
+		ExpiresAt:  time.Now().Add(24 * time.Hour),
+	})
 
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
@@ -587,4 +610,138 @@ func TestCustomerBFF_BankIntegration(t *testing.T) {
 	mux.ServeHTTP(nsfRec, nsfReq)
 	assert.Equal(t, http.StatusBadRequest, nsfRec.Code)
 }
+
+func TestCustomerBFF_DynamicCustomerRemediation(t *testing.T) {
+	_, mux := setupTestBFF()
+	csrfVal := "remediation-csrf-token"
+
+	// 1. Dynamic Login with arbitrary new customer ID (not Chloe or Arthur)
+	loginBody := bytes.NewBufferString(`{"customer_id":"cust-dynamo-999","name":"Diana Prince","email":"diana@oci.local"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/auth/login", loginBody)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var loginResp struct {
+		Session *CustomerSession `json:"session"`
+	}
+	err := json.Unmarshal(rec.Body.Bytes(), &loginResp)
+	require.NoError(t, err)
+	require.NotNil(t, loginResp.Session)
+	assert.Equal(t, "cust-dynamo-999", loginResp.Session.CustomerID)
+	assert.Equal(t, "Diana Prince", loginResp.Session.Name)
+
+	sessToken := loginResp.Session.SessionID
+
+	// 2. Dynamic portfolio fallback for Diana: Must NOT return Chloe or Arthur's holdings
+	portReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)
+	portReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	portRec := httptest.NewRecorder()
+	mux.ServeHTTP(portRec, portReq)
+	assert.Equal(t, http.StatusOK, portRec.Code)
+
+	var portResp map[string]interface{}
+	err = json.Unmarshal(portRec.Body.Bytes(), &portResp)
+	require.NoError(t, err)
+	assert.Equal(t, "cust-dynamo-999", portResp["customer_id"])
+	assert.Equal(t, "Diana Prince", portResp["customer_name"])
+	assert.Equal(t, "port-cust-dynamo-999", portResp["portfolio_id"])
+	assert.Equal(t, 0.0, portResp["total_balance_usd"])
+
+	// 3. API Keys: Diana starts with 0 keys (not Chloe Momentum Bot)
+	keysReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/api-keys", nil)
+	keysReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	keysRec := httptest.NewRecorder()
+	mux.ServeHTTP(keysRec, keysReq)
+	assert.Equal(t, http.StatusOK, keysRec.Code)
+
+	var keys []map[string]interface{}
+	err = json.Unmarshal(keysRec.Body.Bytes(), &keys)
+	require.NoError(t, err)
+	assert.Empty(t, keys, "new customer should start with empty API keys list, not hardcoded bot keys")
+
+	// Create an API key for Diana
+	createKeyBody := bytes.NewBufferString(`{"name":"Diana Alpha Bot","permissions":["execute_orders"]}`)
+	createKeyReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/api-keys", createKeyBody)
+	createKeyReq.Header.Set("Content-Type", "application/json")
+	createKeyReq.Header.Set("X-CSRF-Token", csrfVal)
+	createKeyReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	createKeyReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	createKeyRec := httptest.NewRecorder()
+	mux.ServeHTTP(createKeyRec, createKeyReq)
+	assert.Equal(t, http.StatusCreated, createKeyRec.Code)
+
+	var createdKey map[string]interface{}
+	err = json.Unmarshal(createKeyRec.Body.Bytes(), &createdKey)
+	require.NoError(t, err)
+	assert.Equal(t, "Diana Alpha Bot", createdKey["name"])
+	assert.Equal(t, "cust-dynamo-999", createdKey["customer_id"])
+
+	// Diana now has 1 key
+	keysReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/customer/api-keys", nil)
+	keysReq2.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	keysRec2 := httptest.NewRecorder()
+	mux.ServeHTTP(keysRec2, keysReq2)
+	assert.Equal(t, http.StatusOK, keysRec2.Code)
+
+	var keys2 []map[string]interface{}
+	err = json.Unmarshal(keysRec2.Body.Bytes(), &keys2)
+	require.NoError(t, err)
+	require.Len(t, keys2, 1)
+	assert.Equal(t, "Diana Alpha Bot", keys2[0]["name"])
+
+	// 4. Webhooks: Diana starts with 0 webhooks (not Arthur's or Chloe's webhook)
+	whReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/webhooks", nil)
+	whReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	whRec := httptest.NewRecorder()
+	mux.ServeHTTP(whRec, whReq)
+	assert.Equal(t, http.StatusOK, whRec.Code)
+
+	var webhooks []map[string]interface{}
+	err = json.Unmarshal(whRec.Body.Bytes(), &webhooks)
+	require.NoError(t, err)
+	assert.Empty(t, webhooks, "new customer should start with empty webhooks list")
+
+	// Create a webhook for Diana
+	createWhBody := bytes.NewBufferString(`{"target_url":"https://diana-bot.example.com/webhook","events":["events.trade.executed.v1"]}`)
+	createWhReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/webhooks", createWhBody)
+	createWhReq.Header.Set("Content-Type", "application/json")
+	createWhReq.Header.Set("X-CSRF-Token", csrfVal)
+	createWhReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	createWhReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	createWhRec := httptest.NewRecorder()
+	mux.ServeHTTP(createWhRec, createWhReq)
+	assert.Equal(t, http.StatusCreated, createWhRec.Code)
+
+	// Diana now has 1 webhook
+	whReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/customer/webhooks", nil)
+	whReq2.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	whRec2 := httptest.NewRecorder()
+	mux.ServeHTTP(whRec2, whReq2)
+	assert.Equal(t, http.StatusOK, whRec2.Code)
+
+	var webhooks2 []map[string]interface{}
+	err = json.Unmarshal(whRec2.Body.Bytes(), &webhooks2)
+	require.NoError(t, err)
+	require.Len(t, webhooks2, 1)
+	assert.Equal(t, "https://diana-bot.example.com/webhook", webhooks2[0]["target_url"])
+
+	// 5. Order placement dynamically resolves Diana's portfolio
+	orderBody := bytes.NewBufferString(`{"symbol":"AAPL","side":"buy","quantity":2}`)
+	orderReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", orderBody)
+	orderReq.Header.Set("Content-Type", "application/json")
+	orderReq.Header.Set("X-CSRF-Token", csrfVal)
+	orderReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	orderReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	orderRec := httptest.NewRecorder()
+	mux.ServeHTTP(orderRec, orderReq)
+	assert.Equal(t, http.StatusOK, orderRec.Code)
+
+	var orderResp map[string]interface{}
+	err = json.Unmarshal(orderRec.Body.Bytes(), &orderResp)
+	require.NoError(t, err)
+	assert.Equal(t, "port-cust-dynamo-999", orderResp["portfolio_id"])
+}
+
 

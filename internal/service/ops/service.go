@@ -36,6 +36,8 @@ type PebbleAlertPayload struct {
 type PebbleAckRequest struct {
 	TicketID       string `json:"ticket_id"`
 	AcknowledgedBy string `json:"acknowledged_by"`
+	WatchID        string `json:"watch_id,omitempty"`
+	DeviceID       string `json:"device_id,omitempty"`
 	ButtonID       uint8  `json:"button_id,omitempty"` // 1 = SELECT (ACK)
 }
 
@@ -132,9 +134,19 @@ func (s *opsService) ProcessPebbleAck(ctx context.Context, req *PebbleAckRequest
 
 	ackBy := req.AcknowledgedBy
 	if ackBy == "" {
-		// TODO(tech-debt): Pre-existing hardcoding outside PR #77.
-		// Refactor to resolve on-call employee ID dynamically from authenticated session or paired Pebble device ID. See TODO.md.
-		ackBy = "emp-human-frank"
+		if empID, ok := ctx.Value("employee_id").(string); ok && empID != "" {
+			ackBy = empID
+		} else if req.WatchID != "" {
+			ackBy = req.WatchID
+		} else if req.DeviceID != "" {
+			ackBy = req.DeviceID
+		} else if onCall := os.Getenv("DEFAULT_ON_CALL_ENGINEER"); onCall != "" {
+			ackBy = onCall
+		} else if os.Getenv("ENABLE_DEV_MOCK_AUTH") == "true" {
+			ackBy = "emp-oncall-engineer"
+		} else {
+			return nil, errors.New("acknowledged_by is required for Pebble ACK when paired device identity is unavailable")
+		}
 	}
 
 	updatedTicket, err := s.repo.AcknowledgeITTicket(ctx, req.TicketID, ackBy)

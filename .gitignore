@@ -13,6 +13,7 @@
 /pebble-proxy
 /worker
 bin/
+.bin/
 *.tar
 backups/
 

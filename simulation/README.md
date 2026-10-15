@@ -28,13 +28,13 @@ simulation/
 The simulator uses the 12 official OCI personas defined in `personas/` to execute semi-real daily action lists:
 
 ### 1. Garfield (`emp-feline-garfield`) — Chief Observation Officer (COO)
-* **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows.
-* **`garfield_perch_inspection`**: Inspects primary habitat perches (`/facilities/assets?asset_type=observation_perch`) for operational readiness and cushion ergonomics.
+* **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows via optical IP camera streams (`/facilities/assets?asset_type=edge_camera`).
+* **`garfield_perch_inspection`**: Inspects primary habitat infrastructure (`/facilities/assets?status=active`) for operational readiness.
 * **`garfield_care_schedule_audit`**: Queries care schedules (`/api/v1/workforce/care-schedules/emp-feline-garfield`) to ensure punctual lasagna and snack disbursements.
 * **`garfield_sleep_in_hallway`**: Naps in hallway B; 1/3 chance of tripping a human employee, placing Garfield on vet medical hold (`POST /api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold`) and logging a workplace injury ticket (`POST /ops/tickets`).
 
 ### 2. Barneby (`emp-feline-barneby`) — Senior Alpha Perch Analyst
-* **`barneby_sunbeam_tracking`**: Queries smart collar telemetry (`/facilities/assets?asset_type=smart_collar`) to track sunbeam positioning.
+* **`barneby_sunbeam_tracking`**: Queries habitat optical camera streams (`/facilities/assets?asset_type=edge_camera`) to track sunbeam positioning.
 * **`barneby_care_schedule_review`**: Reviews secondary perch health and care assessment parameters (`/api/v1/workforce/care-schedules/emp-feline-barneby`).
 * **`barneby_slap_water_glass`**: Slaps a water glass off a desk, creating a facilities maintenance ticket (`POST /facilities/assets/{id}/maintenance`), querying Pebble watch alerts (`GET /ops/pebble/alerts`), submitting a Pebble watch ACK (`POST /ops/pebble/ack`), and logging completed maintenance work via mobile field app sync (`POST /facilities/sync/maintenance-logs`).
 

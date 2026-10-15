@@ -109,6 +109,24 @@ func TestOpsService(t *testing.T) {
 		assert.Equal(t, "acknowledged", res.State)
 		assert.Equal(t, "emp-human-frank", res.AcknowledgedBy)
 		assert.Contains(t, res.StatusMessage, "acknowledged by emp-human-frank")
+
+		// Dynamic resolution from Context
+		ctxWithEmp := context.WithValue(ctx, "employee_id", "emp-dynamo-oncall")
+		resCtx, errCtx := service.ProcessPebbleAck(ctxWithEmp, &PebbleAckRequest{
+			TicketID: "ticket-mock-123",
+			ButtonID: 1,
+		})
+		assert.NoError(t, errCtx)
+		assert.Equal(t, "emp-dynamo-oncall", resCtx.AcknowledgedBy)
+
+		// Dynamic resolution from WatchID
+		resWatch, errWatch := service.ProcessPebbleAck(ctx, &PebbleAckRequest{
+			TicketID: "ticket-mock-123",
+			WatchID:  "pebble-time-0042",
+			ButtonID: 1,
+		})
+		assert.NoError(t, errWatch)
+		assert.Equal(t, "pebble-time-0042", resWatch.AcknowledgedBy)
 	})
 
 	t.Run("ProcessPebbleAck Validation Error", func(t *testing.T) {
@@ -117,6 +135,10 @@ func TestOpsService(t *testing.T) {
 
 		_, err2 := service.ProcessPebbleAck(ctx, &PebbleAckRequest{TicketID: ""})
 		assert.Error(t, err2)
+
+		_, errNoAck := service.ProcessPebbleAck(ctx, &PebbleAckRequest{TicketID: "ticket-mock-123"})
+		assert.Error(t, errNoAck)
+		assert.Contains(t, errNoAck.Error(), "acknowledged_by is required")
 	})
 
 	t.Run("CreateITTicket", func(t *testing.T) {

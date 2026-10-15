@@ -24,6 +24,7 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 type CustomerSession struct {
@@ -40,34 +41,16 @@ type SessionStore struct {
 }
 
 func NewSessionStore() *SessionStore {
-	store := &SessionStore{
+	return &SessionStore{
 		sessions: make(map[string]*CustomerSession),
 	}
-	if os.Getenv("SEED_DEV_SESSIONS") == "true" || os.Getenv("ENV") == "dev" || os.Getenv("ENV") == "development" {
-		store.SeedDevSessions()
-	}
-	return store
 }
 
-// TODO(tech-debt): Pre-existing hardcoded dev session fixtures outside PR #77.
-// Migrate to dynamic database-backed session creation or external test fixtures. See TODO.md.
-func (s *SessionStore) SeedDevSessions() {
+// SetSession adds or updates a session in the store. Used for session management and testing.
+func (s *SessionStore) SetSession(session *CustomerSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions["sess-arthur-token"] = &CustomerSession{
-		SessionID:  "sess-arthur-token",
-		CustomerID: "cust-longterm-arthur",
-		Email:      "arthur@oci.local",
-		Name:       "Arthur Pendelton",
-		ExpiresAt:  time.Now().Add(24 * time.Hour),
-	}
-	s.sessions["sess-chloe-token"] = &CustomerSession{
-		SessionID:  "sess-chloe-token",
-		CustomerID: "cust-active-chloe",
-		Email:      "chloe@oci.local",
-		Name:       "Chloe Spark",
-		ExpiresAt:  time.Now().Add(24 * time.Hour),
-	}
+	s.sessions[session.SessionID] = session
 }
 
 func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
@@ -380,20 +363,48 @@ func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Persona    string `json:"persona"`
 		CustomerID string `json:"customer_id"`
+		Name       string `json:"name"`
+		Email      string `json:"email"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	// TODO(tech-debt): Pre-existing persona hardcoding outside PR #77.
-	// Migrate dev login to resolve accounts dynamically from database or ZITADEL OIDC. See TODO.md.
 	var custID, name, email string
-	if req.Persona == "chloe" || req.CustomerID == "cust-active-chloe" {
-		custID = "cust-active-chloe"
-		name = "Chloe Spark"
-		email = "chloe@oci.local"
+
+	if req.CustomerID != "" {
+		custID = req.CustomerID
+		name = req.Name
+		email = req.Email
+	} else if req.Email != "" {
+		email = req.Email
+		name = req.Name
+		if name == "" {
+			parts := strings.Split(email, "@")
+			name = parts[0]
+		}
+		custID = fmt.Sprintf("cust-%s", strings.ReplaceAll(name, " ", "-"))
+	} else if req.Persona != "" {
+		custID = fmt.Sprintf("cust-%s", req.Persona)
+		name = req.Persona
+		email = fmt.Sprintf("%s@oci.local", req.Persona)
 	} else {
-		custID = "cust-longterm-arthur"
-		name = "Arthur Pendelton"
-		email = "arthur@oci.local"
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "customer_id or email is required"})
+		return
+	}
+
+	// Dynamically look up customer details from database repository if available
+	if b.ciSvc != nil {
+		if p, err := b.ciSvc.GetPortfolio(r.Context(), custID); err == nil && p != nil {
+			if name == "" && p.CustomerName != "" {
+				name = p.CustomerName
+			}
+		}
+	}
+	if name == "" {
+		name = custID
+	}
+	if email == "" {
+		email = fmt.Sprintf("%s@oci.local", custID)
 	}
 
 	session, err := b.sessions.Create(custID, name, email)
@@ -554,57 +565,48 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Fallback persistence query when external broker API is not configured
 	var resp map[string]interface{}
-	if custID == "chloe" || custID == "cust-active-chloe" {
-		resp = map[string]interface{}{
-			"portfolio_id":       portfolioID,
-			"customer_id":        custID,
-			"customer_name":      "Chloe Spark",
-			"account_name":       "Chloe Spark High-Velocity Alpha",
-			"total_balance_usd": 85200.00,
-			"cash_balance_usd":  15400.00,
-			"status":             "active",
-			"holdings": []map[string]interface{}{
-				{"symbol": "NVDA", "quantity": 150.0, "avg_price": 112.40, "current_price": 138.80, "market_value": 20820.00},
-				{"symbol": "TSLA", "quantity": 120.0, "avg_price": 185.50, "current_price": 247.12, "market_value": 29654.40},
-				{"symbol": "AAPL", "quantity": 85.0, "avg_price": 180.10, "current_price": 224.30, "market_value": 19065.50},
-			},
-			"historical_performance": []map[string]interface{}{
-				{"date": "2026-01-01", "valuation": 50000.00},
-				{"date": "2026-02-01", "valuation": 62400.00},
-				{"date": "2026-03-01", "valuation": 74100.00},
-				{"date": "2026-04-01", "valuation": 85200.00},
-			},
+	if b.ciSvc != nil {
+		p, err := b.ciSvc.GetPortfolio(r.Context(), custID)
+		if err == nil && p != nil {
+			customerName := p.CustomerName
+			if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
+				customerName = session.Name
+			}
+			if customerName == "" {
+				customerName = custID
+			}
+			resp = map[string]interface{}{
+				"portfolio_id":           p.PortfolioID,
+				"customer_id":            custID,
+				"customer_name":          customerName,
+				"account_name":           p.AccountName,
+				"total_balance_usd":      p.TotalBalanceUSD,
+				"cash_balance_usd":       p.CashBalanceUSD,
+				"status":                 p.Status,
+				"holdings":               p.Holdings,
+				"historical_performance": p.HistoricalPerf,
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
 		}
-	} else {
-		customerName := custID
-		if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
-			customerName = session.Name
-		}
-		if customerName == "" || customerName == "cust-longterm-arthur" {
-			customerName = "Arthur Pendelton"
-		}
-		resp = map[string]interface{}{
-			"portfolio_id":       portfolioID,
-			"customer_id":        custID,
-			"customer_name":      customerName,
-			"account_name":       "OCI Alpha Growth Fund",
-			"total_balance_usd": 128450.75,
-			"cash_balance_usd":  32100.25,
-			"status":             "active",
-			"holdings": []map[string]interface{}{
-				{"symbol": "AAPL", "quantity": 120.0, "avg_price": 178.50, "current_price": 224.30, "market_value": 26916.00},
-				{"symbol": "NVDA", "quantity": 85.0, "avg_price": 110.20, "current_price": 138.80, "market_value": 11798.00},
-				{"symbol": "MSFT", "quantity": 90.0, "avg_price": 380.00, "current_price": 448.20, "market_value": 40338.00},
-				{"symbol": "TSLA", "quantity": 70.0, "avg_price": 190.00, "current_price": 247.12, "market_value": 17298.40},
-			},
-			"historical_performance": []map[string]interface{}{
-				{"date": "2026-01-01", "valuation": 100000.00},
-				{"date": "2026-02-01", "valuation": 108400.00},
-				{"date": "2026-03-01", "valuation": 114200.00},
-				{"date": "2026-04-01", "valuation": 128450.75},
-			},
-		}
+	}
+
+	customerName := custID
+	if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
+		customerName = session.Name
+	}
+	resp = map[string]interface{}{
+		"portfolio_id":           portfolioID,
+		"customer_id":            custID,
+		"customer_name":          customerName,
+		"account_name":           "OCI Investment Portfolio",
+		"total_balance_usd":      0.00,
+		"cash_balance_usd":       0.00,
+		"status":                 "active",
+		"holdings":               []map[string]interface{}{},
+		"historical_performance": []map[string]interface{}{},
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -675,6 +677,11 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 
 	if req.PortfolioID == "" {
 		req.PortfolioID = r.URL.Query().Get("portfolio_id")
+	}
+	if req.PortfolioID == "" && b.ciSvc != nil {
+		if p, err := b.ciSvc.GetPortfolio(r.Context(), session.CustomerID); err == nil && p != nil {
+			req.PortfolioID = p.PortfolioID
+		}
 	}
 	if req.PortfolioID == "" && b.broker != nil {
 		accs, err := b.broker.ListAccounts(r.Context())
@@ -956,17 +963,24 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 
 func (b *CustomerBFF) handleGetAPIKeys(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	keys := []map[string]interface{}{
-		{
-			"key_id":      "key-018f-8888",
-			"name":        "Chloe Momentum Bot",
-			"key_prefix":  "oci_live_9a8f",
-			"status":      "active",
-			"permissions": []string{"read_streams", "execute_orders", "read_telemetry"},
-			"created_at":  time.Now().AddDate(0, -1, 0).Format(time.RFC3339),
-		},
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
 	}
-	_ = json.NewEncoder(w).Encode(keys)
+
+	if b.ciSvc != nil {
+		keys, err := b.ciSvc.ListCustomerAPIKeys(r.Context(), session.CustomerID)
+		if err == nil {
+			if keys == nil {
+				keys = []*core_invest_repo.CustomerAPIKey{}
+			}
+			_ = json.NewEncoder(w).Encode(keys)
+			return
+		}
+	}
+	_ = json.NewEncoder(w).Encode([]*core_invest_repo.CustomerAPIKey{})
 }
 
 func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -995,18 +1009,27 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	rawSecret := fmt.Sprintf("oci_live_%s", tok)
-	created := map[string]interface{}{
-		"key_id":      fmt.Sprintf("key-%d", time.Now().UnixNano()),
-		"customer_id": session.CustomerID,
-		"name":        req.Name,
-		"key_prefix":  rawSecret[:12],
-		"api_key":     rawSecret,
-		"status":      "active",
-		"permissions": req.Permissions,
-		"created_at":  time.Now().Format(time.RFC3339),
+	apiKey := &core_invest_repo.CustomerAPIKey{
+		CustomerID:  session.CustomerID,
+		Name:        req.Name,
+		KeyPrefix:   rawSecret[:12],
+		APIKey:      rawSecret,
+		Status:      "active",
+		Permissions: req.Permissions,
 	}
+
+	if b.ciSvc != nil {
+		created, err := b.ciSvc.CreateCustomerAPIKey(r.Context(), apiKey)
+		if err == nil && created != nil {
+			created.APIKey = rawSecret
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(created)
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(created)
+	_ = json.NewEncoder(w).Encode(apiKey)
 }
 
 func (b *CustomerBFF) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
@@ -1018,20 +1041,38 @@ func (b *CustomerBFF) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := r.PathValue("id")
+	if b.ciSvc != nil {
+		_ = b.ciSvc.RevokeCustomerAPIKey(r.Context(), session.CustomerID, id)
+	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "revoked", "key_id": id, "customer_id": session.CustomerID})
 }
 
 func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	webhooks := []map[string]interface{}{
-		{
-			"subscription_id": "sub-018f-1111",
-			"target_url":      "https://quant-bot.chloespark.io/api/v1/oci-callback",
-			"events":          []string{"events.observation.cat_spotted.v1", "events.trade.executed.v1"},
-			"status":          "active",
-		},
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
 	}
-	_ = json.NewEncoder(w).Encode(webhooks)
+
+	if b.ciSvc != nil {
+		webhooks, err := b.ciSvc.ListWebhookSubscriptions(r.Context(), session.CustomerID)
+		if err == nil {
+			cleanWebhooks := make([]map[string]interface{}, 0, len(webhooks))
+			for _, wh := range webhooks {
+				cleanWebhooks = append(cleanWebhooks, map[string]interface{}{
+					"subscription_id": wh.SubscriptionID,
+					"target_url":      wh.TargetURL,
+					"events":          wh.Events,
+					"status":          wh.Status,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(cleanWebhooks)
+			return
+		}
+	}
+	_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
 }
 
 func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
@@ -1059,13 +1100,40 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate webhook secret"})
 		return
 	}
+	secret := "whsec_" + tok
+	sub := &core_invest_repo.WebhookSubscription{
+		CustomerID: session.CustomerID,
+		TargetURL:  req.TargetURL,
+		Events:     req.Events,
+		Secret:     secret,
+		Status:     "active",
+	}
+
+	if b.ciSvc != nil {
+		created, err := b.ciSvc.CreateWebhookSubscription(r.Context(), sub)
+		if err == nil && created != nil {
+			createdMap := map[string]interface{}{
+				"subscription_id": created.SubscriptionID,
+				"customer_id":     created.CustomerID,
+				"target_url":      created.TargetURL,
+				"events":          created.Events,
+				"status":          created.Status,
+				"secret":          secret,
+				"created_at":      created.CreatedAt.Format(time.RFC3339),
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(createdMap)
+			return
+		}
+	}
+
 	created := map[string]interface{}{
 		"subscription_id": fmt.Sprintf("sub-%d", time.Now().UnixNano()),
 		"customer_id":     session.CustomerID,
 		"target_url":      req.TargetURL,
 		"events":          req.Events,
 		"status":          "active",
-		"secret":          "whsec_" + tok,
+		"secret":          secret,
 		"created_at":      time.Now().Format(time.RFC3339),
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -1284,9 +1352,11 @@ func main() {
 		port = "8083"
 	}
 
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
+
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

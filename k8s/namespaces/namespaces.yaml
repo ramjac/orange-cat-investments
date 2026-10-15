@@ -35,3 +35,12 @@ metadata:
   labels:
     name: external-sim
     environment: simulated-external
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: oci-dev
+  labels:
+    name: oci-dev
+    environment: development
+

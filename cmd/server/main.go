@@ -25,6 +25,7 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
@@ -38,10 +39,17 @@ func main() {
 		pool, err = pgxpool.New(context.Background(), dbURL)
 		if err != nil {
 			logger.Error("failed to connect to database pool", "error", err)
+			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+				logger.Error("database connection required in production mode, exiting")
+				os.Exit(1)
+			}
 		} else {
 			defer pool.Close()
 			logger.Info("connected to PostgreSQL database pool successfully")
 		}
+	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+		logger.Error("DATABASE_URL must be specified in production mode, exiting")
+		os.Exit(1)
 	} else {
 		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
 	}
@@ -125,7 +133,12 @@ func main() {
 
 	// Initialize Operations & Wearable Alerts Domain Service & Handlers (if enabled)
 	if enablePebbleGateway {
-		opsRepo := ops_repo.NewRepository(pool)
+		var opsRepo ops_repo.Repository
+		if pool != nil {
+			opsRepo = ops_repo.NewRepository(pool)
+		} else {
+			opsRepo = ops_repo.NewMockRepository()
+		}
 		opsService := ops_svc.NewService(opsRepo)
 		opsHandler := ops_handler.NewHandler(opsService)
 		opsHandler.RegisterRoutes(mux)
@@ -146,7 +159,12 @@ func main() {
 	facHandler.RegisterRoutes(mux)
 
 	// Initialize Workforce Domain Service, Sagas & Handlers
-	wfRepo := workforce_repo.NewRepository(pool)
+	var wfRepo workforce_repo.Repository
+	if pool != nil {
+		wfRepo = workforce_repo.NewRepository(pool)
+	} else {
+		wfRepo = workforce_repo.NewMockRepository()
+	}
 	wfSvc := workforce_svc.NewService(wfRepo)
 	onboardSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
@@ -164,9 +182,11 @@ func main() {
 		port = "8080"
 	}
 
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
+
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

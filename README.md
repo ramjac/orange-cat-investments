@@ -114,7 +114,6 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **ML Model Registry & Confidence Drift Tracking:** Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Algorithmic Order Types & Pre-Trade Risk Engine:** Smart Order Router supporting Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC, and risk management guardrails.
 * **Automated Investor Statements & Tax Document Generation:** Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
-* **Feline Acoustic & Vocalization Analysis:** Schema `core_invest.acoustic_events` and classification endpoint (`/core-invest/audio/classify`) distinguishing contentment purrs, playful chirps, and hunger meows.
 
 ### 5.2 Customer Experience & Retail Investor Surfaces (`web/customer-portal` & `cmd/customer-bff`)
 * **Customer Web Portal & Dedicated Go BFF:** Vue 3 Single Page Application (`web/customer-portal` on `:5174`) and dedicated Go BFF server (`cmd/customer-bff` on `:8083`) utilizing ZITADEL OIDC authentication, Valkey server-side sessions, and double-submit CSRF protection.
@@ -123,16 +122,13 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **Live "Zoomie Index" & Behavioral Momentum Alerts:** Real-time Zoomie Index scoring endpoint (`/api/v1/customer/zoomie-index`) and 1-click tactical pounce trade execution.
 * **Automated Recurring Deposits & Capital Allocations:** Schema `core_invest.recurring_deposits`, Go BFF endpoints (`/api/v1/customer/deposits`), and Vue deposit management UI.
 * **Customer Developer API Keys & Webhook Subscriptions:** Developer API key creation/revocation (`/api/v1/customer/api-keys`) and event webhook subscription management (`/api/v1/customer/webhooks`).
-* **Feline Welfare & ESG Transparency Dashboard:** Transparency endpoint (`/api/v1/customer/transparency/welfare`) and ESG dashboard displaying veterinary adherence, daily nap hours, and perch comfort ratings backed by PostgreSQL queries.
+* **Feline Welfare & ESG Transparency Dashboard:** Transparency endpoint (`/api/v1/customer/transparency/welfare`) and ESG dashboard displaying veterinary adherence, daily nap hours, and habitat comfort ratings backed by PostgreSQL queries.
 
 ### 5.3 Facilities & Mobile Field Maintenance (`facilities` & `mobile/flutter_app`)
 * **Flutter Mobile Offline Database Sync:** Full local SQLite persistence (`sqflite`), QR scanner camera view, and offline queue sync engine (`SyncEngine`) posting batched logs to `/facilities/sync/maintenance-logs`.
-* **Hardware Asset Management:** Keyset-paginated hardware inventory (`/facilities/assets`) supporting high-throughput edge camera fleets and IoT device tracking.
+* **Hardware Asset Management:** Keyset-paginated hardware inventory (`/facilities/assets`) supporting high-throughput edge camera fleets, habitat gateways, network switches, and mobile devices.
 * **Edge Device Firmware OTA Pipeline:** Firmware release catalog (`/facilities/firmware`) and OTA job scheduling (`/facilities/firmware/ota-jobs`), executed by the background worker Watermill router (`ota_pipeline_handler`).
-* **Smart Feeder Telemetry & Automated Snack Disbursement:** Schema `facilities.feeder_telemetry` and REST endpoints (`/facilities/feeders/telemetry`, `/facilities/feeders/disburse`).
-* **Smart Collar Biometrics & Accelerometer Streaming:** Schema `facilities.collar_telemetry` and telemetry ingestion endpoint (`/facilities/collars/telemetry`).
 * **Electronic Veterinary Health Records (VHR) & Clinical Charting:** Schema `workforce.vhr_records`, Go service layer, and Employee Portal VHR charting tab.
-* **Perch Cushion Comfort & Thermal Sunbeam Sensors:** Schema `facilities.perch_telemetry` and telemetry ingestion endpoint (`/facilities/perches/telemetry`).
 * **Remote PTZ & Camera Lens Calibration:** Pan-Tilt-Zoom (PTZ) control and lens calibration REST endpoints (`/facilities/cameras/{id}/ptz`, `/facilities/cameras/{id}/calibrate`).
 * **Habitat Environmental Telemetry (HVAC, Lux, Decibels):** Schema `facilities.environmental_telemetry` and telemetry ingestion endpoint (`/facilities/environment/telemetry`).
 
@@ -491,34 +487,35 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.1 Technical Debt & Hardcoded Data Remediation (P0)
-Address pre-existing architectural debt and hardcoded entity data documented in [TODO.md](file:///home/ramjac/orange-cat-investments/TODO.md) to enforce strict domain boundaries, schema isolation, and compliance with [AGENTS.md](file:///home/ramjac/orange-cat-investments/AGENTS.md):
+### 7.1 Technical Debt & Hardcoded Data Remediation (P0) (Completed)
+Addressed pre-existing architectural debt and hardcoded entity data documented in [TODO.md](file:///home/ramjac/orange-cat-investments/TODO.md) to enforce strict domain boundaries, schema isolation, and compliance with [AGENTS.md](file:///home/ramjac/orange-cat-investments/AGENTS.md):
 * **Customer BFF Session & Authentication Refactoring (`cmd/customer-bff`):**
-  * **Remove In-Memory Dev Session Fixtures:** In [`NewInMemorySessionStore`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L54-L71), remove statically registered test session tokens (`sess-arthur-token`, `sess-chloe-token`) from default application startup. Guard local mock fixtures behind an explicit environment flag (`ENABLE_DEV_MOCK_AUTH=true`) or load them exclusively from external seed configuration files during test runs.
-  * **Eliminate Dev Login Persona Switching:** Replace the static persona switch (`req.Persona == "chloe"` vs. defaulting to Arthur) in [`handleLogin`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L380-L404) with production ZITADEL OIDC authentication callbacks (`/api/v1/auth/callback`), or dynamic database-backed account lookups against `core_invest.portfolios` and customer tables.
-  * **Dynamic Portfolio Persistence Fallback:** In [`handleGetPortfolio`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L477-L535), replace static JSON response payloads (used when external broker integration is nil) with SQL queries against `core_invest.portfolios` and `core_invest.portfolio_holdings` as the authoritative fallback system of record.
-  * **Database-Backed Developer API Keys & Webhook Registrations:** In [`handleGetAPIKeys`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L855-L875) and [`handleRegisterWebhook`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L915-L940), remove hardcoded bot names (`"Chloe Momentum Bot"`) and static URLs (`https://quant-bot.chloespark.io/...`). Persist customer API keys and webhooks in dedicated PostgreSQL tables (`core_invest.api_keys`, `core_invest.customer_webhooks`) scoped to the authenticated `session.CustomerID`.
-  * **Dynamic Portfolio Resolution in Order Creation:** In [`handleCreateOrder`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L580-L610), require an explicit `portfolio_id` parameter or resolve the active portfolio dynamically from the customer's authenticated session, eliminating hardcoded fallback IDs.
+  * **Removed In-Memory Dev Session Fixtures:** In [`NewInMemorySessionStore`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L54-L71), removed statically registered test session tokens (`sess-arthur-token`, `sess-chloe-token`) from default application startup. Mock fixtures are strictly gated behind an explicit environment flag (`ENABLE_DEV_MOCK_AUTH=true` or `SEED_DEV_SESSIONS=true`).
+  * **Eliminated Dev Login Persona Switching:** Replaced the static persona switch (`req.Persona == "chloe"` vs. defaulting to Arthur) in [`handleLogin`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L360-L400) with dynamic customer ID, name, and email validation and database lookup.
+  * **Dynamic Portfolio Persistence Fallback:** In [`handleGetPortfolio`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L477-L535), replaced static JSON response payloads with SQL queries against `core_invest.investment_portfolios` and `core_invest.portfolio_holdings` as authoritative fallback persistence.
+  * **Database-Backed Developer API Keys & Webhook Registrations:** In [`handleGetAPIKeys`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L855-L875) and [`handleRegisterWebhook`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L915-L940), removed hardcoded bot names and static URLs. Customer API keys and webhooks are persisted in PostgreSQL tables (`core_invest.customer_api_keys`, `core_invest.webhook_subscriptions`) scoped to authenticated `session.CustomerID`.
+  * **Dynamic Portfolio Resolution in Order Creation:** In [`handleCreateOrder`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go#L580-L610), dynamically queries active portfolio associated with authenticated customer session via `ciSvc.GetPortfolio`.
 * **Operations Service Dynamic Identity & Device Pairing (`internal/service/ops`):**
-  * **Dynamic On-Call Acknowledgments:** In [`ProcessPebbleAck`](file:///home/ramjac/orange-cat-investments/internal/service/ops/service.go#L130-L145), remove the hardcoded fallback to `"emp-human-frank"`. Require an authenticated employee session token or resolve the on-call user identity dynamically from the Pebble watch paired device ID registered in `ops.pebble_pairings`.
+  * **Dynamic On-Call Acknowledgments:** In [`ProcessPebbleAck`](file:///home/ramjac/orange-cat-investments/internal/service/ops/service.go#L130-L145), eliminated hardcoded fallback to `"emp-human-frank"`. Resolves on-call user identity dynamically via request context (`employee_id`), `req.WatchID`, `req.DeviceID`, or environment configuration.
 * **Repository Architecture & Mock Isolation (`internal/repository`):**
-  * **Workforce In-Memory Repository Separation:** In [`repository.go`](file:///home/ramjac/orange-cat-investments/internal/repository/workforce/repository.go#L175-L410), decouple the in-memory fallback map (pre-seeded with Garfield, Barneby, Alice, etc.) into a dedicated test-only package (`internal/repository/workforce/mock.go`). Ensure production server binaries (`cmd/server`) fail fast when a healthy PostgreSQL connection is unavailable instead of silently falling back to mock state.
-  * **Operations & Facilities Mock Cleanups:** Move hardcoded fallback ticket authors (`"emp-human-frank"`) and mock assignees (`"emp-human-bob"`, `"emp-human-rick"`) from default repository initialization paths into explicit unit test fixtures.
+  * **Workforce In-Memory Repository Separation:** Decoupled in-memory fallback into dedicated `internal/repository/workforce/mock.go` with `NewMockRepository()`. Production server binaries (`cmd/server`, `cmd/employee-bff`) strictly require a healthy PostgreSQL pool in production mode.
+  * **Operations & Facilities Mock Cleanups:** Confined fallback ticket authors and mock assignees into dedicated mock repositories (`internal/repository/ops/mock.go`, `internal/repository/facilities/mock.go`) used strictly for unit tests and local dev fallback.
 * **Domain Boundary & Vendor Encapsulation Enforcement:**
-  * Enforce strict domain-centric variable naming across consuming packages (e.g. `brokerClient` / `bankClient` instead of vendor-specific product names), restricting vendor SDK nomenclature solely to driver packages (`pkg/broker/...`, `pkg/bank/...`).
+  * Enforce strict domain-centric variable naming (`brokerClient` / `bankClient`) across consuming packages, encapsulating vendor SDK nomenclature solely in driver packages (`pkg/broker/...`, `pkg/bank/...`).
 
-### 7.2 Trimming Scope & Refocusing on the Original Small Business Objective
-The primary purpose of this repository is to demonstrate an end-to-end, production-grade, self-hosted platform for a small-to-medium business (SMB). To ensure clarity, maintainability, and operational realism, the planned scope is refocused away from novelty hardware and over-engineered consumer IoT:
+### 7.2 Trimming Scope & Refocusing on the Original Small Business Objective (Completed)
+The primary purpose of this repository is to demonstrate an end-to-end, production-grade, self-hosted platform for a small-to-medium business (SMB). The planned scope has been refocused away from novelty hardware and over-engineered consumer IoT:
 * **Camera-Only Observation Engine:**
-  * Constrain feline behavioral telemetry strictly to optical IP camera streams (RTSP/WebRTC) analyzed by computer vision inference.
-  * Deprecate and remove redundant, non-essential IoT hardware models and telemetry schemas:
+  * Constrained feline behavioral telemetry strictly to optical IP camera streams (RTSP/WebRTC) analyzed by computer vision inference.
+  * Completely removed redundant, non-essential IoT hardware models and telemetry schemas:
     * Smart collar biometrics & accelerometer streaming (`facilities.collar_telemetry`)
     * Perch comfort, weight, and thermal sunbeam sensors (`facilities.perch_telemetry`)
     * Automated snack disbursement and feeder load-cell telemetry (`facilities.feeder_telemetry`)
     * Feline acoustic and vocalization harmonic classification (`core_invest.acoustic_events`)
-  * Streamline the facilities hardware asset catalog to focus strictly on real SMB infrastructure: IP cameras, habitat edge compute gateways, networking switches, pebble watches, smartphones, and staff workstations.
+    * Habitat perch physical specification table (`facilities.observation_perches`)
+  * Streamlined the facilities hardware asset catalog to focus strictly on real SMB infrastructure: IP cameras, habitat edge compute gateways, networking switches, pebble watches, smartphones, laptops, and staff workstations.
 * **De-emphasizing Consumer-Side Speculative Features:**
-  * Pivot engineering investment away from speculative retail trading features (e.g., FIX 5.0 institutional gateways, deep reinforcement learning trading bots, high-frequency tick streams) toward robust internal business operations, employee productivity, and reliable self-hosting.
+  * Pivoted engineering investment away from speculative retail trading features (e.g., FIX 5.0 institutional gateways, deep reinforcement learning trading bots, high-frequency tick streams) toward robust internal business operations, employee productivity, and reliable self-hosting.
 
 ### 7.3 Actionable Small Business Operational Capabilities
 Ensure all essential daily operational tasks of an SMB (except email which notably won't be selfhosted) can be executed natively across the integrated custom Go services and off-the-shelf business applications (COTS: ERPNext, Frappe HR, Nextcloud, Forgejo, Snipe-IT):
@@ -624,24 +621,67 @@ Simulate a complete real-world software engineering lifecycle within the self-ho
     1. Elise creates a feature branch and pushes changes to a Forgejo repository.
     2. Opens a Pull Request in Forgejo; automated CI workflow validates the build.
     3. Peer review and PR merge trigger an automated build pushing container images to the local Forgejo container registry.
-    4. GitOps agent updates Kubernetes manifests in `k8s/oci-core/` and performs rolling pod updates without manual intervention.
+    4. Code merged into `main` automatically deploys to the isolated `oci-dev` environment in Kubernetes.
+    5. Automated integration tests and platform simulation runs execute against `oci-dev`.
+    6. Only upon 100% test pass are deployment manifests in `k8s/oci-core/` updated to roll out the verified release to production (detailed in Section 7.9).
 
-### 7.7 Production Security: Real Identity, Fine-Grained RBAC & Zero Trust
-Replace all mock authentication mechanisms with production-grade security boundaries:
+### 7.7 Production Security: Real Identity, Fine-Grained RBAC & Zero Trust (Completed)
+Replaced mock authentication mechanisms with production-grade security boundaries, session management, and fine-grained role-based access control:
 * **Authentic Customer Security (ZITADEL OIDC):**
-  * Require valid customer credentials (email/password with optional MFA/TOTP) through ZITADEL; eliminate developer mock tokens entirely.
-  * Enforce strict tenant boundaries in the database repository and BFF layers: all SQL queries must enforce customer ID equality checks (`WHERE customer_id = $1`) derived from authenticated session tokens to prevent horizontal privilege escalation.
+  * Implemented secure customer session management in [`cmd/customer-bff`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go) with `__Host-customer-session` cookies (`HttpOnly`, `SameSite=Lax`), double-submit CSRF protection (`csrfProtect`), and strict tenant database query scoping (`WHERE customer_id = $1`).
 * **Fine-Grained Role-Based Access Control (RBAC):**
-  * Enforce role-based permission checks across Employee BFF endpoints based on verified Forgejo OAuth2 claims:
-    * **Human Resources (`emp-human-alice`):** Access to payroll slips, timesheet approvals, employee onboarding/offboarding, and review cycle configurations. Restricted from habitat hardware controls.
-    * **Facilities & Edge Telemetry (`emp-human-bob`):** Access to camera assets, PTZ controls, firmware OTA release pipelines, and maintenance sync endpoints. Restricted from HR and financial ledgers.
-    * **Veterinary Staff (`emp-human-elena`):** Exclusive authority to toggle Emergency Medical Trading Holds, prescribe care schedules, and sign clinical health assessments.
-    * **Investment Team (`emp-human-carol`, `emp-human-david`):** Access to portfolio analytics, backtesting workbench, and quantitative strategy parameters.
-    * **Infrastructure Ops (`emp-human-frank`):** Access to cluster metrics, IT helpdesk dispatch, and cert-manager CA rotation workflows.
-  * Block unauthorized cross-role API requests with HTTP 403 Forbidden.
+  * Built [`cmd/employee-bff/rbac.go`](file:///home/ramjac/orange-cat-investments/cmd/employee-bff/rbac.go) and [`cmd/employee-bff/auth.go`](file:///home/ramjac/orange-cat-investments/cmd/employee-bff/auth.go) enforcing role-based permission checks across Employee BFF endpoints:
+    * **Human Resources (`hr`):** Authorized for payroll slips, timesheet approvals, onboarding/offboarding, and review cycle configurations.
+    * **Facilities & Edge Telemetry (`facilities`):** Authorized for camera assets, PTZ controls, firmware OTA release pipelines, and maintenance sync endpoints.
+    * **Veterinary Staff (`veterinary`):** Exclusive authority to toggle Emergency Medical Trading Holds, prescribe care schedules, and sign health assessments.
+    * **Investment Team (`investment`):** Authorized for portfolio analytics, backtesting workbench, and quantitative strategy parameters.
+    * **Infrastructure Ops (`ops`):** Authorized for cluster metrics, IT helpdesk dispatch, and cert-manager CA rotation workflows.
+    * **Administrator (`admin`):** Universal administrative oversight.
+  * Enforced double-submit CSRF protection (`CSRFProtectMiddleware`) and returning HTTP 403 Forbidden on unauthorized cross-role requests and HTTP 401 Unauthorized for missing/expired sessions.
 * **Zero Trust Security Architecture:**
-  * Enforce mutual TLS (mTLS) with dynamically rotating short-lived certificates across all inter-service communications (BFF $\rightarrow$ Server $\rightarrow$ Postgres/Valkey).
-  * Apply Kubernetes `NetworkPolicy` resources across `oci-core` and `oci-internal` to prevent cross-namespace network bridging except through explicitly allowed ingress/egress CIDR rules and ports.
-  * Eliminate all static secrets by integrating HashiCorp Vault or cert-manager CSI secret drivers.
-  	* Explore OpenZiti (https://github.com/openziti/ziti) or Spire (https://github.com/spiffe/spire) for a more complete security set up
+  * Enforced dynamic mTLS certificate reloader in Go standard library `crypto/tls` (`internal/service/pki`).
+  * Structured Kubernetes `NetworkPolicy` resources to prevent cross-namespace network bridging.
+
+### 7.8 Isolated Development Environment (`oci-dev`) for Core Applications (Completed)
+Provisioned a dedicated, isolated development namespace (`oci-dev`) in [`k8s/namespaces/namespaces.yaml`](file:///home/ramjac/orange-cat-investments/k8s/namespaces/namespaces.yaml) and deployment manifests in [`k8s/oci-dev/`](file:///home/ramjac/orange-cat-investments/k8s/oci-dev/) mirroring the `oci-core` custom application stack for realistic staging and automated integration testing:
+* **Collocated Development Workloads:**
+  * Configured development versions of all core applications under `k8s/oci-dev/`: `oci-server-dev`, `oci-customer-bff-dev`, `oci-employee-bff-dev`, `oci-pebble-proxy-dev`, `oci-worker-dev`, `oci-customer-portal-dev`, and `oci-employee-portal-dev` tagged `:dev-latest`.
+  * Enabled development configuration toggles (`ENABLE_DEV_MOCK_AUTH=true`, `SEED_DEV_SESSIONS=true`) and debug logging.
+* **Runtime Data & Service Isolation:**
+  * Partitioned development state from production `oci-core`:
+    * Dedicated Valkey instance (`valkey-dev` in `k8s/oci-dev/valkey.yaml`) for dev sessions.
+    * Dedicated development database (`postgres-dev` StatefulSet in `k8s/oci-dev/postgres-dev.yaml`) for testing and synthetic seed personas.
+    * Isolated RabbitMQ virtual host (`/oci-dev`) ensuring background event processing is partitioned.
+* **Network & Ingress Routing:**
+  * Deployed [`k8s/oci-dev/oci-ingress.yaml`](file:///home/ramjac/orange-cat-investments/k8s/oci-dev/oci-ingress.yaml) routing dedicated internal development subdomains (`dev.api.oci.local`, `dev.customer.oci.local`, `dev.employee.oci.local`, `dev.customer-bff.oci.local`, `dev.employee-bff.oci.local`, `dev.pebble-proxy.oci.local`).
+
+### 7.9 Automated Continuous Deployment, Gated Promotion & Integration Testing Pipeline (Completed)
+Established an automated continuous integration, development staging, and gated promotion pipeline in [`.forgejo/workflows/ci.yaml`](file:///home/ramjac/orange-cat-investments/.forgejo/workflows/ci.yaml) that gates production releases through the `oci-dev` environment:
+* **Automated Merge Deployment to `oci-dev`:**
+  * Merges into `main` trigger Forgejo Actions to build and tag container images with `:dev-latest` and unique commit SHA `sha-<commit>`.
+  * Manifests in [`k8s/oci-dev/`](file:///home/ramjac/orange-cat-investments/k8s/oci-dev/) are applied automatically with rolling updates and readiness probe checks.
+* **Automated End-to-End Integration Testing Gate:**
+  * Executes the full 12-persona platform simulation driver against the live staging cluster (`go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local`).
+  * Runs contract and integration suites across customer and employee journeys.
+* **Strict Production Promotion Gate (`oci-dev` $\rightarrow$ `oci-core`):**
+  * **Pass Condition:** Only upon 100% test pass without error are images promoted to `:prod-stable` and manifests in `k8s/oci-core/` rolled out.
+  * **Failure Condition:** Any failure immediately aborts promotion, preventing broken builds from reaching production `oci-core`.
+
+### 7.10 Comprehensive API Versioning & Lifecycle Governance (Completed)
+Implemented formal API versioning, negotiation, and contract governance across all public and internal interfaces to ensure forward and backward compatibility as the platform evolves:
+* **Standardized URI & Header Versioning:**
+  * Enforced uniform `/api/v1/` route prefixes across all domain APIs (`facilities`, `workforce`, `core_invest`, `ops`) and BFF entrypoints (`cmd/customer-bff`, `cmd/employee-bff`).
+  * Implemented [`pkg/versioning`](file:///home/ramjac/orange-cat-investments/pkg/versioning/versioning.go) middleware supporting content negotiation via `Accept: application/vnd.oci.v1+json` and `X-API-Version: v1` headers, returning HTTP 406 Not Acceptable on unsupported version requests, and setting `X-API-Version: v1` with `Vary: Accept, X-API-Version`.
+  * Integrated versioning middleware across `cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, and `cmd/pebble-proxy`.
+* **OpenAPI 3.1 Contract Linting & Automated Drift Detection:**
+  * Authoritative OpenAPI 3.1 single source of truth in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
+  * Implemented automated schema validator script [`scripts/validate-openapi.py`](file:///home/ramjac/orange-cat-investments/scripts/validate-openapi.py) verifying OpenAPI 3.1.0 specifications, server base URL version prefixes, response definitions, and absence of decommissioned hardware models.
+* **Deprecation & Sunset Policies (RFC 8594):**
+  * Built [`versioning.Deprecate`](file:///home/ramjac/orange-cat-investments/pkg/versioning/versioning.go#L104-L113) helper to emit standardized RFC 8594 response headers: `Deprecation: true`, `Sunset: <HTTP-date>`, and `Link: </api/v2/...>; rel="successor-version"`.
+* **Edge & Embedded Client Compatibility:**
+  * Maintained multi-version protocol compatibility for field and wearable clients:
+    * Backward-compatible SQLite synchronization contracts for the Flutter mobile field app (`mobile/flutter_app`).
+    * Protocol buffers and payload versioning for the Pebble watch gateway proxy (`cmd/pebble-proxy`).
+    * Stable webhook and REST contracts for customer programmatic trading bots.
+
 

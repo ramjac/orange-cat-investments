@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-customer-bff-dev
+  namespace: oci-dev
+  labels:
+    app: oci-customer-bff-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-customer-bff-dev
+  template:
+    metadata:
+      labels:
+        app: oci-customer-bff-dev
+    spec:
+      containers:
+        - name: oci-customer-bff-dev
+          image: localhost:32000/oci-customer-bff:dev-latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8083
+              name: http
+          env:
+            - name: PORT
+              value: "8083"
+            - name: ENV
+              value: "development"
+            - name: SEED_DEV_SESSIONS
+              value: "true"
+            - name: ENABLE_DEV_MOCK_AUTH
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: DATABASE_URL
+            - name: BROKER_API_BASE_URL
+              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
+            - name: BANK_API_BASE_URL
+              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-customer-bff-dev-service
+  namespace: oci-dev
+  labels:
+    app: oci-customer-bff-dev
+spec:
+  ports:
+    - port: 8083
+      targetPort: 8083
+      name: http
+  selector:
+    app: oci-customer-bff-dev

@@ -15,6 +15,7 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
@@ -27,16 +28,28 @@ func main() {
 		var err error
 		pool, err = pgxpool.New(context.Background(), dbURL)
 		if err != nil {
-			logger.Warn("failed to connect to database pool, falling back to mock persistence", "error", err)
+			logger.Warn("failed to connect to database pool", "error", err)
+			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+				logger.Error("database connection required in production mode, exiting")
+				os.Exit(1)
+			}
 		} else {
 			defer pool.Close()
 			logger.Info("connected to PostgreSQL database pool successfully")
 		}
+	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+		logger.Error("DATABASE_URL must be specified in production mode, exiting")
+		os.Exit(1)
 	} else {
 		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
 	}
 
-	repo := workforce.NewRepository(pool)
+	var repo workforce.Repository
+	if pool != nil {
+		repo = workforce.NewRepository(pool)
+	} else {
+		repo = workforce.NewMockRepository()
+	}
 	wfSvc := wfService.NewService(repo)
 	onboardingSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardingEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
@@ -49,6 +62,9 @@ func main() {
 	wfHandler.EnableFelineWorkforce = enableFeline
 
 	mux := http.NewServeMux()
+	sessionStore := NewSessionStore()
+	authHandler := NewAuthHandler(sessionStore)
+	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
 
 	// Health check endpoint
@@ -63,9 +79,11 @@ func main() {
 		port = "8081"
 	}
 
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
+
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

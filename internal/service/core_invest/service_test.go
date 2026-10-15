@@ -211,24 +211,18 @@ func TestCoreInvestService(t *testing.T) {
 	t.Run("ListMLModels", func(t *testing.T) {
 		models, err := svc.ListMLModels(ctx)
 		require.NoError(t, err)
-		assert.Len(t, models, 2)
+		assert.Len(t, models, 1)
 		assert.Equal(t, "mdl-yolov8-cat-pose-v3", models[0]["model_id"])
-		assert.Equal(t, "mdl-whisker-audio-v1", models[1]["model_id"])
 
-		expectedIDs := []string{"mdl-yolov8-cat-pose-v3", "mdl-whisker-audio-v1"}
 		expectedKeys := []string{"model_id", "name", "version", "accuracy", "drift", "status", "created_at"}
-
-		for i, model := range models {
-			for _, key := range expectedKeys {
-				assert.Contains(t, model, key, "model at index %d should contain key %s", i, key)
-			}
-			assert.Equal(t, expectedIDs[i], model["model_id"])
+		for _, key := range expectedKeys {
+			assert.Contains(t, models[0], key)
 		}
 	})
 
 	t.Run("LogModelDrift", func(t *testing.T) {
 		payload := map[string]interface{}{
-			"model_id":    "mdl-whisker-audio-v1",
+			"model_id":    "mdl-yolov8-cat-pose-v3",
 			"metric":      "accuracy",
 			"drift_value": 0.012,
 		}
@@ -246,18 +240,6 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "drift-018f-99", resNil["drift_id"])
 		assert.Nil(t, resNil["payload"])
-	})
-
-	t.Run("ClassifyAcoustics", func(t *testing.T) {
-		felineID := "feline-123"
-		res, err := svc.ClassifyAcoustics(ctx, felineID)
-		require.NoError(t, err)
-		assert.Equal(t, "ac-018f-777", res["acoustic_id"])
-		assert.Equal(t, felineID, res["feline_id"])
-		assert.Equal(t, "purring", res["vocalization_type"])
-		assert.Equal(t, 28.5, res["frequency_hz"])
-		assert.Equal(t, 88.2, res["decibel_level"])
-		assert.Equal(t, 0.982, res["confidence"])
 	})
 
 	t.Run("CameraStreamsQueryMethods", func(t *testing.T) {

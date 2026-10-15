@@ -12,7 +12,7 @@ import (
 func generateMockAssets(size int) []*HardwareAsset {
 	assets := make([]*HardwareAsset, size)
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	types := []string{"edge_camera", "observation_perch", "smart_collar", "gateway", "feeder", "pebble_watch", "laptop"}
+	types := []string{"edge_camera", "gateway", "networking_switch", "workstation", "pebble_watch", "laptop"}
 	for i := 0; i < size; i++ {
 		assets[i] = &HardwareAsset{
 			AssetID:   fmt.Sprintf("asset-%08d", i),
