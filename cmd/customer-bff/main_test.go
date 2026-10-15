@@ -43,18 +43,22 @@ func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
 	assert.True(t, okChloeAfter, "sess-chloe-token should exist after SeedDevSessions")
 }
 
-func TestSessionStore_Create(t *testing.T) {
+func TestSessionStore_Create_And_GenerateRandomToken(t *testing.T) {
 	store := NewSessionStore()
-	sess, err := store.Create("cust-test-123", "Test User", "test@oci.local")
+	sess, err := store.Create("cust-123", "Test User", "test@oci.local")
 	require.NoError(t, err)
 	require.NotNil(t, sess)
-	assert.Equal(t, "cust-test-123", sess.CustomerID)
+	assert.Equal(t, "cust-123", sess.CustomerID)
 	assert.True(t, len(sess.SessionID) > 5)
 	assert.Equal(t, "sess-", sess.SessionID[:5])
 
-	retrieved, ok := store.Get(sess.SessionID)
+	gotSess, ok := store.Get(sess.SessionID)
 	assert.True(t, ok)
-	assert.Equal(t, sess, retrieved)
+	assert.Equal(t, sess, gotSess)
+
+	tok, err := generateRandomToken(16)
+	require.NoError(t, err)
+	assert.Len(t, tok, 32) // 16 bytes encoded as hex = 32 chars
 }
 
 func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
@@ -255,6 +259,19 @@ func TestCustomerBFF_GetESGTransparency(t *testing.T) {
 func BenchmarkGetESGTransparency(b *testing.B) {
 	_, mux := setupTestBFF()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/transparency/welfare", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+	}
+}
+
+func BenchmarkGetZoomieIndex(b *testing.B) {
+	_, mux := setupTestBFF()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/zoomie-index", nil)
 	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
 
 	b.ResetTimer()
