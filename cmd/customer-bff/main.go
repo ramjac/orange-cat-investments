@@ -151,14 +151,22 @@ type vhrCache struct {
 	ttl       time.Duration
 }
 
+type felineCache struct {
+	mu        sync.RWMutex
+	felines   []*workforce_repo.Employee
+	fetchedAt time.Time
+	ttl       time.Duration
+}
+
 type CustomerBFF struct {
-	ciSvc    core_invest_svc.Service
-	wfSvc    workforce_svc.Service
-	sessions *SessionStore
-	logger   *slog.Logger
-	broker   *alpaca.Client
-	bank     *plaid.Client
-	vhrCache vhrCache
+	ciSvc       core_invest_svc.Service
+	wfSvc       workforce_svc.Service
+	sessions    *SessionStore
+	logger      *slog.Logger
+	broker      *alpaca.Client
+	bank        *plaid.Client
+	vhrCache    vhrCache
+	felineCache felineCache
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
@@ -168,6 +176,9 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		sessions: NewSessionStore(),
 		logger:   logger,
 		vhrCache: vhrCache{
+			ttl: 30 * time.Second,
+		},
+		felineCache: felineCache{
 			ttl: 30 * time.Second,
 		},
 	}
@@ -184,6 +195,39 @@ func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
 
 func (b *CustomerBFF) SetBankClient(client *plaid.Client) {
 	b.bank = client
+}
+
+func (b *CustomerBFF) getActiveFelines(ctx context.Context) ([]*workforce_repo.Employee, error) {
+	if b.wfSvc == nil {
+		return nil, nil
+	}
+
+	b.felineCache.mu.RLock()
+	if time.Since(b.felineCache.fetchedAt) < b.felineCache.ttl && b.felineCache.felines != nil {
+		res := b.felineCache.felines
+		b.felineCache.mu.RUnlock()
+		return res, nil
+	}
+	b.felineCache.mu.RUnlock()
+
+	b.felineCache.mu.Lock()
+	defer b.felineCache.mu.Unlock()
+
+	if time.Since(b.felineCache.fetchedAt) < b.felineCache.ttl && b.felineCache.felines != nil {
+		return b.felineCache.felines, nil
+	}
+
+	emps, err := b.wfSvc.ListEmployees(ctx, "feline", "active")
+	if err != nil {
+		if b.felineCache.felines != nil {
+			return b.felineCache.felines, nil
+		}
+		return nil, err
+	}
+
+	b.felineCache.felines = emps
+	b.felineCache.fetchedAt = time.Now()
+	return emps, nil
 }
 
 func (b *CustomerBFF) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workforce_repo.VHRRecord, error) {
@@ -565,11 +609,9 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 	orders, err := b.ciSvc.ListBrokerageOrders(r.Context(), 50, 0)
 
 	execName := "Feline Executive"
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil && len(emps) > 0 {
-			execName = emps[0].FirstName
-		}
+	emps, errEmp := b.getActiveFelines(r.Context())
+	if errEmp == nil && len(emps) > 0 {
+		execName = emps[0].FirstName
 	}
 
 	if err != nil || len(orders) == 0 {
@@ -723,11 +765,9 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 
 	leaderName := "Feline Leader"
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil && len(emps) > 0 {
-			leaderName = emps[0].FirstName
-		}
+	emps, err := b.getActiveFelines(r.Context())
+	if err == nil && len(emps) > 0 {
+		leaderName = emps[0].FirstName
 	}
 
 	resp := map[string]interface{}{
@@ -1027,61 +1067,73 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(created)
 }
 
-func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func buildFelineExecutiveMap(emp *workforce_repo.Employee, records []*workforce_repo.VHRRecord) map[string]interface{} {
+	healthStatus := "OPTIMAL_ALPHA"
+	whiskerSymmetry := "100%"
+	purrFreq := 28.5
 
+	if len(records) > 0 {
+		latest := records[0]
+		if latest.DentalScore >= 4 {
+			healthStatus = "PEAK_PERFORMER"
+			whiskerSymmetry = "99.8%"
+			purrFreq = 26.2
+		} else {
+			healthStatus = "UNDER_OBSERVATION"
+			whiskerSymmetry = "95.0%"
+		}
+	}
+
+	return map[string]interface{}{
+		"employee_id":       emp.EmployeeID,
+		"name":              emp.FirstName,
+		"role":              emp.RoleTitle,
+		"health_status":     healthStatus,
+		"whisker_symmetry": whiskerSymmetry,
+		"purr_frequency_hz": purrFreq,
+		"preferred_sunbeam": "Alpha Sunbeam Lounge",
+		"vhr_records_cnt":   len(records),
+	}
+}
+
+func (b *CustomerBFF) buildFelineExecutives(ctx context.Context) ([]map[string]interface{}, int) {
 	felinesList := []map[string]interface{}{}
 	vhrRecordsCount := 0
 
-	if b.wfSvc != nil {
-		emps, err := b.wfSvc.ListEmployees(r.Context(), "feline", "active")
-		if err == nil {
-			vhrByFeline, vhrErr := b.getVHRRecordsByFeline(r.Context())
-
-			for _, emp := range emps {
-				healthStatus := "OPTIMAL_ALPHA"
-				whiskerSymmetry := "100%"
-				purrFreq := 28.5
-
-				var records []*workforce_repo.VHRRecord
-				if vhrErr == nil && vhrByFeline != nil {
-					records = vhrByFeline[emp.EmployeeID]
-				}
-				if len(records) > 0 {
-					vhrRecordsCount += len(records)
-					latest := records[0]
-					if latest.DentalScore >= 4 {
-						healthStatus = "PEAK_PERFORMER"
-						whiskerSymmetry = "99.8%"
-						purrFreq = 26.2
-					} else {
-						healthStatus = "UNDER_OBSERVATION"
-						whiskerSymmetry = "95.0%"
-					}
-				}
-
-				felinesList = append(felinesList, map[string]interface{}{
-					"employee_id":       emp.EmployeeID,
-					"name":              emp.FirstName,
-					"role":              emp.RoleTitle,
-					"health_status":     healthStatus,
-					"whisker_symmetry": whiskerSymmetry,
-					"purr_frequency_hz": purrFreq,
-					"preferred_sunbeam": "Alpha Sunbeam Lounge",
-					"vhr_records_cnt":   len(records),
-				})
-			}
-		}
+	emps, err := b.getActiveFelines(ctx)
+	if err != nil {
+		return felinesList, vhrRecordsCount
 	}
 
-	incidentsCnt := 0
-	if b.wfSvc != nil {
-		incidents, incErr := b.wfSvc.ListWorkplaceIncidents(r.Context(), "")
-		if incErr == nil {
-			incidentsCnt = len(incidents)
+	vhrByFeline, vhrErr := b.getVHRRecordsByFeline(ctx)
+
+	for _, emp := range emps {
+		var records []*workforce_repo.VHRRecord
+		if vhrErr == nil && vhrByFeline != nil {
+			records = vhrByFeline[emp.EmployeeID]
 		}
+		if len(records) > 0 {
+			vhrRecordsCount += len(records)
+		}
+
+		felinesList = append(felinesList, buildFelineExecutiveMap(emp, records))
 	}
 
+	return felinesList, vhrRecordsCount
+}
+
+func (b *CustomerBFF) getWorkplaceIncidentsCount(ctx context.Context) int {
+	if b.wfSvc == nil {
+		return 0
+	}
+	incidents, incErr := b.wfSvc.ListWorkplaceIncidents(ctx, "")
+	if incErr != nil {
+		return 0
+	}
+	return len(incidents)
+}
+
+func calculateWelfareScore(incidentsCnt int) float64 {
 	welfareScore := 5.0
 	if incidentsCnt > 0 {
 		welfareScore -= float64(incidentsCnt) * 0.02
@@ -1089,11 +1141,23 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	if welfareScore < 1.0 {
 		welfareScore = 1.0
 	}
+	return welfareScore
+}
 
-	adherencePct := 100.0
-	if vhrRecordsCount == 0 && len(felinesList) > 0 {
-		adherencePct = 98.5
+func calculateAdherencePct(vhrRecordsCount, felineCount int) float64 {
+	if vhrRecordsCount == 0 && felineCount > 0 {
+		return 98.5
 	}
+	return 100.0
+}
+
+func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	felinesList, vhrRecordsCount := b.buildFelineExecutives(r.Context())
+	incidentsCnt := b.getWorkplaceIncidentsCount(r.Context())
+	welfareScore := calculateWelfareScore(incidentsCnt)
+	adherencePct := calculateAdherencePct(vhrRecordsCount, len(felinesList))
 
 	resp := map[string]interface{}{
 		"overall_welfare_score":    welfareScore,

@@ -21,7 +21,7 @@ type Service interface {
 	UpdateOnboardingTask(ctx context.Context, taskID string, isCompleted bool) (*workforce.OnboardingTask, error)
 
 	// Leave Requests
-	CreateLeaveRequest(ctx context.Context, employeeID, leaveType, startDate, endDate string, reason *string) (*workforce.LeaveRequest, error)
+	CreateLeaveRequest(ctx context.Context, params CreateLeaveRequestParams) (*workforce.LeaveRequest, error)
 	GetLeaveRequest(ctx context.Context, id string) (*workforce.LeaveRequest, error)
 	ListLeaveRequests(ctx context.Context, employeeID, status string) ([]*workforce.LeaveRequest, error)
 	UpdateLeaveRequestStatus(ctx context.Context, id, status string) (*workforce.LeaveRequest, error)
@@ -160,27 +160,35 @@ func (s *workforceService) UpdateOnboardingTask(ctx context.Context, taskID stri
 	return s.repo.UpdateOnboardingTask(ctx, taskID, isCompleted)
 }
 
-func (s *workforceService) CreateLeaveRequest(ctx context.Context, employeeID, leaveType, startDate, endDate string, reason *string) (*workforce.LeaveRequest, error) {
-	if employeeID == "" {
+type CreateLeaveRequestParams struct {
+	EmployeeID string
+	LeaveType  string
+	StartDate  string
+	EndDate    string
+	Reason     *string
+}
+
+func (s *workforceService) CreateLeaveRequest(ctx context.Context, params CreateLeaveRequestParams) (*workforce.LeaveRequest, error) {
+	if params.EmployeeID == "" {
 		return nil, errors.New("employee_id is required")
 	}
-	switch leaveType {
+	switch params.LeaveType {
 	case "vacation", "sick", "catnip_break", "sabbatical":
 		// valid
 	default:
 		return nil, errors.New("invalid leave_type: must be vacation, sick, catnip_break, or sabbatical")
 	}
 
-	if startDate == "" || endDate == "" {
+	if params.StartDate == "" || params.EndDate == "" {
 		return nil, errors.New("start_date and end_date are required")
 	}
 
 	const dateLayout = "2006-01-02"
-	start, err := time.Parse(dateLayout, startDate)
+	start, err := time.Parse(dateLayout, params.StartDate)
 	if err != nil {
 		return nil, errors.New("start_date must be in YYYY-MM-DD format")
 	}
-	end, err := time.Parse(dateLayout, endDate)
+	end, err := time.Parse(dateLayout, params.EndDate)
 	if err != nil {
 		return nil, errors.New("end_date must be in YYYY-MM-DD format")
 	}
@@ -189,12 +197,12 @@ func (s *workforceService) CreateLeaveRequest(ctx context.Context, employeeID, l
 	}
 
 	req := &workforce.LeaveRequest{
-		EmployeeID: employeeID,
-		LeaveType:  leaveType,
-		StartDate:  startDate,
-		EndDate:    endDate,
+		EmployeeID: params.EmployeeID,
+		LeaveType:  params.LeaveType,
+		StartDate:  params.StartDate,
+		EndDate:    params.EndDate,
 		Status:     "pending",
-		Reason:     reason,
+		Reason:     params.Reason,
 	}
 
 	return s.repo.CreateLeaveRequest(ctx, req)
