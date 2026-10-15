@@ -91,8 +91,7 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) initMockServers() error {
-	// Initialize Mock Broker server
+func (c *Client) initMockBrokerServer() {
 	brokerStore := broker_ledger.NewStore()
 	mktEngine := broker_engine.NewMarketEngine(brokerStore, time.Second, broker_engine.DefaultAssets())
 	broker_ledger.SeedDefaultAccounts(brokerStore, mktEngine.InitialPrices())
@@ -101,8 +100,9 @@ func (c *Client) initMockServers() error {
 	brokerHandler.RegisterRoutes(brokerMux)
 	c.mockBroker = httptest.NewServer(brokerMux)
 	c.brokerURL = c.mockBroker.URL
+}
 
-	// Initialize Mock Bank server
+func (c *Client) initMockBankServer() {
 	bankStore := bank_ledger.NewLedgerStore()
 	bankEng := bank_engine.NewSettlementEngine(bankStore, nil, time.Second)
 	bankHandler := bank_handler.NewHandler(bankStore, bankEng)
@@ -110,37 +110,9 @@ func (c *Client) initMockServers() error {
 	bankHandler.RegisterRoutes(bankMux)
 	c.mockBank = httptest.NewServer(bankMux)
 	c.bankURL = c.mockBank.URL
+}
 
-	// Initialize external clients
-	brokerClient := alpaca.NewClient(alpaca.Config{
-		BaseURL:   c.brokerURL,
-		DataURL:   c.brokerURL,
-		APIKey:    "MOCK_ALPACAKEY",
-		APISecret: "MOCK_SECRET",
-	})
-	bankClient := plaid.NewClient(plaid.Config{
-		BaseURL:  c.bankURL,
-		ClientID: "mock-client-id",
-		Secret:   "mock-secret",
-	})
-
-	// Initialize Domain API Server Mux
-	serverMux := http.NewServeMux()
-
-	ciRepo := core_invest_repo.NewMockRepository()
-	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
-	ciHandler := core_invest_handler.NewHandler(ciService)
-	ciHandler.RegisterRoutes(serverMux)
-
-	opsRepo := ops_repo.NewRepository(nil)
-	opsService := ops_svc.NewService(opsRepo)
-	opsHandler := ops_handler.NewHandler(opsService)
-	opsHandler.RegisterRoutes(serverMux)
-
-	facRepo := facilities_repo.NewMockRepository()
-	facService := facilities_svc.NewService(facRepo)
-
-	// Register Facilities HTTP Endpoints on serverMux
+func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_svc.Service, opsService ops_svc.Service) {
 	listAssetsHandler := func(w http.ResponseWriter, r *http.Request) {
 		var assetTypePtr *string
 		if assetType := r.URL.Query().Get("asset_type"); assetType != "" {
@@ -205,7 +177,52 @@ func (c *Client) initMockServers() error {
 	serverMux.HandleFunc("POST /facilities/assets", createAssetHandler)
 	serverMux.HandleFunc("POST /api/v1/facilities/assets", createAssetHandler)
 
-	// Nextcloud document and chat endpoints for simulator workflows
+	serverMux.HandleFunc("POST /facilities/assets/{id}/maintenance", func(w http.ResponseWriter, r *http.Request) {
+		assetID := r.PathValue("id")
+		var req struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Priority    string `json:"priority"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ticket, err := opsService.CreateITTicket(r.Context(), &ops_svc.CreateITTicketRequest{
+			ForgejoRepo:    "facilities/assets",
+			Title:          req.Title,
+			Body:           fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description),
+			AuthorUsername: "emp-human-bob",
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(ticket)
+	})
+
+	serverMux.HandleFunc("POST /facilities/sync/maintenance-logs", func(w http.ResponseWriter, r *http.Request) {
+		var logs []*facilities_repo.MaintenanceLog
+		if err := json.NewDecoder(r.Body).Decode(&logs); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		syncedLogs, err := facService.SyncMaintenanceLogs(r.Context(), logs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"synced_count": len(syncedLogs),
+			"items":        syncedLogs,
+		})
+	})
+}
+
+func registerNextcloudRoutes(serverMux *http.ServeMux) {
 	createDocHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Title     string   `json:"title"`
@@ -275,53 +292,9 @@ func (c *Client) initMockServers() error {
 	}
 	serverMux.HandleFunc("POST /nextcloud/api/v1/chat/messages", chatHandler)
 	serverMux.HandleFunc("POST /api/v1/nextcloud/chat/messages", chatHandler)
+}
 
-	serverMux.HandleFunc("POST /facilities/assets/{id}/maintenance", func(w http.ResponseWriter, r *http.Request) {
-		assetID := r.PathValue("id")
-		var req struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			Priority    string `json:"priority"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		ticket, err := opsService.CreateITTicket(r.Context(), &ops_svc.CreateITTicketRequest{
-			ForgejoRepo:    "facilities/assets",
-			Title:          req.Title,
-			Body:           fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description),
-			AuthorUsername: "emp-human-bob",
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(ticket)
-	})
-
-	serverMux.HandleFunc("POST /facilities/sync/maintenance-logs", func(w http.ResponseWriter, r *http.Request) {
-		var logs []*facilities_repo.MaintenanceLog
-		if err := json.NewDecoder(r.Body).Decode(&logs); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		syncedLogs, err := facService.SyncMaintenanceLogs(r.Context(), logs)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"synced_count": len(syncedLogs),
-			"items":        syncedLogs,
-		})
-	})
-
-	// Customer BFF routes and Mock Customer BFF server
-	custMux := http.NewServeMux()
+func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid.Client, brokerClient *alpaca.Client, ciService core_invest_svc.Service) {
 	registerCustRoutes := func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -475,14 +448,9 @@ func (c *Client) initMockServers() error {
 	}
 	registerCustRoutes(custMux)
 	registerCustRoutes(serverMux)
+}
 
-	c.mockCustBFF = httptest.NewServer(custMux)
-	c.custBFFURL = c.mockCustBFF.URL
-
-	c.mockServer = httptest.NewServer(serverMux)
-	c.serverURL = c.mockServer.URL
-
-	// Initialize Employee BFF Mux
+func (c *Client) initMockEmployeeBFFServer() {
 	bffMux := http.NewServeMux()
 
 	wfRepo := workforce_repo.NewRepository(nil)
@@ -495,6 +463,55 @@ func (c *Client) initMockServers() error {
 
 	c.mockBFF = httptest.NewServer(bffMux)
 	c.bffURL = c.mockBFF.URL
+}
+
+func (c *Client) initMockServers() error {
+	c.initMockBrokerServer()
+	c.initMockBankServer()
+
+	// Initialize external clients
+	brokerClient := alpaca.NewClient(alpaca.Config{
+		BaseURL:   c.brokerURL,
+		DataURL:   c.brokerURL,
+		APIKey:    "MOCK_ALPACAKEY",
+		APISecret: "MOCK_SECRET",
+	})
+	bankClient := plaid.NewClient(plaid.Config{
+		BaseURL:  c.bankURL,
+		ClientID: "mock-client-id",
+		Secret:   "mock-secret",
+	})
+
+	// Initialize Domain API Server Mux
+	serverMux := http.NewServeMux()
+
+	ciRepo := core_invest_repo.NewMockRepository()
+	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
+	ciHandler := core_invest_handler.NewHandler(ciService)
+	ciHandler.RegisterRoutes(serverMux)
+
+	opsRepo := ops_repo.NewRepository(nil)
+	opsService := ops_svc.NewService(opsRepo)
+	opsHandler := ops_handler.NewHandler(opsService)
+	opsHandler.RegisterRoutes(serverMux)
+
+	facRepo := facilities_repo.NewMockRepository()
+	facService := facilities_svc.NewService(facRepo)
+
+	registerFacilitiesRoutes(serverMux, facService, opsService)
+	registerNextcloudRoutes(serverMux)
+
+	// Customer BFF routes and Mock Customer BFF server
+	custMux := http.NewServeMux()
+	registerCustomerRoutes(custMux, serverMux, bankClient, brokerClient, ciService)
+
+	c.mockCustBFF = httptest.NewServer(custMux)
+	c.custBFFURL = c.mockCustBFF.URL
+
+	c.mockServer = httptest.NewServer(serverMux)
+	c.serverURL = c.mockServer.URL
+
+	c.initMockEmployeeBFFServer()
 
 	return nil
 }

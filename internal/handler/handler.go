@@ -302,7 +302,13 @@ func (h *WorkforceHandler) createLeaveRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	created, err := h.wfSvc.CreateLeaveRequest(r.Context(), req.EmployeeID, req.LeaveType, req.StartDate, req.EndDate, req.Reason)
+	created, err := h.wfSvc.CreateLeaveRequest(r.Context(), wfService.CreateLeaveRequestParams{
+		EmployeeID: req.EmployeeID,
+		LeaveType:  req.LeaveType,
+		StartDate:  req.StartDate,
+		EndDate:    req.EndDate,
+		Reason:     req.Reason,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
