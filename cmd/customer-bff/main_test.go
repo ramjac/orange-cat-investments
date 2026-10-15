@@ -19,6 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGenerateRandomToken(t *testing.T) {
+	token, err := generateRandomToken(16)
+	require.NoError(t, err)
+	assert.Len(t, token, 32) // 16 bytes encoded in hex is 32 chars
+
+	token2, err := generateRandomToken(16)
+	require.NoError(t, err)
+	assert.NotEqual(t, token, token2, "subsequent tokens should be cryptographically unique")
+}
+
 func TestNewSessionStore_NoHardcodedTokensByDefault(t *testing.T) {
 	store := NewSessionStore()
 	_, okArthur := store.Get("sess-arthur-token")

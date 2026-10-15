@@ -297,9 +297,14 @@ func (b *CustomerBFF) sessionAuth(next http.Handler) http.Handler {
 		}
 
 		if getCSRFCookie(r) == "" {
-			if token, err := generateRandomToken(16); err == nil {
-				setCSRFCookie(w, token)
+			tokenStr, err := generateRandomToken(16)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal server error"})
+				return
 			}
+			setCSRFCookie(w, tokenStr)
 		}
 
 		ctx := context.WithValue(r.Context(), customerContextKey, sess)
