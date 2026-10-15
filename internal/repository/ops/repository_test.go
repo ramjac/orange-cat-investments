@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockErrDB struct {
@@ -128,5 +130,32 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		assert.Error(t, err)
 		assert.Nil(t, ticket)
 		assert.EqualError(t, err, "ticket not found or already closed: non-existent-id")
+	})
+
+	t.Run("PgxRepository DB error handling", func(t *testing.T) {
+		// Pass a closed pool or invalid pool to trigger DB query errors
+		pool, err := pgxpool.New(ctx, "postgres://invalid:invalid@127.0.0.1:1/nonexistent?sslmode=disable")
+		require.NoError(t, err)
+		pool.Close()
+
+		dbRepo := NewRepository(pool)
+
+		_, err = dbRepo.ListOpenITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = dbRepo.GetITTicketByID(ctx, "ticket-001")
+		assert.Error(t, err)
+
+		_, err = dbRepo.ListITTickets(ctx, 10, 0)
+		assert.Error(t, err)
+
+		_, err = dbRepo.CreateITTicket(ctx, &ITTicket{Title: "Test"})
+		assert.Error(t, err)
+
+		_, err = dbRepo.AcknowledgeITTicket(ctx, "ticket-001", "user")
+		assert.Error(t, err)
+
+		_, err = dbRepo.CloseITTicket(ctx, "ticket-001")
+		assert.Error(t, err)
 	})
 }
