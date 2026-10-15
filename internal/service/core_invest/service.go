@@ -134,6 +134,10 @@ type ExecuteBrokerageOrderOpts struct {
 	EventID     *string
 }
 
+// ExecuteBrokerageOrder routes brokerage orders through the configured BrokerClient REST API.
+// Trade execution and market simulation are decoupled via the BrokerClient interface, which
+// routes orders to the external broker microservice (e.g., Alpaca API or mock broker engine)
+// and updates the local order status in the repository.
 func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts ExecuteBrokerageOrderOpts) (*core_invest.BrokerageOrder, error) {
 	if opts.PortfolioID == "" || opts.BrokerName == "" || opts.Symbol == "" {
 		return nil, errors.New("portfolio_id, broker_name, and symbol are required")
@@ -162,7 +166,7 @@ func (s *coreInvestService) ExecuteBrokerageOrder(ctx context.Context, opts Exec
 		return nil, fmt.Errorf("failed to create order: %w", err)
 	}
 
-	// Route through external Broker API
+	// Route through external Broker API (FIX/REST simulated via BrokerClient)
 	if s.brokerClient == nil {
 		return nil, errors.New("broker client is not configured: order execution unavailable")
 	}

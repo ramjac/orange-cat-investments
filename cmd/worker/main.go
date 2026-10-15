@@ -121,18 +121,20 @@ func handleBacktestRun(logger *slog.Logger, msg *message.Message) ([]*message.Me
 	return []*message.Message{outputMsg}, nil
 }
 
-func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *slog.Logger) (*message.Router, error) {
-	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
-	enableFelineWorkforce := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
-
-	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" {
-		if os.Getenv("ENABLE_CORE_INVEST") == "" {
-			enableCoreInvest = false
-		}
-		if os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
-			enableFelineWorkforce = false
-		}
+func isFeatureEnabled(envVar string) bool {
+	val := os.Getenv(envVar)
+	if val == "false" {
+		return false
 	}
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && val == "" {
+		return false
+	}
+	return true
+}
+
+func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *slog.Logger) (*message.Router, error) {
+	enableCoreInvest := isFeatureEnabled("ENABLE_CORE_INVEST")
+	enableFelineWorkforce := isFeatureEnabled("ENABLE_FELINE_WORKFORCE")
 
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
 	if err != nil {
@@ -185,6 +187,93 @@ func createRouter(ps pubSub, watermillLogger watermill.LoggerAdapter, logger *sl
 	return router, nil
 }
 
+func startCARotationWorker(ctx context.Context, router *message.Router, ps pubSub, caManager pki.CARotationManager, logger *slog.Logger) {
+	go func() {
+		<-router.Running()
+		// Initial check on worker startup
+		res, err := caManager.CheckAndRotateCA(ctx)
+		if err != nil {
+			logger.Error("failed initial CA rotation check", "error", err)
+		} else {
+			logger.Info("automated CA key rotation check completed",
+				"status", res.Status,
+				"ca_name", res.IntermediateCAName,
+				"serial_number", res.NewSerialNumber,
+				"reissued_certs", res.ReissuedCertificatesCount,
+			)
+
+			if res.Status == "CA_ROTATED_SUCCESSFULLY" {
+				event := EventEnvelope[CARotationPayload]{
+					EventID:       watermill.NewUUID(),
+					EventType:     "ops.ca_rotated.v1",
+					OccurredAt:    res.RotatedAt,
+					CorrelationID: "ca-rotation-trace-001",
+					Payload: CARotationPayload{
+						IntermediateCAName:       res.IntermediateCAName,
+						NewSerialNumber:           res.NewSerialNumber,
+						ExpiresAt:                 res.ExpiresAt,
+						ReissuedCertificatesCount: res.ReissuedCertificatesCount,
+						Status:                    res.Status,
+					},
+				}
+				data, _ := json.Marshal(event)
+				msg := message.NewMessage(event.EventID, data)
+				_ = ps.Publish("events.ops.ca_rotated.v1", msg)
+			}
+		}
+
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				res, err := caManager.CheckAndRotateCA(ctx)
+				if err != nil {
+					logger.Error("failed scheduled CA rotation check", "error", err)
+				} else {
+					logger.Info("scheduled CA key rotation check completed", "status", res.Status)
+				}
+			}
+		}
+	}()
+}
+
+func startCatSpottedPublisher(ctx context.Context, router *message.Router, ps pubSub) {
+	go func() {
+		<-router.Running()
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		event := EventEnvelope[CatSpottedPayload]{
+			EventType:     "observation.cat_spotted.v1",
+			CorrelationID: "correlation-trace-001",
+			Payload: CatSpottedPayload{
+				CameraID:        "CAM-ORANGE-01",
+				FelineID:        "emp-feline-garfield",
+				ActivityType:    "zooming",
+				ConfidenceScore: 0.992,
+			},
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				event.EventID = watermill.NewUUID()
+				event.OccurredAt = time.Now().UTC()
+
+				data, _ := json.Marshal(event)
+				msg := message.NewMessage(event.EventID, data)
+				ps.Publish("events.observation.cat_spotted.v1", msg)
+			}
+		}
+	}()
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("starting OCI Background Worker with Watermill Engine")
@@ -219,103 +308,10 @@ func main() {
 		}
 	}()
 
-	// CA Rotation Worker Ticker (Automated Root/Intermediate CA key rotation)
-	go func() {
-		<-router.Running()
-		// Initial check on worker startup
-		res, err := caManager.CheckAndRotateCA(ctx)
-		if err != nil {
-			logger.Error("failed initial CA rotation check", "error", err)
-		} else {
-			logger.Info("automated CA key rotation check completed",
-				"status", res.Status,
-				"ca_name", res.IntermediateCAName,
-				"serial_number", res.NewSerialNumber,
-				"reissued_certs", res.ReissuedCertificatesCount,
-			)
+	startCARotationWorker(ctx, router, pubSub, caManager, logger)
 
-			if res.Status == "CA_ROTATED_SUCCESSFULLY" {
-				event := EventEnvelope[CARotationPayload]{
-					EventID:       watermill.NewUUID(),
-					EventType:     "ops.ca_rotated.v1",
-					OccurredAt:    res.RotatedAt,
-					CorrelationID: "ca-rotation-trace-001",
-					Payload: CARotationPayload{
-						IntermediateCAName:       res.IntermediateCAName,
-						NewSerialNumber:           res.NewSerialNumber,
-						ExpiresAt:                 res.ExpiresAt,
-						ReissuedCertificatesCount: res.ReissuedCertificatesCount,
-						Status:                    res.Status,
-					},
-				}
-				data, _ := json.Marshal(event)
-				msg := message.NewMessage(event.EventID, data)
-				_ = pubSub.Publish("events.ops.ca_rotated.v1", msg)
-			}
-		}
-
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				res, err := caManager.CheckAndRotateCA(ctx)
-				if err != nil {
-					logger.Error("failed scheduled CA rotation check", "error", err)
-				} else {
-					logger.Info("scheduled CA key rotation check completed", "status", res.Status)
-				}
-			}
-		}
-	}()
-
-	enableCoreInvest := os.Getenv("ENABLE_CORE_INVEST") != "false"
-	enableFelineWorkforce := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
-
-	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" {
-		if os.Getenv("ENABLE_CORE_INVEST") == "" {
-			enableCoreInvest = false
-		}
-		if os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
-			enableFelineWorkforce = false
-		}
-	}
-
-	// Simulate event publisher ticker (if feline workforce & core invest enabled)
-	if enableFelineWorkforce && enableCoreInvest {
-		go func() {
-			<-router.Running()
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-
-			event := EventEnvelope[CatSpottedPayload]{
-				EventType:     "observation.cat_spotted.v1",
-				CorrelationID: "correlation-trace-001",
-				Payload: CatSpottedPayload{
-					CameraID:        "CAM-ORANGE-01",
-					FelineID:        "emp-feline-garfield",
-					ActivityType:    "zooming",
-					ConfidenceScore: 0.992,
-				},
-			}
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					event.EventID = watermill.NewUUID()
-					event.OccurredAt = time.Now().UTC()
-
-					data, _ := json.Marshal(event)
-					msg := message.NewMessage(event.EventID, data)
-					pubSub.Publish("events.observation.cat_spotted.v1", msg)
-				}
-			}
-		}()
+	if isFeatureEnabled("ENABLE_FELINE_WORKFORCE") && isFeatureEnabled("ENABLE_CORE_INVEST") {
+		startCatSpottedPublisher(ctx, router, pubSub)
 	}
 
 	stop := make(chan os.Signal, 1)
