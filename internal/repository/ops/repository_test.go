@@ -2,12 +2,34 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type mockErrDB struct {
+	err error
+}
+
+func (m *mockErrDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return &mockRow{err: m.err}
+}
+
+func (m *mockErrDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return nil, m.err
+}
+
+type mockRow struct {
+	err error
+}
+
+func (r *mockRow) Scan(dest ...any) error {
+	return r.err
+}
 
 func TestOpsPgxRepository(t *testing.T) {
 	repo := NewRepository(nil)
@@ -59,9 +81,55 @@ func TestOpsPgxRepository(t *testing.T) {
 	})
 
 	t.Run("CloseITTicket", func(t *testing.T) {
-		closed, err := repo.CloseITTicket(ctx, "ticket-001")
-		assert.NoError(t, err)
-		assert.Equal(t, "closed", closed.State)
+		t.Run("Success Path", func(t *testing.T) {
+			closed, err := repo.CloseITTicket(ctx, "ticket-001")
+			assert.NoError(t, err)
+			assert.Equal(t, "closed", closed.State)
+		})
+
+		t.Run("Errors for Non-Existent ID", func(t *testing.T) {
+			closed, err := repo.CloseITTicket(ctx, "non-existent")
+			assert.Error(t, err)
+			assert.Nil(t, closed)
+			assert.EqualError(t, err, "ticket not found or already closed: non-existent")
+		})
+	})
+}
+
+func TestOpsPgxRepositoryDBErrors(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("AcknowledgeITTicket - pgx.ErrNoRows", func(t *testing.T) {
+		noRowsRepo := NewRepository(&mockErrDB{err: pgx.ErrNoRows})
+		ack, err := noRowsRepo.AcknowledgeITTicket(ctx, "non-existent-id", "emp-human-frank")
+		assert.Error(t, err)
+		assert.Nil(t, ack)
+		assert.EqualError(t, err, "ticket not found or already acknowledged/closed: non-existent-id")
+	})
+
+	t.Run("AcknowledgeITTicket - General DB Error", func(t *testing.T) {
+		generalErr := errors.New("db connection failure")
+		errRepo := NewRepository(&mockErrDB{err: generalErr})
+		ack, err := errRepo.AcknowledgeITTicket(ctx, "ticket-001", "emp-human-frank")
+		assert.Error(t, err)
+		assert.Nil(t, ack)
+		assert.Equal(t, generalErr, err)
+	})
+
+	t.Run("GetITTicketByID - pgx.ErrNoRows", func(t *testing.T) {
+		noRowsRepo := NewRepository(&mockErrDB{err: pgx.ErrNoRows})
+		ticket, err := noRowsRepo.GetITTicketByID(ctx, "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, ticket)
+		assert.EqualError(t, err, "ticket not found: non-existent-id")
+	})
+
+	t.Run("CloseITTicket - pgx.ErrNoRows", func(t *testing.T) {
+		noRowsRepo := NewRepository(&mockErrDB{err: pgx.ErrNoRows})
+		ticket, err := noRowsRepo.CloseITTicket(ctx, "non-existent-id")
+		assert.Error(t, err)
+		assert.Nil(t, ticket)
+		assert.EqualError(t, err, "ticket not found or already closed: non-existent-id")
 	})
 
 	t.Run("PgxRepository DB error handling", func(t *testing.T) {

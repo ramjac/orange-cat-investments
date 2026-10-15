@@ -55,7 +55,16 @@ This document tracks instances of pre-existing hardcoded customer, employee, and
 
 ---
 
-## 4. Policy Reminder
+## 4. Core Investment Service (`internal/service/core_invest/service.go`)
+
+- [ ] **Simulated Trade Execution Architecture**:
+  - **Location:** `internal/service/core_invest/service.go:137`
+  - **Context:** Trade orders are routed through the `BrokerClient` interface (Faux Alpaca / Mock Broker API) in simulated environments.
+  - **Rationale:** Direct integration with real-world FIX/REST institutional brokerage protocols involves external dependencies, credentials, and proprietary session state not present in local/test execution contexts. The `BrokerClient` abstraction isolates market simulation from domain logic.
+
+---
+
+## 5. Policy Reminder
 
 Per [AGENTS.md](file:///home/ramjac/orange-cat-investments/AGENTS.md), hardcoded customer and employee data is strictly forbidden in production code deployed to `oci-core`. Hardcoding is permitted only in:
 1. Database seed scripts (`scripts/init.sql`, `scripts/0*-*.sql`)
