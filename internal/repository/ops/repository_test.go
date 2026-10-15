@@ -79,9 +79,18 @@ func TestOpsPgxRepository(t *testing.T) {
 	})
 
 	t.Run("CloseITTicket", func(t *testing.T) {
-		closed, err := repo.CloseITTicket(ctx, "ticket-001")
-		assert.NoError(t, err)
-		assert.Equal(t, "closed", closed.State)
+		t.Run("Success Path", func(t *testing.T) {
+			closed, err := repo.CloseITTicket(ctx, "ticket-001")
+			assert.NoError(t, err)
+			assert.Equal(t, "closed", closed.State)
+		})
+
+		t.Run("Errors for Non-Existent ID", func(t *testing.T) {
+			closed, err := repo.CloseITTicket(ctx, "non-existent")
+			assert.Error(t, err)
+			assert.Nil(t, closed)
+			assert.EqualError(t, err, "ticket not found or already closed: non-existent")
+		})
 	})
 }
 
