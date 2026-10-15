@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 )
 
 type WorkforceHandler struct {
@@ -43,10 +45,28 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/workforce/incidents", h.createIncident)
 	mux.HandleFunc("GET /api/v1/workforce/incidents", h.listIncidents)
 	mux.HandleFunc("PUT /api/v1/workforce/incidents/{id}/status", h.updateIncidentStatus)
+	mux.HandleFunc("GET /api/v1/workforce/timesheets", h.listTimesheets)
+	mux.HandleFunc("POST /api/v1/workforce/timesheets", h.submitTimesheet)
+	mux.HandleFunc("GET /api/v1/workforce/timesheets/{id}", h.getTimesheet)
+	mux.HandleFunc("PUT /api/v1/workforce/timesheets/{id}/status", h.updateTimesheetStatus)
+	mux.HandleFunc("GET /api/v1/workforce/payroll/slips", h.listSalarySlips)
+	mux.HandleFunc("GET /api/v1/workforce/payroll/slips/{id}", h.getSalarySlip)
+	mux.HandleFunc("POST /api/v1/workforce/payroll/run", h.processPayrollRun)
+	mux.HandleFunc("GET /api/v1/employee/payroll/slips", h.listSalarySlips)
+	mux.HandleFunc("GET /api/v1/employee/payroll/slips/{id}", h.getSalarySlip)
+	mux.HandleFunc("POST /api/v1/workforce/employees/onboard", h.handleOnboardEmployee)
+	mux.HandleFunc("POST /api/v1/workforce/employees/{id}/offboard", h.handleOffboardEmployee)
+	mux.HandleFunc("GET /api/v1/workforce/employees/{id}/lifecycle", h.handleGetEmployeeLifecycle)
+	mux.HandleFunc("POST /api/v1/employee/lifecycle/onboard", h.handleOnboardEmployee)
+	mux.HandleFunc("POST /api/v1/employee/lifecycle/{id}/offboard", h.handleOffboardEmployee)
+	mux.HandleFunc("GET /api/v1/employee/lifecycle/{id}", h.handleGetEmployeeLifecycle)
 	mux.HandleFunc("POST /api/v1/webhooks/frappe-hr", h.handleFrappeHRWebhook)
 
 	// Direct route aliases matching OpenAPI spec
 	mux.HandleFunc("GET /workforce/employees", h.listEmployees)
+	mux.HandleFunc("POST /workforce/employees/onboard", h.handleOnboardEmployee)
+	mux.HandleFunc("POST /workforce/employees/{id}/offboard", h.handleOffboardEmployee)
+	mux.HandleFunc("GET /workforce/employees/{id}/lifecycle", h.handleGetEmployeeLifecycle)
 	mux.HandleFunc("GET /workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /workforce/leave-requests", h.createLeaveRequest)
 	mux.HandleFunc("PUT /workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
@@ -57,6 +77,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /workforce/incidents", h.createIncident)
 	mux.HandleFunc("GET /workforce/incidents", h.listIncidents)
 	mux.HandleFunc("PUT /workforce/incidents/{id}/status", h.updateIncidentStatus)
+	mux.HandleFunc("GET /workforce/timesheets", h.listTimesheets)
+	mux.HandleFunc("POST /workforce/timesheets", h.submitTimesheet)
+	mux.HandleFunc("GET /workforce/timesheets/{id}", h.getTimesheet)
+	mux.HandleFunc("PUT /workforce/timesheets/{id}/status", h.updateTimesheetStatus)
+	mux.HandleFunc("GET /workforce/payroll/slips", h.listSalarySlips)
+	mux.HandleFunc("GET /workforce/payroll/slips/{id}", h.getSalarySlip)
+	mux.HandleFunc("POST /workforce/payroll/run", h.processPayrollRun)
 	mux.HandleFunc("POST /webhooks/frappe-hr", h.handleFrappeHRWebhook)
 
 	// Feline-specific workforce routes gated by EnableFelineWorkforce
@@ -501,6 +528,235 @@ func (h *WorkforceHandler) updateIncidentStatus(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
+}
+
+func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
+	filter := wfService.TimesheetFilter{
+		EmployeeID: r.URL.Query().Get("employee_id"),
+		Status:     r.URL.Query().Get("status"),
+		FromDate:   r.URL.Query().Get("from_date"),
+		ToDate:     r.URL.Query().Get("to_date"),
+		TaskCode:   r.URL.Query().Get("task_code"),
+	}
+
+	timesheets, err := h.wfSvc.ListTimesheets(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": timesheets,
+		"total": len(timesheets),
+	})
+}
+
+func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Request) {
+	var ts frappe.Timesheet
+	if err := json.NewDecoder(r.Body).Decode(&ts); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	created, err := h.wfSvc.SubmitTimesheet(r.Context(), &ts)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "timesheet id parameter is required")
+		return
+	}
+
+	ts, err := h.wfSvc.GetTimesheet(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ts)
+}
+
+func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "timesheet id parameter is required")
+		return
+	}
+
+	var req struct {
+		Status     string `json:"status"`
+		ApproverID string `json:"approver_id"`
+		ReviewerID string `json:"reviewer_id"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	switch strings.ToLower(req.Status) {
+	case "approved":
+		approver := req.ApproverID
+		if approver == "" {
+			approver = req.ReviewerID
+		}
+		if approver == "" {
+			writeError(w, http.StatusBadRequest, "approver_id is required for approval")
+			return
+		}
+		updated, err := h.wfSvc.ApproveTimesheet(r.Context(), id, approver)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	case "rejected":
+		reviewer := req.ReviewerID
+		if reviewer == "" {
+			reviewer = req.ApproverID
+		}
+		if reviewer == "" {
+			writeError(w, http.StatusBadRequest, "reviewer_id is required for rejection")
+			return
+		}
+		if req.Reason == "" {
+			writeError(w, http.StatusBadRequest, "reason is required for rejection")
+			return
+		}
+		updated, err := h.wfSvc.RejectTimesheet(r.Context(), id, reviewer, req.Reason)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	default:
+		writeError(w, http.StatusBadRequest, "invalid status: must be 'approved' or 'rejected'")
+	}
+}
+
+func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
+	employeeID := r.URL.Query().Get("employee_id")
+	slips, err := h.wfSvc.ListSalarySlips(r.Context(), employeeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": slips,
+		"total": len(slips),
+	})
+}
+
+func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "salary slip id parameter is required")
+		return
+	}
+	slip, err := h.wfSvc.GetSalarySlip(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, slip)
+}
+
+func (h *WorkforceHandler) processPayrollRun(w http.ResponseWriter, r *http.Request) {
+	var pe frappe.PayrollEntry
+	if err := json.NewDecoder(r.Body).Decode(&pe); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	result, err := h.wfSvc.ProcessPayrollRun(r.Context(), &pe)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *WorkforceHandler) handleOnboardEmployee(w http.ResponseWriter, r *http.Request) {
+	var req saga.OnboardingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid onboarding request payload")
+		return
+	}
+	if req.FirstName == "" {
+		writeError(w, http.StatusBadRequest, "first_name is required")
+		return
+	}
+	if req.EmployeeType == "" {
+		req.EmployeeType = "human"
+	}
+
+	result, err := h.onboardingSaga.Execute(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *WorkforceHandler) handleOffboardEmployee(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req saga.OffboardingRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.EmployeeID == "" {
+		req.EmployeeID = id
+	}
+	if req.EmployeeID == "" {
+		writeError(w, http.StatusBadRequest, "employee_id is required")
+		return
+	}
+
+	result, err := h.offboardingEng.Execute(r.Context(), req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *WorkforceHandler) handleGetEmployeeLifecycle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "employee_id is required")
+		return
+	}
+
+	emp, err := h.wfSvc.GetEmployee(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("employee %s not found", id))
+		return
+	}
+
+	tasks, _ := h.wfSvc.ListOnboardingChecklist(r.Context(), id)
+	cs, _ := h.wfSvc.GetCareSchedule(r.Context(), id)
+
+	username := strings.ToLower(emp.FirstName)
+	if emp.LastName != nil && *emp.LastName != "" {
+		username = strings.ToLower(fmt.Sprintf("%s.%s", emp.FirstName, *emp.LastName))
+	}
+
+	response := map[string]any{
+		"employee":         emp,
+		"status":           emp.Status,
+		"care_schedule":    cs,
+		"checklist_tasks":  tasks,
+		"vcs_username":     username,
+		"workspace_quota":  "25 GB",
+		"hardware_summary": fmt.Sprintf("Standard IT asset allocation for %s", emp.RoleTitle),
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

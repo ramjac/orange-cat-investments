@@ -733,3 +733,5 @@ func (r *mockRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, 
 	}
 	return inc, nil
 }
+
+

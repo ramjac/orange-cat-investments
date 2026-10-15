@@ -42,6 +42,9 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 * **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).
 * **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, Forgejo, and internal service planes.
 * **`alice_review_leave_requests`**: Audits pending staff leave requests and feline catnip break compliance (`/api/v1/workforce/leave-requests`).
+* **`alice_approve_timesheet`**: Reviews pending workforce timesheets and submits manager approvals (`PUT /api/v1/workforce/timesheets/{id}/status`), synchronizing DocType Timesheets to Frappe HR.
+* **`alice_process_payroll_entry`**: Submits monthly payroll run (`POST /api/v1/workforce/payroll/run`) for Frappe HR salary slip generation and compensation distribution.
+* **`alice_offboard_employee`**: Triggers automated deprovisioning engine (`POST /api/v1/workforce/employees/{id}/offboard`), invalidating sessions, archiving storage, and generating Snipe-IT equipment recovery tickets.
 * **`alice_assign_laptop_to_rick`**: Provisions a new laptop hardware asset assigned to new hire Rick during onboarding (`POST /facilities/assets`).
 * **`alice_publish_onboarding_doc`**: Publishes the employee onboarding handbook in Nextcloud (`POST /nextcloud/api/v1/documents`) and notifies Rick over Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
 
@@ -49,6 +52,8 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 * **`bob_scan_edge_cameras`**: Scans optical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
 * **`bob_register_camera_rig`**: Registers a new 4K edge camera asset (`POST /facilities/assets`).
 * **`bob_verify_pebble_wearables`**: Verifies assigned Pebble watch hardware assets for on-call alerting (`GET /facilities/assets?asset_type=pebble_watch`).
+* **`bob_log_daily_timesheet`**: Submits daily 8-hour shift timesheet for habitat facilities maintenance (`POST /api/v1/workforce/timesheets`) with billable cost center allocation.
+* **`bob_view_paystubs`**: Queries historical salary slips and itemized paystubs (`GET /api/v1/workforce/payroll/slips?employee_id=emp-human-bob`) for compensation review.
 
 ### 5. Carol Danvers (`emp-human-carol`) — Chief Investment Officer (CIO)
 * **`carol_query_brokerage_orders`**: Audits execution logs of automated brokerage trade orders (`/core-invest/brokerage/orders`).

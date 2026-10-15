@@ -15,6 +15,7 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -50,7 +51,24 @@ func main() {
 	} else {
 		repo = workforce.NewMockRepository()
 	}
-	wfSvc := wfService.NewService(repo)
+
+	var hrClient wfService.HRClient
+	frappeURL := os.Getenv("FRAPPE_HR_URL")
+	if frappeURL != "" {
+		hrClient = frappe.NewClient(frappe.Config{
+			BaseURL:   frappeURL,
+			APIKey:    os.Getenv("FRAPPE_API_KEY"),
+			APISecret: os.Getenv("FRAPPE_API_SECRET"),
+		})
+		logger.Info("Frappe HR client initialized", "url", frappeURL)
+	}
+
+	var wfSvc wfService.Service
+	if hrClient != nil {
+		wfSvc = wfService.NewServiceWithIntegrations(repo, nil, hrClient)
+	} else {
+		wfSvc = wfService.NewService(repo)
+	}
 	onboardingSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardingEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 

@@ -3,6 +3,7 @@ package simulation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -12,8 +13,8 @@ import (
 func (r *Registry) registerAllDefaultPersonas() {
 	r.Register(r.createGarfieldPersona())
 	r.Register(r.createBarnebyPersona())
-	r.Register(r.createAlicePersona())
 	r.Register(r.createBobPersona())
+	r.Register(r.createAlicePersona())
 	r.Register(r.createCarolPersona())
 	r.Register(r.createDavidPersona())
 	r.Register(r.createElenaPersona())
@@ -328,6 +329,9 @@ func (r *Registry) createAlicePersona() *Persona {
 			r.createAliceWorkforceDirectoryAction(),
 			r.createAliceTriggerOnboardingSagaAction(),
 			r.createAliceReviewLeaveRequestsAction(),
+			r.createAliceApproveTimesheetAction(),
+			r.createAliceProcessPayrollEntryAction(),
+			r.createAliceOffboardEmployeeAction(),
 			r.createAliceAssignLaptopAction(),
 			r.createAlicePublishOnboardingDocAction(),
 		},
@@ -417,6 +421,78 @@ func (r *Registry) createAliceReviewLeaveRequestsAction() Action {
 	}
 }
 
+func (r *Registry) createAliceApproveTimesheetAction() Action {
+	return Action{
+		Name:        "alice_approve_timesheet",
+		Description: "Reviews and approves pending workforce timesheets for Frappe HR synchronization",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			listEndpoint := "/api/v1/workforce/timesheets?status=submitted"
+			_, bytes, err := client.Do(ctx, true, "GET", listEndpoint, nil)
+			if err != nil {
+				return nil, err
+			}
+
+			var listResp struct {
+				Items []struct {
+					TimesheetID string `json:"timesheet_id"`
+					EmployeeID  string `json:"employee_id"`
+				} `json:"items"`
+			}
+			_ = json.Unmarshal(bytes, &listResp)
+
+			var timesheetID string
+			if len(listResp.Items) > 0 {
+				timesheetID = listResp.Items[0].TimesheetID
+			} else {
+				// Fallback: If no submitted timesheet exists yet, submit one first
+				today := time.Now().UTC().Format("2006-01-02")
+				_, createBytes, createErr := client.Do(ctx, true, "POST", "/api/v1/workforce/timesheets", map[string]any{
+					"employee_id":   "emp-human-bob",
+					"shift_date":    today,
+					"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
+					"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
+					"break_minutes": 30,
+					"task_code":     "habitat_maintenance",
+					"billable":      true,
+				})
+				if createErr != nil {
+					return nil, createErr
+				}
+				var created struct {
+					TimesheetID string `json:"timesheet_id"`
+				}
+				_ = json.Unmarshal(createBytes, &created)
+				timesheetID = created.TimesheetID
+			}
+
+			if timesheetID == "" {
+				return nil, errors.New("no pending timesheet found to approve")
+			}
+
+			approveEndpoint := fmt.Sprintf("/api/v1/workforce/timesheets/%s/status", timesheetID)
+			payload := map[string]any{
+				"status":      "approved",
+				"approver_id": "emp-human-alice",
+			}
+			approveResp, approveBytes, approveErr := client.Do(ctx, true, "PUT", approveEndpoint, payload)
+			if approveErr != nil {
+				return nil, approveErr
+			}
+
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_approve_timesheet",
+				Endpoint:    approveEndpoint,
+				Success:     approveResp.StatusCode == http.StatusOK,
+				StatusCode:  approveResp.StatusCode,
+				Details:     fmt.Sprintf("Approved workforce timesheet %s: %s", timesheetID, string(approveBytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
 func (r *Registry) createAliceAssignLaptopAction() Action {
 	return Action{
 		Name:        "alice_assign_laptop_to_rick",
@@ -489,6 +565,69 @@ func (r *Registry) createAlicePublishOnboardingDocAction() Action {
 				Success:     success,
 				StatusCode:  chatResp.StatusCode,
 				Details:     fmt.Sprintf("ONBOARDING DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createAliceProcessPayrollEntryAction() Action {
+	return Action{
+		Name:        "alice_process_payroll_entry",
+		Description: "Submits monthly payroll run for processing and salary slip generation",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/payroll/run"
+			today := time.Now().UTC().Format("2006-01-02")
+			startOfMonth := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+			payload := map[string]any{
+				"company":           "Orange Cat Investments",
+				"posting_date":      today,
+				"start_date":        startOfMonth,
+				"end_date":          today,
+				"payroll_frequency": "Monthly",
+				"currency":          "USD",
+			}
+			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_process_payroll_entry",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Processed payroll entry run: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createAliceOffboardEmployeeAction() Action {
+	return Action{
+		Name:        "alice_offboard_employee",
+		Description: "Executes automated deprovisioning engine for separating employee across VCS, Nextcloud, and Snipe-IT",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/employees/emp-simulated-newhire/offboard"
+			payload := map[string]any{
+				"employee_id":   "emp-simulated-newhire",
+				"reason":        "Seasonal habitat monitoring contract concluded",
+				"target_status": "separated",
+			}
+			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_offboard_employee",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Executed offboarding engine: %s", string(bytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},
@@ -573,6 +712,67 @@ func (r *Registry) createBobPersona() *Persona {
 					}, nil
 				},
 			},
+			r.createBobLogDailyTimesheetAction(),
+			r.createBobViewPaystubsAction(),
+		},
+	}
+}
+
+func (r *Registry) createBobLogDailyTimesheetAction() Action {
+	return Action{
+		Name:        "bob_log_daily_timesheet",
+		Description: "Submits daily 8-hour shift timesheet for habitat maintenance",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/timesheets"
+			today := time.Now().UTC().Format("2006-01-02")
+			payload := map[string]any{
+				"employee_id":   "emp-human-bob",
+				"shift_date":    today,
+				"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
+				"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
+				"break_minutes": 30,
+				"task_code":     "habitat_maintenance",
+				"billable":      true,
+				"notes":         "Daily habitat perimeter maintenance, 4K camera rig alignment & HVAC telemetry inspection",
+			}
+			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-bob",
+				PersonaName: "Bob Builder",
+				ActionName:  "bob_log_daily_timesheet",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Submitted daily timesheet shift: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createBobViewPaystubsAction() Action {
+	return Action{
+		Name:        "bob_view_paystubs",
+		Description: "Queries historical salary slips and itemized paystubs for compensation review",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob"
+			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-bob",
+				PersonaName: "Bob Builder",
+				ActionName:  "bob_view_paystubs",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Retrieved Bob paystubs/salary slips: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
 		},
 	}
 }

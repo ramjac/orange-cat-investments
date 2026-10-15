@@ -10,6 +10,7 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -330,3 +331,268 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, badRec.Code)
 	})
 }
+
+func TestWorkforceTimesheetsEndpoints(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("Submit and Fetch Timesheet", func(t *testing.T) {
+		payload := map[string]any{
+			"employee_id":   "emp-bob-01",
+			"shift_date":    "2026-10-15",
+			"start_time":    "2026-10-15T08:00:00Z",
+			"end_time":      "2026-10-15T16:30:00Z",
+			"break_minutes": 30,
+			"task_code":     "habitat_maintenance",
+			"billable":      true,
+			"notes":         "Routine perch and ventilation check",
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		var created frappe.Timesheet
+		err := json.Unmarshal(rec.Body.Bytes(), &created)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, created.TimesheetID)
+		assert.Equal(t, "emp-bob-01", created.EmployeeID)
+		assert.Equal(t, 8.0, created.HoursWorked)
+		assert.Equal(t, "submitted", created.Status)
+		assert.Equal(t, "Facilities Operations", created.CostCenter)
+
+		// Get by ID
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets/"+created.TimesheetID, nil)
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+
+		assert.Equal(t, http.StatusOK, getRec.Code)
+		var fetched frappe.Timesheet
+		err = json.Unmarshal(getRec.Body.Bytes(), &fetched)
+		assert.NoError(t, err)
+		assert.Equal(t, created.TimesheetID, fetched.TimesheetID)
+
+		// Direct alias get
+		aliasReq := httptest.NewRequest("GET", "/workforce/timesheets/"+created.TimesheetID, nil)
+		aliasRec := httptest.NewRecorder()
+		mux.ServeHTTP(aliasRec, aliasReq)
+		assert.Equal(t, http.StatusOK, aliasRec.Code)
+
+		// List
+		listReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-bob-01", nil)
+		listRec := httptest.NewRecorder()
+		mux.ServeHTTP(listRec, listReq)
+
+		assert.Equal(t, http.StatusOK, listRec.Code)
+		var listResp struct {
+			Items []*frappe.Timesheet `json:"items"`
+			Total int                 `json:"total"`
+		}
+		err = json.Unmarshal(listRec.Body.Bytes(), &listResp)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, listResp.Total)
+
+		// Approve
+		approvePayload := map[string]any{
+			"status":      "approved",
+			"approver_id": "emp-manager-01",
+		}
+		approveData, _ := json.Marshal(approvePayload)
+		approveReq := httptest.NewRequest("PUT", "/api/v1/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(approveData))
+		approveRec := httptest.NewRecorder()
+		mux.ServeHTTP(approveRec, approveReq)
+
+		assert.Equal(t, http.StatusOK, approveRec.Code)
+		var approved frappe.Timesheet
+		err = json.Unmarshal(approveRec.Body.Bytes(), &approved)
+		assert.NoError(t, err)
+		assert.Equal(t, "approved", approved.Status)
+		assert.NotNil(t, approved.ApprovedBy)
+		assert.Equal(t, "emp-manager-01", *approved.ApprovedBy)
+	})
+
+	t.Run("Submit and Reject Timesheet", func(t *testing.T) {
+		payload := map[string]any{
+			"employee_id": "emp-alice-01",
+			"shift_date":  "2026-10-16",
+			"start_time":  "2026-10-16T09:00:00Z",
+			"end_time":    "2026-10-16T17:00:00Z",
+			"task_code":   "admin",
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/workforce/timesheets", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		var created frappe.Timesheet
+		_ = json.Unmarshal(rec.Body.Bytes(), &created)
+
+		// Reject
+		rejectPayload := map[string]any{
+			"status":      "rejected",
+			"reviewer_id": "emp-lead-01",
+			"reason":      "Missing project code allocation",
+		}
+		rejectData, _ := json.Marshal(rejectPayload)
+		rejectReq := httptest.NewRequest("PUT", "/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(rejectData))
+		rejectRec := httptest.NewRecorder()
+		mux.ServeHTTP(rejectRec, rejectReq)
+
+		assert.Equal(t, http.StatusOK, rejectRec.Code)
+		var rejected frappe.Timesheet
+		_ = json.Unmarshal(rejectRec.Body.Bytes(), &rejected)
+		assert.Equal(t, "rejected", rejected.Status)
+	})
+
+	t.Run("Validation Error - Invalid Task Code", func(t *testing.T) {
+		payload := map[string]any{
+			"employee_id": "emp-bob-01",
+			"shift_date":  "2026-10-17",
+			"start_time":  "2026-10-17T08:00:00Z",
+			"end_time":    "2026-10-17T16:00:00Z",
+			"task_code":   "napping_on_desk",
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+func TestWorkforcePayrollEndpoints(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("List Salary Slips for Employee", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			Items []frappe.SalarySlip `json:"items"`
+			Total int                 `json:"total"`
+		}
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, resp.Items)
+		assert.Equal(t, "emp-human-bob", resp.Items[0].EmployeeID)
+
+		// Test employee BFF path alias
+		aliasReq := httptest.NewRequest("GET", "/api/v1/employee/payroll/slips?employee_id=emp-human-bob", nil)
+		aliasRec := httptest.NewRecorder()
+		mux.ServeHTTP(aliasRec, aliasReq)
+		assert.Equal(t, http.StatusOK, aliasRec.Code)
+
+		// Get specific salary slip by ID
+		slipID := resp.Items[0].SalarySlipID
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/"+slipID, nil)
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+
+		assert.Equal(t, http.StatusOK, getRec.Code)
+		var slip frappe.SalarySlip
+		err = json.Unmarshal(getRec.Body.Bytes(), &slip)
+		assert.NoError(t, err)
+		assert.Equal(t, slipID, slip.SalarySlipID)
+		assert.Equal(t, 5833.33, slip.GrossPay)
+	})
+
+	t.Run("Execute Payroll Run", func(t *testing.T) {
+		payload := map[string]any{
+			"start_date": "2026-10-01",
+			"end_date":   "2026-10-31",
+			"employees":  []string{"emp-human-bob", "emp-human-alice"},
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/workforce/payroll/run", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		var pe frappe.PayrollEntry
+		err := json.Unmarshal(rec.Body.Bytes(), &pe)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, pe.PayrollEntryID)
+		assert.Equal(t, 2, pe.SalarySlipsCreated)
+	})
+}
+
+func TestWorkforceLifecycleEndpoints(t *testing.T) {
+	mux := setupTestServer()
+
+	var employeeID string
+
+	t.Run("Onboard Human Employee via Lifecycle API", func(t *testing.T) {
+		payload := map[string]any{
+			"first_name":    "Nala",
+			"last_name":     "Simba",
+			"email":         "nala.simba@oci.local",
+			"role_title":    "Junior Facilities Engineer",
+			"department":    "Facilities Operations",
+			"employee_type": "human",
+			"ssh_key":       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...",
+			"storage_quota": "50 GB",
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/workforce/employees/onboard", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		var res saga.OnboardingResult
+		err := json.Unmarshal(rec.Body.Bytes(), &res)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, res.EmployeeID)
+		assert.Equal(t, "onboarding", res.Status)
+		assert.NotNil(t, res.VCSAccount)
+		assert.NotNil(t, res.Workspace)
+		assert.NotEmpty(t, res.HardwareAssets)
+		employeeID = res.EmployeeID
+	})
+
+	t.Run("Query Employee Lifecycle Record", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees/"+employeeID+"/lifecycle", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var lc map[string]any
+		err := json.Unmarshal(rec.Body.Bytes(), &lc)
+		assert.NoError(t, err)
+		assert.Equal(t, "onboarding", lc["status"])
+		assert.Equal(t, "nala.simba", lc["vcs_username"])
+	})
+
+	t.Run("Offboard Employee via Lifecycle API", func(t *testing.T) {
+		payload := map[string]any{
+			"reason":        "Contract concluded",
+			"target_status": "separated",
+		}
+		data, _ := json.Marshal(payload)
+
+		req := httptest.NewRequest("POST", "/api/v1/workforce/employees/"+employeeID+"/offboard", bytes.NewReader(data))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var res saga.OffboardingResult
+		err := json.Unmarshal(rec.Body.Bytes(), &res)
+		assert.NoError(t, err)
+		assert.Equal(t, employeeID, res.EmployeeID)
+		assert.Equal(t, "separated", res.Status)
+		assert.True(t, res.IdentityRevoked)
+		assert.True(t, res.SessionsRevoked)
+		assert.True(t, res.StorageArchived)
+		assert.NotNil(t, res.HardwareTickets)
+	})
+}
+
+

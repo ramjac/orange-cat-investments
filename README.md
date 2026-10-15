@@ -520,7 +520,7 @@ The primary purpose of this repository is to demonstrate an end-to-end, producti
 ### 7.3 Actionable Small Business Operational Capabilities
 Ensure all essential daily operational tasks of an SMB (except email which notably won't be selfhosted) can be executed natively across the integrated custom Go services and off-the-shelf business applications (COTS: ERPNext, Frappe HR, Nextcloud, Forgejo, Snipe-IT):
 
-#### 7.3.1 Timesheets & Attendance Tracking
+#### 7.3.1 Timesheets & Attendance Tracking (Completed)
 * **Frappe HR Bi-Directional Integration:**
   * Integrate the Employee Portal (`web/employee-portal`) with Frappe HR's attendance and timesheet REST APIs.
   * Implement an intuitive time-tracking interface allowing employees (e.g., facilities technicians, veterinary staff, software engineers) to log daily work hours, task codes, meal breaks, and habitat observation shifts.
@@ -528,27 +528,34 @@ Ensure all essential daily operational tasks of an SMB (except email which notab
   * Provide department leads (e.g., Alice Vance for HR/Admin, Bob Builder for Facilities) with manager dashboards to review, adjust, approve, or reject employee timesheets.
   * Emit Watermill domain events (`events.workforce.timesheet_approved.v1`) to automatically register verified billable hours in ERPNext cost centers.
 
-#### 7.3.2 Payroll Processing & Employee Compensation
+#### 7.3.2 Payroll Processing & Employee Compensation (Completed)
 * **Automated Payroll Runs:**
-  * Configure ERPNext / Frappe HR Payroll Entry processing driven by approved timesheets and salary structures.
-  * Automate earnings calculations, tax withholdings, social contributions, and direct deposit ledger entries.
+  * Implemented Frappe HR / ERPNext `Payroll Entry` and `Salary Slip` client interfaces (`pkg/cots/frappe`) and workforce service orchestration (`internal/service/workforce`).
+  * Supported automated earnings, tax deductions (Federal tax, Social Security), and net pay distribution calculations via `POST /api/v1/workforce/payroll/run`.
 * **Employee Self-Service Pay Stubs:**
-  * Implement secure BFF endpoints (`/api/v1/employee/payroll/slips`) querying Frappe HR salary slips for authenticated employees.
-  * Provide a dedicated "Compensation & Payroll" tab in the Employee Portal where staff can view historical salary slips, year-to-date tax deductions, and download official PDF pay stubs.
+  * Implemented secure BFF and domain API endpoints (`/api/v1/employee/payroll/slips` and `/api/v1/workforce/payroll/slips/{id}`) querying Frappe HR salary slips.
+  * Added dedicated "💰 Compensation & Payroll" portal tab in the Employee Portal (`web/employee-portal`) with YTD summary KPI metrics, historical salary slips table, and itemized direct deposit pay stub modal breakdown.
+  * Integrated simulation persona actions (`alice_process_payroll_entry`, `bob_view_paystubs`) in `simulation/actions.go` verifying end-to-end payroll workflows.
 
-#### 7.3.3 End-to-End Automated Employee Lifecycle Sagas
+#### 7.3.3 End-to-End Automated Employee Lifecycle Sagas (Completed)
 * **Comprehensive Onboarding Saga:**
-  * Expand [`OnboardingSaga`](file:///home/ramjac/orange-cat-investments/internal/saga/saga.go#L58-L159) triggered by Frappe HR new hire webhooks (`/api/v1/webhooks/frappe-hr`) to fully provision internal IT assets:
-    * Create user account and SSH/GPG keys in **Forgejo** for Git/development access.
-    * Provision user workspace, quota, and default group folders (e.g., HR, Engineering) in **Nextcloud**.
-    * Issue initial hardware assignments (workstation, laptop, security badge) in **Snipe-IT**.
-    * Initialize care schedule and shift roster in `workforce.care_schedules`.
+  * Implemented dedicated COTS REST API drivers for **Forgejo** (`pkg/cots/forgejo`), **Nextcloud** (`pkg/cots/nextcloud`), and **Snipe-IT** (`pkg/cots/snipeit`).
+  * Expanded [`OnboardingSaga`](file:///home/ramjac/orange-cat-investments/internal/saga/saga.go) and domain adapters (`internal/saga/adapters.go`) triggered by Frappe HR new hire webhooks (`/api/v1/webhooks/frappe-hr`) or direct API (`POST /api/v1/workforce/employees/onboard`):
+    * Automated VCS developer account creation and SSH public key registration in **Forgejo**.
+    * Provisioned storage workspaces, departmental quotas, and group folders (Engineering, Operations, Veterinary) in **Nextcloud**.
+    * Issued hardware allocations (MacBook Pro, Ergonomic Workstation, Encrypted RFID Badge, Pebble watch) in **Snipe-IT**.
+    * Initialized care schedules, feeding rosters, and primary caretaker assignment in `workforce.care_schedules`.
 * **Complete Separation & Offboarding Engine:**
-  * Operationalize [`OffboardingEngine`](file:///home/ramjac/orange-cat-investments/internal/saga/saga.go#L161-L232) to execute an automated multi-step deprovisioning workflow upon employee resignation or termination:
-    * Instantly invalidate active Valkey session tokens and revoke ZITADEL/Forgejo OAuth2 refresh tokens.
-    * Lock and archive personal Nextcloud storage to a secure compliance vault.
-    * Generate Snipe-IT equipment check-in tickets for asset recovery.
-    * If departing an executive feline care role, immediately transition affected habitat protocols to an active caretaker and log departure status in Frappe HR.
+  * Operationalized [`OffboardingEngine`](file:///home/ramjac/orange-cat-investments/internal/saga/saga.go) triggered via webhook or lifecycle API (`POST /api/v1/workforce/employees/{id}/offboard`):
+    * Invalidates active Valkey session tokens and revokes OAuth2 refresh tokens.
+    * Revokes Forgejo developer account access.
+    * Locks account and archives personal Nextcloud storage to compliance vault (`/compliance/vault/archives/`).
+    * Generates Snipe-IT equipment check-in tickets for asset recovery.
+    * Seamlessly transitions feline habitat care protocols and emergency medical holds to senior veterinary staff (Dr. Elena Rostova).
+    * Logs departure status in Frappe HR / ERPNext and emits Watermill domain events (`events.workforce.offboarding_completed.v1`).
+* **Employee Portal Integration & Simulation Coverage:**
+  * Added "👥 IT Onboarding & Lifecycle Sagas" tab to `web/employee-portal` featuring workforce lifecycle directory, single-click "Onboard New Hire" modal, and automated deprovisioning dialog.
+  * Added simulation action `alice_offboard_employee` in `simulation/actions.go` verifying automated deprovisioning in end-to-end simulations (55/55 actions passing).
 
 #### 7.3.4 Internal Documents, Knowledge Base & Team Collaboration
 * **Nextcloud Departmental Hub:**

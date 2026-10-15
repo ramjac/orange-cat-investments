@@ -739,6 +739,296 @@ paths:
               schema:
                 $ref: '#/components/schemas/CareSchedule'
 
+  /workforce/timesheets:
+    get:
+      summary: List Workforce Timesheets
+      operationId: listTimesheets
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, submitted, approved, rejected]
+        - name: from_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: task_code
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+      responses:
+        '200':
+          description: List of timesheet entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Timesheet'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+    post:
+      summary: Submit Daily Timesheet Entry
+      operationId: submitTimesheet
+      tags:
+        - Workforce Attendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimesheetSubmitRequest'
+      responses:
+        '201':
+          description: Timesheet created and submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/timesheets/{id}:
+    get:
+      summary: Get Timesheet Entry by ID
+      operationId: getTimesheet
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Timesheet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/timesheets/{id}/status:
+    put:
+      summary: Approve or Reject Timesheet Entry
+      operationId: updateTimesheetStatus
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimesheetStatusUpdateRequest'
+      responses:
+        '200':
+          description: Timesheet status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/payroll/slips:
+    get:
+      summary: List Employee Salary Slips
+      operationId: listSalarySlips
+      tags:
+        - Workforce Compensation
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of employee salary slips
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SalarySlip'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/payroll/slips/{id}:
+    get:
+      summary: Get Salary Slip Details
+      operationId: getSalarySlip
+      tags:
+        - Workforce Compensation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Salary slip details with earnings and deductions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalarySlip'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/payroll/run:
+    post:
+      summary: Execute Departmental or Company Payroll Run
+      operationId: processPayrollRun
+      tags:
+        - Workforce Compensation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayrollEntry'
+      responses:
+        '201':
+          description: Payroll run executed and salary slips created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollEntry'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/onboard:
+    post:
+      summary: Onboard New Employee & Execute IT Provisioning Saga
+      operationId: onboardEmployee
+      tags:
+        - Workforce Operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingRequest'
+      responses:
+        '201':
+          description: Employee successfully onboarded with COTS IT assets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingResult'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/{id}/offboard:
+    post:
+      summary: Offboard Employee & Execute Deprovisioning Engine
+      operationId: offboardEmployee
+      tags:
+        - Workforce Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OffboardingRequest'
+      responses:
+        '200':
+          description: Employee offboarded and assets deprovisioned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffboardingResult'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/{id}/lifecycle:
+    get:
+      summary: Retrieve Employee Consolidated Lifecycle Status
+      operationId: getEmployeeLifecycle
+      tags:
+        - Workforce Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consolidated lifecycle record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employee:
+                    $ref: '#/components/schemas/Employee'
+                  status:
+                    type: string
+                  vcs_username:
+                    type: string
+                  workspace_quota:
+                    type: string
+                  hardware_summary:
+                    type: string
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /webhooks/frappe-hr:
     post:
       summary: Frappe HR Status Change Webhook Ingestion
@@ -2095,6 +2385,383 @@ components:
         created_at:
           type: string
           format: date-time
+
+    Timesheet:
+      type: object
+      required:
+        - timesheet_id
+        - employee_id
+        - shift_date
+        - start_time
+        - end_time
+        - task_code
+        - hours_worked
+        - status
+        - created_at
+      properties:
+        timesheet_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        break_minutes:
+          type: integer
+          default: 0
+        task_code:
+          type: string
+          enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+        hours_worked:
+          type: number
+          format: float
+        billable:
+          type: boolean
+          default: false
+        cost_center:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, submitted, approved, rejected]
+        approved_by:
+          type: string
+          nullable: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        frappe_timesheet_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TimesheetSubmitRequest:
+      type: object
+      required:
+        - employee_id
+        - start_time
+        - end_time
+        - task_code
+      properties:
+        employee_id:
+          type: string
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        break_minutes:
+          type: integer
+          default: 0
+        task_code:
+          type: string
+          enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+        hours_worked:
+          type: number
+          format: float
+        billable:
+          type: boolean
+          default: false
+        cost_center:
+          type: string
+        notes:
+          type: string
+
+    TimesheetStatusUpdateRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+        approver_id:
+          type: string
+        reviewer_id:
+          type: string
+        reason:
+          type: string
+
+    SalaryComponent:
+      type: object
+      required:
+        - salary_component
+        - type
+        - amount
+      properties:
+        salary_component:
+          type: string
+        type:
+          type: string
+          enum: [Earning, Deduction]
+        amount:
+          type: number
+        description:
+          type: string
+
+    SalarySlip:
+      type: object
+      required:
+        - salary_slip_id
+        - employee_id
+        - posting_date
+        - gross_pay
+        - net_pay
+        - status
+      properties:
+        name:
+          type: string
+        salary_slip_id:
+          type: string
+        employee:
+          type: string
+        employee_id:
+          type: string
+        employee_name:
+          type: string
+        posting_date:
+          type: string
+          format: date
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        gross_pay:
+          type: number
+        total_deductions:
+          type: number
+        net_pay:
+          type: number
+        currency:
+          type: string
+          default: USD
+        status:
+          type: string
+          enum: [Draft, Submitted, Cancelled]
+        earnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalaryComponent'
+        deductions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalaryComponent'
+        payroll_entry:
+          type: string
+
+    PayrollEntry:
+      type: object
+      required:
+        - start_date
+        - end_date
+      properties:
+        payroll_entry_id:
+          type: string
+        posting_date:
+          type: string
+          format: date
+        company:
+          type: string
+        currency:
+          type: string
+          default: USD
+        payroll_frequency:
+          type: string
+          enum: [Monthly, Weekly, Biweekly]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        department:
+          type: string
+        status:
+          type: string
+          enum: [Draft, Submitted, Cancelled]
+        salary_slips_created:
+          type: integer
+        salary_slips_submitted:
+          type: integer
+        total_gross_pay:
+          type: number
+        total_net_pay:
+          type: number
+        employees:
+          type: array
+          items:
+            type: string
+
+    OnboardingRequest:
+      type: object
+      required:
+        - first_name
+        - role_title
+        - department
+      properties:
+        employee_id:
+          type: string
+        employee_type:
+          type: string
+          enum: [human, feline]
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        role_title:
+          type: string
+        department:
+          type: string
+        dietary_plan:
+          type: string
+        feeding_times:
+          type: array
+          items:
+            type: string
+        ssh_key:
+          type: string
+        storage_quota:
+          type: string
+
+    OnboardingResult:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        idp_identity_id:
+          type: string
+        status:
+          type: string
+        checklist_tasks:
+          type: array
+          items:
+            type: string
+        care_schedule:
+          $ref: '#/components/schemas/CareSchedule'
+        vcs_account:
+          $ref: '#/components/schemas/VCSAccount'
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+        hardware_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetAllocation'
+        message:
+          type: string
+
+    OffboardingRequest:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        reason:
+          type: string
+        target_status:
+          type: string
+          enum: [separated, retired]
+
+    OffboardingResult:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        status:
+          type: string
+        identity_revoked:
+          type: boolean
+        sessions_revoked:
+          type: boolean
+        storage_archived:
+          type: boolean
+        archive_vault_path:
+          type: string
+        hardware_tickets:
+          $ref: '#/components/schemas/AssetRecoverySummary'
+        trading_hold_state:
+          type: boolean
+        care_transition:
+          type: string
+        message:
+          type: string
+
+    VCSAccount:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        ssh_key_ids:
+          type: array
+          items:
+            type: integer
+        status:
+          type: string
+
+    Workspace:
+      type: object
+      properties:
+        username:
+          type: string
+        quota:
+          type: string
+        group_folders:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+
+    AssetAllocation:
+      type: object
+      properties:
+        asset_tag:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        status_label:
+          type: string
+
+    AssetRecoverySummary:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+        total_items:
+          type: integer
+        status:
+          type: string
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetAllocation'
 
     ErrorResponse:
       type: object

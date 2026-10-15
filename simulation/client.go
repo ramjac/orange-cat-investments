@@ -450,15 +450,8 @@ func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid
 	registerCustRoutes(serverMux)
 }
 
-func (c *Client) initMockEmployeeBFFServer() {
+func (c *Client) initMockEmployeeBFFServer(wfHandler *handler.WorkforceHandler) {
 	bffMux := http.NewServeMux()
-
-	wfRepo := workforce_repo.NewRepository(nil)
-	wfService := workforce_svc.NewService(wfRepo)
-	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
-	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)
-
-	wfHandler := handler.NewWorkforceHandler(wfService, onboardingSaga, offboardingEng)
 	wfHandler.RegisterRoutes(bffMux)
 
 	c.mockBFF = httptest.NewServer(bffMux)
@@ -501,6 +494,13 @@ func (c *Client) initMockServers() error {
 	registerFacilitiesRoutes(serverMux, facService, opsService)
 	registerNextcloudRoutes(serverMux)
 
+	wfRepo := workforce_repo.NewRepository(nil)
+	wfService := workforce_svc.NewService(wfRepo)
+	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
+	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)
+	wfHandler := handler.NewWorkforceHandler(wfService, onboardingSaga, offboardingEng)
+	wfHandler.RegisterRoutes(serverMux)
+
 	// Customer BFF routes and Mock Customer BFF server
 	custMux := http.NewServeMux()
 	registerCustomerRoutes(custMux, serverMux, bankClient, brokerClient, ciService)
@@ -511,7 +511,7 @@ func (c *Client) initMockServers() error {
 	c.mockServer = httptest.NewServer(serverMux)
 	c.serverURL = c.mockServer.URL
 
-	c.initMockEmployeeBFFServer()
+	c.initMockEmployeeBFFServer(wfHandler)
 
 	return nil
 }

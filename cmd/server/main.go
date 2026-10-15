@@ -25,6 +25,7 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -165,7 +166,24 @@ func main() {
 	} else {
 		wfRepo = workforce_repo.NewMockRepository()
 	}
-	wfSvc := workforce_svc.NewService(wfRepo)
+
+	var hrClient workforce_svc.HRClient
+	frappeURL := os.Getenv("FRAPPE_HR_URL")
+	if frappeURL != "" {
+		hrClient = frappe.NewClient(frappe.Config{
+			BaseURL:   frappeURL,
+			APIKey:    os.Getenv("FRAPPE_API_KEY"),
+			APISecret: os.Getenv("FRAPPE_API_SECRET"),
+		})
+		logger.Info("Frappe HR client initialized", "url", frappeURL)
+	}
+
+	var wfSvc workforce_svc.Service
+	if hrClient != nil {
+		wfSvc = workforce_svc.NewServiceWithIntegrations(wfRepo, nil, hrClient)
+	} else {
+		wfSvc = workforce_svc.NewService(wfRepo)
+	}
 	onboardSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 	wfHandler := workforce_handler.NewWorkforceHandler(wfSvc, onboardSaga, offboardEng)

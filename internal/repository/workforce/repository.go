@@ -721,3 +721,4 @@ func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, s
 	res.InvolvedHumanID = hID
 	return &res, nil
 }
+

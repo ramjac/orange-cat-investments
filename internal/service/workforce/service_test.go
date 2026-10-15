@@ -2,9 +2,13 @@ package workforce
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -573,3 +577,291 @@ func TestUpdateOnboardingTaskAndChecklist(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "employee id cannot be empty")
 }
+
+type testEventPublisher struct {
+	published []any
+}
+
+func (p *testEventPublisher) Publish(topic string, payload any) error {
+	p.published = append(p.published, payload)
+	return nil
+}
+
+type testHRClient struct {
+	created  []*frappe.Timesheet
+	approved []string
+	canceled []string
+	attended []*frappe.Attendance
+}
+
+func (c *testHRClient) CreateTimesheet(ctx context.Context, ts *frappe.Timesheet) (*frappe.Timesheet, error) {
+	ts.Name = fmt.Sprintf("TS-FRAPPE-%03d", len(c.created)+1)
+	ts.Normalize()
+	c.created = append(c.created, ts)
+	return ts, nil
+}
+
+func (c *testHRClient) GetTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	for _, ts := range c.created {
+		if ts.Name == name || ts.TimesheetID == name {
+			return ts, nil
+		}
+	}
+	return nil, fmt.Errorf("timesheet not found")
+}
+
+func (c *testHRClient) ListTimesheets(ctx context.Context, employeeID, status string) ([]frappe.Timesheet, error) {
+	var res []frappe.Timesheet
+	for _, ts := range c.created {
+		if employeeID != "" && ts.Employee != employeeID && ts.EmployeeID != employeeID {
+			continue
+		}
+		if status != "" && !strings.EqualFold(ts.Status, status) {
+			continue
+		}
+		res = append(res, *ts)
+	}
+	return res, nil
+}
+
+func (c *testHRClient) ApproveTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	c.approved = append(c.approved, name)
+	ts, err := c.GetTimesheet(ctx, name)
+	if err != nil {
+		return &frappe.Timesheet{Name: name, Status: "Approved"}, nil
+	}
+	ts.Status = "Approved"
+	return ts, nil
+}
+
+func (c *testHRClient) CancelTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	c.canceled = append(c.canceled, name)
+	ts, err := c.GetTimesheet(ctx, name)
+	if err != nil {
+		return &frappe.Timesheet{Name: name, Status: "Cancelled"}, nil
+	}
+	ts.Status = "Cancelled"
+	return ts, nil
+}
+
+func (c *testHRClient) MarkAttendance(ctx context.Context, att *frappe.Attendance) (*frappe.Attendance, error) {
+	c.attended = append(c.attended, att)
+	return att, nil
+}
+
+func (c *testHRClient) GetAttendance(ctx context.Context, name string) (*frappe.Attendance, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) ListAttendance(ctx context.Context, employeeID string) ([]frappe.Attendance, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) GetSalarySlips(ctx context.Context, employeeID string) ([]frappe.SalarySlip, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) GetSalarySlip(ctx context.Context, name string) (*frappe.SalarySlip, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) CreateSalarySlip(ctx context.Context, slip *frappe.SalarySlip) (*frappe.SalarySlip, error) {
+	return slip, nil
+}
+
+func (c *testHRClient) CreatePayrollEntry(ctx context.Context, pe *frappe.PayrollEntry) (*frappe.PayrollEntry, error) {
+	return pe, nil
+}
+
+func TestTimesheets_SubmitAndGet(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	startTime := time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 16, 30, 0, 0, time.UTC)
+
+	// Successful submit
+	ts := &frappe.Timesheet{
+		EmployeeID:   "emp-test-01",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &startTime,
+		EndTime:      &endTime,
+		BreakMinutes: 30,
+		TaskCode:     "habitat_maintenance",
+		Billable:     true,
+	}
+
+	created, err := svc.SubmitTimesheet(ctx, ts)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, created.TimesheetID)
+	assert.Equal(t, 8.0, created.HoursWorked)
+	assert.Equal(t, "submitted", created.Status)
+	assert.Equal(t, "Facilities Operations", created.CostCenter)
+
+	// Fetch by ID
+	fetched, err := svc.GetTimesheet(ctx, created.TimesheetID)
+	assert.NoError(t, err)
+	assert.Equal(t, created.TimesheetID, fetched.TimesheetID)
+
+	// Overlapping shift rejection
+	overlapStart := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	overlapEnd := time.Date(2026, 10, 15, 18, 0, 0, 0, time.UTC)
+	overlapTS := &frappe.Timesheet{
+		EmployeeID:   "emp-test-01",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &overlapStart,
+		EndTime:      &overlapEnd,
+		BreakMinutes: 0,
+		TaskCode:     "admin",
+	}
+	_, err = svc.SubmitTimesheet(ctx, overlapTS)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "overlaps with existing timesheet")
+}
+
+func TestTimesheets_ValidationErrors(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// Nil timesheet
+	_, err := svc.SubmitTimesheet(ctx, nil)
+	assert.Error(t, err)
+
+	// Empty employee
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{})
+	assert.Error(t, err)
+
+	// Start >= End
+	startTime := time.Date(2026, 10, 15, 16, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &endTime,
+	})
+	assert.Error(t, err)
+
+	// Shift duration > 24h
+	longEnd := startTime.Add(25 * time.Hour)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &longEnd,
+	})
+	assert.Error(t, err)
+
+	// Invalid task code
+	validEnd := startTime.Add(4 * time.Hour)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &validEnd,
+		TaskCode:   "laser_pointer_chase",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid task_code")
+}
+
+func TestTimesheets_ApproveAndReject(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	publisher := &testEventPublisher{}
+	hrClient := &testHRClient{}
+	svc := NewServiceWithIntegrations(repo, publisher, hrClient)
+	ctx := context.Background()
+
+	startTime := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 17, 0, 0, 0, time.UTC)
+
+	ts, err := svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID:   "emp-test-02",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &startTime,
+		EndTime:      &endTime,
+		BreakMinutes: 60,
+		TaskCode:     "feline_feeding",
+		Billable:     false,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 7.0, ts.HoursWorked)
+
+	// Approve
+	approved, err := svc.ApproveTimesheet(ctx, ts.TimesheetID, "emp-lead-01")
+	assert.NoError(t, err)
+	assert.Equal(t, "approved", approved.Status)
+	assert.NotNil(t, approved.ApprovedBy)
+	assert.Equal(t, "emp-lead-01", *approved.ApprovedBy)
+	assert.NotNil(t, approved.FrappeTimesheetID)
+	assert.Equal(t, "TS-FRAPPE-001", *approved.FrappeTimesheetID)
+
+	// Check HR client called
+	assert.Len(t, hrClient.created, 1)
+	assert.Len(t, hrClient.approved, 1)
+
+	// Check Event Publisher called
+	assert.Len(t, publisher.published, 1)
+
+	// Cannot reject approved timesheet
+	_, err = svc.RejectTimesheet(ctx, ts.TimesheetID, "emp-lead-01", "late")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot reject an already approved timesheet")
+
+	// Submit another timesheet to reject
+	ts2, err := svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-03",
+		ShiftDate:  "2026-10-16",
+		StartTime:  &startTime,
+		EndTime:    &endTime,
+		TaskCode:   "admin",
+	})
+	assert.NoError(t, err)
+
+	rejected, err := svc.RejectTimesheet(ctx, ts2.TimesheetID, "emp-lead-01", "Missing shift report")
+	assert.NoError(t, err)
+	assert.Equal(t, "rejected", rejected.Status)
+
+	// List filtering
+	all, err := svc.ListTimesheets(ctx, TimesheetFilter{
+		EmployeeID: "emp-test-02",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+func TestPayroll_SalarySlipsAndRun(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// List default seeded salary slips for Bob
+	slips, err := svc.ListSalarySlips(ctx, "emp-human-bob")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, slips)
+	assert.Equal(t, "emp-human-bob", slips[0].EmployeeID)
+
+	// Get single salary slip
+	slip, err := svc.GetSalarySlip(ctx, slips[0].SalarySlipID)
+	assert.NoError(t, err)
+	assert.Equal(t, slips[0].SalarySlipID, slip.SalarySlipID)
+	assert.Equal(t, 5833.33, slip.GrossPay)
+	assert.NotEmpty(t, slip.Earnings)
+	assert.NotEmpty(t, slip.Deductions)
+
+	// Execute a new payroll run
+	pe, err := svc.ProcessPayrollRun(ctx, &frappe.PayrollEntry{
+		StartDate: "2026-10-01",
+		EndDate:   "2026-10-31",
+		Employees: []string{"emp-human-bob", "emp-human-alice"},
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, pe.PayrollEntryID)
+	assert.Equal(t, 2, pe.SalarySlipsCreated)
+	assert.Equal(t, 10000.0, pe.TotalGrossPay)
+
+	// Verify newly generated salary slip exists
+	updatedSlips, err := svc.ListSalarySlips(ctx, "emp-human-bob")
+	assert.NoError(t, err)
+	assert.True(t, len(updatedSlips) >= 3)
+}
+
