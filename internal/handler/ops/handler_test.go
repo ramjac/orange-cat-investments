@@ -83,6 +83,54 @@ func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32)
 	}, nil
 }
 
+func (m *mockOpsService) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+	return m.ListITTickets(ctx, limit, offset)
+}
+
+func (m *mockOpsService) ListITTicketsByCustomer(ctx context.Context, customerID string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+	return m.ListITTickets(ctx, limit, offset)
+}
+
+func (m *mockOpsService) UpdateITTicket(ctx context.Context, ticketID string, req *opssvc.UpdateTicketRequest) (*opsrepo.ITTicket, error) {
+	return &opsrepo.ITTicket{
+		TicketID: ticketID,
+		State:    req.State,
+	}, nil
+}
+
+func (m *mockOpsService) AddTicketComment(ctx context.Context, ticketID string, req *opssvc.AddCommentRequest) (*opsrepo.TicketComment, error) {
+	return &opsrepo.TicketComment{
+		CommentID:      "comm-test-1",
+		TicketID:       ticketID,
+		AuthorUsername: req.AuthorUsername,
+		Comment:        req.Comment,
+		IsInternal:     req.IsInternal,
+	}, nil
+}
+
+func (m *mockOpsService) ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*opsrepo.TicketComment, error) {
+	return []*opsrepo.TicketComment{
+		{
+			CommentID:      "comm-test-1",
+			TicketID:       ticketID,
+			AuthorUsername: "emp-human-elise",
+			Comment:        "Sample comment",
+			IsInternal:     false,
+		},
+	}, nil
+}
+
+func (m *mockOpsService) CreateCustomerTicket(ctx context.Context, req *opssvc.CreateCustomerTicketRequest) (*opsrepo.ITTicket, error) {
+	return &opsrepo.ITTicket{
+		TicketID:       "cust-ticket-999",
+		Title:          req.Title,
+		Source:         "customer",
+		CustomerID:     &req.CustomerID,
+		AuthorUsername: req.CustomerID,
+		State:          "open",
+	}, nil
+}
+
 func (m *mockOpsService) SendPushNotification(ctx context.Context, req *opssvc.PushNotificationRequest) (*opssvc.PushNotificationResponse, error) {
 	return &opssvc.PushNotificationResponse{
 		Status:       "dispatched",
@@ -211,5 +259,113 @@ func TestOpsHandler(t *testing.T) {
 		assert.Equal(t, "dispatched", resp.Status)
 		assert.Equal(t, "ntfy", resp.Provider)
 		assert.Equal(t, "alerts", resp.Topic)
+	})
+
+	t.Run("GET & PUT /api/v1/ops/tickets/{id}", func(t *testing.T) {
+		// GET ticket
+		req := httptest.NewRequest("GET", "/api/v1/ops/tickets/ticket-test-123", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var ticket opsrepo.ITTicket
+		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
+		assert.NoError(t, err)
+		assert.Equal(t, "ticket-test-123", ticket.TicketID)
+
+		// PUT ticket update
+		updateBody := map[string]any{
+			"state":             "resolved",
+			"assignee_username": "emp-human-bob",
+			"resolution_notes":  "Restarted habitat temperature gateway",
+		}
+		updateData, _ := json.Marshal(updateBody)
+		req2 := httptest.NewRequest("PUT", "/api/v1/ops/tickets/ticket-test-123", bytes.NewReader(updateData))
+		req2.Header.Set("Content-Type", "application/json")
+		rec2 := httptest.NewRecorder()
+		mux.ServeHTTP(rec2, req2)
+
+		assert.Equal(t, http.StatusOK, rec2.Code)
+		var updated opsrepo.ITTicket
+		err = json.Unmarshal(rec2.Body.Bytes(), &updated)
+		assert.NoError(t, err)
+		assert.Equal(t, "resolved", updated.State)
+	})
+
+	t.Run("Comments Threading on IT Tickets", func(t *testing.T) {
+		// POST Comment
+		commBody := map[string]any{
+			"author_username": "emp-human-frank",
+			"comment":         "Sensor firmware updated to v2.1.0",
+			"is_internal":     true,
+		}
+		data, _ := json.Marshal(commBody)
+		req := httptest.NewRequest("POST", "/api/v1/ops/tickets/ticket-test-123/comments", bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+
+		// GET Comments
+		req2 := httptest.NewRequest("GET", "/api/v1/ops/tickets/ticket-test-123/comments", nil)
+		rec2 := httptest.NewRecorder()
+		mux.ServeHTTP(rec2, req2)
+
+		assert.Equal(t, http.StatusOK, rec2.Code)
+		var listResp map[string]any
+		err := json.Unmarshal(rec2.Body.Bytes(), &listResp)
+		assert.NoError(t, err)
+		assert.Equal(t, float64(1), listResp["total"])
+	})
+
+	t.Run("Customer Support Intake & Comments", func(t *testing.T) {
+		// POST Customer Ticket
+		custBody := map[string]any{
+			"customer_id": "cust-longterm-arthur",
+			"category":    "trading",
+			"title":       "Order settlement confirmation inquiry",
+			"body":        "Please check if transaction batch #412 settled.",
+		}
+		data, _ := json.Marshal(custBody)
+		req := httptest.NewRequest("POST", "/api/v1/customer/support/tickets", bytes.NewReader(data))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Customer-ID", "cust-longterm-arthur")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		var created opsrepo.ITTicket
+		err := json.Unmarshal(rec.Body.Bytes(), &created)
+		assert.NoError(t, err)
+		assert.Equal(t, "cust-ticket-999", created.TicketID)
+
+		// GET Customer Tickets
+		reqList := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+		reqList.Header.Set("X-Customer-ID", "cust-longterm-arthur")
+		recList := httptest.NewRecorder()
+		mux.ServeHTTP(recList, reqList)
+
+		assert.Equal(t, http.StatusOK, recList.Code)
+
+		// GET Customer Ticket Comments (Scrubbed)
+		reqComm := httptest.NewRequest("GET", "/api/v1/customer/support/tickets/cust-ticket-999/comments", nil)
+		recComm := httptest.NewRecorder()
+		mux.ServeHTTP(recComm, reqComm)
+
+		assert.Equal(t, http.StatusOK, recComm.Code)
+
+		// POST Customer Reply Comment
+		replyBody := map[string]any{
+			"comment": "Thank you for looking into this!",
+		}
+		dataReply, _ := json.Marshal(replyBody)
+		reqReply := httptest.NewRequest("POST", "/api/v1/customer/support/tickets/cust-ticket-999/comments", bytes.NewReader(dataReply))
+		reqReply.Header.Set("Content-Type", "application/json")
+		reqReply.Header.Set("X-Customer-ID", "cust-longterm-arthur")
+		recReply := httptest.NewRecorder()
+		mux.ServeHTTP(recReply, reqReply)
+
+		assert.Equal(t, http.StatusCreated, recReply.Code)
 	})
 }

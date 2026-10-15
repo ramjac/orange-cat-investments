@@ -334,6 +334,7 @@ func (r *Registry) createAlicePersona() *Persona {
 			r.createAliceOffboardEmployeeAction(),
 			r.createAliceAssignLaptopAction(),
 			r.createAlicePublishOnboardingDocAction(),
+			r.createAliceGenerateExecutiveReportAction(),
 		},
 	}
 }
@@ -571,6 +572,57 @@ func (r *Registry) createAlicePublishOnboardingDocAction() Action {
 	}
 }
 
+func (r *Registry) createAliceGenerateExecutiveReportAction() Action {
+	return Action{
+		Name:        "alice_generate_executive_report",
+		Description: "Generates monthly executive management summary aggregating ERPNext financials and workforce KPIs, archiving to Nextcloud WebDAV",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/reports/monthly/generate"
+			payload := map[string]any{
+				"period":       "2026-10",
+				"generated_by": "emp-human-alice",
+			}
+			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			if err != nil {
+				return nil, err
+			}
+			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+				return &ActionResult{
+					PersonaID:   "emp-human-alice",
+					PersonaName: "Alice Vance",
+					ActionName:  "alice_generate_executive_report",
+					Endpoint:    endpoint,
+					Success:     false,
+					StatusCode:  resp.StatusCode,
+					Details:     fmt.Sprintf("Failed to generate executive report: %s", string(bytes)),
+					Timestamp:   time.Now().UTC(),
+				}, nil
+			}
+
+			// Verify report is listed in historical reports
+			listEndpoint := "/api/v1/workforce/reports/monthly"
+			listResp, listBytes, listErr := client.Do(ctx, true, "GET", listEndpoint, nil)
+			if listErr != nil {
+				return nil, listErr
+			}
+
+			success := (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated) &&
+				listResp.StatusCode == http.StatusOK
+
+			return &ActionResult{
+				PersonaID:   "emp-human-alice",
+				PersonaName: "Alice Vance",
+				ActionName:  "alice_generate_executive_report",
+				Endpoint:    endpoint,
+				Success:     success,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Generated and archived monthly executive report: %s (History verified: %d bytes)", string(bytes), len(listBytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
 func (r *Registry) createAliceProcessPayrollEntryAction() Action {
 	return Action{
 		Name:        "alice_process_payroll_entry",
@@ -714,6 +766,7 @@ func (r *Registry) createBobPersona() *Persona {
 			},
 			r.createBobLogDailyTimesheetAction(),
 			r.createBobViewPaystubsAction(),
+			r.createBobReviewCalendarAction(),
 		},
 	}
 }
@@ -771,6 +824,30 @@ func (r *Registry) createBobViewPaystubsAction() Action {
 				Success:     resp.StatusCode == http.StatusOK,
 				StatusCode:  resp.StatusCode,
 				Details:     fmt.Sprintf("Retrieved Bob paystubs/salary slips: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createBobReviewCalendarAction() Action {
+	return Action{
+		Name:        "bob_review_maintenance_calendar",
+		Description: "Reviews scheduled habitat maintenance windows and shift rotations in the shared operations calendar",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			endpoint := "/api/v1/workforce/calendar/events?calendar=Habitat%20Maintenance%20Windows"
+			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-bob",
+				PersonaName: "Bob Builder",
+				ActionName:  "bob_review_maintenance_calendar",
+				Endpoint:    endpoint,
+				Success:     resp.StatusCode == http.StatusOK,
+				StatusCode:  resp.StatusCode,
+				Details:     fmt.Sprintf("Retrieved maintenance calendar events: %s", string(bytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},
@@ -1005,6 +1082,32 @@ func (r *Registry) createElenaPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Audited feline health assessments: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elena_conduct_wellness_audit",
+				Description: "Conducts periodic feline clinical wellness audit with habitat optimization recommendations",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/review-cycles/018e0000-0000-7000-8000-000000000021/vet-audit"
+					payload := map[string]any{
+						"clinical_auditor_id":     "emp-human-elena",
+						"wellness_audit_score":    4.90,
+						"habitat_recommendations": "Recalibrate perch climb angle to reduce joint strain and install secondary scratching post",
+					}
+					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elena",
+						PersonaName: "Dr. Elena Rostova",
+						ActionName:  "elena_conduct_wellness_audit",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Recorded clinical wellness audit: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -1309,6 +1412,61 @@ func (r *Registry) createArthurPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Initiated Plaid Link token session: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_submit_customer_support_ticket",
+				Description: "Submits customer support inquiry and verifies sanitized comment thread retrieval",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/support/tickets"
+					payload := map[string]any{
+						"customer_id": "cust-longterm-arthur",
+						"category":    "Trading",
+						"title":       "Delayed Fill Confirmation for SPY Order",
+						"body":        "I noticed an order submitted at market open took longer than anticipated to confirm fill status.",
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+						return &ActionResult{
+							PersonaID:   "cust-longterm-arthur",
+							PersonaName: "Arthur Pendelton",
+							ActionName:  "arthur_submit_customer_support_ticket",
+							Endpoint:    endpoint,
+							Success:     false,
+							StatusCode:  resp.StatusCode,
+							Details:     fmt.Sprintf("Failed to submit support ticket: %s", string(bytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
+
+					var created struct {
+						TicketID string `json:"ticket_id"`
+					}
+					_ = json.Unmarshal(bytes, &created)
+
+					// Retrieve sanitized comments thread
+					commentsEndpoint := fmt.Sprintf("/api/v1/customer/support/tickets/%s/comments", created.TicketID)
+					commentsResp, commentsBytes, commentsErr := client.DoCustomer(ctx, "GET", commentsEndpoint, nil)
+					if commentsErr != nil {
+						return nil, commentsErr
+					}
+
+					success := (resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK) &&
+						commentsResp.StatusCode == http.StatusOK
+
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_submit_customer_support_ticket",
+						Endpoint:    commentsEndpoint,
+						Success:     success,
+						StatusCode:  commentsResp.StatusCode,
+						Details:     fmt.Sprintf("Created support ticket %s, retrieved sanitized comments: %s", created.TicketID, string(commentsBytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -1744,6 +1902,36 @@ func (r *Registry) createElisePersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Audited developer tickets response size: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_submit_habitat_helpdesk_ticket",
+				Description: "Submits an urgent priority habitat IT helpdesk ticket via Employee BFF",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/ops/tickets"
+					payload := map[string]any{
+						"title":           "Habitat Alpha Thermostat Calibration Drift",
+						"body":            "Environmental monitoring sensor reports temperature delta exceeding +3.5C in Habitat Alpha.",
+						"author_username": "emp-human-elise",
+						"category":        "Habitat",
+						"severity":        "urgent",
+						"is_urgent":       true,
+						"forgejo_repo":    "oci-internal/helpdesk",
+					}
+					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_submit_habitat_helpdesk_ticket",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Submitted urgent habitat helpdesk ticket: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

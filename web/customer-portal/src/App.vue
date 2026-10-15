@@ -40,6 +40,9 @@
       <button :class="['tab-btn', { active: currentTab === 'esg' }]" @click="currentTab = 'esg'">
         🌿 Feline Welfare & ESG Dashboard
       </button>
+      <button :class="['tab-btn', { active: currentTab === 'support' }]" @click="currentTab = 'support'">
+        🎧 Support & Inquiries
+      </button>
     </nav>
 
     <!-- TAB 1: Portfolio & Performance -->
@@ -411,6 +414,167 @@
       </div>
     </div>
 
+    <!-- TAB: Support & Inquiries -->
+    <div v-if="currentTab === 'support'" class="grid-layout" style="grid-template-columns: 1fr 1.2fr; gap: 1.5rem;">
+      <!-- Left Column: Submit Ticket Form & Ticket History -->
+      <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <!-- Submit Ticket Card -->
+        <div class="card">
+          <h3>🎧 Customer Support & Bug Intake</h3>
+          <p class="subtext">
+            Submit transaction inquiries or report UI issues. Synced with our dedicated engineering support tracker (<code>oci-internal/customer-support</code>).
+          </p>
+
+          <form @submit.prevent="submitCustomerTicket" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+            <div>
+              <label class="form-label" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 0.35rem;">Inquiry Category *</label>
+              <select v-model="ticketForm.category" class="score-input" style="width: 100%; padding: 0.6rem; font-size: 0.85rem; background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 0.375rem;">
+                <option value="Trading">⚡ Order Execution & Trading Desk</option>
+                <option value="Banking">🏦 Banking & ACH Capital Deposits</option>
+                <option value="Habitat">🐾 Feline Habitat Stream & Video</option>
+                <option value="UI Bug">🐛 Portal Interface Bug / Visual Issue</option>
+                <option value="General">💬 General Account & Policy Inquiry</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 0.35rem;">Subject / Title *</label>
+              <input
+                v-model="ticketForm.title"
+                required
+                class="score-input"
+                style="width: 100%; padding: 0.6rem; font-size: 0.85rem; text-align: left; background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 0.375rem;"
+                placeholder="e.g. Delayed Fill Confirmation for AAPL Order"
+              />
+            </div>
+
+            <div>
+              <label class="form-label" style="font-size: 0.8rem; color: #94a3b8; display: block; margin-bottom: 0.35rem;">Description & Details *</label>
+              <textarea
+                v-model="ticketForm.body"
+                required
+                rows="4"
+                class="score-input"
+                style="width: 100%; padding: 0.6rem; font-size: 0.85rem; text-align: left; resize: vertical; background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 0.375rem;"
+                placeholder="Please describe what occurred, including dates, approximate trade amounts, or browser behavior..."
+              ></textarea>
+            </div>
+
+            <button type="submit" class="submit-btn" :disabled="isSubmittingSupportTicket" style="padding: 0.75rem; font-weight: bold; cursor: pointer;">
+              {{ isSubmittingSupportTicket ? 'Submitting Ticket...' : '📩 Submit Support Ticket' }}
+            </button>
+          </form>
+        </div>
+
+        <!-- Ticket History Card -->
+        <div class="card">
+          <h3>Your Inquiries</h3>
+          <p class="subtext">Select an inquiry to view updates and reply to our support desk.</p>
+
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem;">
+            <div
+              v-for="t in customerTickets"
+              :key="t.ticket_id"
+              :class="['stream-card', { active: selectedTicket && selectedTicket.ticket_id === t.ticket_id }]"
+              style="padding: 0.85rem; cursor: pointer; border-radius: 0.5rem;"
+              @click="selectCustomerTicket(t)"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.35rem;">
+                <strong style="color: #f8fafc; font-size: 0.9rem;">{{ t.title }}</strong>
+                <span :class="['badge', getTicketStatusBadgeClass(t.state)]">
+                  {{ t.state ? t.state.toUpperCase() : 'OPEN' }}
+                </span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+                <span>🏷️ {{ t.category || 'General' }}</span>
+                <span>{{ formatDate(t.created_at) }}</span>
+              </div>
+            </div>
+
+            <div v-if="customerTickets.length === 0" style="text-align: center; color: #94a3b8; padding: 1.5rem; font-size: 0.85rem;">
+              No support inquiries submitted yet.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Selected Ticket Details & Discussion Thread -->
+      <div class="card" style="display: flex; flex-direction: column; height: 100%;">
+        <div v-if="selectedTicket" style="display: flex; flex-direction: column; height: 100%;">
+          <div style="border-bottom: 1px solid #334155; padding-bottom: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span class="badge" style="background: #0284c7; color: white;">#{{ selectedTicket.forgejo_issue_id || selectedTicket.ticket_id.substring(0, 6) }}</span>
+              <span :class="['badge', getTicketStatusBadgeClass(selectedTicket.state)]">{{ selectedTicket.state ? selectedTicket.state.toUpperCase() : 'OPEN' }}</span>
+            </div>
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.2rem; color: #f8fafc;">{{ selectedTicket.title }}</h3>
+            <div style="font-size: 0.8rem; color: #94a3b8;">
+              Category: <strong style="color: #cbd5e1;">{{ selectedTicket.category }}</strong> • Submitted: {{ formatDate(selectedTicket.created_at) }}
+            </div>
+            <div v-if="selectedTicket.body" style="margin-top: 0.75rem; font-size: 0.85rem; color: #e2e8f0; background: #0f172a; padding: 0.75rem; border-radius: 0.375rem; white-space: pre-wrap;">
+              {{ selectedTicket.body }}
+            </div>
+            <div v-if="selectedTicket.resolution_notes" style="margin-top: 0.75rem; font-size: 0.85rem; color: #86efac; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); padding: 0.75rem; border-radius: 0.375rem;">
+              <strong>Resolution:</strong> {{ selectedTicket.resolution_notes }}
+            </div>
+          </div>
+
+          <!-- Discussion Messages Thread -->
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: #f8fafc;">Support Desk Updates & Conversation</h4>
+          <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; max-height: 400px; padding-right: 0.5rem; margin-bottom: 1rem;">
+            <div
+              v-for="msg in ticketComments"
+              :key="msg.comment_id"
+              :style="{
+                background: msg.author_username === portfolio.customer_name || msg.author_username === currentPersona ? '#0f172a' : '#1e293b',
+                border: msg.author_username === portfolio.customer_name || msg.author_username === currentPersona ? '1px solid #334155' : '1px solid #0284c7',
+                borderRadius: '0.5rem',
+                padding: '0.75rem'
+              }"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem;">
+                <strong style="font-size: 0.8rem; color: #38bdf8;">
+                  {{ msg.author_username === portfolio.customer_name || msg.author_username === currentPersona ? 'You (' + msg.author_username + ')' : '🛡️ ' + msg.author_username + ' (OCI Support Desk)' }}
+                </strong>
+                <span style="font-size: 0.7rem; color: #94a3b8;">{{ formatDate(msg.created_at) }}</span>
+              </div>
+              <div style="font-size: 0.85rem; color: #f1f5f9; white-space: pre-wrap;">
+                {{ msg.comment }}
+              </div>
+            </div>
+
+            <div v-if="ticketComments.length === 0" style="text-align: center; color: #94a3b8; padding: 2rem; font-size: 0.85rem;">
+              No responses yet from support. We typically respond within 1 business hour.
+            </div>
+          </div>
+
+          <!-- Reply Form -->
+          <form @submit.prevent="submitTicketComment" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: auto;">
+            <textarea
+              v-model="newCommentText"
+              rows="2"
+              required
+              class="score-input"
+              style="width: 100%; padding: 0.5rem; font-size: 0.85rem; text-align: left; resize: vertical; background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 0.375rem;"
+              placeholder="Type your response to the support team..."
+            ></textarea>
+            <div style="display: flex; justify-content: flex-end;">
+              <button type="submit" class="submit-btn" :disabled="isSubmittingComment" style="padding: 0.5rem 1rem; font-size: 0.85rem; cursor: pointer;">
+                {{ isSubmittingComment ? 'Sending...' : '💬 Send Reply' }}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div v-else style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8; padding: 3rem 1rem; text-align: center;">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">🎧</div>
+          <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Select a Support Inquiry</h4>
+          <p style="font-size: 0.85rem; max-width: 320px; margin: 0;">
+            Choose a ticket from the left panel to review sanitized engineering updates and reply to our support desk.
+          </p>
+        </div>
+      </div>
+    </div>
+
     <div v-if="toastMessage" class="alert-toast">
       {{ toastMessage }}
     </div>
@@ -427,6 +591,15 @@ const isSubmittingOrder = ref(false);
 const isSubmittingDeposit = ref(false);
 const newlyCreatedKey = ref('');
 const csrfToken = ref('');
+
+// Support & Inquiries State
+const customerTickets = ref([]);
+const selectedTicket = ref(null);
+const ticketComments = ref([]);
+const ticketForm = ref({ category: 'Trading', title: '', body: '' });
+const newCommentText = ref('');
+const isSubmittingSupportTicket = ref(false);
+const isSubmittingComment = ref(false);
 
 const videoPlayer = ref(null);
 const peerConnection = ref(null);
@@ -772,6 +945,8 @@ async function togglePersona() {
     await loginSession('018e0000-0000-7000-8000-000000000098', 'Chloe Spark', 'chloe@oci.local');
     fetchPortfolio();
     fetchTradeLogs();
+    selectedTicket.value = null;
+    fetchCustomerTickets();
     showToast('Switched to Chloe Spark (Momentum Trader mode)');
   } else {
     currentPersona.value = 'arthur';
@@ -779,6 +954,8 @@ async function togglePersona() {
     await loginSession('018e0000-0000-7000-8000-000000000099', 'Arthur Pendelton', 'arthur@oci.local');
     fetchPortfolio();
     fetchTradeLogs();
+    selectedTicket.value = null;
+    fetchCustomerTickets();
     showToast('Switched to Arthur Pendelton (Long-Term Investor mode)');
   }
 }
@@ -926,6 +1103,119 @@ async function createWebhook() {
   }
 }
 
+function getTicketStatusBadgeClass(st) {
+  switch (st?.toLowerCase()) {
+    case 'closed':
+      return 'badge-closed';
+    case 'acknowledged':
+      return 'badge-ack';
+    default:
+      return 'badge-open';
+  }
+}
+
+function formatDate(dt) {
+  if (!dt) return '';
+  const d = new Date(dt);
+  return isNaN(d.getTime()) ? dt : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+async function fetchCustomerTickets() {
+  try {
+    const res = await fetch('/api/v1/customer/support/tickets');
+    if (res.ok) {
+      const data = await res.json();
+      customerTickets.value = data.items || [];
+      if (selectedTicket.value) {
+        const found = customerTickets.value.find(t => t.ticket_id === selectedTicket.value.ticket_id);
+        if (found) selectedTicket.value = found;
+      }
+    }
+  } catch (e) {}
+}
+
+async function fetchTicketComments(ticketId) {
+  try {
+    const res = await fetch(`/api/v1/customer/support/tickets/${ticketId}/comments`);
+    if (res.ok) {
+      const data = await res.json();
+      ticketComments.value = data.items || [];
+    }
+  } catch (e) {}
+}
+
+function selectCustomerTicket(ticket) {
+  selectedTicket.value = ticket;
+  ticketComments.value = [];
+  fetchTicketComments(ticket.ticket_id);
+}
+
+async function submitCustomerTicket() {
+  if (!ticketForm.value.title) {
+    showToast('Inquiry subject is required.');
+    return;
+  }
+  isSubmittingSupportTicket.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/support/tickets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        category: ticketForm.value.category,
+        title: ticketForm.value.title,
+        body: ticketForm.value.body
+      })
+    });
+    if (res.ok) {
+      const created = await res.json();
+      customerTickets.value.unshift(created);
+      selectedTicket.value = created;
+      ticketComments.value = [];
+      showToast('Support inquiry submitted! We will respond shortly.');
+      ticketForm.value = { category: 'Trading', title: '', body: '' };
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to submit inquiry.');
+    }
+  } catch (e) {
+    showToast('Failed to submit inquiry.');
+  } finally {
+    isSubmittingSupportTicket.value = false;
+  }
+}
+
+async function submitTicketComment() {
+  if (!newCommentText.value || !selectedTicket.value) return;
+  isSubmittingComment.value = true;
+  try {
+    const res = await fetch(`/api/v1/customer/support/tickets/${selectedTicket.value.ticket_id}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        comment: newCommentText.value
+      })
+    });
+    if (res.ok) {
+      const created = await res.json();
+      ticketComments.value.push(created);
+      newCommentText.value = '';
+      showToast('Reply sent to support desk.');
+    } else {
+      showToast('Failed to send reply.');
+    }
+  } catch (e) {
+    showToast('Failed to send reply.');
+  } finally {
+    isSubmittingComment.value = false;
+  }
+}
+
 watch(currentTab, (newTab) => {
   if (newTab === 'stream') {
     initWebRTCStream();
@@ -949,6 +1239,7 @@ onMounted(async () => {
   fetchESGTransparency();
   fetchZoomieIndex();
   fetchTickerData();
+  fetchCustomerTickets();
   if (currentTab.value === 'stream') {
     initWebRTCStream();
   }
@@ -1041,4 +1332,9 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .feline-esg-card { background: var(--background-color, #0f172a); padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; }
 .feline-esg-card h4 { margin: 0 0 0.5rem 0; color: var(--secondary-color, #ea580c); }
 .feline-esg-card p { margin: 0.25rem 0; font-size: 0.85rem; color: #cbd5e1; }
+
+.badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: bold; }
+.badge-open { background: #0284c7; color: white; }
+.badge-ack { background: #d97706; color: white; }
+.badge-closed { background: #059669; color: white; }
 </style>

@@ -20,10 +20,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
+	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -144,6 +147,7 @@ type felineCache struct {
 type CustomerBFF struct {
 	ciSvc       core_invest_svc.Service
 	wfSvc       workforce_svc.Service
+	opsSvc      ops_svc.Service
 	sessions    *SessionStore
 	logger      *slog.Logger
 	broker      *alpaca.Client
@@ -156,6 +160,7 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 	return &CustomerBFF{
 		ciSvc:    ciSvc,
 		wfSvc:    wfSvc,
+		opsSvc:   ops_svc.NewService(ops_repo.NewMockRepository()),
 		sessions: NewSessionStore(),
 		logger:   logger,
 		vhrCache: vhrCache{
@@ -165,6 +170,10 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 			ttl: 30 * time.Second,
 		},
 	}
+}
+
+func (b *CustomerBFF) SetOpsService(svc ops_svc.Service) {
+	b.opsSvc = svc
 }
 
 func (b *CustomerBFF) SetBrokerClient(client *alpaca.Client) {
@@ -332,6 +341,9 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/webhooks", b.sessionAuth(http.HandlerFunc(b.handleGetWebhooks)))
 	mux.Handle("GET /api/v1/customer/transparency/welfare", b.sessionAuth(http.HandlerFunc(b.handleGetESGTransparency)))
 	mux.Handle("GET /api/v1/customer/streams", b.sessionAuth(http.HandlerFunc(b.handleGetStreams)))
+	mux.Handle("GET /api/v1/customer/support/tickets", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTickets)))
+	mux.Handle("GET /api/v1/customer/support/tickets/{id}", b.sessionAuth(http.HandlerFunc(b.handleGetCustomerTicket)))
+	mux.Handle("GET /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTicketComments)))
 
 	// Protected state-changing endpoints (Session Auth + Double-Submit CSRF)
 	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateOrder))))
@@ -339,6 +351,8 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/customer/api-keys", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateAPIKey))))
 	mux.Handle("DELETE /api/v1/customer/api-keys/{id}", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleRevokeAPIKey))))
 	mux.Handle("POST /api/v1/customer/webhooks", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateWebhook))))
+	mux.Handle("POST /api/v1/customer/support/tickets", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateCustomerTicket))))
+	mux.Handle("POST /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleAddCustomerTicketComment))))
 }
 
 func (b *CustomerBFF) handleGetCSRFToken(w http.ResponseWriter, r *http.Request) {
@@ -1273,6 +1287,207 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(streams)
 }
 
+func (b *CustomerBFF) handleListCustomerTickets(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	custID := ""
+	if sess := CustomerFromContext(r.Context()); sess != nil {
+		custID = sess.CustomerID
+	}
+	if custID == "" {
+		custID = r.URL.Query().Get("customer_id")
+	}
+	if custID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	tickets, err := b.opsSvc.ListITTicketsByCustomer(r.Context(), custID, 50, 0)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"items": tickets,
+		"total": len(tickets),
+	})
+}
+
+func (b *CustomerBFF) handleCreateCustomerTicket(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	custID := ""
+	if sess := CustomerFromContext(r.Context()); sess != nil {
+		custID = sess.CustomerID
+	}
+	if custID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Category string `json:"category"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
+		return
+	}
+
+	if strings.TrimSpace(req.Title) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "title is required"})
+		return
+	}
+	if req.Category == "" {
+		req.Category = "General Inquiry"
+	}
+
+	ticket, err := b.opsSvc.CreateCustomerTicket(r.Context(), &ops_svc.CreateCustomerTicketRequest{
+		CustomerID: custID,
+		Category:   req.Category,
+		Title:      req.Title,
+		Body:       req.Body,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(ticket)
+}
+
+func (b *CustomerBFF) handleGetCustomerTicket(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
+		id = parts[len(parts)-1]
+	}
+
+	ticket, err := b.opsSvc.GetITTicket(r.Context(), id)
+	if err != nil || ticket == nil {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+		return
+	}
+
+	if sess := CustomerFromContext(r.Context()); sess != nil {
+		if ticket.CustomerID != nil && *ticket.CustomerID != sess.CustomerID {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+			return
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(ticket)
+}
+
+func (b *CustomerBFF) handleListCustomerTicketComments(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 {
+			id = parts[len(parts)-2]
+		}
+	}
+
+	ticket, err := b.opsSvc.GetITTicket(r.Context(), id)
+	if err != nil || ticket == nil {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+		return
+	}
+
+	if sess := CustomerFromContext(r.Context()); sess != nil {
+		if ticket.CustomerID != nil && *ticket.CustomerID != sess.CustomerID {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+			return
+		}
+	}
+
+	// Internal notes MUST be scrubbed for customer views
+	comments, err := b.opsSvc.ListTicketComments(r.Context(), id, false)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"items": comments,
+		"total": len(comments),
+	})
+}
+
+func (b *CustomerBFF) handleAddCustomerTicketComment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 {
+			id = parts[len(parts)-2]
+		}
+	}
+
+	ticket, err := b.opsSvc.GetITTicket(r.Context(), id)
+	if err != nil || ticket == nil {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+		return
+	}
+
+	author := "Customer"
+	if sess := CustomerFromContext(r.Context()); sess != nil {
+		if ticket.CustomerID != nil && *ticket.CustomerID != sess.CustomerID {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "ticket not found"})
+			return
+		}
+		if sess.Name != "" {
+			author = sess.Name
+		} else {
+			author = sess.CustomerID
+		}
+	}
+
+	var req struct {
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Comment) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "comment cannot be empty"})
+		return
+	}
+
+	comment, err := b.opsSvc.AddTicketComment(r.Context(), id, &ops_svc.AddCommentRequest{
+		AuthorUsername: author,
+		Comment:        req.Comment,
+		IsInternal:     false,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(comment)
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Customer BFF API Server...")
@@ -1343,6 +1558,34 @@ func main() {
 	if bankClient != nil {
 		custBFF.SetBankClient(bankClient)
 	}
+
+	var opsRepo ops_repo.Repository
+	if pool != nil {
+		opsRepo = ops_repo.NewRepository(pool)
+	} else {
+		opsRepo = ops_repo.NewMockRepository()
+	}
+
+	var issueTracker ops_svc.IssueTrackerClient
+	issueTrackerURL := os.Getenv("FORGEJO_URL")
+	if issueTrackerURL == "" {
+		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+	}
+	if issueTrackerURL != "" {
+		issueTracker = forgejo.NewClient(forgejo.Config{
+			BaseURL: issueTrackerURL,
+			Token:   os.Getenv("FORGEJO_TOKEN"),
+		})
+		logger.Info("connected Customer BFF to Forgejo issue tracker", "url", issueTrackerURL)
+	}
+
+	var opsSvc ops_svc.Service
+	if issueTracker != nil {
+		opsSvc = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
+	} else {
+		opsSvc = ops_svc.NewService(opsRepo)
+	}
+	custBFF.SetOpsService(opsSvc)
 
 	mux := http.NewServeMux()
 	custBFF.RegisterRoutes(mux)

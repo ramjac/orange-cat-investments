@@ -12,10 +12,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orange-cat-investments/oci/internal/handler"
+	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
+	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
+	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -63,9 +68,23 @@ func main() {
 		logger.Info("Frappe HR client initialized", "url", frappeURL)
 	}
 
+	var workspaceClient wfService.WorkspaceClient
+	workspaceURL := os.Getenv("WORKSPACE_URL")
+	if workspaceURL == "" {
+		workspaceURL = os.Getenv("NEXTCLOUD_URL")
+	}
+	if workspaceURL != "" {
+		workspaceClient = nextcloud.NewClient(nextcloud.Config{
+			BaseURL:       workspaceURL,
+			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASSWORD"),
+		})
+		logger.Info("Workspace intranet client initialized", "url", workspaceURL)
+	}
+
 	var wfSvc wfService.Service
-	if hrClient != nil {
-		wfSvc = wfService.NewServiceWithIntegrations(repo, nil, hrClient)
+	if hrClient != nil || workspaceClient != nil {
+		wfSvc = wfService.NewServiceWithIntegrations(repo, nil, hrClient, workspaceClient)
 	} else {
 		wfSvc = wfService.NewService(repo)
 	}
@@ -84,6 +103,35 @@ func main() {
 	authHandler := NewAuthHandler(sessionStore)
 	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
+
+	var opsRepo ops_repo.Repository
+	if pool != nil {
+		opsRepo = ops_repo.NewRepository(pool)
+	} else {
+		opsRepo = ops_repo.NewMockRepository()
+	}
+
+	var issueTracker ops_svc.IssueTrackerClient
+	issueTrackerURL := os.Getenv("FORGEJO_URL")
+	if issueTrackerURL == "" {
+		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+	}
+	if issueTrackerURL != "" {
+		issueTracker = forgejo.NewClient(forgejo.Config{
+			BaseURL: issueTrackerURL,
+			Token:   os.Getenv("FORGEJO_TOKEN"),
+		})
+		logger.Info("connected Employee BFF to Forgejo issue tracker", "url", issueTrackerURL)
+	}
+
+	var opsSvc ops_svc.Service
+	if issueTracker != nil {
+		opsSvc = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
+	} else {
+		opsSvc = ops_svc.NewService(opsRepo)
+	}
+	opsH := ops_handler.NewHandler(opsSvc)
+	opsH.RegisterRoutes(mux)
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

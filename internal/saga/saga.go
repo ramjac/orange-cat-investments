@@ -94,6 +94,7 @@ type OnboardingRequest struct {
 	Department   string   `json:"department"`
 	DietaryPlan  string   `json:"dietary_plan,omitempty"`
 	FeedingTimes []string `json:"feeding_times,omitempty"`
+	CaretakerID  string   `json:"caretaker_id,omitempty"`
 	SSHKey       string   `json:"ssh_key,omitempty"`
 	StorageQuota string   `json:"storage_quota,omitempty"`
 }
@@ -193,12 +194,18 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 		if len(feedingTimes) == 0 {
 			feedingTimes = []string{"08:00 AM", "05:00 PM"}
 		}
-		defaultCaretaker := "emp-human-elena" // Dr. Elena Rostova
+		var caretakerPtr *string
+		if req.CaretakerID != "" {
+			caretakerPtr = &req.CaretakerID
+		} else if humanEmps, err := s.wfSvc.ListEmployees(ctx, "human", "active"); err == nil && len(humanEmps) > 0 {
+			id := humanEmps[0].EmployeeID
+			caretakerPtr = &id
+		}
 		cs = &workforce.CareSchedule{
 			DietaryPlan:          dietary,
 			FeedingTimes:         feedingTimes,
 			EmergencyMedicalHold: false,
-			CaretakerID:          &defaultCaretaker,
+			CaretakerID:          caretakerPtr,
 		}
 	}
 
@@ -414,9 +421,9 @@ func (e *OffboardingEngine) Execute(ctx context.Context, req OffboardingRequest)
 		if err == nil && cs != nil {
 			tradingHold = cs.EmergencyMedicalHold
 		}
-		careTransition = "Feline transitioned to senior veterinary medical hold under Dr. Elena Rostova"
+		careTransition = "Feline transitioned to senior veterinary medical hold"
 	} else {
-		careTransition = "Active feline care responsibilities transferred to primary veterinary staff (emp-human-elena)"
+		careTransition = "Active feline care responsibilities transferred to designated veterinary medical staff"
 	}
 
 	// 6. Log departure in Frappe HR / ERPNext

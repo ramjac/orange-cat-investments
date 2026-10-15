@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/ops"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,6 +79,46 @@ func (m *mockOpsRepo) CloseITTicket(ctx context.Context, ticketID string) (*ops.
 		TicketID: ticketID,
 		State:    "closed",
 	}, nil
+}
+
+func (m *mockOpsRepo) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*ops.ITTicket, error) {
+	return m.ListOpenITTickets(ctx, limit, offset)
+}
+
+func (m *mockOpsRepo) ListITTicketsByCustomer(ctx context.Context, customerID string, limit, offset int32) ([]*ops.ITTicket, error) {
+	return m.ListOpenITTickets(ctx, limit, offset)
+}
+
+func (m *mockOpsRepo) UpdateITTicket(ctx context.Context, ticket *ops.ITTicket) (*ops.ITTicket, error) {
+	return ticket, nil
+}
+
+func (m *mockOpsRepo) CreateTicketComment(ctx context.Context, comment *ops.TicketComment) (*ops.TicketComment, error) {
+	comment.CommentID = "comm-123"
+	return comment, nil
+}
+
+func (m *mockOpsRepo) ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*ops.TicketComment, error) {
+	comments := []*ops.TicketComment{
+		{
+			CommentID:      "comm-1",
+			TicketID:       ticketID,
+			AuthorUsername: "emp-human-elise",
+			Comment:        "Internal investigative note",
+			IsInternal:     true,
+		},
+		{
+			CommentID:      "comm-2",
+			TicketID:       ticketID,
+			AuthorUsername: "emp-human-elise",
+			Comment:        "Public response to user",
+			IsInternal:     false,
+		},
+	}
+	if includeInternal {
+		return comments, nil
+	}
+	return []*ops.TicketComment{comments[1]}, nil
 }
 
 func TestOpsService(t *testing.T) {
@@ -291,4 +332,117 @@ func TestOpsService(t *testing.T) {
 		assert.Nil(t, res)
 		assert.Contains(t, err.Error(), "failed to dispatch push notification via ntfy")
 	})
+
+	t.Run("CreateITTicket with IssueTracker and Urgent Routing", func(t *testing.T) {
+		t.Setenv("ENV", "test")
+		mockTracker := &mockIssueTracker{}
+		trackerSvc := NewServiceWithIssueTracker(repo, mockTracker)
+
+		ticket, err := trackerSvc.CreateITTicket(ctx, &CreateITTicketRequest{
+			Title:          "Edge Camera Gateway Offline",
+			Body:           "Zone Alpha primary video feed dropped packets.",
+			AuthorUsername: "emp-human-frank",
+			Severity:       "urgent",
+			Category:       "hardware",
+		})
+		require.NoError(t, err)
+		assert.NotNil(t, ticket)
+		assert.True(t, ticket.IsUrgent)
+		assert.NotNil(t, ticket.ForgejoIssueID)
+		assert.Equal(t, int64(101), *ticket.ForgejoIssueID)
+		assert.Len(t, mockTracker.createdIssues, 1)
+	})
+
+	t.Run("CreateCustomerTicket", func(t *testing.T) {
+		ticket, err := service.CreateCustomerTicket(ctx, &CreateCustomerTicketRequest{
+			CustomerID: "cust-longterm-arthur",
+			Category:   "trading",
+			Title:      "Question regarding portfolio allocation execution",
+			Body:       "Please clarify if transaction batch #412 has completed.",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "customer", ticket.Source)
+		assert.NotNil(t, ticket.CustomerID)
+		assert.Equal(t, "cust-longterm-arthur", *ticket.CustomerID)
+	})
+
+	t.Run("TicketComments and Scrubbing", func(t *testing.T) {
+		mockTracker := &mockIssueTracker{}
+		trackerSvc := NewServiceWithIssueTracker(repo, mockTracker)
+
+		// Internal comment should NOT be sent to Forgejo
+		internalComment, err := trackerSvc.AddTicketComment(ctx, "ticket-mock-123", &AddCommentRequest{
+			AuthorUsername: "emp-human-elise",
+			Comment:        "Internal investigation notes.",
+			IsInternal:     true,
+		})
+		require.NoError(t, err)
+		assert.True(t, internalComment.IsInternal)
+		assert.Len(t, mockTracker.createdComments, 0)
+
+		// Public comment SHOULD be sent to Forgejo
+		publicComment, err := trackerSvc.AddTicketComment(ctx, "ticket-mock-123", &AddCommentRequest{
+			AuthorUsername: "emp-human-elise",
+			Comment:        "Public reply to user.",
+			IsInternal:     false,
+		})
+		require.NoError(t, err)
+		assert.False(t, publicComment.IsInternal)
+
+		// Verify ListTicketComments scrubbing
+		staffComments, err := trackerSvc.ListTicketComments(ctx, "ticket-mock-123", true)
+		require.NoError(t, err)
+		assert.Len(t, staffComments, 2)
+
+		custComments, err := trackerSvc.ListTicketComments(ctx, "ticket-mock-123", false)
+		require.NoError(t, err)
+		assert.Len(t, custComments, 1)
+		assert.False(t, custComments[0].IsInternal)
+	})
+
+	t.Run("UpdateITTicket and Close Sync", func(t *testing.T) {
+		mockTracker := &mockIssueTracker{}
+		trackerSvc := NewServiceWithIssueTracker(repo, mockTracker)
+
+		assignee := "emp-human-bob"
+		resNotes := "Fixed sensor issue."
+		updated, err := trackerSvc.UpdateITTicket(ctx, "ticket-mock-123", &UpdateTicketRequest{
+			State:            "closed",
+			AssigneeUsername: assignee,
+			ResolutionNotes:  resNotes,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "closed", updated.State)
+	})
 }
+
+type mockIssueTracker struct {
+	createdIssues   []forgejo.CreateIssueOption
+	createdComments []string
+	updatedIssues   []forgejo.UpdateIssueOption
+}
+
+func (m *mockIssueTracker) CreateIssue(ctx context.Context, owner, repo string, opt forgejo.CreateIssueOption) (*forgejo.Issue, error) {
+	m.createdIssues = append(m.createdIssues, opt)
+	return &forgejo.Issue{
+		ID:    101,
+		Index: 101,
+		Title: opt.Title,
+	}, nil
+}
+
+func (m *mockIssueTracker) CreateIssueComment(ctx context.Context, owner, repo string, index int64, body string) (*forgejo.Comment, error) {
+	m.createdComments = append(m.createdComments, body)
+	return &forgejo.Comment{
+		ID:   201,
+		Body: body,
+	}, nil
+}
+
+func (m *mockIssueTracker) UpdateIssue(ctx context.Context, owner, repo string, index int64, opt forgejo.UpdateIssueOption) (*forgejo.Issue, error) {
+	m.updatedIssues = append(m.updatedIssues, opt)
+	return &forgejo.Issue{
+		Index: index,
+	}, nil
+}
+

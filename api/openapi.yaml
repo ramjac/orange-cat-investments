@@ -668,6 +668,114 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /workforce/review-cycles/{id}/self-appraisal:
+    post:
+      summary: Submit Employee Self-Appraisal
+      operationId: submitSelfAppraisal
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelfAppraisalRequest'
+      responses:
+        '200':
+          description: Self-appraisal submitted and phase advanced to peer feedback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/peer-feedback:
+    post:
+      summary: Submit Peer Evaluation Feedback
+      operationId: submitPeerFeedback
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeerFeedbackRequest'
+      responses:
+        '200':
+          description: Peer feedback recorded and phase advanced to manager review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/manager-assessment:
+    post:
+      summary: Submit Manager Assessment & Final KPI Ratings
+      operationId: submitManagerAssessment
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagerAssessmentRequest'
+      responses:
+        '200':
+          description: Manager assessment recorded and review cycle finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/vet-audit:
+    post:
+      summary: Submit Veterinary Clinical Wellness Audit
+      operationId: submitVeterinaryAudit
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VeterinaryAuditRequest'
+      responses:
+        '200':
+          description: Veterinary wellness audit and habitat recommendations stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
   /workforce/care-schedules/{felineId}:
     parameters:
       - name: felineId
@@ -1029,6 +1137,317 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /workforce/hub/folders:
+    get:
+      summary: List Departmental Hub Folders
+      operationId: listGroupFolders
+      tags:
+        - Workforce Knowledge Base
+      responses:
+        '200':
+          description: List of departmental hub group folders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GroupFolder'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Create Departmental Group Folder
+      operationId: createGroupFolder
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mount_point
+              properties:
+                mount_point:
+                  type: string
+                quota:
+                  type: string
+                groups:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Group folder created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupFolder'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/documents:
+    get:
+      summary: List and Search Intranet Documents
+      operationId: listDocuments
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: department
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of intranet documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Publish Intranet Document
+      operationId: publishDocument
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+      responses:
+        '201':
+          description: Document successfully published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/documents/{id}:
+    get:
+      summary: Retrieve Intranet Document by ID
+      operationId: getDocument
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Intranet document detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/calendar/events:
+    get:
+      summary: List Shared Company Calendar Events
+      operationId: listCalendarEvents
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: calendar
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: department
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to_date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of scheduled calendar events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CalendarEvent'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Schedule Shared Calendar Event
+      operationId: createCalendarEvent
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarEvent'
+      responses:
+        '201':
+          description: Calendar event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarEvent'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly:
+    get:
+      summary: List Monthly Executive Reports
+      operationId: listExecutiveReports
+      tags:
+        - Workforce Reporting
+      responses:
+        '200':
+          description: List of historical executive reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExecutiveReport'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly/generate:
+    post:
+      summary: Generate Monthly Executive Management Report
+      operationId: generateMonthlyReport
+      tags:
+        - Workforce Reporting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateExecutiveReportRequest'
+      responses:
+        '201':
+          description: Generated executive report details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutiveReport'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly/{id}:
+    get:
+      summary: Retrieve Executive Report by ID
+      operationId: getExecutiveReport
+      tags:
+        - Workforce Reporting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Executive report detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutiveReport'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/reports/monthly/{id}/download:
+    get:
+      summary: Download Executive Report File (PDF or CSV)
+      operationId: downloadExecutiveReport
+      tags:
+        - Workforce Reporting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pdf, csv]
+            default: pdf
+      responses:
+        '200':
+          description: File binary stream (PDF or CSV)
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /webhooks/frappe-hr:
     post:
       summary: Frappe HR Status Change Webhook Ingestion
@@ -1370,6 +1789,227 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ITTicket'
+
+  /ops/tickets/{id}:
+    get:
+      summary: Get IT Helpdesk Ticket by ID
+      operationId: getITTicket
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: IT ticket details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+    put:
+      summary: Update IT Helpdesk Ticket Status / Assignment
+      operationId: updateITTicket
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketRequest'
+      responses:
+        '200':
+          description: Updated IT ticket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+
+  /ops/tickets/{id}/comments:
+    get:
+      summary: List Comments for IT Helpdesk Ticket
+      operationId: listITTicketComments
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of comments on ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TicketComment'
+                  total:
+                    type: integer
+    post:
+      summary: Add Comment to IT Helpdesk Ticket
+      operationId: addITTicketComment
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCommentCreate'
+      responses:
+        '201':
+          description: Comment added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketComment'
+
+  /customer/support/tickets:
+    get:
+      summary: List Customer Support Tickets
+      operationId: listCustomerSupportTickets
+      tags:
+        - Customer Support
+      responses:
+        '200':
+          description: List of customer support tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ITTicket'
+                  total:
+                    type: integer
+    post:
+      summary: Create Customer Support / Bug Report Ticket
+      operationId: createCustomerSupportTicket
+      tags:
+        - Customer Support
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerTicketCreate'
+      responses:
+        '201':
+          description: Support ticket created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+
+  /customer/support/tickets/{id}:
+    get:
+      summary: Get Customer Support Ticket Detail
+      operationId: getCustomerSupportTicket
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer ticket details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/support/tickets/{id}/comments:
+    get:
+      summary: List Customer Support Ticket Comments (Sanitized)
+      operationId: listCustomerSupportTicketComments
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public ticket discussion comments (internal notes scrubbed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TicketComment'
+                  total:
+                    type: integer
+    post:
+      summary: Add Public Comment to Customer Support Ticket
+      operationId: addCustomerSupportTicketComment
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comment
+              properties:
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Customer comment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketComment'
 
   /ops/pebble/alerts:
     get:
@@ -1890,6 +2530,11 @@ components:
         review_type:
           type: string
           enum: [performance, feline_health_assessment]
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         scheduled_for:
           type: string
           format: date
@@ -1905,6 +2550,48 @@ components:
           format: float
           nullable: true
         notes:
+          type: string
+          nullable: true
+        self_appraisal:
+          type: string
+          nullable: true
+        self_score:
+          type: number
+          format: float
+          nullable: true
+        peer_feedback:
+          type: string
+          nullable: true
+        peer_score:
+          type: number
+          format: float
+          nullable: true
+        peer_reviewer_id:
+          type: string
+          format: uuid
+          nullable: true
+        manager_assessment:
+          type: string
+          nullable: true
+        manager_score:
+          type: number
+          format: float
+          nullable: true
+        kpi_ratings:
+          type: string
+          nullable: true
+        wellness_audit_score:
+          type: number
+          format: float
+          nullable: true
+        habitat_recommendations:
+          type: string
+          nullable: true
+        clinical_auditor_id:
+          type: string
+          format: uuid
+          nullable: true
+        vhr_record_id:
           type: string
           nullable: true
         completed_at:
@@ -1931,6 +2618,11 @@ components:
         review_type:
           type: string
           enum: [performance, feline_health_assessment]
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         scheduled_for:
           type: string
           format: date
@@ -1939,10 +2631,45 @@ components:
           format: uuid
         notes:
           type: string
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        vhr_record_id:
+          type: string
 
     ReviewCycleUpdate:
       type: object
       properties:
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         status:
           type: string
           enum: [scheduled, in_progress, completed, overdue]
@@ -1954,9 +2681,103 @@ components:
           format: float
         notes:
           type: string
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        vhr_record_id:
+          type: string
         completed_at:
           type: string
           format: date-time
+
+    SelfAppraisalRequest:
+      type: object
+      required:
+        - self_appraisal
+        - self_score
+      properties:
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+
+    PeerFeedbackRequest:
+      type: object
+      required:
+        - peer_reviewer_id
+        - peer_feedback
+        - peer_score
+      properties:
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+
+    ManagerAssessmentRequest:
+      type: object
+      required:
+        - manager_id
+        - manager_assessment
+        - manager_score
+      properties:
+        manager_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+
+    VeterinaryAuditRequest:
+      type: object
+      required:
+        - clinical_auditor_id
+        - wellness_audit_score
+        - habitat_recommendations
+      properties:
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        vhr_record_id:
+          type: string
 
     CareSchedule:
       type: object
@@ -2254,6 +3075,25 @@ components:
           enum: [open, closed, acknowledged]
         author_username:
           type: string
+        severity:
+          type: string
+          enum: [low, medium, high, urgent, critical]
+        category:
+          type: string
+        source:
+          type: string
+          enum: [internal, customer, system]
+        customer_id:
+          type: string
+          nullable: true
+        assignee_username:
+          type: string
+          nullable: true
+        resolution_notes:
+          type: string
+          nullable: true
+        is_urgent:
+          type: boolean
         acknowledged_at:
           type: string
           format: date-time
@@ -2271,7 +3111,6 @@ components:
     ITTicketCreate:
       type: object
       required:
-        - forgejo_repo
         - title
         - author_username
       properties:
@@ -2285,6 +3124,83 @@ components:
           type: string
         author_username:
           type: string
+        severity:
+          type: string
+          enum: [low, medium, high, urgent, critical]
+        category:
+          type: string
+        source:
+          type: string
+        customer_id:
+          type: string
+        is_urgent:
+          type: boolean
+
+    UpdateTicketRequest:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [open, closed, acknowledged]
+        assignee_username:
+          type: string
+        resolution_notes:
+          type: string
+
+    CustomerTicketCreate:
+      type: object
+      required:
+        - category
+        - title
+        - body
+      properties:
+        customer_id:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+
+    TicketComment:
+      type: object
+      required:
+        - comment_id
+        - ticket_id
+        - author_username
+        - comment
+        - is_internal
+        - created_at
+      properties:
+        comment_id:
+          type: string
+          format: uuid
+        ticket_id:
+          type: string
+          format: uuid
+        author_username:
+          type: string
+        comment:
+          type: string
+        is_internal:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    TicketCommentCreate:
+      type: object
+      required:
+        - author_username
+        - comment
+      properties:
+        author_username:
+          type: string
+        comment:
+          type: string
+        is_internal:
+          type: boolean
 
     PebbleAlertPayload:
       type: object
@@ -2762,6 +3678,185 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AssetAllocation'
+
+    GroupFolder:
+      type: object
+      properties:
+        id:
+          type: integer
+        mount_point:
+          type: string
+        quota:
+          type: string
+        groups:
+          type: array
+          items:
+            type: string
+
+    Document:
+      type: object
+      required:
+        - title
+      properties:
+        document_id:
+          type: string
+        title:
+          type: string
+        department:
+          type: string
+        category:
+          type: string
+        content:
+          type: string
+        author:
+          type: string
+        shared_with:
+          type: array
+          items:
+            type: string
+        webdav_path:
+          type: string
+        version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CalendarEvent:
+      type: object
+      required:
+        - title
+      properties:
+        event_id:
+          type: string
+        calendar:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        department:
+          type: string
+        location:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        organizer:
+          type: string
+        status:
+          type: string
+
+    ExecutiveReport:
+      type: object
+      required:
+        - report_id
+        - period
+        - title
+        - status
+        - total_revenue
+        - operating_expenses
+        - payroll_expenses
+        - net_profit
+        - operational_burn
+        - cash_reserves
+        - runway_months
+        - total_headcount
+        - attendance_rate
+      properties:
+        report_id:
+          type: string
+          example: rep-2026-10
+        period:
+          type: string
+          example: "2026-10"
+        title:
+          type: string
+          example: "OCI Executive Management Summary - October 2026"
+        status:
+          type: string
+          example: archived
+        total_revenue:
+          type: number
+          format: double
+          example: 125000.00
+        operating_expenses:
+          type: number
+          format: double
+          example: 45000.00
+        payroll_expenses:
+          type: number
+          format: double
+          example: 38500.00
+        net_profit:
+          type: number
+          format: double
+          example: 41500.00
+        operational_burn:
+          type: number
+          format: double
+          example: 83500.00
+        cash_reserves:
+          type: number
+          format: double
+          example: 540000.00
+        runway_months:
+          type: number
+          format: double
+          example: 6.47
+        total_headcount:
+          type: integer
+          example: 12
+        human_headcount:
+          type: integer
+          example: 7
+        feline_headcount:
+          type: integer
+          example: 5
+        attendance_rate:
+          type: number
+          format: double
+          example: 98.4
+        overtime_hours:
+          type: number
+          format: double
+          example: 14.5
+        timesheets_approved:
+          type: integer
+          example: 28
+        webdav_path_pdf:
+          type: string
+          example: "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_2026-10.pdf"
+        webdav_path_csv:
+          type: string
+          example: "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_2026-10.csv"
+        generated_by:
+          type: string
+          example: "system-reporting-worker"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    GenerateExecutiveReportRequest:
+      type: object
+      required:
+        - period
+      properties:
+        period:
+          type: string
+          example: "2026-10"
+        generated_by:
+          type: string
+          example: "emp-human-alice"
 
     ErrorResponse:
       type: object

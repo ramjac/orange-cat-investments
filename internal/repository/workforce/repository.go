@@ -60,17 +60,31 @@ type LeaveRequest struct {
 }
 
 type ReviewCycle struct {
-	ReviewID     string     `json:"review_id"`
-	EmployeeID   string     `json:"employee_id"`
-	ReviewType   string     `json:"review_type"`
-	ScheduledFor string     `json:"scheduled_for"`
-	Status       string     `json:"status"`
-	ReviewerID   *string    `json:"reviewer_id,omitempty"`
-	Score        *float64   `json:"score,omitempty"`
-	Notes        *string    `json:"notes,omitempty"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ReviewID                string     `json:"review_id"`
+	EmployeeID              string     `json:"employee_id"`
+	ReviewType              string     `json:"review_type"`
+	ReviewPeriod            string     `json:"review_period"`
+	Phase                   string     `json:"phase"`
+	ScheduledFor            string     `json:"scheduled_for"`
+	Status                  string     `json:"status"`
+	ReviewerID              *string    `json:"reviewer_id,omitempty"`
+	Score                   *float64   `json:"score,omitempty"`
+	Notes                   *string    `json:"notes,omitempty"`
+	SelfAppraisal           *string    `json:"self_appraisal,omitempty"`
+	SelfScore               *float64   `json:"self_score,omitempty"`
+	PeerFeedback            *string    `json:"peer_feedback,omitempty"`
+	PeerScore               *float64   `json:"peer_score,omitempty"`
+	PeerReviewerID          *string    `json:"peer_reviewer_id,omitempty"`
+	ManagerAssessment       *string    `json:"manager_assessment,omitempty"`
+	ManagerScore            *float64   `json:"manager_score,omitempty"`
+	KPIRatings              *string    `json:"kpi_ratings,omitempty"`
+	WellnessAuditScore      *float64   `json:"wellness_audit_score,omitempty"`
+	HabitatRecommendations *string    `json:"habitat_recommendations,omitempty"`
+	ClinicalAuditorID       *string    `json:"clinical_auditor_id,omitempty"`
+	VHRRecordID             *string    `json:"vhr_record_id,omitempty"`
+	CompletedAt             *time.Time `json:"completed_at,omitempty"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 type VHRRecord struct {
@@ -99,6 +113,33 @@ type WorkplaceIncident struct {
 	ResolutionNotes  *string    `json:"resolution_notes,omitempty"`
 	ReportedAt       time.Time  `json:"reported_at"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+}
+
+type ExecutiveReport struct {
+	ReportID           string    `json:"report_id"`
+	Period             string    `json:"period"`
+	Title              string    `json:"title"`
+	Status             string    `json:"status"`
+	TotalRevenue       float64   `json:"total_revenue"`
+	OperatingExpenses  float64   `json:"operating_expenses"`
+	PayrollExpenses    float64   `json:"payroll_expenses"`
+	NetProfit          float64   `json:"net_profit"`
+	OperationalBurn    float64   `json:"operational_burn"`
+	CashReserves       float64   `json:"cash_reserves"`
+	RunwayMonths       float64   `json:"runway_months"`
+	TotalHeadcount     int       `json:"total_headcount"`
+	HumanHeadcount     int       `json:"human_headcount"`
+	FelineHeadcount    int       `json:"feline_headcount"`
+	AttendanceRate     float64   `json:"attendance_rate"`
+	OvertimeHours      float64   `json:"overtime_hours"`
+	TimesheetsApproved int       `json:"timesheets_approved"`
+	WebDAVPathPDF      *string   `json:"webdav_path_pdf,omitempty"`
+	WebDAVPathCSV      *string   `json:"webdav_path_csv,omitempty"`
+	CSVContent         *string   `json:"csv_content,omitempty"`
+	PDFContent         []byte    `json:"pdf_content,omitempty"`
+	GeneratedBy        string    `json:"generated_by"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type Repository interface {
@@ -133,6 +174,13 @@ type Repository interface {
 	CreateWorkplaceIncident(ctx context.Context, inc *WorkplaceIncident) (*WorkplaceIncident, error)
 	ListWorkplaceIncidents(ctx context.Context, status string) ([]*WorkplaceIncident, error)
 	UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error)
+
+	// Executive Management Reports
+	CreateExecutiveReport(ctx context.Context, report *ExecutiveReport) (*ExecutiveReport, error)
+	GetExecutiveReportByID(ctx context.Context, id string) (*ExecutiveReport, error)
+	GetExecutiveReportByPeriod(ctx context.Context, period string) (*ExecutiveReport, error)
+	ListExecutiveReports(ctx context.Context, limit, offset int) ([]*ExecutiveReport, error)
+	UpdateExecutiveReportStatus(ctx context.Context, id, status string, webdavPDF, webdavCSV *string) (*ExecutiveReport, error)
 }
 
 type pgxRepository struct {
@@ -476,59 +524,89 @@ func (r *pgxRepository) UpdateLeaveRequestStatus(ctx context.Context, id, status
 	return &res, nil
 }
 
-func (r *pgxRepository) CreateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
-	if r.db == nil {
-		return nil, fmt.Errorf("database connection is nil")
-	}
-	query := `INSERT INTO workforce.review_cycles (
-	              review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at
-	          ) VALUES (
-	              COALESCE($1, gen_random_uuid_v7()), $2, $3, $4, COALESCE($5, 'scheduled'), $6, $7, $8, $9
-	          ) RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
+func scanReviewCycle(row interface{ Scan(dest ...any) error }) (*ReviewCycle, error) {
 	var res ReviewCycle
-	var revID *string
 	var schedFor string
-	var revUUID *string
-	if rc.ReviewID != "" {
-		revUUID = &rc.ReviewID
-	}
-	err := r.db.QueryRow(ctx, query, revUUID, rc.EmployeeID, rc.ReviewType, rc.ScheduledFor, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
-		&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+	var revID, peerRevID, clinAudID, vhrID *string
+	err := row.Scan(
+		&res.ReviewID, &res.EmployeeID, &res.ReviewType, &res.ReviewPeriod, &res.Phase, &schedFor, &res.Status,
+		&revID, &res.Score, &res.Notes, &res.SelfAppraisal, &res.SelfScore, &res.PeerFeedback, &res.PeerScore,
+		&peerRevID, &res.ManagerAssessment, &res.ManagerScore, &res.KPIRatings,
+		&res.WellnessAuditScore, &res.HabitatRecommendations, &clinAudID, &vhrID,
+		&res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	res.ScheduledFor = schedFor
 	res.ReviewerID = revID
+	res.PeerReviewerID = peerRevID
+	res.ClinicalAuditorID = clinAudID
+	res.VHRRecordID = vhrID
 	return &res, nil
+}
+
+func (r *pgxRepository) CreateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO workforce.review_cycles (
+	              review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+	              reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	              peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+	              wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id, completed_at
+	          ) VALUES (
+	              COALESCE($1, gen_random_uuid_v7()), $2, $3, COALESCE(NULLIF($4, ''), '2026-Q3'), COALESCE(NULLIF($5, ''), 'self_appraisal'),
+	              $6, COALESCE(NULLIF($7, ''), 'scheduled'), $8, $9, $10, $11, $12, $13, $14,
+	              $15, $16, $17, $18::jsonb, $19, $20, $21, $22, $23
+	          ) RETURNING review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                      reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                      peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                      wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                      completed_at, created_at, updated_at`
+	var revUUID *string
+	if rc.ReviewID != "" {
+		revUUID = &rc.ReviewID
+	}
+	row := r.db.QueryRow(ctx, query,
+		revUUID, rc.EmployeeID, rc.ReviewType, rc.ReviewPeriod, rc.Phase,
+		rc.ScheduledFor, rc.Status, rc.ReviewerID, rc.Score, rc.Notes,
+		rc.SelfAppraisal, rc.SelfScore, rc.PeerFeedback, rc.PeerScore,
+		rc.PeerReviewerID, rc.ManagerAssessment, rc.ManagerScore, rc.KPIRatings,
+		rc.WellnessAuditScore, rc.HabitatRecommendations, rc.ClinicalAuditorID, rc.VHRRecordID,
+		rc.CompletedAt,
+	)
+	return scanReviewCycle(row)
 }
 
 func (r *pgxRepository) GetReviewCycleByID(ctx context.Context, id string) (*ReviewCycle, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
+	query := `SELECT review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                 reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                 peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                 wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                 completed_at, created_at, updated_at
 	          FROM workforce.review_cycles
 	          WHERE review_id::text = $1`
-	var res ReviewCycle
-	var revID *string
-	var schedFor string
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
-	)
+	row := r.db.QueryRow(ctx, query, id)
+	res, err := scanReviewCycle(row)
 	if err != nil {
 		return nil, fmt.Errorf("review cycle with id %s not found: %w", id, err)
 	}
-	res.ScheduledFor = schedFor
-	res.ReviewerID = revID
-	return &res, nil
+	return res, nil
 }
 
 func (r *pgxRepository) ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*ReviewCycle, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
+	query := `SELECT review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                 reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                 peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                 wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                 completed_at, created_at, updated_at
 	          FROM workforce.review_cycles
 	          WHERE ($1 = '' OR employee_id::text = $1)
 	            AND ($2 = '' OR status = $2)
@@ -542,15 +620,11 @@ func (r *pgxRepository) ListReviewCycles(ctx context.Context, employeeID, status
 
 	var list []*ReviewCycle
 	for rows.Next() {
-		var res ReviewCycle
-		var revID *string
-		var schedFor string
-		if err := rows.Scan(&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt); err != nil {
+		res, err := scanReviewCycle(rows)
+		if err != nil {
 			return nil, err
 		}
-		res.ScheduledFor = schedFor
-		res.ReviewerID = revID
-		list = append(list, &res)
+		list = append(list, res)
 	}
 	if list == nil {
 		list = []*ReviewCycle{}
@@ -564,25 +638,42 @@ func (r *pgxRepository) UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) 
 	}
 	query := `UPDATE workforce.review_cycles
 	          SET status = COALESCE($2, status),
-	              reviewer_id = CASE WHEN $3::text IS NOT NULL THEN $3::uuid ELSE reviewer_id END,
-	              score = CASE WHEN $4::numeric IS NOT NULL THEN $4::numeric ELSE score END,
-	              notes = CASE WHEN $5::text IS NOT NULL THEN $5::text ELSE notes END,
-	              completed_at = CASE WHEN $6::timestamptz IS NOT NULL THEN $6::timestamptz ELSE completed_at END,
+	              phase = CASE WHEN $3::text IS NOT NULL THEN $3::text ELSE phase END,
+	              reviewer_id = CASE WHEN $4::text IS NOT NULL THEN $4::uuid ELSE reviewer_id END,
+	              score = CASE WHEN $5::numeric IS NOT NULL THEN $5::numeric ELSE score END,
+	              notes = CASE WHEN $6::text IS NOT NULL THEN $6::text ELSE notes END,
+	              self_appraisal = CASE WHEN $7::text IS NOT NULL THEN $7::text ELSE self_appraisal END,
+	              self_score = CASE WHEN $8::numeric IS NOT NULL THEN $8::numeric ELSE self_score END,
+	              peer_feedback = CASE WHEN $9::text IS NOT NULL THEN $9::text ELSE peer_feedback END,
+	              peer_score = CASE WHEN $10::numeric IS NOT NULL THEN $10::numeric ELSE peer_score END,
+	              peer_reviewer_id = CASE WHEN $11::text IS NOT NULL THEN $11::uuid ELSE peer_reviewer_id END,
+	              manager_assessment = CASE WHEN $12::text IS NOT NULL THEN $12::text ELSE manager_assessment END,
+	              manager_score = CASE WHEN $13::numeric IS NOT NULL THEN $13::numeric ELSE manager_score END,
+	              kpi_ratings = CASE WHEN $14::text IS NOT NULL THEN $14::jsonb ELSE kpi_ratings END,
+	              wellness_audit_score = CASE WHEN $15::numeric IS NOT NULL THEN $15::numeric ELSE wellness_audit_score END,
+	              habitat_recommendations = CASE WHEN $16::text IS NOT NULL THEN $16::text ELSE habitat_recommendations END,
+	              clinical_auditor_id = CASE WHEN $17::text IS NOT NULL THEN $17::uuid ELSE clinical_auditor_id END,
+	              vhr_record_id = CASE WHEN $18::text IS NOT NULL THEN $18::uuid ELSE vhr_record_id END,
+	              completed_at = CASE WHEN $19::timestamptz IS NOT NULL THEN $19::timestamptz ELSE completed_at END,
 	              updated_at = CURRENT_TIMESTAMP
 	          WHERE review_id::text = $1
-	          RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
-	var res ReviewCycle
-	var revID *string
-	var schedFor string
-	err := r.db.QueryRow(ctx, query, rc.ReviewID, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
-		&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+	          RETURNING review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                    reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                    peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                    wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                    completed_at, created_at, updated_at`
+	row := r.db.QueryRow(ctx, query,
+		rc.ReviewID, rc.Status, rc.Phase, rc.ReviewerID, rc.Score, rc.Notes,
+		rc.SelfAppraisal, rc.SelfScore, rc.PeerFeedback, rc.PeerScore,
+		rc.PeerReviewerID, rc.ManagerAssessment, rc.ManagerScore, rc.KPIRatings,
+		rc.WellnessAuditScore, rc.HabitatRecommendations, rc.ClinicalAuditorID, rc.VHRRecordID,
+		rc.CompletedAt,
 	)
+	res, err := scanReviewCycle(row)
 	if err != nil {
 		return nil, fmt.Errorf("review cycle with id %s not found: %w", rc.ReviewID, err)
 	}
-	res.ScheduledFor = schedFor
-	res.ReviewerID = revID
-	return &res, nil
+	return res, nil
 }
 
 func (r *pgxRepository) CreateVHRRecord(ctx context.Context, rec *VHRRecord) (*VHRRecord, error) {
@@ -721,4 +812,160 @@ func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, s
 	res.InvolvedHumanID = hID
 	return &res, nil
 }
+
+func (r *pgxRepository) CreateExecutiveReport(ctx context.Context, report *ExecutiveReport) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO workforce.executive_reports (
+	              report_id, period, title, status,
+	              total_revenue, operating_expenses, payroll_expenses, net_profit,
+	              operational_burn, cash_reserves, runway_months,
+	              total_headcount, human_headcount, feline_headcount,
+	              attendance_rate, overtime_hours, timesheets_approved,
+	              webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by
+	          ) VALUES (
+	              $1, $2, $3, COALESCE($4, 'archived'),
+	              $5, $6, $7, $8,
+	              $9, $10, $11,
+	              $12, $13, $14,
+	              $15, $16, $17,
+	              $18, $19, $20, $21, COALESCE($22, 'system-reporting-worker')
+	          ) RETURNING report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at`
+
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query,
+		report.ReportID, report.Period, report.Title, report.Status,
+		report.TotalRevenue, report.OperatingExpenses, report.PayrollExpenses, report.NetProfit,
+		report.OperationalBurn, report.CashReserves, report.RunwayMonths,
+		report.TotalHeadcount, report.HumanHeadcount, report.FelineHeadcount,
+		report.AttendanceRate, report.OvertimeHours, report.TimesheetsApproved,
+		report.WebDAVPathPDF, report.WebDAVPathCSV, report.CSVContent, report.PDFContent, report.GeneratedBy,
+	).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) GetExecutiveReportByID(ctx context.Context, id string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports WHERE report_id = $1`
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) GetExecutiveReportByPeriod(ctx context.Context, period string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports WHERE period = $1 ORDER BY created_at DESC LIMIT 1`
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, period).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) ListExecutiveReports(ctx context.Context, limit, offset int) ([]*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports
+	          ORDER BY period DESC, created_at DESC
+	          LIMIT $1 OFFSET $2`
+	rows, err := r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*ExecutiveReport
+	for rows.Next() {
+		var res ExecutiveReport
+		err := rows.Scan(
+			&res.ReportID, &res.Period, &res.Title, &res.Status,
+			&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+			&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+			&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+			&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+			&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+			&res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, &res)
+	}
+	if list == nil {
+		list = []*ExecutiveReport{}
+	}
+	return list, rows.Err()
+}
+
+func (r *pgxRepository) UpdateExecutiveReportStatus(ctx context.Context, id, status string, webdavPDF, webdavCSV *string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE workforce.executive_reports
+	          SET status = $2,
+	              webdav_path_pdf = COALESCE($3, webdav_path_pdf),
+	              webdav_path_csv = COALESCE($4, webdav_path_csv),
+	              updated_at = CURRENT_TIMESTAMP
+	          WHERE report_id = $1
+	          RETURNING report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at`
+
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, id, status, webdavPDF, webdavCSV).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 

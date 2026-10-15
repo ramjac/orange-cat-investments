@@ -222,78 +222,6 @@ func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_sv
 	})
 }
 
-func registerNextcloudRoutes(serverMux *http.ServeMux) {
-	createDocHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Title     string   `json:"title"`
-			Content   string   `json:"content"`
-			Author    string   `json:"author"`
-			ShareWith []string `json:"share_with"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
-			"document_id": fmt.Sprintf("doc-%d", time.Now().UnixNano()),
-			"title":       req.Title,
-			"author":      req.Author,
-			"status":      "published",
-			"shared_with": req.ShareWith,
-			"created_at":  time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-	serverMux.HandleFunc("POST /nextcloud/api/v1/documents", createDocHandler)
-	serverMux.HandleFunc("POST /api/v1/nextcloud/documents", createDocHandler)
-
-	listDocsHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"documents": []map[string]any{
-				{
-					"document_id": "doc-001",
-					"title":       "OCI Employee & Feline Onboarding Handbook",
-					"author":      "emp-human-alice",
-				},
-				{
-					"document_id": "doc-002",
-					"title":       "Zero-Trust Microservices & PKI Security Standard",
-					"author":      "emp-human-frank",
-				},
-			},
-		})
-	}
-	serverMux.HandleFunc("GET /nextcloud/api/v1/documents", listDocsHandler)
-	serverMux.HandleFunc("GET /api/v1/nextcloud/documents", listDocsHandler)
-
-	chatHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Sender    string `json:"sender"`
-			Recipient string `json:"recipient"`
-			Room      string `json:"room"`
-			Message   string `json:"message"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
-			"message_id": fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			"sender":     req.Sender,
-			"recipient":  req.Recipient,
-			"room":       req.Room,
-			"status":     "delivered",
-			"sent_at":    time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-	serverMux.HandleFunc("POST /nextcloud/api/v1/chat/messages", chatHandler)
-	serverMux.HandleFunc("POST /api/v1/nextcloud/chat/messages", chatHandler)
-}
-
 func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid.Client, brokerClient *alpaca.Client, ciService core_invest_svc.Service) {
 	registerCustRoutes := func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -450,9 +378,12 @@ func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid
 	registerCustRoutes(serverMux)
 }
 
-func (c *Client) initMockEmployeeBFFServer(wfHandler *handler.WorkforceHandler) {
+func (c *Client) initMockEmployeeBFFServer(wfHandler *handler.WorkforceHandler, opsHandler *ops_handler.Handler) {
 	bffMux := http.NewServeMux()
 	wfHandler.RegisterRoutes(bffMux)
+	if opsHandler != nil {
+		opsHandler.RegisterRoutes(bffMux)
+	}
 
 	c.mockBFF = httptest.NewServer(bffMux)
 	c.bffURL = c.mockBFF.URL
@@ -492,7 +423,6 @@ func (c *Client) initMockServers() error {
 	facService := facilities_svc.NewService(facRepo)
 
 	registerFacilitiesRoutes(serverMux, facService, opsService)
-	registerNextcloudRoutes(serverMux)
 
 	wfRepo := workforce_repo.NewRepository(nil)
 	wfService := workforce_svc.NewService(wfRepo)
@@ -504,6 +434,7 @@ func (c *Client) initMockServers() error {
 	// Customer BFF routes and Mock Customer BFF server
 	custMux := http.NewServeMux()
 	registerCustomerRoutes(custMux, serverMux, bankClient, brokerClient, ciService)
+	opsHandler.RegisterRoutes(custMux)
 
 	c.mockCustBFF = httptest.NewServer(custMux)
 	c.custBFFURL = c.mockCustBFF.URL
@@ -511,7 +442,7 @@ func (c *Client) initMockServers() error {
 	c.mockServer = httptest.NewServer(serverMux)
 	c.serverURL = c.mockServer.URL
 
-	c.initMockEmployeeBFFServer(wfHandler)
+	c.initMockEmployeeBFFServer(wfHandler, opsHandler)
 
 	return nil
 }

@@ -149,3 +149,53 @@ func TestFrappeClient_CreateAndApproveTimesheet(t *testing.T) {
 		t.Errorf("unexpected payroll entry result: %+v", pe)
 	}
 }
+
+func TestFrappeClient_GetFinancialMetrics(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/erpnext/financial-metrics" {
+			metrics := FinancialMetrics{
+				Period:            "2026-10",
+				Currency:          "USD",
+				TotalRevenue:      1500000.0,
+				OperatingExpenses: 300000.0,
+				PayrollExpenses:   400000.0,
+				NetProfit:         800000.0,
+				OperationalBurn:   700000.0,
+				CashReserves:      10000000.0,
+				RunwayMonths:      14.28,
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": metrics})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockServer.Close()
+
+	client := NewClient(Config{
+		BaseURL:   mockServer.URL,
+		APIKey:    "test-key",
+		APISecret: "test-secret",
+	})
+
+	ctx := context.Background()
+	metrics, err := client.GetFinancialMetrics(ctx, "2026-10")
+	if err != nil {
+		t.Fatalf("failed to get financial metrics: %v", err)
+	}
+	if metrics.TotalRevenue != 1500000.0 || metrics.NetProfit != 800000.0 {
+		t.Errorf("unexpected metrics: %+v", metrics)
+	}
+
+	// Test fallback when endpoint not found
+	fallbackClient := NewClient(Config{
+		BaseURL: "http://invalid-endpoint.local",
+	})
+	fbMetrics, err := fallbackClient.GetFinancialMetrics(ctx, "2026-10")
+	if err != nil {
+		t.Fatalf("failed to compute fallback financial metrics: %v", err)
+	}
+	if fbMetrics.TotalRevenue <= 0 || fbMetrics.RunwayMonths <= 0 {
+		t.Errorf("unexpected fallback metrics: %+v", fbMetrics)
+	}
+}

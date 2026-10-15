@@ -557,35 +557,69 @@ Ensure all essential daily operational tasks of an SMB (except email which notab
   * Added "👥 IT Onboarding & Lifecycle Sagas" tab to `web/employee-portal` featuring workforce lifecycle directory, single-click "Onboard New Hire" modal, and automated deprovisioning dialog.
   * Added simulation action `alice_offboard_employee` in `simulation/actions.go` verifying automated deprovisioning in end-to-end simulations (55/55 actions passing).
 
-#### 7.3.4 Internal Documents, Knowledge Base & Team Collaboration
+#### 7.3.4 Internal Documents, Knowledge Base & Team Collaboration (Completed)
 * **Nextcloud Departmental Hub:**
-  * Configure Nextcloud group folders structured by business departments: HR & Policies, Facilities & Maintenance SOPs, Veterinary Protocols, and Executive Reporting.
-  * Establish company-wide shared calendars for shift rotations, habitat maintenance windows, and corporate milestones.
-* **Intranet Document Embedding:**
-  * Integrate Nextcloud WebDAV APIs into `web/employee-portal` to allow employees to view and search company policies, safety protocols, and standard operating procedures directly within the portal without switching tabs.
+  * Configured Nextcloud group folders structured by business departments: HR & Policies (50 GB), Facilities & Maintenance SOPs (100 GB), Veterinary Protocols (50 GB), and Executive Reporting & Finance (25 GB) via [`pkg/cots/nextcloud`](file:///home/ramjac/orange-cat-investments/pkg/cots/nextcloud/client.go) client.
+  * Established company-wide shared operations calendars for Shift Rotations, Habitat Maintenance Windows, Corporate Milestones, and Veterinary Health Audits.
+  * Preserved strict COTS isolation principles: Nextcloud remains the sole system of record for group folders, documents, and calendars with generic domain-centric naming (`WorkspaceClient`, `workspaceURL`).
+* **Intranet Document Embedding & Portal UI:**
+  * Integrated WebDAV path links and REST APIs into [`web/employee-portal`](file:///home/ramjac/orange-cat-investments/web/employee-portal/src/App.vue) under the "📁 Knowledge Base & Intranet" tab.
+  * Built an embedded markdown document reader allowing staff to inspect SOPs, handbooks, and policies directly without switching tabs.
+  * Built interactive modals to publish intranet documents with department tags, WebDAV mounting paths, and schedule shared operations calendar events.
+  * Full OpenAPI 3.1 spec documentation for `/workforce/hub/folders`, `/workforce/documents`, `/workforce/documents/{id}`, and `/workforce/calendar/events`.
+* **Simulation Coverage:**
+  * Added `bob_review_maintenance_calendar` action in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go) verifying shared operations calendar retrieval, bringing full platform simulation suite to 56/56 actions passing.
 
-#### 7.3.5 Performance Reviews & Health Assessment Cycles
+#### 7.3.5 Performance Reviews & Health Assessment Cycles (Completed)
 * **Structured Multi-Phase Review Cycles:**
-  * Build out `workforce.review_cycles` in the database and Employee Portal UI for managing periodic (quarterly/annual) performance evaluations.
-  * Support employee self-appraisals, peer feedback, manager assessments, and objective scoring against organizational KPIs.
+  * Expanded `workforce.review_cycles` in PostgreSQL (`scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `db/query/workforce.sql`) with period tracking (`review_period`), lifecycle phase (`phase`: `self_appraisal` -> `peer_feedback` -> `manager_review` -> `completed`), employee self-appraisals with score, peer feedback with peer score, manager assessment with KPI ratings and overall score.
+  * Implemented dedicated lifecycle endpoints with route aliases across API server and Employee BFF:
+    * `POST /api/v1/workforce/review-cycles/{id}/self-appraisal`
+    * `POST /api/v1/workforce/review-cycles/{id}/peer-feedback`
+    * `POST /api/v1/workforce/review-cycles/{id}/manager-assessment`
+    * `POST /api/v1/workforce/review-cycles/{id}/vet-audit`
+  * Complete OpenAPI 3.1 specification schemas and operations in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
 * **Integrated Veterinary Health Assessments:**
-  * Couple staff reviews with periodic feline clinical wellness audits conducted by Dr. Elena Rostova, storing health scoring and habitat optimization recommendations alongside staff performance records.
+  * Coupled corporate staff appraisals with periodic feline clinical wellness audits conducted by Dr. Elena Rostova (`emp-human-elena`), capturing clinical wellness score (`wellness_audit_score`), habitat optimization recommendations (`habitat_recommendations`), clinical auditor ID, and linked VHR record (`vhr_record_id`).
+* **Employee Web Portal UI (`web/employee-portal`):**
+  * Enhanced the "📋 Review Cycles & Assessments" tab with an interactive 4-step lifecycle stepper (`1. Self-Appraisal` -> `2. Peer Feedback` -> `3. Manager Review` -> `4. Completed`), review period tags, and phase filtering buttons.
+  * Built a multi-tab review & audit modal providing tabbed interfaces for employee self-reflections, peer feedback, manager grading with KPI ratings, and veterinary clinical wellness audits.
+* **Simulation Coverage:**
+  * Added `elena_conduct_wellness_audit` in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go) under Dr. Elena Rostova and added `TestDriverSinglePersonaElena` in [`simulation/driver_test.go`](file:///home/ramjac/orange-cat-investments/simulation/driver_test.go), bringing platform simulation coverage to 57/57 actions passing.
 
-#### 7.3.6 Helpdesk & Issue Management (Internal & Customer)
+#### 7.3.6 Helpdesk & Issue Management (Internal & Customer) (Completed)
 * **Employee IT Helpdesk (Forgejo Issue Bridge):**
-  * Implement an IT support intake form in the Employee Portal allowing staff to submit hardware, software, or habitat issues.
-  * Synchronize tickets with Forgejo repository issues (`oci-internal/helpdesk`), automatically tracking ticket status, comments, and severity.
-  * Route urgent priority tickets (e.g., server failure, habitat climate anomaly) directly to the on-call engineer's Pebble watch or mobile push notification service (`ntfy`).
+  * Added IT support intake and management interface in [`web/employee-portal`](file:///home/ramjac/orange-cat-investments/web/employee-portal/src/App.vue) under the "🛠️ IT Helpdesk & Issue Tracker" tab, supporting hardware, software, and habitat issues with category, status, and severity filtering.
+  * Synchronized tickets with Forgejo repository issues (`oci-internal/helpdesk`) via [`pkg/cots/forgejo`](file:///home/ramjac/orange-cat-investments/pkg/cots/forgejo/client.go) client, tracking status, comments, and severity.
+  * Automatic urgent priority routing: Tickets flagged as urgent (or high/critical severity) automatically dispatch on-call alerts to Pebble watch wearers (`/ops/pebble/alerts`) and mobile push notifications via `ntfy` (`internal/service/ops`).
 * **Customer Bug & Feedback Intake:**
-  * Provide an authenticated customer support form in `web/customer-portal` (`/api/v1/customer/support/tickets`) allowing retail investors to report UI bugs or transaction inquiries.
-  * Ingest tickets into an isolated Forgejo customer-issues tracker, scrubbing internal comments before exposing sanitized updates back to the customer.
+  * Implemented authenticated customer support intake and conversation history in [`web/customer-portal`](file:///home/ramjac/orange-cat-investments/web/customer-portal/src/App.vue) under the "🎧 Support & Inquiries" tab.
+  * Ingested tickets into isolated Forgejo customer-issues tracker (`oci-internal/customer-support`), scrubbing internal comments (`is_internal = false`) so diagnostic engineering notes are never leaked to retail investors.
+  * Added session authentication and double-submit CSRF enforcement across `/api/v1/customer/support/tickets` in [`cmd/customer-bff`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go).
+* **Database & OpenAPI Governance:**
+  * Expanded `ops.it_tickets` schema with `severity`, `category`, `source`, `customer_id`, `assignee_username`, `resolution_notes`, and `is_urgent` fields (`scripts/03-ops-core.sql`, `scripts/init.sql`).
+  * Added `ops.ticket_comments` table with `is_internal` boolean flag for comment scrubbing.
+  * Complete OpenAPI 3.1 specifications documented in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
+* **Simulation Coverage:**
+  * Added `elise_submit_habitat_helpdesk_ticket` (urgent habitat ticket creation) and `arthur_submit_customer_support_ticket` (customer ticket submission and sanitized comment retrieval) in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go), bringing platform simulation coverage to 59/59 actions passing.
 
-#### 7.3.7 Internal Business Intelligence & Automated Reporting
+#### 7.3.7 Internal Business Intelligence & Automated Reporting (Completed)
 * **Automated Management Report Generator:**
-  * Implement a scheduled reporting worker in `cmd/worker` that aggregates metrics across ERPNext (P&L, operational burn, cash reserves) and `workforce` (headcount, attendance rates, overtime hours).
-  * Automatically generate executive summary reports (PDF and CSV) on the 1st of each month.
+  * Implemented scheduled reporting worker in `cmd/worker` (`startExecutiveReportingWorker` and Watermill event handler `executive_reporting_trigger_handler`) aggregating metrics across ERPNext / Frappe HR (P&L revenue, operational expenses, net profit, operational burn, cash reserves, runway months) and `workforce` (total headcount, human/feline breakdown, attendance rates, overtime hours, approved timesheets).
+  * Built high-performance report generator engine in [`pkg/reporting`](file:///home/ramjac/orange-cat-investments/pkg/reporting) producing professional monthly executive management summary PDF documents and CSV spreadsheet exports.
+  * Supported scheduled monthly generation on the 1st of each month as well as on-demand generation via `POST /api/v1/workforce/reports/monthly/generate`.
 * **Compliance Archival in Nextcloud:**
-  * Automatically deposit generated executive reports into Nextcloud's restricted `Executive/Reports/YYYY-MM/` directory via WebDAV, ensuring historical preservation and audit compliance.
+  * Automatically deposits generated executive report artifacts into Nextcloud's restricted `Executive/Reports/YYYY-MM/` directory via WebDAV ([`pkg/cots/nextcloud`](file:///home/ramjac/orange-cat-investments/pkg/cots/nextcloud/client.go)), guaranteeing immutable historical preservation and regulatory audit compliance.
+  * Emits Watermill domain events (`events.reporting.report_generated.v1`, `events.reporting.report_archived.v1`) on RabbitMQ / internal pubsub channels.
+  * Backed by PostgreSQL schema `workforce.executive_reports` (`scripts/01-workforce-core.sql`, `scripts/init.sql`).
+* **Employee Web Portal UI (`web/employee-portal`):**
+  * Added dedicated "📊 Executive Reports & BI" tab with executive KPI scorecards (Net Profit, Total Revenue, Operational Burn, Cash Reserves & Runway, Workforce Headcount, Attendance Rate).
+  * Implemented historical executive reports table displaying report status, period, P&L overview, and Nextcloud WebDAV vault paths.
+  * Built interactive "Generate Monthly Report" modal and "Inspect Report Details" modal with itemized dual-column view for ERPNext financial ledgers and workforce metrics.
+  * Single-click binary downloads for PDF executive reports and CSV data exports directly in-browser.
+* **OpenAPI 3.1 & Simulation Coverage:**
+  * Full OpenAPI 3.1 specification for `/workforce/reports/monthly`, `/workforce/reports/monthly/generate`, `/workforce/reports/monthly/{id}`, and `/workforce/reports/monthly/{id}/download` in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
+  * Added simulation action `alice_generate_executive_report` in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go) under Alice Vance (`emp-human-alice`), bringing platform simulation coverage to 60/60 actions passing.
 
 ### 7.4 Customer Lifecycle, Account Management & GDPR Compliance
 Transition customer interactions from mock endpoints to an authentic, legally compliant lifecycle:

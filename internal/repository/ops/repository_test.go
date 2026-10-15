@@ -94,6 +94,61 @@ func TestOpsPgxRepository(t *testing.T) {
 			assert.EqualError(t, err, "ticket not found or already closed: non-existent")
 		})
 	})
+
+	t.Run("ListITTicketsBySource and Customer", func(t *testing.T) {
+		internalTickets, err := repo.ListITTicketsBySource(ctx, "internal", 10, 0)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, internalTickets)
+
+		custTickets, err := repo.ListITTicketsByCustomer(ctx, "cust-longterm-arthur", 10, 0)
+		assert.NoError(t, err)
+		assert.Len(t, custTickets, 1)
+		assert.Equal(t, "Inquiry on Portfolio Trade Settlement Batch #412", custTickets[0].Title)
+	})
+
+	t.Run("UpdateITTicket", func(t *testing.T) {
+		assignee := "emp-human-bob"
+		resNotes := "Perch thermostat rebooted and recalibrated."
+		updated, err := repo.UpdateITTicket(ctx, &ITTicket{
+			TicketID:         "018e0000-0000-7000-8000-000000000005",
+			State:            "resolved",
+			AssigneeUsername: &assignee,
+			ResolutionNotes:  &resNotes,
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, "resolved", updated.State)
+		assert.Equal(t, "emp-human-bob", *updated.AssigneeUsername)
+	})
+
+	t.Run("TicketComments and Scrubbing", func(t *testing.T) {
+		ticketID := "018e0000-0000-7000-8000-000000000005"
+
+		// Query all comments (internal staff view)
+		staffComments, err := repo.ListTicketComments(ctx, ticketID, true)
+		assert.NoError(t, err)
+		assert.Len(t, staffComments, 2)
+
+		// Query sanitized comments (customer view)
+		custComments, err := repo.ListTicketComments(ctx, ticketID, false)
+		assert.NoError(t, err)
+		assert.Len(t, custComments, 1)
+		assert.False(t, custComments[0].IsInternal)
+
+		// Create a new comment
+		newComment, err := repo.CreateTicketComment(ctx, &TicketComment{
+			TicketID:       ticketID,
+			AuthorUsername: "cust-longterm-arthur",
+			Comment:        "Thank you for the quick confirmation!",
+			IsInternal:     false,
+		})
+		assert.NoError(t, err)
+		assert.NotEmpty(t, newComment.CommentID)
+
+		// Query again sanitized
+		custCommentsAfter, err := repo.ListTicketComments(ctx, ticketID, false)
+		assert.NoError(t, err)
+		assert.Len(t, custCommentsAfter, 2)
+	})
 }
 
 func TestOpsPgxRepositoryDBErrors(t *testing.T) {

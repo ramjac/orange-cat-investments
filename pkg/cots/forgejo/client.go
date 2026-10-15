@@ -64,6 +64,48 @@ type CreateKeyOption struct {
 	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
+// Issue represents a Forgejo repository issue.
+type Issue struct {
+	ID        int64     `json:"id"`
+	Index     int64     `json:"number"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	State     string    `json:"state"`
+	User      User      `json:"user"`
+	Comments  int       `json:"comments"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CreateIssueOption specifies parameters for creating a new issue in Forgejo.
+type CreateIssueOption struct {
+	Title    string   `json:"title"`
+	Body     string   `json:"body,omitempty"`
+	Assignee string   `json:"assignee,omitempty"`
+	Labels   []string `json:"labels,omitempty"`
+}
+
+// UpdateIssueOption specifies parameters for modifying an existing issue.
+type UpdateIssueOption struct {
+	Title *string `json:"title,omitempty"`
+	Body  *string `json:"body,omitempty"`
+	State *string `json:"state,omitempty"`
+}
+
+// Comment represents a comment on a Forgejo issue.
+type Comment struct {
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	User      User      `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CreateCommentOption specifies parameters for adding a comment to an issue.
+type CreateCommentOption struct {
+	Body string `json:"body"`
+}
+
 // NewClient initializes a new Forgejo REST API client.
 func NewClient(cfg Config) *Client {
 	hc := cfg.HTTPClient
@@ -223,3 +265,161 @@ func (c *Client) DeleteUser(ctx context.Context, username string) error {
 
 	return nil
 }
+
+// CreateIssue creates a new issue in the specified repository.
+func (c *Client) CreateIssue(ctx context.Context, owner, repo string, opt CreateIssueOption) (*Issue, error) {
+	if owner == "" || repo == "" {
+		return nil, errors.New("owner and repo are required to create an issue")
+	}
+	if opt.Title == "" {
+		return nil, errors.New("title is required to create an issue")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues", owner, repo)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateIssue request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateIssue returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var issue Issue
+	if err := json.Unmarshal(bodyBytes, &issue); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo issue response: %w", err)
+	}
+	return &issue, nil
+}
+
+// GetIssue retrieves an issue by its index number.
+func (c *Client) GetIssue(ctx context.Context, owner, repo string, index int64) (*Issue, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required to get an issue")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d", owner, repo, index)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo GetIssue request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo GetIssue returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var issue Issue
+	if err := json.Unmarshal(bodyBytes, &issue); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo issue response: %w", err)
+	}
+	return &issue, nil
+}
+
+// UpdateIssue updates an issue's title, body, or state (open/closed).
+func (c *Client) UpdateIssue(ctx context.Context, owner, repo string, index int64, opt UpdateIssueOption) (*Issue, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required to update an issue")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d", owner, repo, index)
+	req, err := c.newRequest(ctx, http.MethodPatch, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo UpdateIssue request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("forgejo UpdateIssue returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var issue Issue
+	if err := json.Unmarshal(bodyBytes, &issue); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo issue response: %w", err)
+	}
+	return &issue, nil
+}
+
+// CreateIssueComment posts a comment on the specified issue.
+func (c *Client) CreateIssueComment(ctx context.Context, owner, repo string, index int64, body string) (*Comment, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required")
+	}
+	if body == "" {
+		return nil, errors.New("comment body cannot be empty")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d/comments", owner, repo, index)
+	opt := CreateCommentOption{Body: body}
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateIssueComment request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateIssueComment returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var comment Comment
+	if err := json.Unmarshal(bodyBytes, &comment); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo comment response: %w", err)
+	}
+	return &comment, nil
+}
+
+// ListIssueComments retrieves all comments for the specified issue.
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, index int64) ([]*Comment, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d/comments", owner, repo, index)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo ListIssueComments request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo ListIssueComments returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var comments []*Comment
+	if err := json.Unmarshal(bodyBytes, &comments); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo comments response: %w", err)
+	}
+	return comments, nil
+}
+

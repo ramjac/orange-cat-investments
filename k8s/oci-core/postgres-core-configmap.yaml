@@ -89,11 +89,25 @@ data:
         review_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
         employee_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
         review_type VARCHAR(30) NOT NULL CHECK (review_type IN ('performance', 'feline_health_assessment')),
+        review_period VARCHAR(50) NOT NULL DEFAULT '2026-Q3',
+        phase VARCHAR(30) NOT NULL DEFAULT 'self_appraisal' CHECK (phase IN ('self_appraisal', 'peer_feedback', 'manager_review', 'completed')),
         scheduled_for DATE NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'overdue')),
         reviewer_id UUID REFERENCES workforce.employees(employee_id),
         score DECIMAL(3, 2),
         notes TEXT,
+        self_appraisal TEXT,
+        self_score DECIMAL(3, 2),
+        peer_feedback TEXT,
+        peer_score DECIMAL(3, 2),
+        peer_reviewer_id UUID REFERENCES workforce.employees(employee_id),
+        manager_assessment TEXT,
+        manager_score DECIMAL(3, 2),
+        kpi_ratings JSONB,
+        wellness_audit_score DECIMAL(3, 2),
+        habitat_recommendations TEXT,
+        clinical_auditor_id UUID REFERENCES workforce.employees(employee_id),
+        vhr_record_id UUID,
         completed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -142,6 +156,36 @@ data:
         reported_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         resolved_at TIMESTAMPTZ
     );
+    
+    -- Executive Management & BI Reports
+    CREATE TABLE IF NOT EXISTS workforce.executive_reports (
+        report_id VARCHAR(64) PRIMARY KEY,
+        period VARCHAR(16) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'archived',
+        total_revenue NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        operating_expenses NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        payroll_expenses NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        net_profit NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        operational_burn NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        cash_reserves NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        runway_months NUMERIC(6, 2) NOT NULL DEFAULT 0.00,
+        total_headcount INT NOT NULL DEFAULT 0,
+        human_headcount INT NOT NULL DEFAULT 0,
+        feline_headcount INT NOT NULL DEFAULT 0,
+        attendance_rate NUMERIC(5, 2) NOT NULL DEFAULT 0.00,
+        overtime_hours NUMERIC(8, 2) NOT NULL DEFAULT 0.00,
+        timesheets_approved INT NOT NULL DEFAULT 0,
+        webdav_path_pdf VARCHAR(512),
+        webdav_path_csv VARCHAR(512),
+        csv_content TEXT,
+        pdf_content BYTEA,
+        generated_by VARCHAR(64) NOT NULL DEFAULT 'system-reporting-worker',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workforce_executive_reports_period ON workforce.executive_reports(period);
     
     --------------------------------------------------------------------------------
     -- FACILITIES SCHEMA
@@ -392,20 +436,38 @@ data:
     -- OPS SCHEMA
     --------------------------------------------------------------------------------
     
-    -- IT Tickets (Ingested via Forgejo Webhooks)
+    -- IT Tickets & Helpdesk Issue Tracking (Ingested via Forgejo Webhooks & Portals)
     CREATE TABLE IF NOT EXISTS ops.it_tickets (
         ticket_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
         forgejo_issue_id BIGINT UNIQUE,
-        forgejo_repo VARCHAR(200) NOT NULL,
+        forgejo_repo VARCHAR(200) NOT NULL DEFAULT 'oci-internal/helpdesk',
         title VARCHAR(255) NOT NULL,
         body TEXT,
-        state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed', 'acknowledged')),
+        state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed', 'acknowledged', 'in_progress', 'resolved')),
+        severity VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (severity IN ('low', 'medium', 'high', 'urgent', 'critical')),
+        category VARCHAR(50) NOT NULL DEFAULT 'software' CHECK (category IN ('hardware', 'software', 'habitat', 'trading', 'general')),
+        source VARCHAR(20) NOT NULL DEFAULT 'internal' CHECK (source IN ('internal', 'customer', 'system')),
+        customer_id VARCHAR(100),
+        assignee_username VARCHAR(100),
         author_username VARCHAR(100) NOT NULL,
+        resolution_notes TEXT,
+        is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
         acknowledged_at TIMESTAMPTZ,
         acknowledged_by VARCHAR(100),
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- Ticket Comments & Feedback (Supports Internal Scrubbing for Customer Tickets)
+    CREATE TABLE IF NOT EXISTS ops.ticket_comments (
+        comment_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        ticket_id UUID NOT NULL REFERENCES ops.it_tickets(ticket_id) ON DELETE CASCADE,
+        author_username VARCHAR(100) NOT NULL,
+        comment TEXT NOT NULL,
+        is_internal BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     
     --------------------------------------------------------------------------------
     -- INITIAL SEED DATA (Foundational Habitat Zones, Assets, Portfolios & Strategies)
@@ -474,8 +536,154 @@ data:
         ('018f3a9a-4444-7000-8000-000000000004', 'Garfield Zoomies Multiplier', 'zooming', 'buy', 'AAPL', 1.5000, true)
     ON CONFLICT (name) DO NOTHING;
     
-    -- Initial IT Ticket for Pebble Alert verification
-    INSERT INTO ops.it_tickets (ticket_id, forgejo_issue_id, forgejo_repo, title, body, state, author_username)
-    VALUES 
-        ('018e0000-0000-7000-8000-000000000003', 101, 'oci/infrastructure', 'High Memory Usage Alert on Edge Gateway', 'Edge camera gateway node memory exceeded 85% threshold.', 'open', 'emp-human-frank')
+    -- Initial IT Helpdesk & Customer Support Tickets
+    INSERT INTO ops.it_tickets (
+        ticket_id, forgejo_issue_id, forgejo_repo, title, body, state, severity, category, source, customer_id, assignee_username, author_username, is_urgent
+    ) VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000003', 101, 'oci-internal/helpdesk',
+            'High Memory Usage Alert on Edge Gateway',
+            'Edge camera gateway node memory exceeded 85% threshold in Habitat Alpha.',
+            'open', 'urgent', 'hardware', 'internal', NULL, 'emp-human-frank', 'emp-human-frank', true
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000004', 102, 'oci-internal/helpdesk',
+            'Sunbeam Perch Thermostat Calibration Drift',
+            'Perch thermal sensor readings fluctuating +/- 4C outside comfort envelope.',
+            'acknowledged', 'high', 'habitat', 'internal', NULL, 'emp-human-bob', 'emp-human-bob', false
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000005', 103, 'oci-internal/customer-support',
+            'Inquiry on Portfolio Trade Settlement Batch #412',
+            'Can support verify the settlement status of my latest NVDA recurring allocation order?',
+            'in_progress', 'medium', 'trading', 'customer', 'cust-longterm-arthur', 'emp-human-elise', 'cust-longterm-arthur', false
+        )
     ON CONFLICT (ticket_id) DO NOTHING;
+
+    -- Initial Ticket Comments & Customer Sanitized Thread
+    INSERT INTO ops.ticket_comments (comment_id, ticket_id, author_username, comment, is_internal)
+    VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000050',
+            '018e0000-0000-7000-8000-000000000005',
+            'emp-human-elise',
+            'INTERNAL ONLY: Reconciled clearing ledger with Mock Broker. Settlement batch matched successfully.',
+            true
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000051',
+            '018e0000-0000-7000-8000-000000000005',
+            'emp-human-elise',
+            'Hello Arthur! Your NVDA order settlement has been verified and fully credited to your OCI Alpha Growth Fund portfolio.',
+            false
+        )
+    ON CONFLICT (comment_id) DO NOTHING;
+
+
+    -- Seed Initial Review Cycles (Multi-Phase Performance Reviews & Veterinary Audits)
+    INSERT INTO workforce.review_cycles (
+        review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+        reviewer_id, score, notes, self_appraisal, self_score, manager_assessment, manager_score,
+        kpi_ratings, wellness_audit_score, habitat_recommendations, clinical_auditor_id, completed_at
+    ) VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000020',
+            '018f3a9a-e001-7000-8000-000000000001',
+            'feline_health_assessment',
+            '2026-Q3',
+            'completed',
+            '2026-10-12',
+            'completed',
+            '018f3a9a-e004-7000-8000-000000000004',
+            4.95,
+            'Superb whisker symmetry, resting purr acoustics 92dB, optimal alpha sunbeam positioning.',
+            'Maintained executive posture on alpha perch; nap duration exceeded target by 12%.',
+            5.00,
+            'Executive feline leadership has stabilized market confidence across retail portfolios.',
+            4.95,
+            '{"purr_acoustics": 4.95, "sunbeam_coverage": 5.0, "observation_fidelity": 4.9}'::jsonb,
+            4.95,
+            'Increase sunlight perch access in Habitat Alpha; maintain lasagna moderation protocol.',
+            '018f3a9a-e004-7000-8000-000000000004',
+            CURRENT_TIMESTAMP
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000021',
+            '018f3a9a-e002-7000-8000-000000000002',
+            'feline_health_assessment',
+            '2026-Q3',
+            'manager_review',
+            '2026-10-18',
+            'in_progress',
+            '018f3a9a-e004-7000-8000-000000000004',
+            NULL,
+            'Quarterly weight check and alpha perch mobility audit',
+            'Climbed perch 42 times this week; verified perimeter integrity.',
+            4.80,
+            NULL,
+            NULL,
+            '{"perch_agility": 4.85, "catnip_temperance": 4.75}'::jsonb,
+            NULL,
+            NULL,
+            '018f3a9a-e004-7000-8000-000000000004',
+            NULL
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000022',
+            '018f3a9a-e003-7000-8000-000000000003',
+            'performance',
+            '2026-Q3',
+            'self_appraisal',
+            '2026-10-22',
+            'scheduled',
+            '018f3a9a-e001-7000-8000-000000000001',
+            NULL,
+            'Joint human-feline HR operations & catnip compliance review',
+            'Automated developer provisioning across Forgejo, Nextcloud, and Snipe-IT.',
+            4.85,
+            NULL,
+            NULL,
+            '{"onboarding_efficiency": 4.9, "compliance_adherence": 4.8}'::jsonb,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        )
+    ON CONFLICT (review_id) DO NOTHING;
+
+    -- Seed Executive Management Reports
+    INSERT INTO workforce.executive_reports (
+        report_id, period, title, status,
+        total_revenue, operating_expenses, payroll_expenses, net_profit,
+        operational_burn, cash_reserves, runway_months,
+        total_headcount, human_headcount, feline_headcount,
+        attendance_rate, overtime_hours, timesheets_approved,
+        webdav_path_pdf, webdav_path_csv, generated_by
+    ) VALUES
+        (
+            'rep-2026-08',
+            '2026-08',
+            'OCI Executive Management Report - August 2026',
+            'archived',
+            1180000.00, 310000.00, 395000.00, 475000.00,
+            705000.00, 9200000.00, 13.05,
+            11, 9, 2,
+            98.80, 38.00, 16,
+            '/remote.php/dav/files/admin/Executive/Reports/2026-08/executive_summary_report_2026-08.pdf',
+            '/remote.php/dav/files/admin/Executive/Reports/2026-08/executive_summary_report_2026-08.csv',
+            'system-reporting-worker'
+        ),
+        (
+            'rep-2026-09',
+            '2026-09',
+            'OCI Executive Management Report - September 2026',
+            'archived',
+            1240000.00, 335000.00, 410000.00, 495000.00,
+            745000.00, 9650000.00, 12.95,
+            12, 10, 2,
+            99.10, 41.50, 18,
+            '/remote.php/dav/files/admin/Executive/Reports/2026-09/executive_summary_report_2026-09.pdf',
+            '/remote.php/dav/files/admin/Executive/Reports/2026-09/executive_summary_report_2026-09.csv',
+            'system-reporting-worker'
+        )
+    ON CONFLICT (report_id) DO NOTHING;

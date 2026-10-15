@@ -25,7 +25,9 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -140,7 +142,26 @@ func main() {
 		} else {
 			opsRepo = ops_repo.NewMockRepository()
 		}
-		opsService := ops_svc.NewService(opsRepo)
+
+		var issueTracker ops_svc.IssueTrackerClient
+		issueTrackerURL := os.Getenv("FORGEJO_URL")
+		if issueTrackerURL == "" {
+			issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+		}
+		if issueTrackerURL != "" {
+			issueTracker = forgejo.NewClient(forgejo.Config{
+				BaseURL: issueTrackerURL,
+				Token:   os.Getenv("FORGEJO_TOKEN"),
+			})
+			logger.Info("Forgejo issue tracker client initialized in Server", "url", issueTrackerURL)
+		}
+
+		var opsService ops_svc.Service
+		if issueTracker != nil {
+			opsService = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
+		} else {
+			opsService = ops_svc.NewService(opsRepo)
+		}
 		opsHandler := ops_handler.NewHandler(opsService)
 		opsHandler.RegisterRoutes(mux)
 		logger.Info("Operations domain routes registered")
@@ -178,9 +199,23 @@ func main() {
 		logger.Info("Frappe HR client initialized", "url", frappeURL)
 	}
 
+	var workspaceClient workforce_svc.WorkspaceClient
+	workspaceURL := os.Getenv("WORKSPACE_URL")
+	if workspaceURL == "" {
+		workspaceURL = os.Getenv("NEXTCLOUD_URL")
+	}
+	if workspaceURL != "" {
+		workspaceClient = nextcloud.NewClient(nextcloud.Config{
+			BaseURL:       workspaceURL,
+			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASSWORD"),
+		})
+		logger.Info("Workspace intranet client initialized", "url", workspaceURL)
+	}
+
 	var wfSvc workforce_svc.Service
-	if hrClient != nil {
-		wfSvc = workforce_svc.NewServiceWithIntegrations(wfRepo, nil, hrClient)
+	if hrClient != nil || workspaceClient != nil {
+		wfSvc = workforce_svc.NewServiceWithIntegrations(wfRepo, nil, hrClient, workspaceClient)
 	} else {
 		wfSvc = workforce_svc.NewService(wfRepo)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
@@ -743,5 +745,177 @@ func TestCustomerBFF_DynamicCustomerRemediation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "port-cust-dynamo-999", orderResp["portfolio_id"])
 }
+
+func TestCustomerBFF_CustomerSupport_ListAndCreateTickets(t *testing.T) {
+	_, mux := setupTestBFF()
+	csrfVal := "support-csrf-token"
+
+	// 1. Unauthenticated request to /api/v1/customer/support/tickets should be rejected
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	unauthRec := httptest.NewRecorder()
+	mux.ServeHTTP(unauthRec, unauthReq)
+	assert.Equal(t, http.StatusUnauthorized, unauthRec.Code)
+
+	// 2. Authenticated request for Arthur
+	loginBody := bytes.NewBufferString(`{"customer_id":"cust-longterm-arthur","name":"Arthur Pendelton","email":"arthur@oci.local"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/auth/login", loginBody)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var loginResp struct {
+		Session *CustomerSession `json:"session"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &loginResp))
+	sessToken := loginResp.Session.SessionID
+
+	// 3. Create a ticket without CSRF should fail
+	createTicketBody := bytes.NewBufferString(`{"category":"Trading","title":"Execution Delay Question","body":"Why did my order take 30s to fill?"}`)
+	badCSRFReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/support/tickets", createTicketBody)
+	badCSRFReq.Header.Set("Content-Type", "application/json")
+	badCSRFReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	badCSRFRec := httptest.NewRecorder()
+	mux.ServeHTTP(badCSRFRec, badCSRFReq)
+	assert.Equal(t, http.StatusForbidden, badCSRFRec.Code)
+
+	// 4. Create a ticket with valid CSRF
+	createTicketBody = bytes.NewBufferString(`{"category":"Trading","title":"Execution Delay Question","body":"Why did my order take 30s to fill?"}`)
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/support/tickets", createTicketBody)
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-CSRF-Token", csrfVal)
+	createReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	createReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
+	assert.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createdTicket map[string]interface{}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createdTicket))
+	ticketID, ok := createdTicket["ticket_id"].(string)
+	require.True(t, ok)
+	assert.NotEmpty(t, ticketID)
+	assert.Equal(t, "Execution Delay Question", createdTicket["title"])
+	assert.Equal(t, "cust-longterm-arthur", createdTicket["customer_id"])
+
+	// 5. List tickets for Arthur
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	listReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	listRec := httptest.NewRecorder()
+	mux.ServeHTTP(listRec, listReq)
+	assert.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Items []map[string]interface{} `json:"items"`
+		Total int                      `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	assert.GreaterOrEqual(t, listResp.Total, 1)
+
+	// 6. Get single ticket
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets/"+ticketID, nil)
+	getReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	getRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	// 7. Add customer comment with CSRF
+	commentBody := bytes.NewBufferString(`{"comment":"Following up on this, any updates from the desk?"}`)
+	commentReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/support/tickets/"+ticketID+"/comments", commentBody)
+	commentReq.Header.Set("Content-Type", "application/json")
+	commentReq.Header.Set("X-CSRF-Token", csrfVal)
+	commentReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	commentReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	commentRec := httptest.NewRecorder()
+	mux.ServeHTTP(commentRec, commentReq)
+	assert.Equal(t, http.StatusCreated, commentRec.Code)
+
+	// 8. List comments (sanitized)
+	commentsReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets/"+ticketID+"/comments", nil)
+	commentsReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	commentsRec := httptest.NewRecorder()
+	mux.ServeHTTP(commentsRec, commentsReq)
+	assert.Equal(t, http.StatusOK, commentsRec.Code)
+
+	var commentsResp struct {
+		Items []map[string]interface{} `json:"items"`
+		Total int                      `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(commentsRec.Body.Bytes(), &commentsResp))
+	assert.GreaterOrEqual(t, commentsResp.Total, 1)
+}
+
+func TestCustomerBFF_CustomerSupport_CommentScrubbing(t *testing.T) {
+	bff, mux := setupTestBFF()
+	csrfVal := "scrub-csrf-token"
+
+	// Login as Arthur
+	loginBody := bytes.NewBufferString(`{"customer_id":"cust-longterm-arthur","name":"Arthur Pendelton","email":"arthur@oci.local"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/auth/login", loginBody)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var loginResp struct {
+		Session *CustomerSession `json:"session"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &loginResp))
+	sessToken := loginResp.Session.SessionID
+
+	// Create customer ticket
+	createTicketBody := bytes.NewBufferString(`{"category":"UI Bug","title":"Chart zoom bug","body":"Zooming in resets axis"}`)
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/support/tickets", createTicketBody)
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("X-CSRF-Token", csrfVal)
+	createReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	createReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	createRec := httptest.NewRecorder()
+	mux.ServeHTTP(createRec, createReq)
+	assert.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createdTicket map[string]interface{}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createdTicket))
+	ticketID := createdTicket["ticket_id"].(string)
+
+	// Add internal staff comment directly via opsSvc
+	_, err := bff.opsSvc.AddTicketComment(context.Background(), ticketID, &ops_svc.AddCommentRequest{
+		AuthorUsername: "frank_infra",
+		Comment:        "INTERNAL ONLY: Database lock contention occurred on server node 3.",
+		IsInternal:     true,
+	})
+	require.NoError(t, err)
+
+	// Add public support response via opsSvc
+	_, err = bff.opsSvc.AddTicketComment(context.Background(), ticketID, &ops_svc.AddCommentRequest{
+		AuthorUsername: "support_agent",
+		Comment:        "Thank you for reporting. Our engineering team is reviewing this.",
+		IsInternal:     false,
+	})
+	require.NoError(t, err)
+
+	// Customer fetches comments via Customer BFF
+	commentsReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets/"+ticketID+"/comments", nil)
+	commentsReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
+	commentsRec := httptest.NewRecorder()
+	mux.ServeHTTP(commentsRec, commentsReq)
+	assert.Equal(t, http.StatusOK, commentsRec.Code)
+
+	var commentsResp struct {
+		Items []map[string]interface{} `json:"items"`
+		Total int                      `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(commentsRec.Body.Bytes(), &commentsResp))
+	assert.Equal(t, 1, commentsResp.Total)
+	assert.Equal(t, "support_agent", commentsResp.Items[0]["author_username"])
+	assert.Equal(t, "Thank you for reporting. Our engineering team is reviewing this.", commentsResp.Items[0]["comment"])
+
+	// Assert the internal note was completely scrubbed!
+	for _, c := range commentsResp.Items {
+		assert.False(t, c["is_internal"].(bool))
+		assert.NotContains(t, c["comment"].(string), "INTERNAL ONLY")
+	}
+}
+
 
 

@@ -57,7 +57,7 @@ func TestOnboardingSagaAndOffboardingEngine(t *testing.T) {
 		assert.True(t, res.SessionsRevoked)
 		assert.True(t, res.StorageArchived)
 		assert.NotEmpty(t, res.ArchiveVaultPath)
-		assert.Contains(t, res.CareTransition, "Dr. Elena Rostova")
+		assert.Contains(t, res.CareTransition, "senior veterinary medical hold")
 
 		// Verify emergency medical hold is active for retired feline
 		cs, err := wfSvc.GetCareSchedule(ctx, "emp-feline-felix")
