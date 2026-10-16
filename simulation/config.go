@@ -1,6 +1,8 @@
 package simulation
 
 import (
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -20,6 +22,9 @@ type Config struct {
 
 	// BankURL is the base URL for the external / mock bank API (default: http://localhost:8088).
 	BankURL string
+
+	// ForgejoURL is the base URL for the Forgejo Git repository host (default: http://localhost:3000).
+	ForgejoURL string
 
 	// Mode determines how simulation actions are executed:
 	// "mock"       - runs against embedded mock server handlers without external dependencies.
@@ -49,6 +54,7 @@ func DefaultConfig() *Config {
 		CustomerBFFURL: "http://localhost:8083",
 		BrokerURL:      "http://localhost:8089",
 		BankURL:        "http://localhost:8088",
+		ForgejoURL:     "http://localhost:3000",
 		Mode:           "mock",
 		TargetPersona:  "all",
 		Iterations:     1,
@@ -56,3 +62,110 @@ func DefaultConfig() *Config {
 		Verbose:        false,
 	}
 }
+
+// ValidateTarget checks that the simulation does not target the production environment (oci-core).
+// The simulation suite is strictly restricted to oci-dev (e.g. dev.api.oci.local, oci-dev cluster services,
+// or local development/testing endpoints). The production namespace (oci-core) must remain clean.
+func (c *Config) ValidateTarget() error {
+	if c.Mode == "mock" {
+		return nil
+	}
+
+	targets := []struct {
+		name string
+		url  string
+	}{
+		{"ServerURL", c.ServerURL},
+		{"EmployeeBFFURL", c.EmployeeBFFURL},
+		{"CustomerBFFURL", c.CustomerBFFURL},
+		{"BrokerURL", c.BrokerURL},
+		{"BankURL", c.BankURL},
+		{"ForgejoURL", c.ForgejoURL},
+	}
+
+	for _, t := range targets {
+		u := strings.ToLower(strings.TrimSpace(t.url))
+		if u == "" {
+			continue
+		}
+		// Disallow explicit production domains or namespace references
+		isProdNamespace := strings.Contains(u, "oci-core") || strings.Contains(u, ".production")
+		isProdDomain := (strings.Contains(u, "api.oci.local") && !strings.Contains(u, "dev.api.oci.local")) ||
+			(strings.Contains(u, "employee-bff.oci.local") && !strings.Contains(u, "dev.employee-bff.oci.local")) ||
+			(strings.Contains(u, "customer-bff.oci.local") && !strings.Contains(u, "dev.customer-bff.oci.local")) ||
+			(strings.Contains(u, "employee.oci.local") && !strings.Contains(u, "dev.employee.oci.local")) ||
+			(strings.Contains(u, "customer.oci.local") && !strings.Contains(u, "dev.customer.oci.local"))
+
+		if isProdNamespace || isProdDomain {
+			return fmt.Errorf("simulation target %s ('%s') is rejected: simulation is strictly restricted to 'oci-dev' (e.g. https://dev.api.oci.local or local dev/test servers); production 'oci-core' is protected and must remain clean", t.name, t.url)
+		}
+	}
+
+	return nil
+}
+
+// ResolveRoutingURLs determines the effective ServerURL, EmployeeBFFURL, CustomerBFFURL, and ForgejoURL
+// based on a unified URL flag (e.g., https://dev.api.oci.local or http://localhost:8080)
+// and any explicit service URL overrides.
+func ResolveRoutingURLs(unifiedURL, serverURL, bffURL, custBFFURL, forgejoURL string) (string, string, string, string) {
+	resolvedServer := strings.TrimRight(serverURL, "/")
+	resolvedBFF := strings.TrimRight(bffURL, "/")
+	resolvedCustBFF := strings.TrimRight(custBFFURL, "/")
+	resolvedForgejo := strings.TrimRight(forgejoURL, "/")
+	uURL := strings.TrimRight(strings.TrimSpace(unifiedURL), "/")
+
+	if uURL != "" {
+		if resolvedServer == "" {
+			resolvedServer = uURL
+		}
+		if resolvedBFF == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				resolvedBFF = strings.Replace(uURL, "dev.api.oci.local", "dev.employee-bff.oci.local", 1)
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBFF = strings.Replace(uURL, ":8080", ":8081", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedBFF = strings.Replace(uURL, "dev.api.", "dev.employee-bff.", 1)
+			} else {
+				resolvedBFF = uURL
+			}
+		}
+		if resolvedCustBFF == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				resolvedCustBFF = strings.Replace(uURL, "dev.api.oci.local", "dev.customer-bff.oci.local", 1)
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedCustBFF = strings.Replace(uURL, ":8080", ":8083", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedCustBFF = strings.Replace(uURL, "dev.api.", "dev.customer-bff.", 1)
+			} else {
+				resolvedCustBFF = uURL
+			}
+		}
+		if resolvedForgejo == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				resolvedForgejo = "https://forgejo.oci.local"
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedForgejo = strings.Replace(uURL, ":8080", ":3000", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedForgejo = strings.Replace(uURL, "dev.api.", "forgejo.", 1)
+			} else {
+				resolvedForgejo = "http://localhost:3000"
+			}
+		}
+	}
+
+	if resolvedServer == "" {
+		resolvedServer = "http://localhost:8080"
+	}
+	if resolvedBFF == "" {
+		resolvedBFF = "http://localhost:8081"
+	}
+	if resolvedCustBFF == "" {
+		resolvedCustBFF = "http://localhost:8083"
+	}
+	if resolvedForgejo == "" {
+		resolvedForgejo = "http://localhost:3000"
+	}
+
+	return resolvedServer, resolvedBFF, resolvedCustBFF, resolvedForgejo
+}
+

@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forgejo-runner-config
+  namespace: oci-internal
+  labels:
+    app: forgejo-runner
+data:
+  config.yaml: |
+    runner:
+      capacity: 2
+      timeout: 3h
+      insecure: false
+      fetch_timeout: 5s
+      fetch_interval: 2s
+      labels:
+        - "ubuntu-latest:docker://node:20-bookworm"
+        - "ubuntu-22.04:docker://node:20-bookworm"
+        - "docker:docker://docker:dind"
+    host:
+      workdir: /tmp/runner/workspace
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: forgejo-runner-secret
+  namespace: oci-internal
+  labels:
+    app: forgejo-runner
+type: Opaque
+stringData:
+  RUNNER_TOKEN: "oci_internal_forgejo_runner_token_secret"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-runner
+  namespace: oci-internal
+  labels:
+    app: forgejo-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: forgejo-runner
+  template:
+    metadata:
+      labels:
+        app: forgejo-runner
+    spec:
+      containers:
+        - name: runner
+          image: codeberg.org/forgejo/act_runner:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: GITEA_INSTANCE_URL
+              value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-runner-secret
+                  key: RUNNER_TOKEN
+            - name: GITEA_RUNNER_NAME
+              value: "oci-cluster-runner"
+            - name: GITEA_RUNNER_LABELS
+              value: "ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm"
+            - name: CONFIG_FILE
+              value: "/config/config.yaml"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: runner-config
+              mountPath: /config
+            - name: runner-data
+              mountPath: /data
+      volumes:
+        - name: runner-config
+          configMap:
+            name: forgejo-runner-config
+        - name: runner-data
+          emptyDir: {}

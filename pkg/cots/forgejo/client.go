@@ -106,6 +106,70 @@ type CreateCommentOption struct {
 	Body string `json:"body"`
 }
 
+// Branch represents a git branch in a Forgejo repository.
+type Branch struct {
+	Name      string     `json:"name"`
+	Commit    CommitMeta `json:"commit"`
+	Protected bool       `json:"protected"`
+}
+
+// CommitMeta contains metadata about a git commit.
+type CommitMeta struct {
+	ID        string    `json:"id"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// CreateBranchOption defines parameters for creating a new branch.
+type CreateBranchOption struct {
+	BranchName string `json:"new_branch_name"`
+	OldRefName string `json:"old_ref_name"`
+}
+
+// CreateFileOption defines parameters for creating a file on a branch.
+type CreateFileOption struct {
+	Branch  string `json:"branch"`
+	Content string `json:"content"`
+	Message string `json:"message"`
+}
+
+// PullRequest represents a Forgejo pull request.
+type PullRequest struct {
+	ID        int64             `json:"id"`
+	Index     int64             `json:"number"`
+	Title     string            `json:"title"`
+	Body      string            `json:"body"`
+	State     string            `json:"state"`
+	Head      PullRequestBranch `json:"head"`
+	Base      PullRequestBranch `json:"base"`
+	Merged    bool              `json:"merged"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+// PullRequestBranch represents the head or base branch of a PR.
+type PullRequestBranch struct {
+	Ref string `json:"ref"`
+}
+
+// CreatePullRequestOption defines parameters for opening a pull request.
+type CreatePullRequestOption struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Head  string `json:"head"`
+	Base  string `json:"base"`
+}
+
+// CreatePullReviewOption defines parameters for reviewing a PR.
+type CreatePullReviewOption struct {
+	Event string `json:"event"`
+	Body  string `json:"body"`
+}
+
+// MergePullRequestOption defines parameters for merging a PR.
+type MergePullRequestOption struct {
+	Do string `json:"Do"`
+}
+
 // NewClient initializes a new Forgejo REST API client.
 func NewClient(cfg Config) *Client {
 	hc := cfg.HTTPClient
@@ -421,5 +485,218 @@ func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, inde
 		return nil, fmt.Errorf("failed to decode Forgejo comments response: %w", err)
 	}
 	return comments, nil
+}
+
+// CreateBranch creates a new git branch in the repository.
+func (c *Client) CreateBranch(ctx context.Context, owner, repo string, opt CreateBranchOption) (*Branch, error) {
+	if owner == "" || repo == "" || opt.BranchName == "" {
+		return nil, errors.New("owner, repo, and BranchName are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/branches", owner, repo)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateBranch request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateBranch returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var branch Branch
+	if err := json.Unmarshal(bodyBytes, &branch); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo branch response: %w", err)
+	}
+	return &branch, nil
+}
+
+// ListBranches retrieves the list of git branches for the repository.
+func (c *Client) ListBranches(ctx context.Context, owner, repo string) ([]*Branch, error) {
+	if owner == "" || repo == "" {
+		return nil, errors.New("owner and repo are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/branches", owner, repo)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo ListBranches request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo ListBranches returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var branches []*Branch
+	if err := json.Unmarshal(bodyBytes, &branches); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo branches response: %w", err)
+	}
+	return branches, nil
+}
+
+// CreateOrUpdateFile creates or updates a file in the repository branch.
+func (c *Client) CreateOrUpdateFile(ctx context.Context, owner, repo, filepath string, opt CreateFileOption) (map[string]any, error) {
+	if owner == "" || repo == "" || filepath == "" {
+		return nil, errors.New("owner, repo, and filepath are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/contents/%s", owner, repo, filepath)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateOrUpdateFile request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateOrUpdateFile returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo file response: %w", err)
+	}
+	return result, nil
+}
+
+// CreatePullRequest opens a pull request in the repository.
+func (c *Client) CreatePullRequest(ctx context.Context, owner, repo string, opt CreatePullRequestOption) (*PullRequest, error) {
+	if owner == "" || repo == "" || opt.Title == "" || opt.Head == "" || opt.Base == "" {
+		return nil, errors.New("owner, repo, title, head, and base are required to create a PR")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/pulls", owner, repo)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreatePullRequest request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreatePullRequest returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var pr PullRequest
+	if err := json.Unmarshal(bodyBytes, &pr); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo PR response: %w", err)
+	}
+	return &pr, nil
+}
+
+// ListPullRequests retrieves open pull requests for the repository.
+func (c *Client) ListPullRequests(ctx context.Context, owner, repo string) ([]*PullRequest, error) {
+	if owner == "" || repo == "" {
+		return nil, errors.New("owner and repo are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/pulls", owner, repo)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo ListPullRequests request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo ListPullRequests returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var prs []*PullRequest
+	if err := json.Unmarshal(bodyBytes, &prs); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo PRs response: %w", err)
+	}
+	return prs, nil
+}
+
+// CreatePullReview submits a review (APPROVED, REJECTED, COMMENT) on a pull request.
+func (c *Client) CreatePullReview(ctx context.Context, owner, repo string, index int64, opt CreatePullReviewOption) (map[string]any, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/pulls/%d/reviews", owner, repo, index)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreatePullReview request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("forgejo CreatePullReview returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo review response: %w", err)
+	}
+	return result, nil
+}
+
+// MergePullRequest merges an approved pull request into the base branch.
+func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, index int64, opt MergePullRequestOption) (map[string]any, error) {
+	if owner == "" || repo == "" || index <= 0 {
+		return nil, errors.New("owner, repo, and valid index are required")
+	}
+	if opt.Do == "" {
+		opt.Do = "merge"
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/pulls/%d/merge", owner, repo, index)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo MergePullRequest request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo MergePullRequest returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo merge response: %w", err)
+	}
+	return result, nil
 }
 

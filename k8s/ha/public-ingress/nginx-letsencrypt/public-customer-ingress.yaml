@@ -1,0 +1,64 @@
+# ==============================================================================
+# Public NGINX Ingress for Customer Portal with Automated Let's Encrypt TLS
+# ==============================================================================
+# Used when directly exposing cluster via router port forwarding (80/443).
+# Enforces HTTP-to-HTTPS redirect, rate limiting, and HTTP security headers.
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: public-customer-ingress
+  namespace: oci-core
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "180"
+    # Anti-Abuse & Rate Limiting (DDoS mitigation on residential connection)
+    nginx.ingress.kubernetes.io/limit-rps: "25"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    # Security Headers (OWASP recommendations)
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: public
+  tls:
+    - hosts:
+        - customer.orangecatinvestments.com
+        - customer-api.orangecatinvestments.com
+        - auth.orangecatinvestments.com
+      secretName: customer-portal-public-tls
+  rules:
+    - host: customer.orangecatinvestments.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-portal-service
+                port:
+                  number: 5174
+    - host: customer-api.orangecatinvestments.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-service
+                port:
+                  number: 8083
+    - host: auth.orangecatinvestments.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zitadel-service
+                port:
+                  number: 8080

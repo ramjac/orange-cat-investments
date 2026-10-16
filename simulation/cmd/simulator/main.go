@@ -15,8 +15,11 @@ import (
 
 func main() {
 	var (
-		serverURL    = flag.String("server-url", "http://localhost:8080", "Base URL for OCI Domain API Server")
-		bffURL       = flag.String("bff-url", "http://localhost:8081", "Base URL for OCI Employee BFF")
+		unifiedURL   = flag.String("url", "", "Unified base URL or staging domain (e.g. https://dev.api.oci.local, http://localhost:8080)")
+		serverURL    = flag.String("server-url", "", "Base URL for OCI Domain API Server (overrides -url)")
+		bffURL       = flag.String("bff-url", "", "Base URL for OCI Employee BFF (overrides -url)")
+		custBFFURL   = flag.String("cust-bff-url", "", "Base URL for OCI Customer BFF (overrides -url)")
+		forgejoURL   = flag.String("forgejo-url", "", "Base URL for Forgejo Git repository host (overrides -url)")
 		mode         = flag.String("mode", "mock", "Simulation mode: 'mock', 'live', 'step', 'continuous'")
 		persona      = flag.String("persona", "all", "Target persona ID or Name (or 'all')")
 		iterations   = flag.Int("iterations", 1, "Number of daily simulation loops to perform")
@@ -38,9 +41,13 @@ func main() {
 		os.Exit(0)
 	}
 
+	resolvedServer, resolvedBFF, resolvedCustBFF, resolvedForgejo := simulation.ResolveRoutingURLs(*unifiedURL, *serverURL, *bffURL, *custBFFURL, *forgejoURL)
+
 	cfg := &simulation.Config{
-		ServerURL:      *serverURL,
-		EmployeeBFFURL: *bffURL,
+		ServerURL:      resolvedServer,
+		EmployeeBFFURL: resolvedBFF,
+		CustomerBFFURL: resolvedCustBFF,
+		ForgejoURL:     resolvedForgejo,
 		Mode:           *mode,
 		TargetPersona:  *persona,
 		Iterations:     *iterations,

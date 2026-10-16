@@ -1,0 +1,51 @@
+# ==============================================================================
+# Orange Cat Investments (OCI) - 3-Node High-Availability K3s Cluster Inventory
+# ==============================================================================
+# This inventory configures a resilient 3-node K3s cluster with embedded etcd
+# and kube-vip for high availability across physical home/office mini PCs.
+#
+# Quorum Requirement: 3 Control-Plane Server Nodes (Tolerates 1 Node Failure)
+# Copy this file to `ha-cluster.ini` and customize IP addresses and interfaces.
+
+[k3s_primary_server]
+node1 ansible_host=192.168.1.201 ansible_user=ramjac
+
+[k3s_secondary_servers]
+node2 ansible_host=192.168.1.202 ansible_user=ramjac
+node3 ansible_host=192.168.1.203 ansible_user=ramjac
+
+[k3s_servers:children]
+k3s_primary_server
+k3s_secondary_servers
+
+# Dedicated worker nodes (optional; in a 3-node hyperconverged setup,
+# server nodes run both control plane / etcd and container workloads)
+[k3s_agents]
+# worker1 ansible_host=192.168.1.204 ansible_user=ramjac
+
+[k3s_cluster:children]
+k3s_servers
+k3s_agents
+
+[k3s_cluster:vars]
+# Ansible connection settings
+ansible_python_interpreter=/usr/bin/python3
+ansible_become=true
+
+# High-Availability Virtual IP (VIP) managed by kube-vip (ARP mode)
+# This IP must be an unassigned static IP on your local subnet (e.g., 192.168.1.0/24)
+k3s_vip=192.168.1.250
+k3s_vip_interface=eth0
+k3s_vip_cidr=24
+
+# K3s Version and Cluster Shared Secret Token
+k3s_version=v1.36.4+k3s1
+k3s_cluster_token=OCI-SuperSecretClusterToken-ChangeMe-2026
+
+# Storage & Network configuration
+k3s_disable_traefik=true
+k3s_disable_servicelb=true
+k3s_flannel_backend=vxlan
+
+# Intranet Domain Configuration
+oci_lan_domain=oci.local

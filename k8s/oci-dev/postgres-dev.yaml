@@ -67,7 +67,7 @@ spec:
             claimName: postgres-dev-data-pvc
         - name: init-script
           configMap:
-            name: postgres-core-init-script
+            name: postgres-dev-init-script
 ---
 apiVersion: v1
 kind: Service

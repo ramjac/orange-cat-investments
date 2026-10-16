@@ -1,0 +1,150 @@
+# ==============================================================================
+# High-Availability Intranet Ingress with Automated Local TLS
+# ==============================================================================
+# Terminates HTTPS with valid certificates issued by `oci-lan-issuer`.
+# Eliminates browser security warnings across all internal web endpoints.
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oci-lan-core-ingress-tls
+  namespace: oci-core
+  annotations:
+    cert-manager.io/cluster-issuer: oci-lan-issuer
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: public
+  tls:
+    - hosts:
+        - employee.oci.local
+        - employee-bff.oci.local
+        - api.oci.local
+        - auth.oci.local
+        - pebble-proxy.oci.local
+      secretName: oci-core-lan-tls
+  rules:
+    - host: employee.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-portal-service
+                port:
+                  number: 5173
+    - host: employee-bff.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-bff-service
+                port:
+                  number: 8081
+    - host: api.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-server-service
+                port:
+                  number: 8080
+    - host: auth.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: zitadel-service
+                port:
+                  number: 8080
+    - host: pebble-proxy.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-pebble-proxy-service
+                port:
+                  number: 8082
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oci-lan-internal-ingress-tls
+  namespace: oci-internal
+  annotations:
+    cert-manager.io/cluster-issuer: oci-lan-issuer
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "500m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: public
+  tls:
+    - hosts:
+        - forgejo.oci.local
+        - nextcloud.oci.local
+        - erpnext.oci.local
+        - hr.oci.local
+        - snipeit.oci.local
+      secretName: oci-internal-lan-tls
+  rules:
+    - host: forgejo.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: forgejo-service
+                port:
+                  number: 3000
+    - host: nextcloud.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-service
+                port:
+                  number: 80
+    - host: erpnext.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: erpnext-frappe-service
+                port:
+                  number: 8000
+    - host: hr.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frappe-hr-service
+                port:
+                  number: 8000
+    - host: snipeit.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: snipe-it-service
+                port:
+                  number: 80

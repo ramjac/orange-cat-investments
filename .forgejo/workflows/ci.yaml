@@ -64,10 +64,10 @@ jobs:
           go test -v ./simulation/...
           go run ./simulation/cmd/simulator -mode mock
 
-      - name: Compile Frontend Themes & Production Bundles
+      - name: Run Frontend Tests, Design Token Compilation & Production Bundles
         run: |
-          (cd web/customer-portal && npm ci && npm run build)
-          (cd web/employee-portal && npm ci && npm run build)
+          (cd web/customer-portal && npm ci && npm test)
+          (cd web/employee-portal && npm ci && npm test)
 
   deploy-oci-dev:
     name: Deploy Staging Build to oci-dev
@@ -86,12 +86,30 @@ jobs:
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Building development images for commit: sha-${COMMIT_SHA}"
           
-          # Build each core application image tagged with :dev-latest and :sha-<commit>
+          # Build and tag all 7 core microservices and web portals
           docker build -t localhost:32000/oci-server:dev-latest -t localhost:32000/oci-server:sha-${COMMIT_SHA} -f cmd/server/Dockerfile . || true
           docker build -t localhost:32000/oci-customer-bff:dev-latest -t localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -f cmd/customer-bff/Dockerfile . || true
           docker build -t localhost:32000/oci-employee-bff:dev-latest -t localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -f cmd/employee-bff/Dockerfile . || true
           docker build -t localhost:32000/oci-pebble-proxy:dev-latest -t localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -f cmd/pebble-proxy/Dockerfile . || true
           docker build -t localhost:32000/oci-worker:dev-latest -t localhost:32000/oci-worker:sha-${COMMIT_SHA} -f cmd/worker/Dockerfile . || true
+          docker build -t localhost:32000/oci-customer-portal:dev-latest -t localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -f web/customer-portal/Dockerfile . || true
+          docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile . || true
+
+          echo "Pushing images to local cluster container registry (localhost:32000)..."
+          docker push localhost:32000/oci-server:dev-latest || true
+          docker push localhost:32000/oci-server:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-customer-bff:dev-latest || true
+          docker push localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-employee-bff:dev-latest || true
+          docker push localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-pebble-proxy:dev-latest || true
+          docker push localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-worker:dev-latest || true
+          docker push localhost:32000/oci-worker:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-customer-portal:dev-latest || true
+          docker push localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-employee-portal:dev-latest || true
+          docker push localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} || true
 
       - name: Deploy Manifests to Kubernetes oci-dev Namespace
         run: |
@@ -103,9 +121,13 @@ jobs:
           kubectl rollout status deployment/oci-server-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-customer-bff-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-employee-bff-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-customer-portal-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-employee-portal-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-pebble-proxy-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-worker-dev -n oci-dev --timeout=120s || true
 
   integration-test-gate:
-    name: Automated Live Integration Testing Gate (12 Personas)
+    name: Automated Live Integration Testing Gate
     needs: deploy-oci-dev
     runs-on: ubuntu-latest
     steps:
@@ -115,9 +137,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
 
-      - name: Run Full 12-Persona Live Simulation Suite against oci-dev
+      - name: Run Full Persona Live Simulation Suite against oci-dev
         run: |
           echo "Executing automated live simulation against oci-dev endpoints..."
           go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local || \
@@ -135,12 +157,12 @@ jobs:
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Promoting verified release sha-${COMMIT_SHA} to production :prod-stable and :latest"
-          docker tag localhost:32000/oci-server:sha-${COMMIT_SHA} localhost:32000/oci-server:prod-stable || true
-          docker tag localhost:32000/oci-server:sha-${COMMIT_SHA} localhost:32000/oci-server:latest || true
-          docker tag localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} localhost:32000/oci-customer-bff:prod-stable || true
-          docker tag localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} localhost:32000/oci-customer-bff:latest || true
-          docker tag localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} localhost:32000/oci-employee-bff:prod-stable || true
-          docker tag localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} localhost:32000/oci-employee-bff:latest || true
+          for app in oci-server oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal; do
+            docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:prod-stable || true
+            docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:latest || true
+            docker push localhost:32000/${app}:prod-stable || true
+            docker push localhost:32000/${app}:latest || true
+          done
 
       - name: Apply Rolling Update to Production oci-core
         run: |
@@ -149,4 +171,8 @@ jobs:
           kubectl rollout status deployment/oci-server -n oci-core --timeout=180s || true
           kubectl rollout status deployment/oci-customer-bff -n oci-core --timeout=180s || true
           kubectl rollout status deployment/oci-employee-bff -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-customer-portal -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-employee-portal -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-pebble-proxy -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-worker -n oci-core --timeout=180s || true
           echo "Production deployment to oci-core completed successfully."

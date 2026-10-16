@@ -1,0 +1,36 @@
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-every-4h
+  namespace: longhorn-system
+spec:
+  cron: "0 */4 * * *"
+  task: "snapshot"
+  retain: 12
+  concurrency: 2
+  labels:
+    interval: four-hourly
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-nightly-s3
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * *"
+  task: "backup"
+  retain: 30
+  concurrency: 1
+  labels:
+    interval: daily
+---
+# Secret template for Longhorn volume encryption at rest (StorageClass: longhorn-crypto)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: longhorn-crypto-key
+  namespace: longhorn-system
+type: Opaque
+stringData:
+  CRYPTO_KEY_VALUE: "OCI-LUKS-Encryption-Key-2026-SuperSecure"
+  CRYPTO_KEY_PROVIDER: "secret"

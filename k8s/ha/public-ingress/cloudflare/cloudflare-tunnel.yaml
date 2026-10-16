@@ -1,0 +1,99 @@
+# ==============================================================================
+# Cloudflare Tunnel (cloudflared) Deployment for Public Customer Access
+# ==============================================================================
+# Architecture:
+# - Zero inbound ports open on office/home router (outbound HTTPS to Cloudflare edge)
+# - Immune to ISP CGNAT (Carrier-Grade NAT) and dynamic IP changes
+# - Automatic Cloudflare DDoS mitigation, Web Application Firewall (WAF), and CDN
+# - High-Availability: 2 replicas spread across distinct nodes via PodAntiAffinity
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-tunnel-config
+  namespace: oci-core
+data:
+  config.yaml: |
+    tunnel: oci-customer-tunnel
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    metrics: 0.0.0.0:2000
+    no-autoupdate: true
+    ingress:
+      # Customer Web Portal (Vue 3 SPA)
+      - hostname: customer.orangecatinvestments.com
+        service: http://oci-customer-portal-service.oci-core.svc.cluster.local:5174
+      # Customer REST Backend-For-Frontend (BFF)
+      - hostname: customer-api.orangecatinvestments.com
+        service: http://oci-customer-bff-service.oci-core.svc.cluster.local:8083
+      # Customer Identity Provider (ZITADEL)
+      - hostname: auth.orangecatinvestments.com
+        service: http://zitadel-service.oci-core.svc.cluster.local:8080
+      # Catch-all rule (returns HTTP 404 for unmapped requests)
+      - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-tunnel
+  namespace: oci-core
+  labels:
+    app.kubernetes.io/name: cloudflare-tunnel
+    app.kubernetes.io/part-of: oci-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflare-tunnel
+  template:
+    metadata:
+      labels:
+        app: cloudflare-tunnel
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - cloudflare-tunnel
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2024.12.0
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflare-tunnel-config
+        - name: creds
+          secret:
+            secretName: cloudflare-tunnel-credentials

@@ -1,0 +1,811 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-dev-init-script
+  namespace: oci-dev
+data:
+  init.sql: |
+    -- Orange Cat Investments (OCI) Platform Database Initialization Script
+    -- PostgreSQL 16 Architecture & Schema Layout
+
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+    -- Function to generate RFC 4122 compliant UUIDv7 in PostgreSQL 16
+    CREATE OR REPLACE FUNCTION gen_random_uuid_v7()
+    RETURNS uuid AS $$
+    DECLARE
+        v_time timestamp with time zone := clock_timestamp();
+        v_secs bigint := extract(epoch from v_time);
+        v_msec bigint := (extract(milliseconds from v_time)::bigint) % 1000;
+        v_timestamp bigint := (v_secs * 1000) + v_msec;
+        v_timestamp_hex text := lpad(to_hex(v_timestamp), 12, '0');
+        v_bytes bytea := decode(v_timestamp_hex || encode(gen_random_bytes(10), 'hex'), 'hex');
+    BEGIN
+        -- Set version to 7 (bits 48-51 to 0111)
+        v_bytes := set_byte(v_bytes, 6, (get_byte(v_bytes, 6) & 15) | 112);
+        -- Set variant to RFC 4122 (bits 64-65 to 10)
+        v_bytes := set_byte(v_bytes, 8, (get_byte(v_bytes, 8) & 63) | 128);
+        RETURN encode(v_bytes, 'hex')::uuid;
+    END;
+    $$ LANGUAGE plpgsql VOLATILE;
+
+    -- Create Isolated Schemas
+    CREATE SCHEMA IF NOT EXISTS workforce;
+    CREATE SCHEMA IF NOT EXISTS facilities;
+    CREATE SCHEMA IF NOT EXISTS core_invest;
+    CREATE SCHEMA IF NOT EXISTS ops;
+
+    --------------------------------------------------------------------------------
+    -- WORKFORCE SCHEMA
+    --------------------------------------------------------------------------------
+
+    -- Employees Table (Human staff & Feline employees)
+    CREATE TABLE IF NOT EXISTS workforce.employees (
+        employee_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        employee_type VARCHAR(20) NOT NULL CHECK (employee_type IN ('human', 'feline')),
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100),
+        email VARCHAR(255) UNIQUE,
+        role_title VARCHAR(100) NOT NULL,
+        department VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'onboarding' CHECK (status IN ('onboarding', 'active', 'on_leave', 'separated', 'retired')),
+        hired_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_human_email CHECK (employee_type <> 'human' OR email IS NOT NULL)
+    );
+
+    -- Onboarding Checklists
+    CREATE TABLE IF NOT EXISTS workforce.onboarding_checklists (
+        checklist_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        employee_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        task_name VARCHAR(255) NOT NULL,
+        category VARCHAR(50) NOT NULL CHECK (category IN ('hardware', 'access', 'dietary', 'medical', 'training')),
+        is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+        completed_at TIMESTAMPTZ,
+        assigned_to UUID REFERENCES workforce.employees(employee_id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Feline Care Schedules
+    CREATE TABLE IF NOT EXISTS workforce.care_schedules (
+        schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        feline_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        dietary_plan TEXT NOT NULL,
+        feeding_times TEXT[] NOT NULL,
+        special_medical_needs TEXT,
+        preferred_perch_zone VARCHAR(100),
+        emergency_medical_hold BOOLEAN NOT NULL DEFAULT FALSE,
+        caretaker_id UUID REFERENCES workforce.employees(employee_id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_workforce_care_schedules_feline_id UNIQUE (feline_id)
+    );
+
+    -- Review Cycles (Performance reviews for humans, Health/Care assessments for felines)
+    CREATE TABLE IF NOT EXISTS workforce.review_cycles (
+        review_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        employee_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        review_type VARCHAR(30) NOT NULL CHECK (review_type IN ('performance', 'feline_health_assessment')),
+        review_period VARCHAR(50) NOT NULL DEFAULT '2026-Q3',
+        phase VARCHAR(30) NOT NULL DEFAULT 'self_appraisal' CHECK (phase IN ('self_appraisal', 'peer_feedback', 'manager_review', 'completed')),
+        scheduled_for DATE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'overdue')),
+        reviewer_id UUID REFERENCES workforce.employees(employee_id),
+        score DECIMAL(3, 2),
+        notes TEXT,
+        self_appraisal TEXT,
+        self_score DECIMAL(3, 2),
+        peer_feedback TEXT,
+        peer_score DECIMAL(3, 2),
+        peer_reviewer_id UUID REFERENCES workforce.employees(employee_id),
+        manager_assessment TEXT,
+        manager_score DECIMAL(3, 2),
+        kpi_ratings JSONB,
+        wellness_audit_score DECIMAL(3, 2),
+        habitat_recommendations TEXT,
+        clinical_auditor_id UUID REFERENCES workforce.employees(employee_id),
+        vhr_record_id UUID,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Leave Requests
+    CREATE TABLE IF NOT EXISTS workforce.leave_requests (
+        leave_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        employee_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        leave_type VARCHAR(30) NOT NULL CHECK (leave_type IN ('vacation', 'sick', 'catnip_break', 'sabbatical')),
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+        reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_leave_dates CHECK (end_date >= start_date)
+    );
+
+    -- Electronic Veterinary Health Records (VHR)
+    CREATE TABLE IF NOT EXISTS workforce.vhr_records (
+        record_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        feline_id UUID NOT NULL REFERENCES workforce.employees(employee_id) ON DELETE CASCADE,
+        veterinarian_id UUID REFERENCES workforce.employees(employee_id),
+        visit_date DATE NOT NULL,
+        weight_kg DECIMAL(4, 2) NOT NULL,
+        dental_score INT NOT NULL CHECK (dental_score BETWEEN 1 AND 5),
+        vaccination_status VARCHAR(100) NOT NULL,
+        prescriptions TEXT,
+        clinical_notes TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Cross-Species Workplace Incidents & Conflict Logging
+    CREATE TABLE IF NOT EXISTS workforce.incidents (
+        incident_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        title VARCHAR(200) NOT NULL,
+        category VARCHAR(50) NOT NULL CHECK (category IN ('perch_dispute', 'spillage', 'unauthorized_treat', 'habitat_disruption')),
+        involved_feline_id UUID REFERENCES workforce.employees(employee_id),
+        involved_human_id UUID REFERENCES workforce.employees(employee_id),
+        severity VARCHAR(20) NOT NULL DEFAULT 'low' CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+        status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'under_review', 'resolved')),
+        description TEXT NOT NULL,
+        resolution_notes TEXT,
+        reported_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TIMESTAMPTZ
+    );
+
+    -- Executive Management & BI Reports
+    CREATE TABLE IF NOT EXISTS workforce.executive_reports (
+        report_id VARCHAR(64) PRIMARY KEY,
+        period VARCHAR(16) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'archived',
+        total_revenue NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        operating_expenses NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        payroll_expenses NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        net_profit NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        operational_burn NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        cash_reserves NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        runway_months NUMERIC(6, 2) NOT NULL DEFAULT 0.00,
+        total_headcount INT NOT NULL DEFAULT 0,
+        human_headcount INT NOT NULL DEFAULT 0,
+        feline_headcount INT NOT NULL DEFAULT 0,
+        attendance_rate NUMERIC(5, 2) NOT NULL DEFAULT 0.00,
+        overtime_hours NUMERIC(8, 2) NOT NULL DEFAULT 0.00,
+        timesheets_approved INT NOT NULL DEFAULT 0,
+        webdav_path_pdf VARCHAR(512),
+        webdav_path_csv VARCHAR(512),
+        csv_content TEXT,
+        pdf_content BYTEA,
+        generated_by VARCHAR(64) NOT NULL DEFAULT 'system-reporting-worker',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workforce_executive_reports_period ON workforce.executive_reports(period);
+
+    --------------------------------------------------------------------------------
+    -- FACILITIES SCHEMA
+    --------------------------------------------------------------------------------
+
+    -- Location Zones
+    CREATE TABLE IF NOT EXISTS facilities.location_zones (
+        zone_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        name VARCHAR(100) NOT NULL UNIQUE,
+        building VARCHAR(100) NOT NULL,
+        floor_level INT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Hardware Assets (Edge cameras, Habitat gateways, Network switches, Laptops, Workstations, Pebble watches)
+    CREATE TABLE IF NOT EXISTS facilities.hardware_assets (
+        asset_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        serial_number VARCHAR(100) NOT NULL UNIQUE,
+        asset_type VARCHAR(50) NOT NULL CHECK (asset_type IN ('edge_camera', 'gateway', 'networking_switch', 'laptop', 'workstation', 'pebble_watch', 'smartphone')),
+        model VARCHAR(100) NOT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'maintenance_required', 'offline', 'pending_return', 'decommissioned')),
+        zone_id UUID REFERENCES facilities.location_zones(zone_id),
+        assigned_employee_id UUID REFERENCES workforce.employees(employee_id),
+        last_ping_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hardware_assets_created_at ON facilities.hardware_assets (created_at DESC);
+
+    -- Environmental Telemetry (HVAC, Lux, Decibels)
+    CREATE TABLE IF NOT EXISTS facilities.environmental_telemetry (
+        telemetry_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        zone_id UUID NOT NULL REFERENCES facilities.location_zones(zone_id) ON DELETE CASCADE,
+        temperature_c DECIMAL(4,2) NOT NULL,
+        relative_humidity_pct DECIMAL(5,2) NOT NULL,
+        light_intensity_lux DECIMAL(8,2) NOT NULL,
+        noise_level_db DECIMAL(5,2) NOT NULL,
+        recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ML Model Registry
+    CREATE TABLE IF NOT EXISTS core_invest.ml_models (
+        model_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        model_name VARCHAR(100) NOT NULL UNIQUE,
+        version VARCHAR(50) NOT NULL,
+        accuracy DECIMAL(5,4) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ML Model Drift Logs
+    CREATE TABLE IF NOT EXISTS core_invest.model_drift_logs (
+        drift_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        model_id UUID NOT NULL REFERENCES core_invest.ml_models(model_id) ON DELETE CASCADE,
+        confidence_drift DECIMAL(5,4) NOT NULL,
+        lighting_condition VARCHAR(50) NOT NULL,
+        evaluated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Developer API Keys
+    CREATE TABLE IF NOT EXISTS core_invest.customer_api_keys (
+        key_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        key_prefix VARCHAR(20) NOT NULL,
+        key_hash VARCHAR(128) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Webhook Subscriptions
+    CREATE TABLE IF NOT EXISTS core_invest.webhook_subscriptions (
+        subscription_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        target_url TEXT NOT NULL,
+        events TEXT[] NOT NULL,
+        secret VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Maintenance Tickets
+    CREATE TABLE IF NOT EXISTS facilities.maintenance_tickets (
+        ticket_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        title VARCHAR(200) NOT NULL,
+        description TEXT NOT NULL,
+        priority VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'critical')),
+        status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'resolved', 'closed')),
+        assigned_technician_id UUID REFERENCES workforce.employees(employee_id),
+        reported_by UUID REFERENCES workforce.employees(employee_id),
+        resolved_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Firmware Releases (OTA updates for edge devices)
+    CREATE TABLE IF NOT EXISTS facilities.firmware_releases (
+        release_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        device_type VARCHAR(50) NOT NULL CHECK (device_type IN ('edge_camera', 'gateway', 'networking_switch', 'pebble_watch', 'workstation', 'smartphone')),
+        version VARCHAR(50) NOT NULL,
+        file_url TEXT NOT NULL,
+        checksum VARCHAR(64) NOT NULL,
+        min_hardware_version VARCHAR(50),
+        status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_device_version UNIQUE (device_type, version)
+    );
+
+    -- Maintenance Logs (Offline field maintenance logs synced via mobile app)
+    CREATE TABLE IF NOT EXISTS facilities.maintenance_logs (
+        log_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        ticket_id UUID REFERENCES facilities.maintenance_tickets(ticket_id) ON DELETE SET NULL,
+        asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        technician_id UUID REFERENCES workforce.employees(employee_id),
+        qr_code_scanned VARCHAR(255) NOT NULL,
+        action_taken TEXT NOT NULL,
+        notes TEXT,
+        synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Device OTA Jobs (Tracking OTA deployment pipeline status per asset)
+    CREATE TABLE IF NOT EXISTS facilities.device_ota_jobs (
+        job_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        release_id UUID NOT NULL REFERENCES facilities.firmware_releases(release_id) ON DELETE CASCADE,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'downloading', 'applying', 'completed', 'failed')),
+        error_message TEXT,
+        scheduled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    --------------------------------------------------------------------------------
+    -- CORE_INVEST SCHEMA
+    --------------------------------------------------------------------------------
+
+    -- Cat Observation Events
+    CREATE TABLE IF NOT EXISTS core_invest.observation_events (
+        event_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        camera_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id),
+        feline_id UUID REFERENCES workforce.employees(employee_id),
+        activity_type VARCHAR(50) NOT NULL CHECK (activity_type IN ('zooming', 'napping', 'perched', 'eating', 'grooming', 'playful_pounce')),
+        confidence_score DECIMAL(5, 4) NOT NULL CHECK (confidence_score BETWEEN 0.0000 AND 1.0000),
+        duration_seconds INT NOT NULL DEFAULT 0,
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        observed_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Investment Allocation Strategies
+    CREATE TABLE IF NOT EXISTS core_invest.allocation_strategies (
+        strategy_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        name VARCHAR(100) NOT NULL UNIQUE,
+        trigger_activity VARCHAR(50) NOT NULL,
+        action_type VARCHAR(20) NOT NULL CHECK (action_type IN ('buy', 'sell', 'rebalance', 'hold')),
+        target_asset_symbol VARCHAR(20) NOT NULL,
+        multiplier DECIMAL(6, 4) NOT NULL DEFAULT 1.0000,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Investment Portfolios
+    CREATE TABLE IF NOT EXISTS core_invest.investment_portfolios (
+        portfolio_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id UUID NOT NULL, -- ZITADEL Subject / External Customer ID
+        account_name VARCHAR(100) NOT NULL,
+        total_balance_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        cash_balance_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'closed')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Portfolio Snapshots
+    CREATE TABLE IF NOT EXISTS core_invest.portfolio_snapshots (
+        snapshot_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        valuation_usd DECIMAL(14, 2) NOT NULL,
+        holdings_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+        triggered_by_event_id UUID REFERENCES core_invest.observation_events(event_id),
+        snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Portfolio Holdings (Granular Equity / Asset Positions per Portfolio)
+    CREATE TABLE IF NOT EXISTS core_invest.portfolio_holdings (
+        holding_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        symbol VARCHAR(20) NOT NULL,
+        quantity DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
+        cost_basis_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        avg_price_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        current_price_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        market_value_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        unrealized_gain_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        unrealized_gain_pct DECIMAL(7, 4) NOT NULL DEFAULT 0.0000,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_portfolio_symbol UNIQUE (portfolio_id, symbol)
+    );
+
+    -- Tax Lot Sales (Itemized Capital Dispositions for IRS Form 1099-B Tax Reporting)
+    CREATE TABLE IF NOT EXISTS core_invest.tax_lot_sales (
+        lot_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        symbol VARCHAR(20) NOT NULL,
+        description VARCHAR(100) NOT NULL,
+        quantity DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
+        date_acquired DATE NOT NULL,
+        date_sold DATE NOT NULL,
+        gross_proceeds_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        cost_basis_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        wash_sale_loss_disallowed DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        realized_gain_loss_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        is_short_term BOOLEAN NOT NULL DEFAULT TRUE,
+        tax_year INT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Camera Streams (Real-time WebRTC/RTSP Computer Vision Stream Ingestion)
+    CREATE TABLE IF NOT EXISTS core_invest.camera_streams (
+        stream_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        camera_asset_id UUID NOT NULL REFERENCES facilities.hardware_assets(asset_id) ON DELETE CASCADE,
+        stream_url VARCHAR(500) NOT NULL,
+        protocol VARCHAR(20) NOT NULL CHECK (protocol IN ('rtsp', 'webrtc')),
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'idle', 'error')),
+        ingest_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Brokerage Orders (Automated Brokerage Execution)
+    CREATE TABLE IF NOT EXISTS core_invest.brokerage_orders (
+        order_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        strategy_id UUID REFERENCES core_invest.allocation_strategies(strategy_id),
+        event_id UUID REFERENCES core_invest.observation_events(event_id),
+        broker_name VARCHAR(100) NOT NULL,
+        symbol VARCHAR(20) NOT NULL,
+        side VARCHAR(10) NOT NULL CHECK (side IN ('buy', 'sell')),
+        quantity DECIMAL(14, 4) NOT NULL,
+        price DECIMAL(14, 4) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'executed', 'failed', 'cancelled')),
+        executed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Recurring ACH Deposits
+    CREATE TABLE IF NOT EXISTS core_invest.recurring_deposits (
+        deposit_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id VARCHAR(100) NOT NULL,
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        amount_usd DECIMAL(14,2) NOT NULL,
+        frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('weekly', 'biweekly', 'monthly')),
+        bank_account VARCHAR(100) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        next_charge_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Backtest Runs (Dynamic Backtesting Workbench)
+    CREATE TABLE IF NOT EXISTS core_invest.backtest_runs (
+        backtest_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        strategy_id UUID NOT NULL REFERENCES core_invest.allocation_strategies(strategy_id) ON DELETE CASCADE,
+        start_date TIMESTAMPTZ NOT NULL,
+        end_date TIMESTAMPTZ NOT NULL,
+        parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+        results JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Investment Statements & Tax Documentation (Form 1099-B & Monthly Summaries)
+    CREATE TABLE IF NOT EXISTS core_invest.investment_statements (
+        statement_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+        customer_id VARCHAR(100) NOT NULL,
+        statement_type VARCHAR(50) NOT NULL CHECK (statement_type IN ('monthly_summary', 'form_1099b')),
+        period VARCHAR(50) NOT NULL,
+        tax_year INT NOT NULL,
+        title VARCHAR(200) NOT NULL,
+        file_name VARCHAR(200) NOT NULL,
+        total_proceeds_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        net_gain_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+        status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'generating', 'archived')),
+        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- GDPR Right to be Forgotten Erasure Certificates (Article 17 Audit Trail)
+    CREATE TABLE IF NOT EXISTS core_invest.gdpr_erasure_certificates (
+        certificate_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        customer_id_hash VARCHAR(128) NOT NULL,
+        customer_email_hash VARCHAR(128) NOT NULL,
+        legal_basis VARCHAR(100) NOT NULL DEFAULT 'GDPR Article 17',
+        supervisory_authority VARCHAR(100) NOT NULL DEFAULT 'Orange Cat Investments Data Protection Office',
+        tables_scrubbed TEXT[] NOT NULL DEFAULT '{}',
+        sessions_purged_count INT NOT NULL DEFAULT 0,
+        records_scrubbed_count INT NOT NULL DEFAULT 0,
+        digital_signature VARCHAR(128) NOT NULL,
+        compliance_statement TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    --------------------------------------------------------------------------------
+    -- OPS SCHEMA
+    --------------------------------------------------------------------------------
+
+    -- IT Tickets & Helpdesk Issue Tracking (Ingested via Forgejo Webhooks & Portals)
+    CREATE TABLE IF NOT EXISTS ops.it_tickets (
+        ticket_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        forgejo_issue_id BIGINT UNIQUE,
+        forgejo_repo VARCHAR(200) NOT NULL DEFAULT 'oci-internal/helpdesk',
+        title VARCHAR(255) NOT NULL,
+        body TEXT,
+        state VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'closed', 'acknowledged', 'in_progress', 'resolved')),
+        severity VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (severity IN ('low', 'medium', 'high', 'urgent', 'critical')),
+        category VARCHAR(50) NOT NULL DEFAULT 'software' CHECK (category IN ('hardware', 'software', 'habitat', 'trading', 'general')),
+        source VARCHAR(20) NOT NULL DEFAULT 'internal' CHECK (source IN ('internal', 'customer', 'system')),
+        customer_id VARCHAR(100),
+        assignee_username VARCHAR(100),
+        author_username VARCHAR(100) NOT NULL,
+        resolution_notes TEXT,
+        is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
+        acknowledged_at TIMESTAMPTZ,
+        acknowledged_by VARCHAR(100),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Ticket Comments & Feedback (Supports Internal Scrubbing for Customer Tickets)
+    CREATE TABLE IF NOT EXISTS ops.ticket_comments (
+        comment_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+        ticket_id UUID NOT NULL REFERENCES ops.it_tickets(ticket_id) ON DELETE CASCADE,
+        author_username VARCHAR(100) NOT NULL,
+        comment TEXT NOT NULL,
+        is_internal BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+
+    -- Orange Cat Investments (OCI) - Development & Simulation Seed Data Script
+    -- TARGET ENVIRONMENT: oci-dev ONLY (STRICTLY FORBIDDEN FOR PRODUCTION oci-core)
+    --
+    -- This script populates demo habitat zones, edge hardware devices, firmware releases,
+    -- the corporate feline and human workforce roster, onboarding checklists, customer
+    -- portfolios, tax lot sales, review cycles, IT tickets, and executive reports.
+
+    --------------------------------------------------------------------------------
+    -- Primary Habitat Location Zone
+    --------------------------------------------------------------------------------
+    INSERT INTO facilities.location_zones (zone_id, name, building, floor_level, description)
+    VALUES 
+        ('018f3a9a-1111-7000-8000-000000000001', 'Alpha Sunbeam Lounge', 'HQ East', 2, 'Primary high-altitude perch lounge and observation zone')
+    ON CONFLICT (name) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Initial Hardware Assets
+    --------------------------------------------------------------------------------
+    INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status, zone_id)
+    VALUES 
+        ('018e0000-0000-7000-8000-000000000001', 'QR-CAM-ORANGE-01', 'edge_camera', 'FelineCam-Pro-X', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+        ('018f3a9a-3333-7000-8000-000000000003', 'CAM-RIG-2025-01', 'edge_camera', '4K-Feline-Scope-V1', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+        ('018f3a9a-5555-7000-8000-000000000005', 'SW-CORE-01', 'networking_switch', 'Cisco-Catalyst-SMB-24P', 'active', '018f3a9a-1111-7000-8000-000000000001'),
+        ('018f3a9a-6666-7000-8000-000000000006', 'GW-HABITAT-01', 'gateway', 'Edge-Gateway-IoT-V1', 'active', '018f3a9a-1111-7000-8000-000000000001')
+    ON CONFLICT (serial_number) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Firmware Release Catalog
+    --------------------------------------------------------------------------------
+    INSERT INTO facilities.firmware_releases (release_id, version, device_type, checksum, file_url, status)
+    VALUES 
+        ('018e0000-0000-7000-8000-000000000002', 'v2.1.0-catos', 'edge_camera', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'https://firmware.oci.local/v2.1.0.bin', 'published')
+    ON CONFLICT (device_type, version) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Workforce Employees
+    --------------------------------------------------------------------------------
+    INSERT INTO workforce.employees (employee_id, employee_type, first_name, last_name, email, role_title, department, status)
+    VALUES
+        ('018f3a9a-e001-7000-8000-000000000001', 'feline', 'Garfield', NULL, NULL, 'Chief Observation Officer', 'Executive Feline Suite', 'active'),
+        ('018f3a9a-e002-7000-8000-000000000002', 'feline', 'Barneby', NULL, NULL, 'Senior Alpha Perch Analyst', 'Alpha Perch Research', 'active'),
+        ('018f3a9a-e003-7000-8000-000000000003', 'human', 'Alice', 'Vance', 'alice.vance@oci.local', 'Head of Human & Feline Resources', 'Workforce Operations', 'active'),
+        ('018f3a9a-e004-7000-8000-000000000004', 'human', 'Elena', 'Rostova', 'elena.rostova@oci.local', 'Chief Veterinary Officer', 'Feline Health & Welfare', 'active'),
+        ('018f3a9a-e005-7000-8000-000000000005', 'human', 'Rick', 'Newhire', 'rick.newhire@oci.local', 'Junior Operations Associate', 'Workforce Operations', 'onboarding'),
+        ('018f3a9a-e006-7000-8000-000000000006', 'human', 'Elise', 'Dev', 'elise.dev@oci.local', 'Software Developer', 'Engineering & Platform Development', 'active'),
+        ('018f3a9a-e007-7000-8000-000000000007', 'human', 'Frank', 'Operations', 'frank.ops@oci.local', 'Platform Security & K8s Infrastructure Lead', 'Platform Security & Infrastructure', 'active'),
+        ('018f3a9a-e008-7000-8000-000000000008', 'human', 'Bob', 'Builder', 'bob.builder@oci.local', 'Lead Facilities & Edge Telemetry Engineer', 'Habitat Facilities & Infrastructure', 'active')
+    ON CONFLICT (employee_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Employee Equipment & On-Call Alert Wearables (Pebble Watches & Laptops)
+    --------------------------------------------------------------------------------
+    INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id)
+    VALUES
+        ('018f3a9a-7777-7000-8000-000000000007', 'PEBBLE-FRANK-01', 'pebble_watch', 'Pebble Time Steel (Black)', 'active', '018f3a9a-1111-7000-8000-000000000001', '018f3a9a-e007-7000-8000-000000000007'),
+        ('018f3a9a-7777-7000-8000-000000000008', 'PEBBLE-BOB-01', 'pebble_watch', 'Pebble Time (Red)', 'active', '018f3a9a-1111-7000-8000-000000000001', '018f3a9a-e008-7000-8000-000000000008'),
+        ('018f3a9a-8888-7000-8000-000000000001', 'MBP-RICK-M3-01', 'laptop', 'MacBook Pro 16-inch M3 Max', 'active', '018f3a9a-1111-7000-8000-000000000001', '018f3a9a-e005-7000-8000-000000000005')
+    ON CONFLICT (serial_number) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Initial Onboarding Checklists
+    --------------------------------------------------------------------------------
+    INSERT INTO workforce.onboarding_checklists (checklist_id, employee_id, task_name, category, is_completed, assigned_to)
+    VALUES
+        ('018f3a9a-c001-7000-8000-000000000001', '018f3a9a-e005-7000-8000-000000000005', 'Forgejo Account Provisioning & SPIFFE ID Issuance', 'access', false, '018f3a9a-e003-7000-8000-000000000003'),
+        ('018f3a9a-c002-7000-8000-000000000002', '018f3a9a-e005-7000-8000-000000000005', 'Catnip Safety Orientation & Workstation Setup', 'training', false, '018f3a9a-e003-7000-8000-000000000003')
+    ON CONFLICT (checklist_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Core Investment Portfolios for Retail Customers
+    --------------------------------------------------------------------------------
+    INSERT INTO core_invest.investment_portfolios (portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status)
+    VALUES 
+        ('018f3a9a-2222-7000-8000-000000000002', '018e0000-0000-7000-8000-000000000099', 'OCI Alpha Growth Fund', 128450.75, 32100.25, 'active'),
+        ('018f3a9a-2222-7000-8000-000000000003', '018e0000-0000-7000-8000-000000000098', 'Chloe Spark High-Velocity Alpha', 85200.00, 15400.00, 'active')
+    ON CONFLICT (portfolio_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Initial Portfolio Holdings
+    --------------------------------------------------------------------------------
+    INSERT INTO core_invest.portfolio_holdings (
+        holding_id, portfolio_id, symbol, quantity, cost_basis_usd, avg_price_usd, current_price_usd, market_value_usd, unrealized_gain_usd, unrealized_gain_pct
+    ) VALUES
+        ('018f3a9a-9999-7000-8000-000000000001', '018f3a9a-2222-7000-8000-000000000002', 'AAPL', 120.0000, 21420.00, 178.50, 224.30, 26916.00, 5496.00, 25.6583),
+        ('018f3a9a-9999-7000-8000-000000000002', '018f3a9a-2222-7000-8000-000000000002', 'NVDA', 85.0000, 9367.00, 110.20, 138.80, 11798.00, 2431.00, 25.9528),
+        ('018f3a9a-9999-7000-8000-000000000003', '018f3a9a-2222-7000-8000-000000000002', 'MSFT', 90.0000, 34200.00, 380.00, 448.20, 40338.00, 6138.00, 17.9474),
+        ('018f3a9a-9999-7000-8000-000000000004', '018f3a9a-2222-7000-8000-000000000002', 'TSLA', 70.0000, 13300.00, 190.00, 247.12, 17298.40, 3998.40, 30.0632),
+        ('018f3a9a-9999-7000-8000-000000000005', '018f3a9a-2222-7000-8000-000000000003', 'NVDA', 150.0000, 16860.00, 112.40, 138.80, 20820.00, 3960.00, 23.4875),
+        ('018f3a9a-9999-7000-8000-000000000006', '018f3a9a-2222-7000-8000-000000000003', 'TSLA', 120.0000, 22260.00, 185.50, 247.12, 29654.40, 7394.40, 33.2183),
+        ('018f3a9a-9999-7000-8000-000000000007', '018f3a9a-2222-7000-8000-000000000003', 'AAPL', 85.0000, 15308.50, 180.10, 224.30, 19065.50, 3757.00, 24.5420)
+    ON CONFLICT (portfolio_id, symbol) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Initial Tax Lot Sales for Form 1099-B Tax Documentation
+    --------------------------------------------------------------------------------
+    INSERT INTO core_invest.tax_lot_sales (
+        lot_id, portfolio_id, symbol, description, quantity, date_acquired, date_sold,
+        gross_proceeds_usd, cost_basis_usd, wash_sale_loss_disallowed, realized_gain_loss_usd, is_short_term, tax_year
+    ) VALUES
+        ('018f3a9a-aaaa-7000-8000-000000000001', '018f3a9a-2222-7000-8000-000000000002', 'NVDA', '50 shs NVDA', 50.0000, '2025-02-14', '2025-08-20', 6940.00, 5500.00, 0.00, 1440.00, true, 2025),
+        ('018f3a9a-aaaa-7000-8000-000000000002', '018f3a9a-2222-7000-8000-000000000002', 'AAPL', '35 shs AAPL', 35.0000, '2025-01-10', '2025-09-15', 7850.00, 6200.00, 0.00, 1650.00, true, 2025),
+        ('018f3a9a-aaaa-7000-8000-000000000003', '018f3a9a-2222-7000-8000-000000000002', 'MSFT', '20 shs MSFT', 20.0000, '2024-03-01', '2025-11-12', 8960.00, 7100.00, 0.00, 1860.00, false, 2025),
+        ('018f3a9a-aaaa-7000-8000-000000000004', '018f3a9a-2222-7000-8000-000000000003', 'TSLA', '40 shs TSLA', 40.0000, '2025-03-15', '2025-07-22', 9884.80, 7420.00, 0.00, 2464.80, true, 2025),
+        ('018f3a9a-aaaa-7000-8000-000000000005', '018f3a9a-2222-7000-8000-000000000003', 'NVDA', '60 shs NVDA', 60.0000, '2025-02-01', '2025-08-10', 8328.00, 6744.00, 0.00, 1584.00, true, 2025)
+    ON CONFLICT (lot_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Automated Allocation Strategy
+    --------------------------------------------------------------------------------
+    INSERT INTO core_invest.allocation_strategies (strategy_id, name, trigger_activity, action_type, target_asset_symbol, multiplier, is_active)
+    VALUES 
+        ('018f3a9a-4444-7000-8000-000000000004', 'Garfield Zoomies Multiplier', 'zooming', 'buy', 'AAPL', 1.5000, true)
+    ON CONFLICT (name) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Initial IT Helpdesk & Customer Support Tickets
+    --------------------------------------------------------------------------------
+    INSERT INTO ops.it_tickets (
+        ticket_id, forgejo_issue_id, forgejo_repo, title, body, state, severity, category, source, customer_id, assignee_username, author_username, is_urgent
+    ) VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000003', 101, 'oci-internal/helpdesk',
+            'High Memory Usage Alert on Edge Gateway',
+            'Edge camera gateway node memory exceeded 85% threshold in Habitat Alpha.',
+            'open', 'urgent', 'hardware', 'internal', NULL, 'emp-human-frank', 'emp-human-frank', true
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000004', 102, 'oci-internal/helpdesk',
+            'Sunbeam Perch Thermostat Calibration Drift',
+            'Perch thermal sensor readings fluctuating +/- 4C outside comfort envelope.',
+            'acknowledged', 'high', 'habitat', 'internal', NULL, 'emp-human-bob', 'emp-human-bob', false
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000005', 103, 'oci-internal/customer-support',
+            'Inquiry on Portfolio Trade Settlement Batch #412',
+            'Can support verify the settlement status of my latest NVDA recurring allocation order?',
+            'in_progress', 'medium', 'trading', 'customer', 'cust-longterm-arthur', 'emp-human-elise', 'cust-longterm-arthur', false
+        )
+    ON CONFLICT (ticket_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Initial Ticket Comments
+    --------------------------------------------------------------------------------
+    INSERT INTO ops.ticket_comments (comment_id, ticket_id, author_username, comment, is_internal)
+    VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000050',
+            '018e0000-0000-7000-8000-000000000005',
+            'emp-human-elise',
+            'INTERNAL ONLY: Reconciled clearing ledger with Mock Broker. Settlement batch matched successfully.',
+            true
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000051',
+            '018e0000-0000-7000-8000-000000000005',
+            'emp-human-elise',
+            'Hello Arthur! Your NVDA order settlement has been verified and fully credited to your OCI Alpha Growth Fund portfolio.',
+            false
+        )
+    ON CONFLICT (comment_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Initial Review Cycles (Multi-Phase Performance Reviews & Veterinary Audits)
+    --------------------------------------------------------------------------------
+    INSERT INTO workforce.review_cycles (
+        review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+        reviewer_id, score, notes, self_appraisal, self_score, manager_assessment, manager_score,
+        kpi_ratings, wellness_audit_score, habitat_recommendations, clinical_auditor_id, completed_at
+    ) VALUES 
+        (
+            '018e0000-0000-7000-8000-000000000020',
+            '018f3a9a-e001-7000-8000-000000000001',
+            'feline_health_assessment',
+            '2026-Q3',
+            'completed',
+            '2026-10-12',
+            'completed',
+            '018f3a9a-e004-7000-8000-000000000004',
+            4.95,
+            'Superb whisker symmetry, resting purr acoustics 92dB, optimal alpha sunbeam positioning.',
+            'Maintained executive posture on alpha perch; nap duration exceeded target by 12%.',
+            5.00,
+            'Executive feline leadership has stabilized market confidence across retail portfolios.',
+            4.95,
+            '{"purr_acoustics": 4.95, "sunbeam_coverage": 5.0, "observation_fidelity": 4.9}'::jsonb,
+            4.95,
+            'Increase sunlight perch access in Habitat Alpha; maintain lasagna moderation protocol.',
+            '018f3a9a-e004-7000-8000-000000000004',
+            CURRENT_TIMESTAMP
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000021',
+            '018f3a9a-e002-7000-8000-000000000002',
+            'feline_health_assessment',
+            '2026-Q3',
+            'manager_review',
+            '2026-10-18',
+            'in_progress',
+            '018f3a9a-e004-7000-8000-000000000004',
+            NULL,
+            'Quarterly weight check and alpha perch mobility audit',
+            'Climbed perch 42 times this week; verified perimeter integrity.',
+            4.80,
+            NULL,
+            NULL,
+            '{"perch_agility": 4.85, "catnip_temperance": 4.75}'::jsonb,
+            NULL,
+            NULL,
+            '018f3a9a-e004-7000-8000-000000000004',
+            NULL
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000022',
+            '018f3a9a-e003-7000-8000-000000000003',
+            'performance',
+            '2026-Q3',
+            'self_appraisal',
+            '2026-10-22',
+            'scheduled',
+            '018f3a9a-e001-7000-8000-000000000001',
+            NULL,
+            'Joint human-feline HR operations & catnip compliance review',
+            'Automated developer provisioning across Forgejo, Nextcloud, and Snipe-IT.',
+            4.85,
+            NULL,
+            NULL,
+            '{"onboarding_efficiency": 4.9, "compliance_adherence": 4.8}'::jsonb,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+        )
+    ON CONFLICT (review_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
+    -- Seed Executive Management Reports
+    --------------------------------------------------------------------------------
+    INSERT INTO workforce.executive_reports (
+        report_id, period, title, status,
+        total_revenue, operating_expenses, payroll_expenses, net_profit,
+        operational_burn, cash_reserves, runway_months,
+        total_headcount, human_headcount, feline_headcount,
+        attendance_rate, overtime_hours, timesheets_approved,
+        webdav_path_pdf, webdav_path_csv, generated_by
+    ) VALUES
+        (
+            'rep-2026-08',
+            '2026-08',
+            'OCI Executive Management Report - August 2026',
+            'archived',
+            1180000.00, 310000.00, 395000.00, 475000.00,
+            705000.00, 9200000.00, 13.05,
+            11, 9, 2,
+            98.80, 38.00, 16,
+            '/remote.php/dav/files/admin/Executive/Reports/2026-08/executive_summary_report_2026-08.pdf',
+            '/remote.php/dav/files/admin/Executive/Reports/2026-08/executive_summary_report_2026-08.csv',
+            'system-reporting-worker'
+        ),
+        (
+            'rep-2026-09',
+            '2026-09',
+            'OCI Executive Management Report - September 2026',
+            'archived',
+            1240000.00, 335000.00, 410000.00, 495000.00,
+            745000.00, 9650000.00, 12.95,
+            12, 10, 2,
+            99.10, 41.50, 18,
+            '/remote.php/dav/files/admin/Executive/Reports/2026-09/executive_summary_report_2026-09.pdf',
+            '/remote.php/dav/files/admin/Executive/Reports/2026-09/executive_summary_report_2026-09.csv',
+            'system-reporting-worker'
+        )
+    ON CONFLICT (report_id) DO NOTHING;

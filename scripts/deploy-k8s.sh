@@ -25,8 +25,14 @@ case "${PROFILE}" in
     small-business|smb)
         echo "Deployment profile: ${PROFILE} (Lightweight core SMB suite)"
         ;;
+    dev|staging)
+        echo "Deployment profile: ${PROFILE} (Development & simulation staging suite - oci-dev)"
+        ;;
+    all)
+        echo "Deployment profile: ${PROFILE} (Full production suite + oci-dev staging)"
+        ;;
     *)
-        echo "ERROR: Unknown deployment profile '${PROFILE}'. Valid profiles are 'full' and 'small-business'." >&2
+        echo "ERROR: Unknown deployment profile '${PROFILE}'. Valid profiles are 'full', 'small-business', 'dev', and 'all'." >&2
         exit 1
         ;;
 esac
@@ -47,7 +53,17 @@ echo "2. Applying Namespaces..."
 kubectl apply -f "${REPO_ROOT}/k8s/namespaces/"
 
 echo ""
-if [[ "${PROFILE}" == "small-business" || "${PROFILE}" == "smb" ]]; then
+echo "Checking starter platform administrator bootstrap credentials..."
+"${REPO_ROOT}/scripts/generate-starter-admin.sh"
+
+echo ""
+if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+    echo ""
+    echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
+    echo "Staging environment deployed. Clean production (oci-core) left untouched."
+elif [[ "${PROFILE}" == "small-business" || "${PROFILE}" == "smb" ]]; then
     echo ""
     echo "3. Deploying Core Infrastructure & Custom Apps (oci-core) and Internal Auth (Forgejo)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
@@ -58,7 +74,7 @@ if [[ "${PROFILE}" == "small-business" || "${PROFILE}" == "smb" ]]; then
     echo "Skipping heavyweight COTS (ERPNext, Frappe HR, Nextcloud, Snipe-IT) and monitoring/logging stacks."
 else
     echo ""
-    echo "3. Deploying Core Applications & Infrastructure (oci-core)..."
+    echo "3. Deploying Clean Core Applications & Infrastructure (oci-core)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
 
     echo ""
@@ -73,6 +89,12 @@ else
     echo "6. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
     kubectl apply -f "${REPO_ROOT}/k8s/monitoring/"
     kubectl apply -f "${REPO_ROOT}/k8s/logging/"
+
+    if [[ "${PROFILE}" == "all" ]]; then
+        echo ""
+        echo "7. Deploying Development & Simulation Staging (oci-dev)..."
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
+    fi
 fi
 
 echo ""

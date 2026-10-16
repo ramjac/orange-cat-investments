@@ -32,6 +32,10 @@ func NewDriver(cfg *Config) (*Driver, error) {
 		cfg = DefaultConfig()
 	}
 
+	if err := cfg.ValidateTarget(); err != nil {
+		return nil, fmt.Errorf("simulation configuration invalid: %w", err)
+	}
+
 	client, err := NewClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize simulation client: %w", err)

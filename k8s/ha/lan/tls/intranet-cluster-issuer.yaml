@@ -1,0 +1,13 @@
+# ==============================================================================
+# cert-manager ClusterIssuer for Local Intranet PKI
+# ==============================================================================
+# Uses the offline/in-cluster Root CA key pair secret in namespace `cert-manager`.
+# Automatically issues and renews valid TLS certificates for *.oci.local services.
+# ==============================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: oci-lan-issuer
+spec:
+  ca:
+    secretName: oci-lan-root-ca-key-pair

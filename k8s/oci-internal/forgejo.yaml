@@ -41,6 +41,10 @@ spec:
                 secretKeyRef:
                   name: app-secrets
                   key: FORGEJO_DB_PASSWD
+            - name: FORGEJO__actions__ENABLED
+              value: "true"
+            - name: FORGEJO__actions__DEFAULT_ACTIONS_URL
+              value: "github"
           resources:
             requests:
               cpu: 200m

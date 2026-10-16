@@ -13,7 +13,7 @@ simulation/
 ├── config.go            # Configuration flags (URLs, modes, iteration, delays)
 ├── persona.go           # Persona and Action interface definitions & Registry
 ├── client.go            # HTTP client abstraction supporting live & mock HTTP servers
-├── actions.go           # Persona action suites for all 12 OCI personas
+├── actions.go           # Persona action suites for all 13 OCI personas
 ├── driver.go            # Orchestration engine for running simulation workflows
 ├── driver_test.go       # Unit tests verifying mock simulation execution
 └── cmd/
@@ -25,7 +25,7 @@ simulation/
 
 ## Employee Personas & Daily Simulation Action Mapping
 
-The simulator uses the 12 official OCI personas defined in `personas/` to execute semi-real daily action lists:
+The simulator uses the 13 official OCI personas defined in `personas/` to execute semi-real daily action lists:
 
 ### 1. Garfield (`emp-feline-garfield`) — Chief Observation Officer (COO)
 * **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows via optical IP camera streams (`/facilities/assets?asset_type=edge_camera`).
@@ -93,11 +93,22 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 * **`rick_trigger_self_onboarding_webhook`**: Simulates Frappe HR onboarding saga webhooks (`POST /api/v1/webhooks/frappe-hr`) to exercise new hire lifecycle workflows.
 
 ### 12. Elise Dev (`emp-human-elise`) — Software Developer
+* **`elise_claim_kanban_card`**: Claims and assigns Card #42 on the engineering backlog kanban board to herself (`PATCH /api/v1/repos/oci/monorepo/issues/42`).
+* **`elise_create_feature_branch`**: Creates feature branch `feature/42-gitops-promotion-pipeline` from `main` via direct Forgejo API (`POST /api/v1/repos/oci/monorepo/branches`).
+* **`elise_push_code_commit`**: Pushes git commit to feature branch with multi-stage Dockerfile and promotion pipeline manifests (`POST /api/v1/repos/oci/monorepo/contents/Dockerfile`).
+* **`elise_open_pull_request`**: Opens Pull Request #42 in Forgejo linking Card #42 for automated CI validation and peer review (`POST /api/v1/repos/oci/monorepo/pulls`).
 * **`elise_write_nextcloud_doc`**: Publishes Employee Portal Vue 3 & BFF architecture specification document in Nextcloud (`POST /nextcloud/api/v1/documents`).
 * **`elise_send_nextcloud_chat`**: Messages Rick and engineering team via Nextcloud Chat with technical document links (`POST /nextcloud/api/v1/chat/messages`).
 * **`elise_monitor_it_tickets`**: Monitors IT helpdesk ticket queue for developer tooling issues (`GET /ops/tickets`).
 * **`elise_create_code_review_ticket`**: Submits Forgejo code review & CI/CD workflow tickets (`POST /ops/tickets`) for software development and automated pipeline builds.
 * **`elise_query_developer_tickets`**: Audits active developer IT tickets and build issues (`GET /ops/tickets`).
+* **`elise_submit_habitat_helpdesk_ticket`**: Submits an urgent priority habitat IT helpdesk ticket (`POST /api/v1/ops/tickets`).
+
+### 13. Marcus Lead (`emp-human-marcus`) — Principal Systems Architect & Senior Developer
+* **`senior_dev_author_adr`**: Authors and publishes Architecture Decision Records (ADR 0003) in Nextcloud (`POST /nextcloud/api/v1/documents`).
+* **`senior_dev_review_pull_request`**: Performs architectural peer review and approves Elise Dev's Pull Request #42 via direct Forgejo API (`POST /api/v1/repos/oci/monorepo/pulls/42/reviews`).
+* **`senior_dev_merge_pull_request`**: Merges approved Pull Request #42 into `main` branch via direct Forgejo API (`POST /api/v1/repos/oci/monorepo/pulls/42/merge`), closing Card #42 and triggering promotion pipeline.
+* **`senior_dev_audit_ci_pipeline`**: Audits active developer tickets and CI/CD workflow pipeline status across platform deployments (`GET /ops/tickets`).
 
 ---
 
@@ -106,7 +117,7 @@ The simulator uses the 12 official OCI personas defined in `personas/` to execut
 The simulator supports four execution modes:
 
 1. **`mock` (Default)**: Spins up embedded Go in-memory HTTP handlers (`httptest.Server`). Runs complete persona daily workflows without requiring any pre-spun local services or database dependencies. Ideal for offline development and local testing.
-2. **`live`**: Connects directly to deployed or running OCI stack services (API Server on port `8080` and Employee BFF on port `8081` by default).
+2. **`live`**: Connects directly to deployed or running OCI stack services (API Server on port `8080` and Employee BFF on port `8081` by default, or via unified staging URL `-url https://dev.api.oci.local`).
 3. **`step`**: Runs a single step-by-step pass through each registered persona's actions and prints action results.
 4. **`continuous`**: Loops persona daily action lists continuously with configured action delays (`-delay`), simulating real-time continuous business operations until interrupted (`Ctrl+C`).
 
@@ -130,8 +141,12 @@ go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
 ### 4. Drive Live Local / K3s OCI Stack
-Spin up the OCI backend services (e.g. `go run ./cmd/server` and `go run ./cmd/employee-bff`) and run:
+Spin up the OCI backend services (e.g. `go run ./cmd/server` and `go run ./cmd/employee-bff`) or target staging directly via unified URL:
 ```bash
+# Target Kubernetes oci-dev staging environment with smart URL routing
+go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
+
+# Target local services with explicit service flags
 go run ./simulation/cmd/simulator \
   -mode live \
   -server-url http://localhost:8080 \
@@ -143,10 +158,13 @@ go run ./simulation/cmd/simulator \
 ### 5. CLI Flag Reference
 | Flag | Default | Description |
 |---|---|---|
+| `-url` | `""` | Unified base URL or staging domain (e.g., `https://dev.api.oci.local`), automatically routing API and BFF endpoints |
 | `-mode` | `mock` | Execution mode: `mock`, `live`, `step`, or `continuous` |
-| `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-rick`, etc.) or `all` |
-| `-server-url` | `http://localhost:8080` | Target URL for OCI Domain API Server |
-| `-bff-url` | `http://localhost:8081` | Target URL for OCI Employee BFF |
+| `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-marcus`, etc.) or `all` |
+| `-server-url` | `""` | Target URL for OCI Domain API Server (overrides `-url`) |
+| `-bff-url` | `""` | Target URL for OCI Employee BFF (overrides `-url`) |
+| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF (overrides `-url`) |
+| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host (overrides `-url`) |
 | `-iterations` | `1` | Number of daily action loops to perform |
 | `-delay` | `100` | Delay between persona action executions in milliseconds |
 | `-verbose` | `true` | Enable detailed logging of request/response outputs |

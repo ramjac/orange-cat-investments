@@ -101,6 +101,27 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 6. **Vendor & Product Name Encapsulation (Generic Domain Variable Naming):**
    * **Driver Package Encapsulation:** It is fine, appropriate, and expected that dedicated driver/adapter client packages (e.g., `pkg/broker/alpaca/client.go` or `pkg/bank/plaid/client.go`) have vendor product names throughout their internal implementation, comments, and package/type definitions.
    * **Domain-Centric Consumption:** Beyond those specialized driver packages, vendor product names must NOT spread further across the codebase. Consuming application entrypoints (`cmd/...`), services (`internal/service/...`), handlers (`internal/handler/...`), and repositories must use generic, domain-centric variable and field names. For example, use `broker` or `brokerClient` (instead of `alpaca` or `alpacaClient`), and `bank` or `bankClient` (instead of `plaid` or `plaidClient`).
+7. **Separation of Simulation Code and Production Applications:**
+   * Production applications (`cmd/server`, `cmd/*-bff`, `internal/handler/...`, `internal/service/...`) must NEVER contain synthetic endpoints, mock routes, or proxy helpers designed to facilitate simulations or tests.
+   * All persona workflow simulations must reside strictly within `simulation/` and interact directly with the appropriate native system APIs (see detailed standard below).
+
+### Simulation vs. Production Application Boundary (Employee & Persona Workflows)
+
+1. **No Synthetic Facilitation Endpoints in Core Apps:**
+   * **The Anti-Pattern:** When designing simulation scenarios for an employee (e.g., a software developer creating branches, committing code, or submitting pull requests; or an HR manager adjusting records), it is tempting to create proxy endpoints in `internal/handler/handler.go` or the web portals (`web/employee-portal`) so the simulation can interact exclusively within the custom OCI codebase. This is strictly prohibited.
+   * **Why it is forbidden:** In reality, employees do not use custom internal website wrappers for standard toolchains (e.g., developers do not use a corporate dashboard to commit git code). Adding synthetic endpoints pollutes the production API surface, blurs domain boundaries, and produces false confidence by testing artificial proxy code rather than actual employee workflows and permissions.
+
+2. **Simulating Employee Workflows Directly at the Target System's API Boundary:**
+   * All API interactions simulating an employee's workflow must be placed directly in the simulation driver (`simulation/actions.go`, `simulation/client.go`).
+   * The simulation client should directly target the native APIs of the relevant platform using the persona's credentials:
+     - **Developer Persona (e.g., Elise, Marcus):** Interacts directly with Forgejo's REST APIs (`/api/v1/repos/{owner}/{repo}/...` for issues/Kanban, branch creation, file commits via contents API, pull requests, reviews, and merges).
+     - **Corporate/Executive Persona:** Interacts directly with Nextcloud (WebDAV/OCS APIs), ERPNext, or Snipe-IT native APIs.
+     - **End-User/Caretaker Persona:** Interacts with legitimate OCI endpoints on `oci-server` or the BFFs (`customer-bff`, `employee-bff`) as an authentic user would.
+   * **Purpose of Simulation:** The objective is to verify that the persona has sufficient permissions and that the underlying infrastructure (e.g., Forgejo, Nextcloud, K8s runners) correctly supports the complete end-to-end workflow (e.g., from Kanban card to feature branch to code review and merge), without requiring OCI production services to act as an intermediary.
+
+3. **Dual-Mode Simulation Architecture (`-mode mock` vs `-mode live`):**
+   * **Mock Mode (`simulation/mock_*.go`):** Fast, standalone local testing without external dependencies. Standalone in-memory HTTP servers (e.g., `MockForgejoServer` in `simulation/mock_forgejo.go`, or stateless mock broker/bank in `external-sim`) emulate the third-party or COTS API contracts.
+   * **Live Mode:** The simulation client routes HTTP calls directly to the live internal COTS service (e.g., `http://forgejo-service.oci-internal.svc:3000` or `https://forgejo.oci.local`) or development endpoints in `oci-dev`. Simulations must NEVER target the production `oci-core` namespace.
 
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.

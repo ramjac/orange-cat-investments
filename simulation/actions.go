@@ -23,6 +23,7 @@ func (r *Registry) registerAllDefaultPersonas() {
 	r.Register(r.createChloePersona())
 	r.Register(r.createRickPersona())
 	r.Register(r.createElisePersona())
+	r.Register(r.createMarcusPersona())
 }
 
 // 1. Garfield - Chief Observation Officer (COO)
@@ -1993,6 +1994,109 @@ func (r *Registry) createElisePersona() *Persona {
 		Department: "Engineering & Platform Development",
 		Actions: []Action{
 			{
+				Name:        "elise_claim_kanban_card",
+				Description: "Claims and assigns engineering backlog card #42 on Forgejo kanban board to herself",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/issues/42"
+					payload := map[string]any{
+						"assignee": "emp-human-elise",
+						"state":    "open",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "PATCH", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_claim_kanban_card",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Claimed Kanban Card #42 in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_create_feature_branch",
+				Description: "Creates feature branch 'feature/42-gitops-promotion-pipeline' from main branch in Forgejo",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/branches"
+					payload := map[string]any{
+						"new_branch_name": "feature/42-gitops-promotion-pipeline",
+						"old_ref_name":    "main",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_create_feature_branch",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Created feature branch in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_push_code_commit",
+				Description: "Pushes git commit to feature branch with multi-stage Dockerfiles and promotion manifests",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/contents/Dockerfile"
+					payload := map[string]any{
+						"branch":  "feature/42-gitops-promotion-pipeline",
+						"content": "RlJPTSBnb2xhbmc6MS4yMi1hbHBpbmUgQVMgYnVpbGRlcg==",
+						"message": "feat(gitops): multi-stage containerization & gated promotion pipeline (#42)",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_push_code_commit",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Pushed commit to feature branch in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "elise_open_pull_request",
+				Description: "Opens Pull Request #42 in Forgejo linking Card #42 for automated CI validation and peer review",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/pulls"
+					payload := map[string]any{
+						"title": "feat(gitops): multi-stage containerization & gated promotion pipeline",
+						"head":  "feature/42-gitops-promotion-pipeline",
+						"base":  "main",
+						"body":  "Resolves #42. Multi-stage Dockerfiles, in-cluster Forgejo runner, and live staging gates.",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-elise",
+						PersonaName: "Elise Dev",
+						ActionName:  "elise_open_pull_request",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Opened Pull Request #42 in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
 				Name:        "elise_write_nextcloud_doc",
 				Description: "Creates Vue 3 & Employee BFF architecture specification document in Nextcloud",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
@@ -2148,3 +2252,115 @@ func (r *Registry) createElisePersona() *Persona {
 		},
 	}
 }
+
+// 13. Marcus Lead - Principal Systems Architect & Senior Developer
+func (r *Registry) createMarcusPersona() *Persona {
+	return &Persona{
+		ID:         "emp-human-marcus",
+		Name:       "Marcus Lead",
+		Type:       "human",
+		RoleTitle:  "Principal Systems Architect & Senior Developer",
+		Department: "Engineering & Platform Development",
+		Actions: []Action{
+			{
+				Name:        "senior_dev_author_adr",
+				Description: "Authors and publishes ADR 0003 for GitOps and containerization pipeline in Nextcloud",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/nextcloud/api/v1/documents"
+					payload := map[string]any{
+						"title":      "ADR 0003: Self-Hosted GitOps, Multi-Stage Packaging & Gated Promotion Pipeline",
+						"content":    "Defines multi-stage container builds, local registry caching on localhost:32000, Forgejo Actions runner execution, and live integration testing gate before production promotion.",
+						"author":     "emp-human-marcus",
+						"share_with": []string{"emp-human-elise", "emp-human-frank"},
+					}
+					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-marcus",
+						PersonaName: "Marcus Lead",
+						ActionName:  "senior_dev_author_adr",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Published ADR 0003 in Nextcloud: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "senior_dev_review_pull_request",
+				Description: "Performs architectural peer review and approves Elise Dev's Pull Request in Forgejo",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/pulls/42/reviews"
+					payload := map[string]any{
+						"event": "APPROVED",
+						"body":  "Architecture and security invariants verified. Distroless/alpine multi-stage builds and Forgejo Actions CI pass all tests. Approved for staging deployment.",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-marcus",
+						PersonaName: "Marcus Lead",
+						ActionName:  "senior_dev_review_pull_request",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Submitted approved peer review on PR #42 in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "senior_dev_merge_pull_request",
+				Description: "Merges Pull Request #42 in Forgejo, triggering automated CI build and container push to localhost:32000",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/repos/oci/monorepo/pulls/42/merge"
+					payload := map[string]any{
+						"Do":                "merge",
+						"MergeMessageField": "Merge pull request #42: feat(gitops): multi-stage containerization & gated promotion pipeline",
+					}
+					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-marcus",
+						PersonaName: "Marcus Lead",
+						ActionName:  "senior_dev_merge_pull_request",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Merged PR #42 in Forgejo: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "senior_dev_audit_ci_pipeline",
+				Description: "Audits active developer tickets and CI/CD workflow status across platform deployments",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/ops/tickets"
+					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-marcus",
+						PersonaName: "Marcus Lead",
+						ActionName:  "senior_dev_audit_ci_pipeline",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusOK,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audited CI/CD tickets queue: %d bytes", len(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+		},
+	}
+}
+

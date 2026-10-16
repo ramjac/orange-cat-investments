@@ -3,6 +3,7 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,6 +43,7 @@ type Client struct {
 	custBFFURL string
 	brokerURL  string
 	bankURL    string
+	forgejoURL string
 	mode       string
 	httpClient *http.Client
 
@@ -51,6 +53,7 @@ type Client struct {
 	mockBroker  *httptest.Server
 	mockBank    *httptest.Server
 	mockCustBFF *httptest.Server
+	mockForgejo *httptest.Server
 }
 
 // NewClient constructs a new simulation client. In "mock" mode, it spins up in-memory HTTP test servers.
@@ -61,8 +64,14 @@ func NewClient(cfg *Config) (*Client, error) {
 		custBFFURL: strings.TrimSuffix(cfg.CustomerBFFURL, "/"),
 		brokerURL:  strings.TrimSuffix(cfg.BrokerURL, "/"),
 		bankURL:    strings.TrimSuffix(cfg.BankURL, "/"),
+		forgejoURL: strings.TrimSuffix(cfg.ForgejoURL, "/"),
 		mode:       cfg.Mode,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
 	}
 
 	if cfg.Mode == "mock" || (cfg.Mode == "step" && cfg.ServerURL == "") {
@@ -91,6 +100,9 @@ func (c *Client) Close() {
 	if c.mockCustBFF != nil {
 		c.mockCustBFF.Close()
 	}
+	if c.mockForgejo != nil {
+		c.mockForgejo.Close()
+	}
 }
 
 func (c *Client) initMockBrokerServer() {
@@ -112,6 +124,12 @@ func (c *Client) initMockBankServer() {
 	bankHandler.RegisterRoutes(bankMux)
 	c.mockBank = httptest.NewServer(bankMux)
 	c.bankURL = c.mockBank.URL
+}
+
+func (c *Client) initMockForgejoServer() {
+	mock := NewMockForgejoServer()
+	c.mockForgejo = httptest.NewServer(mock.Handler())
+	c.forgejoURL = c.mockForgejo.URL
 }
 
 func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_svc.Service, opsService ops_svc.Service) {
@@ -593,6 +611,7 @@ func (c *Client) initMockEmployeeBFFServer(wfHandler *handler.WorkforceHandler, 
 func (c *Client) initMockServers() error {
 	c.initMockBrokerServer()
 	c.initMockBankServer()
+	c.initMockForgejoServer()
 
 	// Initialize external clients
 	brokerClient := alpaca.NewClient(alpaca.Config{
@@ -727,3 +746,16 @@ func (c *Client) DoBank(ctx context.Context, method, path string, body any) (*ht
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
+
+// DoForgejo executes an HTTP request directly against the Forgejo REST API.
+func (c *Client) DoForgejo(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.forgejoURL
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+	headers := map[string]string{
+		"Authorization": "token mock-forgejo-token",
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, headers)
+}
+

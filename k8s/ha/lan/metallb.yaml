@@ -1,0 +1,21 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: oci-lan-pool
+  namespace: metallb-system
+spec:
+  addresses:
+    # Dedicated static LAN IP addresses reserved for cluster ingress and VIP
+    - 192.168.1.250-192.168.1.254
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: oci-lan-advertisement
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - oci-lan-pool
+  interfaces:
+    - eth0
