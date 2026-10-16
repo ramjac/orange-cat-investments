@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -473,4 +475,155 @@ func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
 
 	require.NoError(t, router.Close())
 }
+
+func TestWorkerRouter_ACHSettlementHandler(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	pubSub := gochannel.NewGoChannel(
+		gochannel.Config{OutputChannelBuffer: 10},
+		watermillLogger,
+	)
+
+	router, err := createRouter(pubSub, watermillLogger, logger)
+	require.NoError(t, err)
+	require.NotNil(t, router)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	settledMessages, err := pubSub.Subscribe(ctx, "events.banking.ach_settled.v1")
+	require.NoError(t, err)
+
+	go func() {
+		_ = router.Run(ctx)
+	}()
+
+	select {
+	case <-router.Running():
+	case <-time.After(2 * time.Second):
+		t.Fatal("router failed to start in time")
+	}
+
+	transferReq := EventEnvelope[ACHTransferRequestedPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.banking.ach_transfer_requested.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "test-ach-trace",
+		Payload: ACHTransferRequestedPayload{
+			TransferID:   "ach-transfer-test-1",
+			CustomerID:   "cust-user-1",
+			PortfolioID:  "port-user-1",
+			BankAccount:  "act-bank-999",
+			AmountUSD:    250.00,
+			TransferType: "deposit",
+		},
+	}
+	payloadBytes, err := json.Marshal(transferReq)
+	require.NoError(t, err)
+
+	msg := message.NewMessage(transferReq.EventID, payloadBytes)
+	err = pubSub.Publish("events.banking.ach_transfer_requested.v1", msg)
+	require.NoError(t, err)
+
+	select {
+	case outMsg := <-settledMessages:
+		outMsg.Ack()
+		var settled EventEnvelope[ACHSettledPayload]
+		err := json.Unmarshal(outMsg.Payload, &settled)
+		require.NoError(t, err)
+		assert.Equal(t, "events.banking.ach_settled.v1", settled.EventType)
+		assert.Equal(t, "ach-transfer-test-1", settled.Payload.TransferID)
+		assert.Equal(t, "settled", settled.Payload.Status)
+		assert.Equal(t, 250.00, settled.Payload.AmountUSD)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for events.banking.ach_settled.v1")
+	}
+
+	require.NoError(t, router.Close())
+}
+
+func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
+	bffReceived := make(chan bool, 1)
+	pebbleReceived := make(chan bool, 1)
+
+	// Mock Employee BFF and Pebble Proxy servers
+	bffServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/employee/incidents/broadcast" {
+			bffReceived <- true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"broadcasted"}`))
+		}
+	}))
+	defer bffServer.Close()
+
+	pebbleServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/ops/pebble/incidents/broadcast" {
+			pebbleReceived <- true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"status":"created"}`))
+		}
+	}))
+	defer pebbleServer.Close()
+
+	t.Setenv("EMPLOYEE_BFF_URL", bffServer.URL)
+	t.Setenv("PEBBLE_PROXY_URL", pebbleServer.URL)
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	watermillLogger := watermill.NewStdLogger(false, false)
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+
+	router, err := createRouter(pubSub, watermillLogger, logger)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = router.Run(ctx)
+	}()
+
+	<-router.Running()
+
+	incidentEnv := EventEnvelope[IncidentCreatedEventPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.workforce.incident_created.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "corr-inc-001",
+		Payload: IncidentCreatedEventPayload{
+			IncidentID:       "inc-workmill-test-01",
+			Title:            "Treat Stash Raid in Progress",
+			Category:         "facilities",
+			InvolvedFelineID: "emp-feline-garfield",
+			Severity:         "critical",
+			RoomZone:         "Breakroom Cabinet",
+			Description:      "Cabinet doors forced open, all salmon bites consumed",
+			ReportedAt:       time.Now().UTC(),
+		},
+	}
+	bodyBytes, err := json.Marshal(incidentEnv)
+	require.NoError(t, err)
+
+	msg := message.NewMessage(incidentEnv.EventID, bodyBytes)
+	err = pubSub.Publish("events.workforce.incident_created.v1", msg)
+	require.NoError(t, err)
+
+	select {
+	case <-bffReceived:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for incident fanout to Employee BFF")
+	}
+
+	select {
+	case <-pebbleReceived:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for incident fanout to Pebble Proxy")
+	}
+
+	require.NoError(t, router.Close())
+}
+
+
 

@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package oci.core_invest.v1;
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1;coreinvestv1";
+
+service CoreInvestService {
+  rpc GetPortfolio (GetPortfolioRequest) returns (GetPortfolioResponse);
+  rpc ListHoldings (ListHoldingsRequest) returns (ListHoldingsResponse);
+  rpc UpdatePortfolioBalance (UpdatePortfolioBalanceRequest) returns (UpdatePortfolioBalanceResponse);
+
+  rpc CreateOrder (CreateOrderRequest) returns (CreateOrderResponse);
+  rpc ListOrders (ListOrdersRequest) returns (ListOrdersResponse);
+
+  rpc IngestObservation (IngestObservationRequest) returns (IngestObservationResponse);
+  rpc ListObservations (ListObservationsRequest) returns (ListObservationsResponse);
+
+  rpc CreateRecurringDeposit (CreateRecurringDepositRequest) returns (CreateRecurringDepositResponse);
+  rpc ListRecurringDeposits (ListRecurringDepositsRequest) returns (ListRecurringDepositsResponse);
+}
+
+message Portfolio {
+  string portfolio_id = 1;
+  string customer_id = 2;
+  string account_name = 3;
+  double total_balance_usd = 4;
+  double cash_balance_usd = 5;
+  string status = 6;
+  string created_at = 7;
+}
+
+message PortfolioHolding {
+  string holding_id = 1;
+  string portfolio_id = 2;
+  string symbol = 3;
+  double quantity = 4;
+  double avg_price_usd = 5;
+  double current_price_usd = 6;
+  double market_value_usd = 7;
+}
+
+message GetPortfolioRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+}
+
+message GetPortfolioResponse {
+  Portfolio portfolio = 1;
+  repeated PortfolioHolding holdings = 2;
+}
+
+message ListHoldingsRequest {
+  string portfolio_id = 1;
+}
+
+message ListHoldingsResponse {
+  repeated PortfolioHolding holdings = 1;
+}
+
+message UpdatePortfolioBalanceRequest {
+  string portfolio_id = 1;
+  double delta_usd = 2;
+  string reason = 3;
+}
+
+message UpdatePortfolioBalanceResponse {
+  string portfolio_id = 1;
+  double updated_cash_balance_usd = 2;
+  double updated_total_balance_usd = 3;
+  string status = 4;
+}
+
+message BrokerageOrder {
+  string order_id = 1;
+  string portfolio_id = 2;
+  string symbol = 3;
+  string side = 4;
+  double quantity = 5;
+  double price = 6;
+  string status = 7;
+  string broker_name = 8;
+  string executed_at = 9;
+}
+
+message CreateOrderRequest {
+  string portfolio_id = 1;
+  string symbol = 2;
+  string side = 3;
+  double quantity = 4;
+  double price = 5;
+  string order_type = 6;
+}
+
+message CreateOrderResponse {
+  BrokerageOrder order = 1;
+}
+
+message ListOrdersRequest {
+  string portfolio_id = 1;
+  int32 limit = 2;
+}
+
+message ListOrdersResponse {
+  repeated BrokerageOrder orders = 1;
+}
+
+message ObservationEvent {
+  string event_id = 1;
+  string camera_id = 2;
+  string feline_id = 3;
+  string activity_type = 4;
+  double confidence_score = 5;
+  string observed_at = 6;
+}
+
+message IngestObservationRequest {
+  string camera_id = 1;
+  string feline_id = 2;
+  string activity_type = 3;
+  double confidence_score = 4;
+}
+
+message IngestObservationResponse {
+  string event_id = 1;
+  string status = 2;
+}
+
+message ListObservationsRequest {
+  string feline_id = 1;
+  int32 limit = 2;
+}
+
+message ListObservationsResponse {
+  repeated ObservationEvent observations = 1;
+}
+
+message RecurringDeposit {
+  string deposit_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  double amount_usd = 4;
+  string frequency = 5;
+  string bank_account = 6;
+  string status = 7;
+  string next_charge_at = 8;
+}
+
+message CreateRecurringDepositRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  double amount_usd = 3;
+  string frequency = 4;
+  string bank_account = 5;
+}
+
+message CreateRecurringDepositResponse {
+  RecurringDeposit deposit = 1;
+}
+
+message ListRecurringDepositsRequest {
+  string customer_id = 1;
+}
+
+message ListRecurringDepositsResponse {
+  repeated RecurringDeposit deposits = 1;
+}
