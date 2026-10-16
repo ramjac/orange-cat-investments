@@ -196,19 +196,29 @@ func TestReviewCycles(t *testing.T) {
 	t.Run("Create Get and Update", func(t *testing.T) {
 		notes := "Quarterly agility and sunbeam orientation evaluation"
 		reviewer := "emp-human-elena"
+		selfApp := "Achieved 100% daily climb milestones"
+		selfSc := 4.90
 		newRC := &ReviewCycle{
-			EmployeeID:   "emp-feline-barneby",
-			ReviewType:   "feline_health_assessment",
-			ScheduledFor: "2026-11-15",
-			Status:       "scheduled",
-			ReviewerID:   &reviewer,
-			Notes:        &notes,
+			EmployeeID:    "emp-feline-barneby",
+			ReviewType:    "feline_health_assessment",
+			ReviewPeriod:  "2026-Q3",
+			Phase:         "self_appraisal",
+			ScheduledFor:  "2026-11-15",
+			Status:        "scheduled",
+			ReviewerID:    &reviewer,
+			Notes:         &notes,
+			SelfAppraisal: &selfApp,
+			SelfScore:     &selfSc,
 		}
 		created, err := repo.CreateReviewCycle(ctx, newRC)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, created.ReviewID)
 		assert.Equal(t, "scheduled", created.Status)
+		assert.Equal(t, "2026-Q3", created.ReviewPeriod)
+		assert.Equal(t, "self_appraisal", created.Phase)
 		assert.Equal(t, "2026-11-15", created.ScheduledFor)
+		assert.Equal(t, selfApp, *created.SelfAppraisal)
+		assert.Equal(t, selfSc, *created.SelfScore)
 
 		fetched, err := repo.GetReviewCycleByID(ctx, created.ReviewID)
 		assert.NoError(t, err)
@@ -218,18 +228,28 @@ func TestReviewCycles(t *testing.T) {
 		score := 4.88
 		compNotes := "Outstanding perch balance and high alpha drive"
 		now := time.Now().UTC()
+		vetScore := 4.92
+		vetRec := "Add sunbeam perch cushion"
 		updateRC := &ReviewCycle{
-			ReviewID:    created.ReviewID,
-			Status:      "completed",
-			Score:       &score,
-			Notes:       &compNotes,
-			CompletedAt: &now,
+			ReviewID:                created.ReviewID,
+			Phase:                   "completed",
+			Status:                  "completed",
+			Score:                   &score,
+			Notes:                   &compNotes,
+			WellnessAuditScore:      &vetScore,
+			HabitatRecommendations: &vetRec,
+			ClinicalAuditorID:       &reviewer,
+			CompletedAt:             &now,
 		}
 		updated, err := repo.UpdateReviewCycle(ctx, updateRC)
 		assert.NoError(t, err)
 		assert.Equal(t, "completed", updated.Status)
+		assert.Equal(t, "completed", updated.Phase)
 		assert.Equal(t, score, *updated.Score)
 		assert.Equal(t, compNotes, *updated.Notes)
+		assert.Equal(t, vetScore, *updated.WellnessAuditScore)
+		assert.Equal(t, vetRec, *updated.HabitatRecommendations)
+		assert.Equal(t, reviewer, *updated.ClinicalAuditorID)
 		assert.NotNil(t, updated.CompletedAt)
 	})
 
@@ -441,3 +461,152 @@ func TestWorkplaceIncidents(t *testing.T) {
 	_, err = repo.UpdateWorkplaceIncidentStatus(ctx, "non-existent-inc-id", "resolved", "Notes")
 	assert.Error(t, err)
 }
+
+func TestWorkforcePgxRepository_NilDB(t *testing.T) {
+	repo := &pgxRepository{db: nil}
+	ctx := context.Background()
+
+	_, err := repo.GetEmployeeByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListEmployees(ctx, "", "")
+	assert.Error(t, err)
+
+	_, err = repo.CreateEmployee(ctx, &Employee{})
+	assert.Error(t, err)
+
+	_, err = repo.UpdateEmployeeStatus(ctx, "any", "active")
+	assert.Error(t, err)
+
+	_, err = repo.CreateOnboardingTask(ctx, &OnboardingTask{})
+	assert.Error(t, err)
+
+	_, err = repo.ListOnboardingChecklist(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateOnboardingTask(ctx, "any", true)
+	assert.Error(t, err)
+
+	_, err = repo.GetCareScheduleByFelineID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.UpsertCareSchedule(ctx, &CareSchedule{})
+	assert.Error(t, err)
+
+	_, err = repo.SetEmergencyMedicalHold(ctx, "any", true)
+	assert.Error(t, err)
+
+	_, err = repo.CreateLeaveRequest(ctx, &LeaveRequest{})
+	assert.Error(t, err)
+
+	_, err = repo.GetLeaveRequestByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListLeaveRequests(ctx, "", "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateLeaveRequestStatus(ctx, "any", "approved")
+	assert.Error(t, err)
+
+	_, err = repo.CreateReviewCycle(ctx, &ReviewCycle{})
+	assert.Error(t, err)
+
+	_, err = repo.GetReviewCycleByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListReviewCycles(ctx, "", "", "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateReviewCycle(ctx, &ReviewCycle{})
+	assert.Error(t, err)
+
+	_, err = repo.CreateVHRRecord(ctx, &VHRRecord{})
+	assert.Error(t, err)
+
+	_, err = repo.ListVHRRecords(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.CreateWorkplaceIncident(ctx, &WorkplaceIncident{})
+	assert.Error(t, err)
+
+	_, err = repo.ListWorkplaceIncidents(ctx, "")
+	assert.Error(t, err)
+
+	_, err = repo.UpdateWorkplaceIncidentStatus(ctx, "any", "resolved", "notes")
+	assert.Error(t, err)
+
+	_, err = repo.CreateExecutiveReport(ctx, &ExecutiveReport{})
+	assert.Error(t, err)
+
+	_, err = repo.GetExecutiveReportByID(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.GetExecutiveReportByPeriod(ctx, "any")
+	assert.Error(t, err)
+
+	_, err = repo.ListExecutiveReports(ctx, 10, 0)
+	assert.Error(t, err)
+
+	_, err = repo.UpdateExecutiveReportStatus(ctx, "any", "archived", nil, nil)
+	assert.Error(t, err)
+}
+
+func TestExecutiveReports(t *testing.T) {
+	repo := NewRepository(nil)
+	ctx := context.Background()
+
+	// Verify pre-seeded reports
+	reports, err := repo.ListExecutiveReports(ctx, 10, 0)
+	assert.NoError(t, err)
+	assert.GreaterOrEqual(t, len(reports), 2)
+
+	// Get by Period
+	rep09, err := repo.GetExecutiveReportByPeriod(ctx, "2026-09")
+	assert.NoError(t, err)
+	assert.Equal(t, "2026-09", rep09.Period)
+	assert.Equal(t, 1240000.00, rep09.TotalRevenue)
+	assert.Equal(t, 12, rep09.TotalHeadcount)
+
+	// Create new Executive Report
+	pdfPath := "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_report_2026-10.pdf"
+	csvPath := "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_report_2026-10.csv"
+	newRep := &ExecutiveReport{
+		ReportID:           "rep-2026-10",
+		Period:             "2026-10",
+		Title:              "OCI Executive Management Report - October 2026",
+		Status:             "archived",
+		TotalRevenue:       1350000.00,
+		OperatingExpenses:  320000.00,
+		PayrollExpenses:    430000.00,
+		NetProfit:          600000.00,
+		OperationalBurn:    750000.00,
+		CashReserves:       9800000.00,
+		RunwayMonths:       13.06,
+		TotalHeadcount:     12,
+		HumanHeadcount:     10,
+		FelineHeadcount:    2,
+		AttendanceRate:     99.40,
+		OvertimeHours:      44.00,
+		TimesheetsApproved: 19,
+		WebDAVPathPDF:      &pdfPath,
+		WebDAVPathCSV:      &csvPath,
+		GeneratedBy:        "system-reporting-worker",
+	}
+
+	created, err := repo.CreateExecutiveReport(ctx, newRep)
+	assert.NoError(t, err)
+	assert.Equal(t, "rep-2026-10", created.ReportID)
+	assert.Equal(t, "archived", created.Status)
+
+	// Get by ID
+	fetched, err := repo.GetExecutiveReportByID(ctx, "rep-2026-10")
+	assert.NoError(t, err)
+	assert.Equal(t, created.Title, fetched.Title)
+
+	// Update status
+	updated, err := repo.UpdateExecutiveReportStatus(ctx, "rep-2026-10", "archived", &pdfPath, &csvPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "archived", updated.Status)
+}
+
+

@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oci-pebble-proxy-dev
+  namespace: oci-dev
+  labels:
+    app: oci-pebble-proxy-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oci-pebble-proxy-dev
+  template:
+    metadata:
+      labels:
+        app: oci-pebble-proxy-dev
+    spec:
+      containers:
+        - name: oci-pebble-proxy-dev
+          image: localhost:32000/oci-pebble-proxy:dev-latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8082
+              name: http
+          env:
+            - name: PORT
+              value: "8082"
+            - name: ENABLE_PEBBLE_GATEWAY
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-pebble-proxy-dev-service
+  namespace: oci-dev
+  labels:
+    app: oci-pebble-proxy-dev
+spec:
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: http
+  selector:
+    app: oci-pebble-proxy-dev

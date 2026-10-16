@@ -3,12 +3,14 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/handler"
@@ -31,6 +33,7 @@ import (
 	broker_ledger "github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/reporting"
 )
 
 // Client wraps HTTP communication with the OCI stack (Domain API server and Employee BFF).
@@ -40,6 +43,7 @@ type Client struct {
 	custBFFURL string
 	brokerURL  string
 	bankURL    string
+	forgejoURL string
 	mode       string
 	httpClient *http.Client
 
@@ -49,6 +53,7 @@ type Client struct {
 	mockBroker  *httptest.Server
 	mockBank    *httptest.Server
 	mockCustBFF *httptest.Server
+	mockForgejo *httptest.Server
 }
 
 // NewClient constructs a new simulation client. In "mock" mode, it spins up in-memory HTTP test servers.
@@ -59,8 +64,14 @@ func NewClient(cfg *Config) (*Client, error) {
 		custBFFURL: strings.TrimSuffix(cfg.CustomerBFFURL, "/"),
 		brokerURL:  strings.TrimSuffix(cfg.BrokerURL, "/"),
 		bankURL:    strings.TrimSuffix(cfg.BankURL, "/"),
+		forgejoURL: strings.TrimSuffix(cfg.ForgejoURL, "/"),
 		mode:       cfg.Mode,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
 	}
 
 	if cfg.Mode == "mock" || (cfg.Mode == "step" && cfg.ServerURL == "") {
@@ -89,6 +100,9 @@ func (c *Client) Close() {
 	if c.mockCustBFF != nil {
 		c.mockCustBFF.Close()
 	}
+	if c.mockForgejo != nil {
+		c.mockForgejo.Close()
+	}
 }
 
 func (c *Client) initMockBrokerServer() {
@@ -110,6 +124,12 @@ func (c *Client) initMockBankServer() {
 	bankHandler.RegisterRoutes(bankMux)
 	c.mockBank = httptest.NewServer(bankMux)
 	c.bankURL = c.mockBank.URL
+}
+
+func (c *Client) initMockForgejoServer() {
+	mock := NewMockForgejoServer()
+	c.mockForgejo = httptest.NewServer(mock.Handler())
+	c.forgejoURL = c.mockForgejo.URL
 }
 
 func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_svc.Service, opsService ops_svc.Service) {
@@ -222,77 +242,10 @@ func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_sv
 	})
 }
 
-func registerNextcloudRoutes(serverMux *http.ServeMux) {
-	createDocHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Title     string   `json:"title"`
-			Content   string   `json:"content"`
-			Author    string   `json:"author"`
-			ShareWith []string `json:"share_with"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
-			"document_id": fmt.Sprintf("doc-%d", time.Now().UnixNano()),
-			"title":       req.Title,
-			"author":      req.Author,
-			"status":      "published",
-			"shared_with": req.ShareWith,
-			"created_at":  time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-	serverMux.HandleFunc("POST /nextcloud/api/v1/documents", createDocHandler)
-	serverMux.HandleFunc("POST /api/v1/nextcloud/documents", createDocHandler)
-
-	listDocsHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"documents": []map[string]any{
-				{
-					"document_id": "doc-001",
-					"title":       "OCI Employee & Feline Onboarding Handbook",
-					"author":      "emp-human-alice",
-				},
-				{
-					"document_id": "doc-002",
-					"title":       "Zero-Trust Microservices & PKI Security Standard",
-					"author":      "emp-human-frank",
-				},
-			},
-		})
-	}
-	serverMux.HandleFunc("GET /nextcloud/api/v1/documents", listDocsHandler)
-	serverMux.HandleFunc("GET /api/v1/nextcloud/documents", listDocsHandler)
-
-	chatHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Sender    string `json:"sender"`
-			Recipient string `json:"recipient"`
-			Room      string `json:"room"`
-			Message   string `json:"message"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
-			"message_id": fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-			"sender":     req.Sender,
-			"recipient":  req.Recipient,
-			"room":       req.Room,
-			"status":     "delivered",
-			"sent_at":    time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-	serverMux.HandleFunc("POST /nextcloud/api/v1/chat/messages", chatHandler)
-	serverMux.HandleFunc("POST /api/v1/nextcloud/chat/messages", chatHandler)
-}
+var (
+	mockGDPRCertsMu sync.RWMutex
+	mockGDPRCerts   = make(map[string]*reporting.GDPRDeletionCertificate)
+)
 
 func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid.Client, brokerClient *alpaca.Client, ciService core_invest_svc.Service) {
 	registerCustRoutes := func(mux *http.ServeMux) {
@@ -445,21 +398,211 @@ func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid
 			}
 			json.NewEncoder(w).Encode(orders)
 		})
+		mux.HandleFunc("POST /api/v1/customer/auth/register", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				Name              string  `json:"name"`
+				Email             string  `json:"email"`
+				Password          string  `json:"password"`
+				BankAccount       string  `json:"bank_account"`
+				InitialDepositUSD float64 `json:"initial_deposit_usd"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			res, err := ciService.RegisterCustomer(r.Context(), core_invest_svc.CustomerRegistrationRequest{
+				FullName:        req.Name,
+				Email:           req.Email,
+				Password:        req.Password,
+				BankPublicToken: req.BankAccount,
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(res)
+		})
+		mux.HandleFunc("POST /api/v1/customer/account/close", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID  string `json:"customer_id"`
+				PortfolioID string `json:"portfolio_id"`
+				Reason      string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000098"
+			}
+			if req.PortfolioID == "" {
+				req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
+			}
+			res, err := ciService.CloseAndLiquidateAccount(r.Context(), core_invest_svc.CloseAccountRequest{
+				CustomerID:           req.CustomerID,
+				PortfolioID:          req.PortfolioID,
+				DestinationAccountID: "plaid-dest-acc-01",
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(res)
+		})
+		mux.HandleFunc("POST /api/v1/customer/privacy/gdpr-erasure", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID   string `json:"customer_id"`
+				Email        string `json:"email"`
+				Confirmation string `json:"confirmation"`
+				Reason       string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000098" // Chloe Spark
+			}
+			if req.Email == "" {
+				req.Email = "chloe@oci.local"
+			}
+			cert, err := ciService.ExecuteGDPRErasure(r.Context(), req.CustomerID, req.Email)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			mockGDPRCertsMu.Lock()
+			mockGDPRCerts[cert.CertificateID] = cert
+			mockGDPRCertsMu.Unlock()
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(cert)
+		})
+		mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			certID := r.PathValue("id")
+			mockGDPRCertsMu.RLock()
+			cert, ok := mockGDPRCerts[certID]
+			mockGDPRCertsMu.RUnlock()
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"error": "certificate not found"})
+				return
+			}
+			json.NewEncoder(w).Encode(cert)
+		})
+		mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+			certID := r.PathValue("id")
+			mockGDPRCertsMu.RLock()
+			cert, ok := mockGDPRCerts[certID]
+			mockGDPRCertsMu.RUnlock()
+			if !ok {
+				http.Error(w, "certificate not found", http.StatusNotFound)
+				return
+			}
+			pdfBytes, err := reporting.GenerateGDPRCertificatePDF(cert)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=gdpr-erasure-certificate-%s.pdf", cert.CertificateID))
+			w.Write(pdfBytes)
+		})
+		mux.HandleFunc("GET /api/v1/customer/statements", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			custID := r.URL.Query().Get("customer_id")
+			if custID == "" {
+				custID = "018e0000-0000-7000-8000-000000000099" // Arthur Pendelton
+			}
+			items, err := ciService.ListStatements(r.Context(), custID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})
+		})
+		mux.HandleFunc("POST /api/v1/customer/statements/generate", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID  string `json:"customer_id"`
+				PortfolioID string `json:"portfolio_id"`
+				Type        string `json:"type"`
+				PeriodMonth int    `json:"period_month"`
+				PeriodYear  int    `json:"period_year"`
+				TaxYear     int    `json:"tax_year"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000099"
+			}
+			if req.PortfolioID == "" {
+				req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+			}
+			var stmt *core_invest_repo.InvestmentStatement
+			var err error
+			if req.Type == "1099_b" {
+				yr := req.TaxYear
+				if yr == 0 {
+					yr = 2025
+				}
+				stmt, _, err = ciService.GenerateForm1099B(r.Context(), req.CustomerID, req.PortfolioID, yr)
+			} else {
+				m := req.PeriodMonth
+				if m == 0 {
+					m = 3
+				}
+				y := req.PeriodYear
+				if y == 0 {
+					y = 2026
+				}
+				stmt, _, err = ciService.GenerateMonthlyStatement(r.Context(), req.CustomerID, req.PortfolioID, y, m)
+			}
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(stmt)
+		})
+		mux.HandleFunc("GET /api/v1/customer/statements/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+			stmtID := r.PathValue("id")
+			custID := r.URL.Query().Get("customer_id")
+			if custID == "" {
+				custID = "018e0000-0000-7000-8000-000000000099"
+			}
+			stmt, pdfBytes, err := ciService.GetStatementDocument(r.Context(), custID, stmtID)
+			if err != nil {
+				http.Error(w, "statement not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-%s.pdf", stmt.StatementType, stmt.Period))
+			w.Write(pdfBytes)
+		})
 	}
 	registerCustRoutes(custMux)
 	registerCustRoutes(serverMux)
 }
 
-func (c *Client) initMockEmployeeBFFServer() {
+func (c *Client) initMockEmployeeBFFServer(wfHandler *handler.WorkforceHandler, opsHandler *ops_handler.Handler) {
 	bffMux := http.NewServeMux()
-
-	wfRepo := workforce_repo.NewRepository(nil)
-	wfService := workforce_svc.NewService(wfRepo)
-	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
-	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)
-
-	wfHandler := handler.NewWorkforceHandler(wfService, onboardingSaga, offboardingEng)
 	wfHandler.RegisterRoutes(bffMux)
+	if opsHandler != nil {
+		opsHandler.RegisterRoutes(bffMux)
+	}
 
 	c.mockBFF = httptest.NewServer(bffMux)
 	c.bffURL = c.mockBFF.URL
@@ -468,6 +611,7 @@ func (c *Client) initMockEmployeeBFFServer() {
 func (c *Client) initMockServers() error {
 	c.initMockBrokerServer()
 	c.initMockBankServer()
+	c.initMockForgejoServer()
 
 	// Initialize external clients
 	brokerClient := alpaca.NewClient(alpaca.Config{
@@ -499,11 +643,18 @@ func (c *Client) initMockServers() error {
 	facService := facilities_svc.NewService(facRepo)
 
 	registerFacilitiesRoutes(serverMux, facService, opsService)
-	registerNextcloudRoutes(serverMux)
+
+	wfRepo := workforce_repo.NewRepository(nil)
+	wfService := workforce_svc.NewService(wfRepo)
+	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
+	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)
+	wfHandler := handler.NewWorkforceHandler(wfService, onboardingSaga, offboardingEng)
+	wfHandler.RegisterRoutes(serverMux)
 
 	// Customer BFF routes and Mock Customer BFF server
 	custMux := http.NewServeMux()
 	registerCustomerRoutes(custMux, serverMux, bankClient, brokerClient, ciService)
+	opsHandler.RegisterRoutes(custMux)
 
 	c.mockCustBFF = httptest.NewServer(custMux)
 	c.custBFFURL = c.mockCustBFF.URL
@@ -511,7 +662,7 @@ func (c *Client) initMockServers() error {
 	c.mockServer = httptest.NewServer(serverMux)
 	c.serverURL = c.mockServer.URL
 
-	c.initMockEmployeeBFFServer()
+	c.initMockEmployeeBFFServer(wfHandler, opsHandler)
 
 	return nil
 }
@@ -595,3 +746,16 @@ func (c *Client) DoBank(ctx context.Context, method, path string, body any) (*ht
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
+
+// DoForgejo executes an HTTP request directly against the Forgejo REST API.
+func (c *Client) DoForgejo(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	baseURL := c.forgejoURL
+	if baseURL == "" {
+		baseURL = "http://localhost:3000"
+	}
+	headers := map[string]string{
+		"Authorization": "token mock-forgejo-token",
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, headers)
+}
+

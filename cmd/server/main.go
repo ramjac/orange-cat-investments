@@ -25,6 +25,10 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
@@ -38,10 +42,17 @@ func main() {
 		pool, err = pgxpool.New(context.Background(), dbURL)
 		if err != nil {
 			logger.Error("failed to connect to database pool", "error", err)
+			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+				logger.Error("database connection required in production mode, exiting")
+				os.Exit(1)
+			}
 		} else {
 			defer pool.Close()
 			logger.Info("connected to PostgreSQL database pool successfully")
 		}
+	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+		logger.Error("DATABASE_URL must be specified in production mode, exiting")
+		os.Exit(1)
 	} else {
 		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
 	}
@@ -125,8 +136,32 @@ func main() {
 
 	// Initialize Operations & Wearable Alerts Domain Service & Handlers (if enabled)
 	if enablePebbleGateway {
-		opsRepo := ops_repo.NewRepository(pool)
-		opsService := ops_svc.NewService(opsRepo)
+		var opsRepo ops_repo.Repository
+		if pool != nil {
+			opsRepo = ops_repo.NewRepository(pool)
+		} else {
+			opsRepo = ops_repo.NewMockRepository()
+		}
+
+		var issueTracker ops_svc.IssueTrackerClient
+		issueTrackerURL := os.Getenv("FORGEJO_URL")
+		if issueTrackerURL == "" {
+			issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+		}
+		if issueTrackerURL != "" {
+			issueTracker = forgejo.NewClient(forgejo.Config{
+				BaseURL: issueTrackerURL,
+				Token:   os.Getenv("FORGEJO_TOKEN"),
+			})
+			logger.Info("Forgejo issue tracker client initialized in Server", "url", issueTrackerURL)
+		}
+
+		var opsService ops_svc.Service
+		if issueTracker != nil {
+			opsService = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
+		} else {
+			opsService = ops_svc.NewService(opsRepo)
+		}
 		opsHandler := ops_handler.NewHandler(opsService)
 		opsHandler.RegisterRoutes(mux)
 		logger.Info("Operations domain routes registered")
@@ -146,8 +181,47 @@ func main() {
 	facHandler.RegisterRoutes(mux)
 
 	// Initialize Workforce Domain Service, Sagas & Handlers
-	wfRepo := workforce_repo.NewRepository(pool)
-	wfSvc := workforce_svc.NewService(wfRepo)
+	var wfRepo workforce_repo.Repository
+	if pool != nil {
+		wfRepo = workforce_repo.NewRepository(pool)
+	} else {
+		wfRepo = workforce_repo.NewMockRepository()
+	}
+
+	var hrClient workforce_svc.HRClient
+	hrURL := os.Getenv("HR_SYSTEM_URL")
+	if hrURL == "" {
+		hrURL = os.Getenv("FRAPPE_HR_URL")
+	}
+	if hrURL != "" {
+		hrClient = frappe.NewClient(frappe.Config{
+			BaseURL:   hrURL,
+			APIKey:    os.Getenv("FRAPPE_API_KEY"),
+			APISecret: os.Getenv("FRAPPE_API_SECRET"),
+		})
+		logger.Info("connected API server to HR management system", "url", hrURL)
+	}
+
+	var workspaceClient workforce_svc.WorkspaceClient
+	workspaceURL := os.Getenv("WORKSPACE_URL")
+	if workspaceURL == "" {
+		workspaceURL = os.Getenv("NEXTCLOUD_URL")
+	}
+	if workspaceURL != "" {
+		workspaceClient = nextcloud.NewClient(nextcloud.Config{
+			BaseURL:       workspaceURL,
+			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASSWORD"),
+		})
+		logger.Info("Workspace intranet client initialized", "url", workspaceURL)
+	}
+
+	var wfSvc workforce_svc.Service
+	if hrClient != nil || workspaceClient != nil {
+		wfSvc = workforce_svc.NewServiceWithIntegrations(wfRepo, nil, hrClient, workspaceClient)
+	} else {
+		wfSvc = workforce_svc.NewService(wfRepo)
+	}
 	onboardSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 	wfHandler := workforce_handler.NewWorkforceHandler(wfSvc, onboardSaga, offboardEng)
@@ -164,9 +238,11 @@ func main() {
 		port = "8080"
 	}
 
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
+
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

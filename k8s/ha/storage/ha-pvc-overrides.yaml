@@ -1,0 +1,58 @@
+# ==============================================================================
+# PersistentVolumeClaims for Multi-Node High Availability Distributed Storage
+# ==============================================================================
+# In a single-node setup, PVCs bind to local-path or hostpath on a single disk.
+# In this 3-node HA topology, volumes bind to StorageClass `longhorn`, which
+# synchronously replicates blocks across all 3 physical machines (replica count: 3).
+# If a physical computer loses power or hardware fails, Kubernetes detects the node
+# NotReady status, reschedules the StatefulSet pod onto another healthy node, and
+# Longhorn re-attaches the replicated volume within seconds.
+# ==============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-core-data-pvc
+  namespace: oci-core
+  labels:
+    app.kubernetes.io/name: postgres-core
+    app.kubernetes.io/part-of: oci-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-internal-data-pvc
+  namespace: oci-internal
+  labels:
+    app.kubernetes.io/name: postgres-internal
+    app.kubernetes.io/part-of: oci-internal-cots
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-data-pvc
+  namespace: oci-internal
+  labels:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/part-of: oci-internal-cots
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 50Gi

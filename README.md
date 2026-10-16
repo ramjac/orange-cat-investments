@@ -114,7 +114,6 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **ML Model Registry & Confidence Drift Tracking:** Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Algorithmic Order Types & Pre-Trade Risk Engine:** Smart Order Router supporting Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC, and risk management guardrails.
 * **Automated Investor Statements & Tax Document Generation:** Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
-* **Feline Acoustic & Vocalization Analysis:** Schema `core_invest.acoustic_events` and classification endpoint (`/core-invest/audio/classify`) distinguishing contentment purrs, playful chirps, and hunger meows.
 
 ### 5.2 Customer Experience & Retail Investor Surfaces (`web/customer-portal` & `cmd/customer-bff`)
 * **Customer Web Portal & Dedicated Go BFF:** Vue 3 Single Page Application (`web/customer-portal` on `:5174`) and dedicated Go BFF server (`cmd/customer-bff` on `:8083`) utilizing ZITADEL OIDC authentication, Valkey server-side sessions, and double-submit CSRF protection.
@@ -123,16 +122,13 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **Live "Zoomie Index" & Behavioral Momentum Alerts:** Real-time Zoomie Index scoring endpoint (`/api/v1/customer/zoomie-index`) and 1-click tactical pounce trade execution.
 * **Automated Recurring Deposits & Capital Allocations:** Schema `core_invest.recurring_deposits`, Go BFF endpoints (`/api/v1/customer/deposits`), and Vue deposit management UI.
 * **Customer Developer API Keys & Webhook Subscriptions:** Developer API key creation/revocation (`/api/v1/customer/api-keys`) and event webhook subscription management (`/api/v1/customer/webhooks`).
-* **Feline Welfare & ESG Transparency Dashboard:** Transparency endpoint (`/api/v1/customer/transparency/welfare`) and ESG dashboard displaying veterinary adherence, daily nap hours, and perch comfort ratings backed by PostgreSQL queries.
+* **Feline Welfare & ESG Transparency Dashboard:** Transparency endpoint (`/api/v1/customer/transparency/welfare`) and ESG dashboard displaying veterinary adherence, daily nap hours, and habitat comfort ratings backed by PostgreSQL queries.
 
 ### 5.3 Facilities & Mobile Field Maintenance (`facilities` & `mobile/flutter_app`)
 * **Flutter Mobile Offline Database Sync:** Full local SQLite persistence (`sqflite`), QR scanner camera view, and offline queue sync engine (`SyncEngine`) posting batched logs to `/facilities/sync/maintenance-logs`.
-* **Hardware Asset Management:** Keyset-paginated hardware inventory (`/facilities/assets`) supporting high-throughput edge camera fleets and IoT device tracking.
+* **Hardware Asset Management:** Keyset-paginated hardware inventory (`/facilities/assets`) supporting high-throughput edge camera fleets, habitat gateways, network switches, and mobile devices.
 * **Edge Device Firmware OTA Pipeline:** Firmware release catalog (`/facilities/firmware`) and OTA job scheduling (`/facilities/firmware/ota-jobs`), executed by the background worker Watermill router (`ota_pipeline_handler`).
-* **Smart Feeder Telemetry & Automated Snack Disbursement:** Schema `facilities.feeder_telemetry` and REST endpoints (`/facilities/feeders/telemetry`, `/facilities/feeders/disburse`).
-* **Smart Collar Biometrics & Accelerometer Streaming:** Schema `facilities.collar_telemetry` and telemetry ingestion endpoint (`/facilities/collars/telemetry`).
 * **Electronic Veterinary Health Records (VHR) & Clinical Charting:** Schema `workforce.vhr_records`, Go service layer, and Employee Portal VHR charting tab.
-* **Perch Cushion Comfort & Thermal Sunbeam Sensors:** Schema `facilities.perch_telemetry` and telemetry ingestion endpoint (`/facilities/perches/telemetry`).
 * **Remote PTZ & Camera Lens Calibration:** Pan-Tilt-Zoom (PTZ) control and lens calibration REST endpoints (`/facilities/cameras/{id}/ptz`, `/facilities/cameras/{id}/calibrate`).
 * **Habitat Environmental Telemetry (HVAC, Lux, Decibels):** Schema `facilities.environmental_telemetry` and telemetry ingestion endpoint (`/facilities/environment/telemetry`).
 
@@ -234,11 +230,43 @@ docker run -d --name oci-rabbitmq \
   rabbitmq:3.13-management-alpine
 ```
 
-#### Step 3: Initialize Database Schemas & Seed Data
-Execute the unified schema initialization script `scripts/init.sql`. This creates the schemas (`workforce`, `facilities`, `core_invest`, `ops`), table constraints, and initial employee records (Garfield, Barneby, Dr. Elena, etc.):
+#### Step 3: Initialize Database Schemas & Production Starter Admin
+
+The OCI platform strictly segregates **production schemas** from **development seed data**:
+
+* **Clean Production Database (`scripts/init.sql` & `k8s/oci-core/`):**
+  Defines the core database schemas (`workforce`, `facilities`, `core_invest`, `ops`), indexes, and table constraints. It is kept completely clean of mock personas, demo portfolios, test hardware assets, and simulated tickets. The production database is provisioned with **ONLY** a single starter administrator account:
+  - **Email:** `admin@oci.local`
+  - **Employee ID:** `018f0000-0000-7000-8000-000000000001`
+  - **Role:** `hr` (Platform Administrator & HR Lead)
+  - **Purpose:** Enables the first corporate employee to log in and begin onboarding the rest of the workforce.
+
+* **Starter Admin Bootstrap Password (`starter-admin-credentials.txt`):**
+  The initial bootstrap password for the starter admin is autogenerated using a CSPRNG and stored in a local file:
+  ```text
+  starter-admin-credentials.txt
+  ```
+  *(Also available in JSON format at `.starter-admin-credentials.json`)*.
+  This file is strictly listed in `.gitignore` and must never be committed to version control. To generate or inspect the credentials:
+  ```bash
+  # Generate local bootstrap credentials (if not already created):
+  ./scripts/generate-starter-admin.sh
+  ```
+
+  > [!IMPORTANT]
+  > **MANDATORY SECURITY DIRECTIVE:**
+  > The starter platform administrator password located in `starter-admin-credentials.txt` **MUST BE CHANGED IMMEDIATELY** upon first login. After initial authentication, navigate to account settings to set a permanent, organization-managed password before onboarding corporate staff or connecting retail customer accounts.
+
+* **Development & Simulation Seed Data (`scripts/seed-dev.sql` & `k8s/oci-dev/`):**
+  Mock personas (Garfield, Barneby, Dr. Elena, Alice, Elise, Marcus, etc.), demo retail portfolios (Arthur Pendelton, Chloe Spark), habitat zones, edge hardware, and test review cycles belong exclusively to the **`oci-dev`** namespace. To populate development fixtures:
+  ```bash
+  # Apply seed fixtures strictly to the oci-dev development environment:
+  ./scripts/seed-dev.sh
+  ```
+  *(This script enforces strict safety guards and is hard-coded to refuse execution against production `oci-core`)*.
 
 ```bash
-# Apply schema and initial records using psql:
+# Apply clean production schema and starter admin using psql:
 PGPASSWORD=catnip psql -h localhost -U oci -d oci -f scripts/init.sql
 ```
 
@@ -384,13 +412,20 @@ For users provisioning a fresh, unconfigured bare-metal server (e.g. mini PC, In
 
 ### 6.6 OCI Platform Simulation Driver
 
-The repository includes a comprehensive simulation driver (`simulation/cmd/simulator`) that exercises all 12 OCI personas (Garfield, Barneby, Alice, Bob, Carol, David, Dr. Elena, Frank, Arthur, Chloe, Rick, Elise) through their full daily operational routines:
+The repository includes a comprehensive simulation driver (`simulation/cmd/simulator`) that exercises all 13 OCI personas (Garfield, Barneby, Alice, Bob, Carol, David, Dr. Elena, Frank, Arthur, Chloe, Rick, Elise, Marcus) through their full daily operational routines:
+
+> [!NOTE]
+> **STRICT TARGETING INVARIANT:**
+> The simulation engine and mock personas are strictly restricted to the **`oci-dev`** namespace (or local mock environments). The production environment (`oci-core`) is safeguarded: any attempt to target production domains (`api.oci.local`) or production cluster services (`*.oci-core.*`) in live mode is automatically rejected by built-in configuration guards.
 
 ```bash
-# 1. Run in Mock Mode (offline, in-memory):
+# 1. Run in Mock Mode (offline, embedded in-memory):
 go run ./simulation/cmd/simulator -mode mock
 
-# 2. Run in Live Mode (against running API Server & PostgreSQL):
+# 2. Run in Live Mode against Kubernetes oci-dev Staging (smart URL routing):
+go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
+
+# 3. Run in Live Mode against local test services:
 go run ./simulation/cmd/simulator \
   -mode live \
   -server-url http://localhost:8080 \
@@ -489,60 +524,152 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & Technical Roadmap
 
-The following roadmap outlines planned capabilities and architectural enhancements that have not yet been implemented in the codebase:
+The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.1 Physical Hardware & Embedded IoT Firmware
-* **ESP32 / Zephyr RTOS Microcontroller Firmware for Smart Collars & Feeders:**
-  * *Target Personas:* **Bob Builder** (`emp-human-bob`), **Garfield** (`emp-feline-garfield`), **Barneby** (`emp-feline-barneby`)
-  * *Current State:* PostgreSQL schemas (`facilities.collar_telemetry`, `facilities.feeder_telemetry`), Go telemetry ingestion REST endpoints, and background OTA firmware job distribution pipelines (`facilities.device_ota_jobs`) are fully implemented.
-  * *Unimplemented Scope:* Embedded C/C++ firmware repositories under `embedded/collars/` and `embedded/feeders/` targeting physical microcontrollers (ESP32-C3 / Nordic nRF52840 running Zephyr RTOS). The firmware will implement ultra-low-power sleep states, load-cell ADC tare calibration, Bluetooth Low Energy (BLE) / MQTT over TLS telemetry publishing, and hardware cryptographic signature verification of downloaded OTA binaries before flashing.
-* **Production WebRTC Selective Forwarding Unit (SFU) with MediaSoup / Pion:**
-  * *Target Personas:* **Bob Builder**, **Arthur Pendelton** (`cust-longterm-arthur`), **Chloe Spark** (`cust-active-chloe`)
-  * *Current State:* Stream registry endpoints (`/core-invest/streams`) and simulated WebRTC video components exist in `web/customer-portal`.
-  * *Unimplemented Scope:* Production WebRTC Selective Forwarding Unit (SFU) media server integration utilizing Pion WebRTC or MediaSoup. Will support hardware-accelerated H.264/AV1 encoding (NVENC / QuickSync / VAAPI), dynamic simulcast layers, adaptive bitrate switching for mobile networks, and multi-camera spatial audio mixing.
+### 7.7 Exercise all application types
+Review repo to verify implementation of all architectural patterns across an enterprise-grade multi-tier system. The platform intentionally demonstrates an enterprise-grade microservices architecture designed to scale well beyond a single small business, featuring strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
 
-### 7.2 Quantitative AI & Production Brokerage Connectivity
-* **Native Hardware-Accelerated Computer Vision Inference Pipeline (Coral Edge TPU / Jetson TensorRT):**
-  * *Target Personas:* **David Quant** (`emp-human-david`), **Carol Danvers** (`emp-human-carol`)
-  * *Current State:* Frame inference classification endpoints, acoustic event classifiers, and model drift evaluation endpoints are implemented in the Go API server using software scoring and simulated metrics.
-  * *Unimplemented Scope:* Real-time hardware-accelerated computer vision worker pipeline deploying a custom-trained YOLOv8-pose feline keypoint model onto Google Coral Edge TPU USB accelerators or NVIDIA Jetson (TensorRT). This will enable 60 FPS multi-cat tracking, continuous sunbeam boundary intersection math, and sub-10ms latency from optical frame capture to RabbitMQ observation event publication.
-* **Direct Brokerage FIX Protocol Gateway (QuickFIX/Go):**
-  * *Target Personas:* **Carol Danvers**, **Chloe Spark**
-  * *Current State:* The Smart Order Router, risk engine, and order placement endpoints (`/core-invest/brokerage/orders`) simulate trade executions directly into PostgreSQL.
-  * *Unimplemented Scope:* Production Financial Information eXchange (FIX 4.4 / 5.0) protocol gateway implemented with QuickFIX/Go, connecting directly to institutional brokerages (e.g., Interactive Brokers FIX Gateway) and retail live streaming APIs (e.g., Alpaca Markets Live API). Will include live order fill callbacks, real-time Level 2 order book streaming, and slippage attribution logs.
-* **Reinforcement Learning (RL) Dynamic Portfolio Optimizer:**
-  * *Target Personas:* **David Quant**, **Carol Danvers**
-  * *Current State:* Algorithmic allocations use deterministic scoring matrices based on activity confidence scores and the Zoomie Index.
-  * *Unimplemented Scope:* Deep Reinforcement Learning (RL) agent (PPO / SAC) trained against historical feline ethology and equity market regimes. The agent will dynamically tune position sizing, stop-loss thresholds, and liquidity reserve buffers to maximize Sharpe and Sortino ratios while enforcing risk drawdown caps during feline medical holds.
+* **Custom Application Types & Monorepo Mapping:**
+  * **Internal Web Portal (`web/employee-portal` + `cmd/employee-bff`):**
+    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Employee BFF (`:8081`).
+    * *COTS Application Directory / Launcher:* Base launchpad page with 1-click status cards linking directly to internal COTS platforms (Nextcloud, Forgejo, ERPNext/Frappe HR, Snipe-IT, and Grafana).
+    * *Intranet & Workplace Policies:* Internal HR knowledge base with WebDAV document reader linking directly to policy documents, standard operating procedures (SOPs), and clinical protocols in Nextcloud departmental group folders.
+    * *Engineering Architecture & Handbook:* Internal engineering documentation viewer with developer expectations, GitOps workflow, and direct markdown rendering of Architecture Decision Records (ADRs `0001`, `0002`, `0003`).
+    * *Built-Out Internal Functionality:*
+      * *Veterinary Care Schedules & Medical Holds:* Feline executive care editor (dietary protocols, feeding times, special medical directives, perch zones) and one-click Emergency Medical Trading Hold toggle halting algorithmic trading triggers.
+      * *Electronic Veterinary Health Records (VHR):* Clinical examination records, dental scoring (1–5 scale), biometric weight progression charts, vaccination histories, and prescription tracking.
+      * *IT Helpdesk & Issue Tracker:* Bi-directional synchronization with Forgejo issue tracker (`oci-internal/helpdesk`), priority triage, discussion threads, and on-call escalation.
+      * *IT Onboarding & Lifecycle Sagas:* Distributed sagas (`OnboardingSaga` & `OffboardingEngine`) automating user accounts across Forgejo (Git repos & SSH keys), Nextcloud (storage quotas & group folders), and Snipe-IT (hardware asset checkouts).
+      * *Timesheets & Attendance Tracking:* Clock-in/clock-out tracking with activity categorization, meal deduction calculations, and automated provisioning to Frappe HR DocTypes / ERPNext cost centers.
+      * *Compensation & Payroll:* Salary/hourly compensation records, catnip allowances, direct deposit bank routing, and immutable paystub history with tax withholding summaries.
+      * *Executive Reports & Business Intelligence:* Monthly P&L dashboards, operational burn rates, cash reserves, total AUM trends, and automated monthly management report generator depositing PDF/CSV packages into Nextcloud WebDAV compliance vault.
+      * *Leave Requests & Catnip Breaks:* Paid time off, medical leave, and feline sabbatical requests with manager approval state machines and calendar integration.
+      * *Performance Review Cycles & Assessments:* Dual-evaluation cycles for human staff and feline executives (rating whisker symmetry, nap discipline, zoomie precision, and alpha contribution).
+      * *Workplace Incidents & Hazard Logs:* Safety hazard reporting (e.g. knocked water glasses, wire chew incidents), status tracking, and mitigation logs.
+      * *Dynamic Quantitative Backtesting Workbench:* Quantitative historical alpha backtesting engine with customizable feline observation multipliers, Sharpe ratio, and drawdown metrics.
+    * *Architectural Invariants:*
+      * This application **NEVER directly connects to Domain APIs or database schemas**.
+      * Exclusively consumes the Internal Business Logic Layer (`cmd/internal-bll`) and COTS REST/OAuth2/WebDAV APIs.
+      * Manages browser authentication sessions via opaque HTTP-only cookies (`__Host-employee-session`) and validates double-submit CSRF tokens.
 
-### 7.3 Veterinary Intelligence & ERP Financial Synchronization
-* **Predictive Feline Health Anomaly Detection & Early Warning Alerts:**
-  * *Target Personas:* **Dr. Elena Rostova** (`emp-human-elena`), **Alice Vance** (`emp-human-alice`)
-  * *Current State:* Veterinary Health Records (VHR) charting, clinical dental/whisker scoring, and raw collar/feeder telemetry are stored in PostgreSQL.
-  * *Unimplemented Scope:* Automated background time-series anomaly detection worker evaluating rolling 7-day eating frequency, sleep interruptions, sudden acceleration decline, and acoustic purr harmonic shifts. The engine will detect early feline health anomalies and automatically notify Dr. Elena Rostova via push notifications before clinical symptoms become acute.
-* **Bi-Directional ERPNext & Frappe HR Expense Synchronization:**
-  * *Target Personas:* **Alice Vance**, **Frank Operations** (`emp-human-frank`)
-  * *Current State:* Inbound webhooks from Frappe HR trigger the Go `OnboardingSaga` and `OffboardingEngine`.
-  * *Unimplemented Scope:* Bi-directional financial synchronization service bridging custom domain activities into ERPNext. Will automatically file Frappe HR Expense Claims for veterinary prescription bills incurred during medical holds, track catnip break supplies against ERPNext warehouse stock levels, and book brokerage trading profits into ERPNext General Ledger journal entries.
+  * **Customer Web Portal (`web/customer-portal` + `cmd/customer-bff`):**
+    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Customer BFF (`:8083`).
+    * *Account Summary Landing Page:* Real-time portfolio valuation, cash balance, YTD return metrics, asset allocation breakdowns, and historical valuation growth charts.
+    * *Orange Observation & Investment Insights:* Live low-latency (<500ms) WebRTC habitat video stream player with real-time AI vision overlays (activity classification & confidence scores), plus the live Zoomie Index score banner.
+    * *Bank Account Linking:* Plaid client integration (`pkg/bank/plaid`) with mock bank verification for ACH account linking.
+    * *Funds Transfers & Capital Deposits:* Automated Dollar-Cost Averaging (DCA) deposit scheduler (weekly, bi-weekly, monthly) and transfer status tracking.
+    * *Investment Order Management:* Active trading terminal supporting 1-click "Zoomie Pounce" instant executions, market orders, bracket orders (stop-loss + take-profit), and trailing stop orders.
+    * *Performance Summaries & Regulatory Statements:* Statements & Tax Forms hub rendering IRS Form 1099-B capital gains tax returns and monthly portfolio statements generated via pure Go PDF 1.4 engine (`pkg/reporting`).
+    * *Built-Out Customer Functionality:*
+      * *Live Market Ticker Stream:* Server-Sent Events (SSE) pushing real-time market price updates and percentage changes.
+      * *Developer API Keys & Webhooks:* Self-service HMAC API key generation for customer quant trading bots and custom webhook endpoint subscriptions.
+      * *Feline Welfare & ESG Transparency Dashboard:* Public-facing welfare metrics (overall welfare score, veterinary adherence, perch comfort rating, individual feline executive vitals).
+      * *Customer Support Desk:* Ticket submission with category routing (Trading, Banking, Habitat, UI Bug, General), synchronized with a dedicated Forgejo repository (`oci-internal/customer-support`) and bi-directional message thread.
+      * *Account Settings, Liquidation & GDPR Privacy:* Self-service GDPR "Right to be Forgotten" pipeline that anonymizes customer PII across databases and sessions, automatically issuing an immutable, cryptographically verifiable PDF GDPR Erasure Certificate.
+    * *Architectural Invariants:*
+      * This application **NEVER directly connects to Domain APIs, scheduled jobs, or async queue consumers**.
+      * Exclusively consumes the Customer Business Logic Layer (`cmd/customer-bll`).
+      * Manages customer browser authentication sessions via ZITADEL OIDC, issuing opaque HTTP-only cookies (`__Host-customer-session`) and enforcing CSRF protection.
 
-### 7.4 Client Surfaces & Wearable Ecosystem Expansion
-* **Cross-Platform Flutter Customer Mobile App (iOS / Android):**
-  * *Target Personas:* **Arthur Pendelton**, **Chloe Spark**
-  * *Current State:* The Flutter mobile app (`mobile/flutter_app`) is scoped specifically to field technicians performing maintenance and offline log synchronization. Customer surfaces are currently web-only (`web/customer-portal`).
-  * *Unimplemented Scope:* Dedicated cross-platform Customer Mobile App in Flutter providing biometric authentication (FaceID / Fingerprint), push notifications on feline momentum alpha spikes, live low-latency WebRTC habitat feeds, and interactive iOS/Android home screen "Live Zoomie Meter" widgets.
-* **Native watchOS (Apple Watch) & Wear OS Companion Applications:**
-  * *Target Personas:* **Frank Operations**, **Bob Builder**
-  * *Current State:* On-call wearable alerts and physical button acknowledgments are implemented exclusively for Pebble smartwatches via `cmd/pebble-proxy` and `embedded/pebble`.
-  * *Unimplemented Scope:* Native Apple Watch (SwiftUI / watchOS) and Wear OS (Kotlin Compose) companion apps featuring real-time incident push notifications, wrist complication tiles (showing active IT ticket count and habitat health status), and biometric one-tap alert acknowledgments.
+  * **Static Public Website (`web/marketing`):**
+    * *Architecture:* Fast, lightweight static website generated using Hugo and served via a hardened web container.
+    * *Content & Scope:* Single-page public marketing website highlighting OCI's feline behavioral observation alpha model, investment tier comparisons (Observer vs. Momentum Alpha), live Zoomie Index snapshot badge, and clear calls-to-action (CTA) to register via the Customer Web Portal. Consumes design tokens and branding guidelines from `config/branding.yaml`.
+    * *Implementation & CI/CD Pipeline Plan:*
+      1. Create Hugo site structure in `web/marketing/` (layouts, static assets, content, design tokens).
+      2. Author dedicated Forgejo Action / build script (`scripts/build-marketing.sh`):
+         * Step 1: Run Hugo build (`hugo --minify`) to compile HTML/CSS/JS into `public/`.
+         * Step 2: Multi-stage Docker build packaging compiled static assets into an ultra-lean Nginx or `cmd/portal-server` container (`oci-marketing:latest`).
+      3. Author Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
 
-### 7.5 Data Platform & Multi-Tenant Scalability
-* **High-Throughput Time-Series Database Migration (TimescaleDB / ClickHouse):**
-  * *Target Personas:* **Frank Operations**, **David Quant**
-  * *Current State:* Sensor telemetry (collar accelerometers, feeder load cells, thermal perch sensors, environmental conditions) is stored in standard PostgreSQL tables with keyset pagination.
-  * *Unimplemented Scope:* Partitioned time-series engine migration utilizing TimescaleDB hypertables or ClickHouse. Will implement automatic data tiering, downsampling policies (aggregating 100Hz accelerometer feeds into 1-minute rollup buckets), and sub-second analytical queries over multi-year backtesting datasets.
-* **True Multi-Tenant SaaS Federation & Namespace-Isolated Workspaces:**
-  * *Target Personas:* **Independent SMB Business Owners**, **External Developers**
-  * *Current State:* Platform genericization supports white-labeling a single business entity via `config/branding.yaml` and feature flags.
-  * *Unimplemented Scope:* Enterprise multi-tenant SaaS architecture supporting multiple independent tenant organizations (e.g. distinct cat cafés, animal rescue foundations, or pet investment clubs) running isolated database schemas, custom ingress domains, and separate Valkey session spaces on a single shared K3s cluster.
+  * **Domain APIs (Workforce, Facilities, Core Invest, Ops):**
+    * *Architecture:* Standalone, single-responsibility gRPC microservices running on top of isolated PostgreSQL database schemas.
+    * *Primary Concern:* Data correctness, transaction boundaries, schema invariants, and performant querying.
+    * *Architectural Invariants:*
+      * **Domain APIs do not call each other.** Cross-domain database joins and direct cross-domain API calls are strictly forbidden.
+      * The only authorized clients of Domain APIs are **Business Logic Layer (BLL) APIs** and authorized background worker/batch jobs.
+      * Zero public ingress: Domain APIs are completely unexposed to external traffic and protected by Kubernetes NetworkPolicies.
+    * *Refactoring Plan (Decomposing the Unified API Server):*
+      1. *Protobuf Contract Definitions:* Define strict Protobuf 3 specs in `proto/oci/`:
+         * `proto/oci/workforce/v1/workforce.proto` (Employees, Care Schedules, Reviews, VHR, Incidents)
+         * `proto/oci/facilities/v1/facilities.proto` (Hardware Assets, Maintenance Logs, Firmware Releases, OTA Jobs)
+         * `proto/oci/core_invest/v1/core_invest.proto` (Portfolios, Holdings, Orders, Observations, Deposits)
+         * `proto/oci/ops/v1/ops.proto` (IT Tickets, Alert Subscriptions, Audit Logs)
+      2. *Code Generation:* Generate Go gRPC server and client stubs into `pkg/gen/go/` via `buf` or `protoc`.
+      3. *Microservice Separation:* Split `cmd/server` into 4 dedicated service binaries:
+         * `cmd/workforce-api` (Port 50051, isolated connection to PostgreSQL `workforce` schema)
+         * `cmd/facilities-api` (Port 50052, isolated connection to PostgreSQL `facilities` schema)
+         * `cmd/core-invest-api` (Port 50053, isolated connection to PostgreSQL `core_invest` schema)
+         * `cmd/ops-api` (Port 50054, isolated connection to PostgreSQL `ops` schema)
+      4. *Security & mTLS:* Enforce inter-service mutual TLS (mTLS) with dynamic certificate reloaders (`crypto/tls`) provisioned by `cert-manager`.
+      5. *Kubernetes Manifests:* Create individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/` restricting gRPC ingress exclusively to authorized BLL pods.
 
+  * **Business Logic Layer APIs (Customer BLL & Internal BLL):**
+    * *Architecture:* Middle-tier microservices that sit strictly between the BFFs and the Domain APIs.
+    * *Primary Concern:* Business rules, multi-domain orchestration, quantitative calculations, distributed sagas, third-party adapter execution (broker/bank), and event emission.
+    * *Refactoring Plan (Separating into Dual BLL Services):*
+      1. *Customer BLL (`cmd/customer-bll`):*
+         * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter (`pkg/broker/alpaca`), verifies bank accounts via Plaid adapter (`pkg/bank/plaid`), and computes portfolio performance metrics.
+         * Emits asynchronous events to RabbitMQ (`events.investment.order_placed.v1`, `events.banking.ach_transfer_requested.v1`).
+         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/customer-bff`.
+      2. *Internal BLL (`cmd/internal-bll`):*
+         * Orchestrates corporate operations: executes `OnboardingSaga` and `OffboardingEngine` across `workforce-api` and `ops-api`, validates veterinary care directives, calculates executive BI metrics, and triggers edge firmware updates via `facilities-api`.
+         * Emits asynchronous events to RabbitMQ (`events.workforce.incident_created.v1`, `events.facilities.ota_triggered.v1`, `events.reporting.generate_monthly_requested.v1`).
+         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/employee-bff`.
+      3. *BFF Decoupling:* Refactor `cmd/customer-bff` and `cmd/employee-bff` to remove in-process database repositories, transforming them into pure presentation proxies that delegate business logic to `cmd/customer-bll` and `cmd/internal-bll`.
+
+  * **Async Queue Consumer Application (`cmd/worker`):**
+    * *Architecture:* Event-driven worker subscribing to RabbitMQ message streams using the Go Watermill framework.
+    * *Existing Handlers:*
+      * Observation-triggered algorithmic portfolio allocation and automated trade execution.
+      * Dynamic quantitative strategy backtest computation engine.
+      * Edge device OTA firmware update pipeline (download, checksum verification, device flashing, status callback).
+      * Executive report generation orchestrator depositing PDF/CSV assets into Nextcloud WebDAV.
+    * *Plan for Async Bank Transfers & ACH Settlement:*
+      1. Define `events.banking.ach_transfer_requested.v1` envelope containing transfer ID, customer ID, bank account, amount USD, and transfer type (deposit/withdrawal).
+      2. Implement `HandleACHTransferRequested` in `cmd/worker`:
+         * Consumes transfer requests from RabbitMQ.
+         * Calls external mock banking API (`cmd/mock-bank`) to initiate ACH clearing.
+         * Enforces realistic asynchronous settlement delay (e.g., simulating a multi-second clearing window).
+         * Calls `core-invest-api` to credit or debit portfolio cash balance upon settlement.
+         * Emits `events.banking.ach_settled.v1` to notify the Customer BLL and trigger customer notification.
+
+  * **Scheduled / Batch Job Application:**
+    * *Architecture:* Time-triggered cron and batch worker executing periodic business maintenance workflows.
+    * *Existing Handlers:* Automated PKI intermediate CA rotation ticker checking and rotating expired certificates.
+    * *Plan for Recurring ACH Batch Processor & Statement Generator:*
+      1. *Recurring ACH Deposit Processor:*
+         * Scheduled cron runner (e.g. daily at 00:00 UTC or periodic ticker) executing in `cmd/worker` or standalone Kubernetes `CronJob`.
+         * Queries due recurring deposit schedules from `core-invest-api`.
+         * Dispatches `events.banking.ach_transfer_requested.v1` to the async queue consumer for each due deposit.
+      2. *Automated End-of-Month Statement Batch Generator:*
+         * Scheduled cron runner executing on the 1st of every month at 01:00 UTC.
+         * Batches all active customer portfolios, invokes `pkg/reporting` to generate IRS 1099-B tax forms and monthly portfolio PDF statements, deposits copies into Nextcloud WebDAV compliance vault, and emits completion notifications.
+
+  * **Pub/Sub Application (Incident Alerting Pipeline):**
+    * *Architecture:* Topic-based event publication and real-time subscriber fanout across wearables and web frontends.
+    * *Plan for Workplace Incident Alert Pipeline:*
+      1. *Incident Event Publication:* When a safety incident is logged in the Internal BLL (e.g., feline knocks water glass onto IT server rack in Zone Alpha), publish `events.workforce.incident_created.v1` to RabbitMQ with incident ID, room zone, severity level (`urgent`, `critical`, `info`), and hazard description.
+      2. *Real-Time Web Portal Banner:* A pub/sub consumer forwards the incident event to an active Server-Sent Events (SSE) or WebSocket hub in `cmd/employee-bff`, broadcasting an emergency banner across all active employee portal browser sessions.
+      3. *Wearable Alert Push to Pebble Watch:* A dedicated listener in `cmd/pebble-proxy` catches the incident event, converts it into a wearable alert payload, and immediately dispatches a vibrating alert notification with one-click physical button acknowledgment (ACK) to on-call engineers wearing Pebble smartwatches.
+
+### 7.8 Monitoring and Alerting
+Make better use of our logging and monitoring infra to surface issues
+* **Monitors:**
+  * Monitors for COTS apps
+  * Healthcheck monitors for websites and APIs
+* **Alert notifications:**
+  * Pub/sub alert to watches and internal web banner?
+
+### 7.11 Zero Trust Security Architecture: Dynamic mTLS, Network Policies & Secret Management
+Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:
+* **Dynamic Inter-Service Mutual TLS (mTLS):**
+  * Implement dynamic certificate reloaders using Go standard library `crypto/tls` callbacks (`GetCertificate` and `GetClientCertificate`) in inter-service gRPC/HTTP clients and servers across `cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, and `cmd/worker`.
+  * Ensure rotated certificates provisioned by `cert-manager` from the internal CA are loaded directly from directory mounts without pod restarts (avoiding `subPath` volume mounts).
+* **Micro-Segmentation via Kubernetes Network Policies:**
+  * Author and apply `NetworkPolicy` manifests across all Kubernetes namespaces (`oci-core`, `oci-internal`, `oci-dev`, `external-sim`, `monitoring`, `logging`).
+  * Enforce strict default-deny ingress and egress rules, explicitly whitelisting only authorized traffic flows (e.g., BFFs $\rightarrow$ Server on port 8080, Server $\rightarrow$ Postgres on port 5432, Server $\rightarrow$ Valkey on port 6379, Worker $\rightarrow$ RabbitMQ on port 5672).
+  * Prevent unauthorized cross-namespace network bridging between internal enterprise tools (`oci-internal`) and customer-facing core systems (`oci-core`).
+* **Zero Static Secrets & Workload Identity:**
+  * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
+  * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending on network perimeter security.
 

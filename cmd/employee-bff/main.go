@@ -12,9 +12,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orange-cat-investments/oci/internal/handler"
+	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
+	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	"github.com/orange-cat-investments/oci/internal/saga"
+	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
@@ -27,17 +34,63 @@ func main() {
 		var err error
 		pool, err = pgxpool.New(context.Background(), dbURL)
 		if err != nil {
-			logger.Warn("failed to connect to database pool, falling back to mock persistence", "error", err)
+			logger.Warn("failed to connect to database pool", "error", err)
+			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+				logger.Error("database connection required in production mode, exiting")
+				os.Exit(1)
+			}
 		} else {
 			defer pool.Close()
 			logger.Info("connected to PostgreSQL database pool successfully")
 		}
+	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
+		logger.Error("DATABASE_URL must be specified in production mode, exiting")
+		os.Exit(1)
 	} else {
 		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
 	}
 
-	repo := workforce.NewRepository(pool)
-	wfSvc := wfService.NewService(repo)
+	var repo workforce.Repository
+	if pool != nil {
+		repo = workforce.NewRepository(pool)
+	} else {
+		repo = workforce.NewMockRepository()
+	}
+
+	var hrClient wfService.HRClient
+	hrURL := os.Getenv("HR_SYSTEM_URL")
+	if hrURL == "" {
+		hrURL = os.Getenv("FRAPPE_HR_URL")
+	}
+	if hrURL != "" {
+		hrClient = frappe.NewClient(frappe.Config{
+			BaseURL:   hrURL,
+			APIKey:    os.Getenv("FRAPPE_API_KEY"),
+			APISecret: os.Getenv("FRAPPE_API_SECRET"),
+		})
+		logger.Info("connected Employee BFF to HR management system", "url", hrURL)
+	}
+
+	var workspaceClient wfService.WorkspaceClient
+	workspaceURL := os.Getenv("WORKSPACE_URL")
+	if workspaceURL == "" {
+		workspaceURL = os.Getenv("NEXTCLOUD_URL")
+	}
+	if workspaceURL != "" {
+		workspaceClient = nextcloud.NewClient(nextcloud.Config{
+			BaseURL:       workspaceURL,
+			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
+			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASSWORD"),
+		})
+		logger.Info("Workspace intranet client initialized", "url", workspaceURL)
+	}
+
+	var wfSvc wfService.Service
+	if hrClient != nil || workspaceClient != nil {
+		wfSvc = wfService.NewServiceWithIntegrations(repo, nil, hrClient, workspaceClient)
+	} else {
+		wfSvc = wfService.NewService(repo)
+	}
 	onboardingSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
 	offboardingEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 
@@ -49,7 +102,43 @@ func main() {
 	wfHandler.EnableFelineWorkforce = enableFeline
 
 	mux := http.NewServeMux()
+	sessionStore := NewSessionStore()
+
+	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
+
+	issueTrackerURL := os.Getenv("FORGEJO_URL")
+	if issueTrackerURL == "" {
+		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+	}
+
+	authHandler := NewAuthHandler(sessionStore, issueTrackerURL, isProd)
+	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
+
+	var opsRepo ops_repo.Repository
+	if pool != nil {
+		opsRepo = ops_repo.NewRepository(pool)
+	} else {
+		opsRepo = ops_repo.NewMockRepository()
+	}
+
+	var issueTracker ops_svc.IssueTrackerClient
+	if issueTrackerURL != "" {
+		issueTracker = forgejo.NewClient(forgejo.Config{
+			BaseURL: issueTrackerURL,
+			Token:   os.Getenv("FORGEJO_TOKEN"),
+		})
+		logger.Info("connected Employee BFF to Forgejo issue tracker", "url", issueTrackerURL)
+	}
+
+	var opsSvc ops_svc.Service
+	if issueTracker != nil {
+		opsSvc = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
+	} else {
+		opsSvc = ops_svc.NewService(opsRepo)
+	}
+	opsH := ops_handler.NewHandler(opsSvc)
+	registerProtectedOpsRoutes(mux, opsH, sessionStore)
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -63,9 +152,11 @@ func main() {
 		port = "8081"
 	}
 
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
+
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

@@ -32,7 +32,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /core-invest/models", h.ListMLModels)
 	mux.HandleFunc("POST /core-invest/models/drift", h.LogModelDrift)
-	mux.HandleFunc("POST /core-invest/audio/classify", h.ClassifyAcoustics)
 	mux.HandleFunc("POST /core-invest/statements/generate", h.GenerateStatement)
 
 	mux.HandleFunc("GET /core-invest/recurring-deposits", h.ListRecurringDeposits)
@@ -53,7 +52,6 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/core-invest/models", h.ListMLModels)
 	mux.HandleFunc("POST /api/v1/core-invest/models/drift", h.LogModelDrift)
-	mux.HandleFunc("POST /api/v1/core-invest/audio/classify", h.ClassifyAcoustics)
 	mux.HandleFunc("POST /api/v1/core-invest/statements/generate", h.GenerateStatement)
 
 	mux.HandleFunc("GET /api/v1/core-invest/recurring-deposits", h.ListRecurringDeposits)
@@ -283,20 +281,6 @@ func (h *Handler) LogModelDrift(w http.ResponseWriter, r *http.Request) {
 	var req map[string]interface{}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	res, err := h.service.LogModelDrift(r.Context(), req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	_ = json.NewEncoder(w).Encode(res)
-}
-
-func (h *Handler) ClassifyAcoustics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var req struct {
-		FelineID string `json:"feline_id"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	res, err := h.service.ClassifyAcoustics(r.Context(), req.FelineID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

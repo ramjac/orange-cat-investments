@@ -2,10 +2,16 @@ package workforce
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupWorkforceService(t *testing.T) (Service, context.Context) {
@@ -371,6 +377,91 @@ func TestReviewCycles(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid status")
 }
 
+func TestMultiPhaseReviewCyclesAndVeterinaryAudit(t *testing.T) {
+	svc, ctx := setupWorkforceService(t)
+
+	// 1. Create a Review Cycle in self_appraisal phase
+	rc, err := svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "emp-human-bob",
+		ReviewType:   "performance",
+		ReviewPeriod: "2026-Q3",
+		Phase:        "self_appraisal",
+		ScheduledFor: "2026-11-25",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "self_appraisal", rc.Phase)
+	assert.Equal(t, "2026-Q3", rc.ReviewPeriod)
+
+	// 2. Submit Self-Appraisal (advances to peer_feedback phase)
+	selfApp, err := svc.SubmitSelfAppraisal(ctx, rc.ReviewID, "Delivered 4K edge camera rig alignment and automated telemetry scripts ahead of deadline.", 4.85)
+	assert.NoError(t, err)
+	assert.Equal(t, "peer_feedback", selfApp.Phase)
+	assert.Equal(t, "in_progress", selfApp.Status)
+	assert.NotNil(t, selfApp.SelfAppraisal)
+	assert.Equal(t, 4.85, *selfApp.SelfScore)
+
+	// 3. Submit Peer Feedback (advances to manager_review phase)
+	peerFeedback, err := svc.SubmitPeerFeedback(ctx, rc.ReviewID, "emp-human-frank", "Outstanding platform reliability and proactive hardware maintenance support.", 4.90)
+	assert.NoError(t, err)
+	assert.Equal(t, "manager_review", peerFeedback.Phase)
+	assert.Equal(t, "in_progress", peerFeedback.Status)
+	assert.NotNil(t, peerFeedback.PeerFeedback)
+	assert.Equal(t, "emp-human-frank", *peerFeedback.PeerReviewerID)
+	assert.Equal(t, 4.90, *peerFeedback.PeerScore)
+
+	// 4. Submit Manager Assessment (advances to completed phase)
+	mgrAssessment, err := svc.SubmitManagerAssessment(ctx, rc.ReviewID, "emp-human-alice", "Exceeded infrastructure milestones. Exceptional technical execution.", 4.95, `{"hardware_uptime": 5.0, "telemetry_accuracy": 4.9}`)
+	assert.NoError(t, err)
+	assert.Equal(t, "completed", mgrAssessment.Phase)
+	assert.Equal(t, "completed", mgrAssessment.Status)
+	assert.NotNil(t, mgrAssessment.ManagerAssessment)
+	assert.Equal(t, 4.95, *mgrAssessment.ManagerScore)
+	assert.Equal(t, 4.95, *mgrAssessment.Score)
+	assert.NotNil(t, mgrAssessment.CompletedAt)
+	assert.NotNil(t, mgrAssessment.KPIRatings)
+
+	// 5. Submit Veterinary Audit for feline staff
+	felineRC, err := svc.CreateReviewCycle(ctx, CreateReviewCycleParams{
+		EmployeeID:   "emp-feline-barneby",
+		ReviewType:   "feline_health_assessment",
+		ReviewPeriod: "2026-Q3",
+		ScheduledFor: "2026-11-28",
+	})
+	assert.NoError(t, err)
+
+	vhrID := "vhr-barneby-01"
+	vetAudited, err := svc.SubmitVeterinaryAudit(ctx, felineRC.ReviewID, "emp-human-elena", 4.92, "Adjust high-perch cushion padding and increase moisture in salmon kibble.", &vhrID)
+	assert.NoError(t, err)
+	assert.NotNil(t, vetAudited.WellnessAuditScore)
+	assert.Equal(t, 4.92, *vetAudited.WellnessAuditScore)
+	assert.Equal(t, "Adjust high-perch cushion padding and increase moisture in salmon kibble.", *vetAudited.HabitatRecommendations)
+	assert.Equal(t, "emp-human-elena", *vetAudited.ClinicalAuditorID)
+	assert.Equal(t, vhrID, *vetAudited.VHRRecordID)
+
+	// Validation checks
+	_, err = svc.SubmitSelfAppraisal(ctx, "", "note", 4.5)
+	assert.Error(t, err)
+	_, err = svc.SubmitSelfAppraisal(ctx, rc.ReviewID, "", 4.5)
+	assert.Error(t, err)
+	_, err = svc.SubmitSelfAppraisal(ctx, rc.ReviewID, "note", 5.5)
+	assert.Error(t, err)
+
+	_, err = svc.SubmitPeerFeedback(ctx, rc.ReviewID, "", "feedback", 4.5)
+	assert.Error(t, err)
+	_, err = svc.SubmitPeerFeedback(ctx, rc.ReviewID, "peer", "", 4.5)
+	assert.Error(t, err)
+
+	_, err = svc.SubmitManagerAssessment(ctx, rc.ReviewID, "", "assessment", 4.5, "")
+	assert.Error(t, err)
+	_, err = svc.SubmitManagerAssessment(ctx, rc.ReviewID, "mgr", "", 4.5, "")
+	assert.Error(t, err)
+
+	_, err = svc.SubmitVeterinaryAudit(ctx, felineRC.ReviewID, "", 4.5, "recs", nil)
+	assert.Error(t, err)
+	_, err = svc.SubmitVeterinaryAudit(ctx, felineRC.ReviewID, "auditor", 5.5, "recs", nil)
+	assert.Error(t, err)
+}
+
 func TestWorkplaceIncidents(t *testing.T) {
 	svc, ctx := setupWorkforceService(t)
 
@@ -573,3 +664,456 @@ func TestUpdateOnboardingTaskAndChecklist(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "employee id cannot be empty")
 }
+
+type testEventPublisher struct {
+	published []any
+}
+
+func (p *testEventPublisher) Publish(topic string, payload any) error {
+	p.published = append(p.published, payload)
+	return nil
+}
+
+type testHRClient struct {
+	created  []*frappe.Timesheet
+	approved []string
+	canceled []string
+	attended []*frappe.Attendance
+}
+
+func (c *testHRClient) CreateTimesheet(ctx context.Context, ts *frappe.Timesheet) (*frappe.Timesheet, error) {
+	ts.Name = fmt.Sprintf("TS-FRAPPE-%03d", len(c.created)+1)
+	ts.Normalize()
+	c.created = append(c.created, ts)
+	return ts, nil
+}
+
+func (c *testHRClient) GetTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	for _, ts := range c.created {
+		if ts.Name == name || ts.TimesheetID == name {
+			return ts, nil
+		}
+	}
+	return nil, fmt.Errorf("timesheet not found")
+}
+
+func (c *testHRClient) ListTimesheets(ctx context.Context, employeeID, status string) ([]frappe.Timesheet, error) {
+	var res []frappe.Timesheet
+	for _, ts := range c.created {
+		if employeeID != "" && ts.Employee != employeeID && ts.EmployeeID != employeeID {
+			continue
+		}
+		if status != "" && !strings.EqualFold(ts.Status, status) {
+			continue
+		}
+		res = append(res, *ts)
+	}
+	return res, nil
+}
+
+func (c *testHRClient) ApproveTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	c.approved = append(c.approved, name)
+	ts, err := c.GetTimesheet(ctx, name)
+	if err != nil {
+		return &frappe.Timesheet{Name: name, Status: "Approved"}, nil
+	}
+	ts.Status = "Approved"
+	return ts, nil
+}
+
+func (c *testHRClient) CancelTimesheet(ctx context.Context, name string) (*frappe.Timesheet, error) {
+	c.canceled = append(c.canceled, name)
+	ts, err := c.GetTimesheet(ctx, name)
+	if err != nil {
+		return &frappe.Timesheet{Name: name, Status: "Cancelled"}, nil
+	}
+	ts.Status = "Cancelled"
+	return ts, nil
+}
+
+func (c *testHRClient) MarkAttendance(ctx context.Context, att *frappe.Attendance) (*frappe.Attendance, error) {
+	c.attended = append(c.attended, att)
+	return att, nil
+}
+
+func (c *testHRClient) GetAttendance(ctx context.Context, name string) (*frappe.Attendance, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) ListAttendance(ctx context.Context, employeeID string) ([]frappe.Attendance, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) GetSalarySlips(ctx context.Context, employeeID string) ([]frappe.SalarySlip, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) GetSalarySlip(ctx context.Context, name string) (*frappe.SalarySlip, error) {
+	return nil, nil
+}
+
+func (c *testHRClient) CreateSalarySlip(ctx context.Context, slip *frappe.SalarySlip) (*frappe.SalarySlip, error) {
+	return slip, nil
+}
+
+func (c *testHRClient) CreatePayrollEntry(ctx context.Context, pe *frappe.PayrollEntry) (*frappe.PayrollEntry, error) {
+	return pe, nil
+}
+
+func (c *testHRClient) GetFinancialMetrics(ctx context.Context, period string) (*frappe.FinancialMetrics, error) {
+	return &frappe.FinancialMetrics{
+		Period:            period,
+		Currency:          "USD",
+		TotalRevenue:      1250000.0,
+		OperatingExpenses: 340000.0,
+		PayrollExpenses:   420000.0,
+		NetProfit:         490000.0,
+		OperationalBurn:   760000.0,
+		CashReserves:      9850000.0,
+		RunwayMonths:      12.96,
+	}, nil
+}
+
+func TestTimesheets_SubmitAndGet(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	startTime := time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 16, 30, 0, 0, time.UTC)
+
+	// Successful submit
+	ts := &frappe.Timesheet{
+		EmployeeID:   "emp-test-01",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &startTime,
+		EndTime:      &endTime,
+		BreakMinutes: 30,
+		TaskCode:     "habitat_maintenance",
+		Billable:     true,
+	}
+
+	created, err := svc.SubmitTimesheet(ctx, ts)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, created.TimesheetID)
+	assert.Equal(t, 8.0, created.HoursWorked)
+	assert.Equal(t, "submitted", created.Status)
+	assert.Equal(t, "Facilities Operations", created.CostCenter)
+
+	// Fetch by ID
+	fetched, err := svc.GetTimesheet(ctx, created.TimesheetID)
+	assert.NoError(t, err)
+	assert.Equal(t, created.TimesheetID, fetched.TimesheetID)
+
+	// Overlapping shift rejection
+	overlapStart := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	overlapEnd := time.Date(2026, 10, 15, 18, 0, 0, 0, time.UTC)
+	overlapTS := &frappe.Timesheet{
+		EmployeeID:   "emp-test-01",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &overlapStart,
+		EndTime:      &overlapEnd,
+		BreakMinutes: 0,
+		TaskCode:     "admin",
+	}
+	_, err = svc.SubmitTimesheet(ctx, overlapTS)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "overlaps with existing timesheet")
+}
+
+func TestTimesheets_ValidationErrors(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// Nil timesheet
+	_, err := svc.SubmitTimesheet(ctx, nil)
+	assert.Error(t, err)
+
+	// Empty employee
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{})
+	assert.Error(t, err)
+
+	// Start >= End
+	startTime := time.Date(2026, 10, 15, 16, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &endTime,
+	})
+	assert.Error(t, err)
+
+	// Shift duration > 24h
+	longEnd := startTime.Add(25 * time.Hour)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &longEnd,
+	})
+	assert.Error(t, err)
+
+	// Invalid task code
+	validEnd := startTime.Add(4 * time.Hour)
+	_, err = svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-01",
+		StartTime:  &startTime,
+		EndTime:    &validEnd,
+		TaskCode:   "laser_pointer_chase",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid task_code")
+}
+
+func TestTimesheets_ApproveAndReject(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	publisher := &testEventPublisher{}
+	hrClient := &testHRClient{}
+	svc := NewServiceWithIntegrations(repo, publisher, hrClient)
+	ctx := context.Background()
+
+	startTime := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	endTime := time.Date(2026, 10, 15, 17, 0, 0, 0, time.UTC)
+
+	ts, err := svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID:   "emp-test-02",
+		ShiftDate:    "2026-10-15",
+		StartTime:    &startTime,
+		EndTime:      &endTime,
+		BreakMinutes: 60,
+		TaskCode:     "feline_feeding",
+		Billable:     false,
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 7.0, ts.HoursWorked)
+
+	// Approve
+	approved, err := svc.ApproveTimesheet(ctx, ts.TimesheetID, "emp-lead-01")
+	assert.NoError(t, err)
+	assert.Equal(t, "approved", approved.Status)
+	assert.NotNil(t, approved.ApprovedBy)
+	assert.Equal(t, "emp-lead-01", *approved.ApprovedBy)
+	assert.NotNil(t, approved.FrappeTimesheetID)
+	assert.Equal(t, "TS-FRAPPE-001", *approved.FrappeTimesheetID)
+
+	// Check HR client called
+	assert.Len(t, hrClient.created, 1)
+	assert.Len(t, hrClient.approved, 1)
+
+	// Check Event Publisher called
+	assert.Len(t, publisher.published, 1)
+
+	// Cannot reject approved timesheet
+	_, err = svc.RejectTimesheet(ctx, ts.TimesheetID, "emp-lead-01", "late")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot reject an already approved timesheet")
+
+	// Submit another timesheet to reject
+	ts2, err := svc.SubmitTimesheet(ctx, &frappe.Timesheet{
+		EmployeeID: "emp-test-03",
+		ShiftDate:  "2026-10-16",
+		StartTime:  &startTime,
+		EndTime:    &endTime,
+		TaskCode:   "admin",
+	})
+	assert.NoError(t, err)
+
+	rejected, err := svc.RejectTimesheet(ctx, ts2.TimesheetID, "emp-lead-01", "Missing shift report")
+	assert.NoError(t, err)
+	assert.Equal(t, "rejected", rejected.Status)
+
+	// List filtering
+	all, err := svc.ListTimesheets(ctx, TimesheetFilter{
+		EmployeeID: "emp-test-02",
+	})
+	assert.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+func TestPayroll_SalarySlipsAndRun(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// Initially empty before any payroll run
+	initialSlips, err := svc.ListSalarySlips(ctx, "emp-human-bob")
+	assert.NoError(t, err)
+	assert.Empty(t, initialSlips)
+
+	// Execute initial September payroll run
+	pe1, err := svc.ProcessPayrollRun(ctx, &frappe.PayrollEntry{
+		StartDate: "2026-09-01",
+		EndDate:   "2026-09-30",
+		Employees: []string{"emp-human-bob", "emp-human-alice"},
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, pe1.PayrollEntryID)
+	assert.Equal(t, 2, pe1.SalarySlipsCreated)
+	assert.Equal(t, 10000.0, pe1.TotalGrossPay)
+
+	// List generated salary slips for Bob
+	slips, err := svc.ListSalarySlips(ctx, "emp-human-bob")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, slips)
+	assert.Equal(t, "emp-human-bob", slips[0].EmployeeID)
+
+	// Get single salary slip
+	slip, err := svc.GetSalarySlip(ctx, slips[0].SalarySlipID)
+	assert.NoError(t, err)
+	assert.Equal(t, slips[0].SalarySlipID, slip.SalarySlipID)
+	assert.Equal(t, 5000.00, slip.GrossPay)
+	assert.NotEmpty(t, slip.Earnings)
+	assert.NotEmpty(t, slip.Deductions)
+
+	// Execute October payroll run
+	pe2, err := svc.ProcessPayrollRun(ctx, &frappe.PayrollEntry{
+		StartDate: "2026-10-01",
+		EndDate:   "2026-10-31",
+		Employees: []string{"emp-human-bob", "emp-human-alice"},
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, pe2.PayrollEntryID)
+	assert.Equal(t, 2, pe2.SalarySlipsCreated)
+	assert.Equal(t, 10000.0, pe2.TotalGrossPay)
+
+	// Verify newly generated salary slip exists
+	updatedSlips, err := svc.ListSalarySlips(ctx, "emp-human-bob")
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(updatedSlips))
+}
+
+func TestHubAndDocuments_Service(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	// List group folders
+	folders, err := svc.ListGroupFolders(ctx)
+	assert.NoError(t, err)
+	assert.Len(t, folders, 4)
+
+	// Create group folder
+	createdFolder, err := svc.CreateGroupFolder(ctx, "Compliance Vault", []string{"compliance"}, "100 GB")
+	assert.NoError(t, err)
+	assert.Equal(t, "Compliance Vault", createdFolder.MountPoint)
+
+	foldersAfter, err := svc.ListGroupFolders(ctx)
+	assert.NoError(t, err)
+	assert.Len(t, foldersAfter, 5)
+
+	// List documents
+	docs, err := svc.ListDocuments(ctx, "", "", "")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, docs)
+
+	// Filter by department
+	hrDocs, err := svc.ListDocuments(ctx, "HR & Policies", "", "")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, hrDocs)
+	assert.Equal(t, "HR & Policies", hrDocs[0].Department)
+
+	// Search by keyword
+	pkiDocs, err := svc.ListDocuments(ctx, "", "", "Zero-Trust")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, pkiDocs)
+	assert.Contains(t, pkiDocs[0].Title, "Zero-Trust")
+
+	// Get single document
+	doc, err := svc.GetDocument(ctx, "doc-001")
+	assert.NoError(t, err)
+	assert.Equal(t, "OCI Employee & Feline Care Onboarding Handbook", doc.Title)
+
+	// Publish new document
+	published, err := svc.PublishDocument(ctx, nextcloud.Document{
+		Title:      "Catnip Quality & Freshness SOP",
+		Department: "Veterinary Protocols",
+		Category:   "SOP",
+		Author:     "emp-vet-elena",
+		Content:    "Store fresh organic catnip in airtight containers at 18-20C.",
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, published.DocumentID)
+	assert.Contains(t, published.WebDAVPath, "Veterinary Protocols")
+
+	foundPublished, err := svc.GetDocument(ctx, published.DocumentID)
+	assert.NoError(t, err)
+	assert.Equal(t, "Catnip Quality & Freshness SOP", foundPublished.Title)
+}
+
+func TestCalendarEvents_Service(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	svc := NewService(repo)
+	ctx := context.Background()
+
+	events, err := svc.ListCalendarEvents(ctx, "", "", time.Time{}, time.Time{})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, events)
+
+	// Filter by calendar
+	shifts, err := svc.ListCalendarEvents(ctx, "Shift Rotations", "", time.Time{}, time.Time{})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, shifts)
+	assert.Equal(t, "Shift Rotations", shifts[0].Calendar)
+
+	// Schedule new event
+	newEvent, err := svc.CreateCalendarEvent(ctx, nextcloud.CalendarEvent{
+		Calendar:    "Corporate Milestones",
+		Title:       "Board Meeting Q4",
+		Department:  "Executive Reporting & Finance",
+		Location:    "Executive Conference Room",
+		Organizer:   "emp-human-alice",
+	})
+	assert.NoError(t, err)
+	assert.NotEmpty(t, newEvent.EventID)
+	assert.Equal(t, "scheduled", newEvent.Status)
+
+	allAfter, err := svc.ListCalendarEvents(ctx, "Corporate Milestones", "", time.Time{}, time.Time{})
+	assert.NoError(t, err)
+	assert.True(t, len(allAfter) >= 2)
+}
+
+func TestExecutiveReports_Service(t *testing.T) {
+	repo := workforce.NewRepository(nil)
+	hrClient := &testHRClient{}
+	svc := NewServiceWithIntegrations(repo, nil, hrClient)
+	ctx := context.Background()
+
+	// 1. Get Financial Metrics
+	fin, err := svc.GetFinancialMetrics(ctx, "2026-10")
+	require.NoError(t, err)
+	assert.Equal(t, 1250000.0, fin.TotalRevenue)
+	assert.Equal(t, 490000.0, fin.NetProfit)
+	assert.Equal(t, 12.96, fin.RunwayMonths)
+
+	// 2. Get Workforce Metrics
+	wf, err := svc.GetWorkforceMetrics(ctx, "2026-10")
+	require.NoError(t, err)
+	assert.Greater(t, wf.TotalHeadcount, 0)
+	assert.Greater(t, wf.AttendanceRate, 0.0)
+
+	// 3. Generate Monthly Report
+	rep, err := svc.GenerateMonthlyReport(ctx, "2026-10", "alice_test")
+	require.NoError(t, err)
+	assert.Equal(t, "rep-2026-10", rep.ReportID)
+	assert.Equal(t, "archived", rep.Status)
+	assert.NotEmpty(t, rep.CSVContent)
+	assert.NotEmpty(t, rep.PDFContent)
+	assert.Contains(t, *rep.WebDAVPathPDF, "2026-10")
+	assert.Contains(t, *rep.WebDAVPathCSV, "2026-10")
+
+	// 4. List Executive Reports
+	list, err := svc.ListExecutiveReports(ctx, 10, 0)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(list), 3) // 2 pre-seeded + 1 created
+
+	// 5. Get by ID & Period
+	byID, err := svc.GetExecutiveReport(ctx, "rep-2026-10")
+	require.NoError(t, err)
+	assert.Equal(t, rep.Title, byID.Title)
+
+	byPeriod, err := svc.GetExecutiveReportByPeriod(ctx, "2026-10")
+	require.NoError(t, err)
+	assert.Equal(t, rep.ReportID, byPeriod.ReportID)
+}
+
+

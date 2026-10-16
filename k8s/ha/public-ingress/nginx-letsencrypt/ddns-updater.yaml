@@ -1,0 +1,87 @@
+# ==============================================================================
+# Dynamic DNS (DDNS) Updater CronJob
+# ==============================================================================
+# Synchronizes WAN public IP changes to Cloudflare / DuckDNS DNS A records.
+# Runs every 10 minutes from within the cluster.
+# ==============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ddns-credentials
+  namespace: oci-core
+type: Opaque
+stringData:
+  ZONE_ID: "your-cloudflare-zone-id"
+  RECORD_NAME: "customer.orangecatinvestments.com"
+  API_TOKEN: "your-cloudflare-dns-edit-token"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudflare-ddns-updater
+  namespace: oci-core
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: ddns-sync
+              image: curlimages/curl:8.6.0
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  CURRENT_IP=$(curl -fsS https://api.ipify.org || curl -fsS https://icanhazip.com)
+                  echo "Detected public WAN IP: ${CURRENT_IP}"
+                  
+                  # Query Cloudflare for current record ID and IP
+                  RECORD_INFO=$(curl -fsS -X GET "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?name=${RECORD_NAME}&type=A" \
+                    -H "Authorization: Bearer ${API_TOKEN}" \
+                    -H "Content-Type: application/json")
+                  
+                  RECORD_ID=$(echo "${RECORD_INFO}" | grep -o '"id":"[^"]*' | head -n1 | cut -d'"' -f4)
+                  EXISTING_IP=$(echo "${RECORD_INFO}" | grep -o '"content":"[^"]*' | head -n1 | cut -d'"' -f4)
+                  
+                  if [ -z "${RECORD_ID}" ]; then
+                    echo "Error: Failed to find DNS record ID for ${RECORD_NAME} in response: ${RECORD_INFO}" >&2
+                    exit 1
+                  fi
+                  
+                  if [ "${CURRENT_IP}" = "${EXISTING_IP}" ]; then
+                    echo "DNS record already up-to-date (${CURRENT_IP}). No change needed."
+                    exit 0
+                  fi
+                  
+                  echo "Updating ${RECORD_NAME} (${RECORD_ID}) from ${EXISTING_IP} to ${CURRENT_IP}..."
+                  UPDATE_RESP=$(curl -fsS -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+                    -H "Authorization: Bearer ${API_TOKEN}" \
+                    -H "Content-Type: application/json" \
+                    --data "{\"type\":\"A\",\"name\":\"${RECORD_NAME}\",\"content\":\"${CURRENT_IP}\",\"ttl\":120,\"proxied\":false}")
+                  
+                  echo "${UPDATE_RESP}" | grep '"success":true' >/dev/null || {
+                    echo "Error: Cloudflare update reported failure: ${UPDATE_RESP}" >&2
+                    exit 1
+                  }
+                  
+                  echo "DDNS update successful!"
+              env:
+                - name: ZONE_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: ddns-credentials
+                      key: ZONE_ID
+                - name: RECORD_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: ddns-credentials
+                      key: RECORD_NAME
+                - name: API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ddns-credentials
+                      key: API_TOKEN

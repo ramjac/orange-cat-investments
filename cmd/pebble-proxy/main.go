@@ -14,6 +14,7 @@ import (
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
+	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
@@ -57,11 +58,18 @@ func main() {
 	handler := opshandler.NewHandler(svc)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","service":"pebble-proxy"}`))
+	})
 	handler.RegisterRoutes(mux)
+
+	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
 
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      versionedHandler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

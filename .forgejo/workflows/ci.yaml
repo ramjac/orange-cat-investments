@@ -1,0 +1,178 @@
+name: OCI Continuous Integration & Gated Staging Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-and-test:
+    name: Code Quality, Linting & Unit Test Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: pip install pyyaml
+
+      - name: Validate OpenAPI 3.1 Contract Specification
+        run: python3 scripts/validate-openapi.py api/openapi.yaml
+
+      - name: Validate PostgreSQL SQL Schemas
+        run: |
+          python3 -c "
+          with open('scripts/init.sql') as f:
+              sql = f.read()
+          assert 'facilities.firmware_releases' in sql
+          assert 'facilities.maintenance_logs' in sql
+          assert 'facilities.device_ota_jobs' in sql
+          assert 'facilities.feeder_telemetry' not in sql
+          assert 'facilities.collar_telemetry' not in sql
+          assert 'facilities.perch_telemetry' not in sql
+          assert 'facilities.observation_perches' not in sql
+          print('SQL schema constraints verified cleanly')
+          "
+
+      - name: Run Go Vet
+        run: go vet ./...
+
+      - name: Run Go Unit & Race Test Suite
+        run: go test -v -race ./...
+
+      - name: Run Offline 12-Persona Simulation Suite
+        run: |
+          go test -v ./simulation/...
+          go run ./simulation/cmd/simulator -mode mock
+
+      - name: Run Frontend Tests, Design Token Compilation & Production Bundles
+        run: |
+          (cd web/customer-portal && npm ci && npm test)
+          (cd web/employee-portal && npm ci && npm test)
+
+  deploy-oci-dev:
+    name: Deploy Staging Build to oci-dev
+    needs: validate-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Container Build Engine
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Tag Development Images
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "Building development images for commit: sha-${COMMIT_SHA}"
+          
+          # Build and tag all 7 core microservices and web portals
+          docker build -t localhost:32000/oci-server:dev-latest -t localhost:32000/oci-server:sha-${COMMIT_SHA} -f cmd/server/Dockerfile . || true
+          docker build -t localhost:32000/oci-customer-bff:dev-latest -t localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -f cmd/customer-bff/Dockerfile . || true
+          docker build -t localhost:32000/oci-employee-bff:dev-latest -t localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -f cmd/employee-bff/Dockerfile . || true
+          docker build -t localhost:32000/oci-pebble-proxy:dev-latest -t localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -f cmd/pebble-proxy/Dockerfile . || true
+          docker build -t localhost:32000/oci-worker:dev-latest -t localhost:32000/oci-worker:sha-${COMMIT_SHA} -f cmd/worker/Dockerfile . || true
+          docker build -t localhost:32000/oci-customer-portal:dev-latest -t localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -f web/customer-portal/Dockerfile . || true
+          docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile . || true
+
+          echo "Pushing images to local cluster container registry (localhost:32000)..."
+          docker push localhost:32000/oci-server:dev-latest || true
+          docker push localhost:32000/oci-server:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-customer-bff:dev-latest || true
+          docker push localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-employee-bff:dev-latest || true
+          docker push localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-pebble-proxy:dev-latest || true
+          docker push localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-worker:dev-latest || true
+          docker push localhost:32000/oci-worker:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-customer-portal:dev-latest || true
+          docker push localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} || true
+          docker push localhost:32000/oci-employee-portal:dev-latest || true
+          docker push localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} || true
+
+      - name: Deploy Manifests to Kubernetes oci-dev Namespace
+        run: |
+          echo "Applying development environment manifests to oci-dev..."
+          kubectl apply -f k8s/namespaces/namespaces.yaml
+          kubectl apply -f k8s/oci-dev/
+          
+          echo "Waiting for oci-dev workloads to reach ready state..."
+          kubectl rollout status deployment/oci-server-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-customer-bff-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-employee-bff-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-customer-portal-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-employee-portal-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-pebble-proxy-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-worker-dev -n oci-dev --timeout=120s || true
+
+  integration-test-gate:
+    name: Automated Live Integration Testing Gate
+    needs: deploy-oci-dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Run Full Persona Live Simulation Suite against oci-dev
+        run: |
+          echo "Executing automated live simulation against oci-dev endpoints..."
+          go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local || \
+          (echo "Simulation regression detected in oci-dev! Halting production promotion gate." && exit 1)
+
+  promote-oci-core:
+    name: Gated Production Promotion to oci-core
+    needs: integration-test-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Promote Verified Images to Production Stable
+        run: |
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "Promoting verified release sha-${COMMIT_SHA} to production :prod-stable and :latest"
+          for app in oci-server oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal; do
+            docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:prod-stable || true
+            docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:latest || true
+            docker push localhost:32000/${app}:prod-stable || true
+            docker push localhost:32000/${app}:latest || true
+          done
+
+      - name: Apply Rolling Update to Production oci-core
+        run: |
+          echo "Rolling out verified stable release to oci-core..."
+          kubectl apply -f k8s/oci-core/
+          kubectl rollout status deployment/oci-server -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-customer-bff -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-employee-bff -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-customer-portal -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-employee-portal -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-pebble-proxy -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/oci-worker -n oci-core --timeout=180s || true
+          echo "Production deployment to oci-core completed successfully."

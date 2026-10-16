@@ -12,6 +12,8 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
+	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -411,3 +413,64 @@ func BenchmarkEventPublishingOptimized(b *testing.B) {
 		_ = message.NewMessage(event.EventID, data)
 	}
 }
+
+func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	pubSub := gochannel.NewGoChannel(
+		gochannel.Config{OutputChannelBuffer: 10},
+		watermillLogger,
+	)
+
+	mockRepo := workforce_repo.NewMockRepository()
+	wfSvc := wfService.NewService(mockRepo)
+
+	router, err := createRouter(pubSub, watermillLogger, logger, wfSvc)
+	require.NoError(t, err)
+	require.NotNil(t, router)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = router.Run(ctx)
+	}()
+
+	select {
+	case <-router.Running():
+	case <-time.After(2 * time.Second):
+		t.Fatal("router failed to start in time")
+	}
+
+	sub, err := pubSub.Subscribe(context.Background(), "events.reporting.report_generated.v1")
+	require.NoError(t, err)
+
+	triggerPayload := map[string]string{
+		"period":       "2026-10",
+		"generated_by": "unit-test-worker",
+	}
+	payloadBytes, err := json.Marshal(triggerPayload)
+	require.NoError(t, err)
+
+	msg := message.NewMessage(watermill.NewUUID(), payloadBytes)
+	err = pubSub.Publish("events.reporting.generate_monthly_requested.v1", msg)
+	require.NoError(t, err)
+
+	select {
+	case resultMsg := <-sub:
+		require.NotNil(t, resultMsg)
+		var envelope EventEnvelope[ExecutiveReportPayload]
+		err := json.Unmarshal(resultMsg.Payload, &envelope)
+		require.NoError(t, err)
+		assert.Equal(t, "events.reporting.report_generated.v1", envelope.EventType)
+		assert.Equal(t, "2026-10", envelope.Payload.Period)
+		assert.Equal(t, "archived", envelope.Payload.Status)
+		assert.NotEmpty(t, envelope.Payload.ReportID)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for report_generated event")
+	}
+
+	require.NoError(t, router.Close())
+}
+

@@ -85,3 +85,8 @@ func (m *MockBankClient) GetBalances(ctx context.Context, accessToken string, ac
 func (m *MockBankClient) GetAccounts(ctx context.Context, ownerID string) ([]plaid.Account, error) {
 	return nil, nil
 }
+
+func (m *MockBankClient) ExchangePublicToken(ctx context.Context, publicToken, clientUserID string) (string, error) {
+	return "mock-access-token-12345", nil
+}
+

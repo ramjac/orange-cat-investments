@@ -12,6 +12,73 @@ servers:
     description: Employee BFF (Forgejo OAuth2 Auth)
 
 paths:
+  /employee/csrf:
+    get:
+      summary: Get CSRF Token
+      operationId: getEmployeeCSRFToken
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: CSRF token successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  csrf_token:
+                    type: string
+  /employee/auth/login:
+    post:
+      summary: Employee Login
+      operationId: employeeLogin
+      tags:
+        - Employee Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - employee_id
+                - role
+              properties:
+                employee_id:
+                  type: string
+                role:
+                  type: string
+                name:
+                  type: string
+                email:
+                  type: string
+                department:
+                  type: string
+      responses:
+        '200':
+          description: Successfully authenticated
+        '400':
+          description: Bad request
+  /employee/auth/logout:
+    post:
+      summary: Employee Logout
+      operationId: employeeLogout
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: Successfully logged out
+  /employee/auth/session:
+    get:
+      summary: Get Current Employee Session
+      operationId: getEmployeeSession
+      tags:
+        - Employee Auth
+      responses:
+        '200':
+          description: Active employee session details
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
   /facilities/assets:
     get:
       summary: List Hardware Assets
@@ -30,7 +97,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+            enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         - name: limit
           in: query
           required: false
@@ -212,7 +279,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+            enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
       responses:
         '200':
           description: List of firmware releases
@@ -601,6 +668,114 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /workforce/review-cycles/{id}/self-appraisal:
+    post:
+      summary: Submit Employee Self-Appraisal
+      operationId: submitSelfAppraisal
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelfAppraisalRequest'
+      responses:
+        '200':
+          description: Self-appraisal submitted and phase advanced to peer feedback
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/peer-feedback:
+    post:
+      summary: Submit Peer Evaluation Feedback
+      operationId: submitPeerFeedback
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PeerFeedbackRequest'
+      responses:
+        '200':
+          description: Peer feedback recorded and phase advanced to manager review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/manager-assessment:
+    post:
+      summary: Submit Manager Assessment & Final KPI Ratings
+      operationId: submitManagerAssessment
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagerAssessmentRequest'
+      responses:
+        '200':
+          description: Manager assessment recorded and review cycle finalized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
+  /workforce/review-cycles/{id}/vet-audit:
+    post:
+      summary: Submit Veterinary Clinical Wellness Audit
+      operationId: submitVeterinaryAudit
+      tags:
+        - Workforce Reviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VeterinaryAuditRequest'
+      responses:
+        '200':
+          description: Veterinary wellness audit and habitat recommendations stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCycle'
+
   /workforce/care-schedules/{felineId}:
     parameters:
       - name: felineId
@@ -671,6 +846,607 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CareSchedule'
+
+  /workforce/timesheets:
+    get:
+      summary: List Workforce Timesheets
+      operationId: listTimesheets
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, submitted, approved, rejected]
+        - name: from_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: task_code
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+      responses:
+        '200':
+          description: List of timesheet entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Timesheet'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+    post:
+      summary: Submit Daily Timesheet Entry
+      operationId: submitTimesheet
+      tags:
+        - Workforce Attendance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimesheetSubmitRequest'
+      responses:
+        '201':
+          description: Timesheet created and submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/timesheets/{id}:
+    get:
+      summary: Get Timesheet Entry by ID
+      operationId: getTimesheet
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Timesheet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/timesheets/{id}/status:
+    put:
+      summary: Approve or Reject Timesheet Entry
+      operationId: updateTimesheetStatus
+      tags:
+        - Workforce Attendance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimesheetStatusUpdateRequest'
+      responses:
+        '200':
+          description: Timesheet status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Timesheet'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/payroll/slips:
+    get:
+      summary: List Employee Salary Slips
+      operationId: listSalarySlips
+      tags:
+        - Workforce Compensation
+      parameters:
+        - name: employee_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of employee salary slips
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SalarySlip'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/payroll/slips/{id}:
+    get:
+      summary: Get Salary Slip Details
+      operationId: getSalarySlip
+      tags:
+        - Workforce Compensation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Salary slip details with earnings and deductions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalarySlip'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/payroll/run:
+    post:
+      summary: Execute Departmental or Company Payroll Run
+      operationId: processPayrollRun
+      tags:
+        - Workforce Compensation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayrollEntry'
+      responses:
+        '201':
+          description: Payroll run executed and salary slips created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollEntry'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/onboard:
+    post:
+      summary: Onboard New Employee & Execute IT Provisioning Saga
+      operationId: onboardEmployee
+      tags:
+        - Workforce Operations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingRequest'
+      responses:
+        '201':
+          description: Employee successfully onboarded with COTS IT assets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingResult'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/{id}/offboard:
+    post:
+      summary: Offboard Employee & Execute Deprovisioning Engine
+      operationId: offboardEmployee
+      tags:
+        - Workforce Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OffboardingRequest'
+      responses:
+        '200':
+          description: Employee offboarded and assets deprovisioned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffboardingResult'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/employees/{id}/lifecycle:
+    get:
+      summary: Retrieve Employee Consolidated Lifecycle Status
+      operationId: getEmployeeLifecycle
+      tags:
+        - Workforce Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consolidated lifecycle record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  employee:
+                    $ref: '#/components/schemas/Employee'
+                  status:
+                    type: string
+                  vcs_username:
+                    type: string
+                  workspace_quota:
+                    type: string
+                  hardware_summary:
+                    type: string
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/hub/folders:
+    get:
+      summary: List Departmental Hub Folders
+      operationId: listGroupFolders
+      tags:
+        - Workforce Knowledge Base
+      responses:
+        '200':
+          description: List of departmental hub group folders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GroupFolder'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Create Departmental Group Folder
+      operationId: createGroupFolder
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mount_point
+              properties:
+                mount_point:
+                  type: string
+                quota:
+                  type: string
+                groups:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Group folder created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupFolder'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/documents:
+    get:
+      summary: List and Search Intranet Documents
+      operationId: listDocuments
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: department
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of intranet documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  documents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Document'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Publish Intranet Document
+      operationId: publishDocument
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Document'
+      responses:
+        '201':
+          description: Document successfully published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/documents/{id}:
+    get:
+      summary: Retrieve Intranet Document by ID
+      operationId: getDocument
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Intranet document detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Document'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/calendar/events:
+    get:
+      summary: List Shared Company Calendar Events
+      operationId: listCalendarEvents
+      tags:
+        - Workforce Knowledge Base
+      parameters:
+        - name: calendar
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: department
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from_date
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: to_date
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of scheduled calendar events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CalendarEvent'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Schedule Shared Calendar Event
+      operationId: createCalendarEvent
+      tags:
+        - Workforce Knowledge Base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarEvent'
+      responses:
+        '201':
+          description: Calendar event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarEvent'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly:
+    get:
+      summary: List Monthly Executive Reports
+      operationId: listExecutiveReports
+      tags:
+        - Workforce Reporting
+      responses:
+        '200':
+          description: List of historical executive reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExecutiveReport'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly/generate:
+    post:
+      summary: Generate Monthly Executive Management Report
+      operationId: generateMonthlyReport
+      tags:
+        - Workforce Reporting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateExecutiveReportRequest'
+      responses:
+        '201':
+          description: Generated executive report details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutiveReport'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /workforce/reports/monthly/{id}:
+    get:
+      summary: Retrieve Executive Report by ID
+      operationId: getExecutiveReport
+      tags:
+        - Workforce Reporting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Executive report detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutiveReport'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /workforce/reports/monthly/{id}/download:
+    get:
+      summary: Download Executive Report File (PDF or CSV)
+      operationId: downloadExecutiveReport
+      tags:
+        - Workforce Reporting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pdf, csv]
+            default: pdf
+      responses:
+        '200':
+          description: File binary stream (PDF or CSV)
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
 
   /webhooks/frappe-hr:
     post:
@@ -1014,6 +1790,431 @@ paths:
               schema:
                 $ref: '#/components/schemas/ITTicket'
 
+  /ops/tickets/{id}:
+    get:
+      summary: Get IT Helpdesk Ticket by ID
+      operationId: getITTicket
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: IT ticket details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+    put:
+      summary: Update IT Helpdesk Ticket Status / Assignment
+      operationId: updateITTicket
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketRequest'
+      responses:
+        '200':
+          description: Updated IT ticket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+
+  /ops/tickets/{id}/comments:
+    get:
+      summary: List Comments for IT Helpdesk Ticket
+      operationId: listITTicketComments
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of comments on ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TicketComment'
+                  total:
+                    type: integer
+    post:
+      summary: Add Comment to IT Helpdesk Ticket
+      operationId: addITTicketComment
+      tags:
+        - IT Operations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TicketCommentCreate'
+      responses:
+        '201':
+          description: Comment added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketComment'
+
+  /customer/support/tickets:
+    get:
+      summary: List Customer Support Tickets
+      operationId: listCustomerSupportTickets
+      tags:
+        - Customer Support
+      responses:
+        '200':
+          description: List of customer support tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ITTicket'
+                  total:
+                    type: integer
+    post:
+      summary: Create Customer Support / Bug Report Ticket
+      operationId: createCustomerSupportTicket
+      tags:
+        - Customer Support
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerTicketCreate'
+      responses:
+        '201':
+          description: Support ticket created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+
+  /customer/support/tickets/{id}:
+    get:
+      summary: Get Customer Support Ticket Detail
+      operationId: getCustomerSupportTicket
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer ticket details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITTicket'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/support/tickets/{id}/comments:
+    get:
+      summary: List Customer Support Ticket Comments (Sanitized)
+      operationId: listCustomerSupportTicketComments
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public ticket discussion comments (internal notes scrubbed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TicketComment'
+                  total:
+                    type: integer
+    post:
+      summary: Add Public Comment to Customer Support Ticket
+      operationId: addCustomerSupportTicketComment
+      tags:
+        - Customer Support
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - comment
+              properties:
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Customer comment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketComment'
+
+  /customer/auth/register:
+    post:
+      summary: Customer Self-Registration & Onboarding
+      description: Self-service investor onboarding with NIST-compliant password validation, linked bank account (Plaid/ACH), and instant zero-balance portfolio creation.
+      operationId: registerCustomer
+      tags:
+        - Customer Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerRegisterRequest'
+      responses:
+        '201':
+          description: Customer and portfolio successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerRegisterResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /customer/account/close:
+    post:
+      summary: Account Liquidation & Closure Workflow
+      description: Liquidates all open equity positions via market sell orders, simulates cash settlement, initiates Plaid ACH disbursement of net cash balance, and marks portfolio as closed.
+      operationId: closeCustomerAccount
+      tags:
+        - Customer Lifecycle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseAccountRequest'
+      responses:
+        '200':
+          description: Account successfully closed and funds disbursed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseAccountResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/privacy/gdpr-erasure:
+    post:
+      summary: GDPR Article 17 Right to be Forgotten Erasure
+      description: Permanent scrubbing of customer PII across database tables, purging of active sessions from Valkey, pseudonymous ledger anonymization (SEC Rule 17a-4), and issuance of an HMAC-SHA256 deletion certificate.
+      operationId: executeGDPRErasure
+      tags:
+        - Customer Privacy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GDPRErasureRequest'
+      responses:
+        '200':
+          description: GDPR erasure successfully executed and tamper-evident certificate generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GDPRErasureCertificate'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/privacy/gdpr-certificate/{id}:
+    get:
+      summary: Retrieve Tamper-Evident GDPR Deletion Certificate
+      description: Fetches metadata and HMAC-SHA256 signature of a generated GDPR erasure certificate. Accessible publicly for former customers as proof of erasure.
+      operationId: getGDPRCertificate
+      tags:
+        - Customer Privacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: GDPR erasure certificate details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GDPRErasureCertificate'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/privacy/gdpr-certificate/{id}/download:
+    get:
+      summary: Download Tamper-Evident GDPR Deletion Certificate (PDF 1.4)
+      description: Downloads the legal proof-of-erasure certificate formatted in pure Go PDF 1.4 with cryptographic HMAC signature and regulatory retention disclosures.
+      operationId: downloadGDPRCertificatePDF
+      tags:
+        - Customer Privacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF binary document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/statements:
+    get:
+      summary: List Investment Statements & Tax Forms
+      description: Retrieves list of generated monthly statements and Form 1099-B tax returns for the authenticated customer.
+      operationId: listCustomerStatements
+      tags:
+        - Customer Statements
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of available statements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementListResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/statements/generate:
+    post:
+      summary: Generate Monthly Statement or Form 1099-B On-Demand
+      description: Compiles holdings, trade executions, capital gain lots, and renders an authenticated PDF 1.4 document.
+      operationId: generateCustomerStatement
+      tags:
+        - Customer Statements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateStatementRequest'
+      responses:
+        '201':
+          description: Statement generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestmentStatementMetadata'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/statements/{id}/download:
+    get:
+      summary: Download Investment Statement or Tax Form (PDF 1.4)
+      description: Downloads an authenticated PDF 1.4 document for monthly summaries or Form 1099-B tax returns.
+      operationId: downloadCustomerStatementPDF
+      tags:
+        - Customer Statements
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF binary document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /ops/pebble/alerts:
     get:
       summary: Get Pebble Companion Watch Alert Payloads
@@ -1069,7 +2270,7 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+          enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         model:
           type: string
         status:
@@ -1105,7 +2306,7 @@ components:
           type: string
         asset_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder, laptop, pebble_watch]
+          enum: [edge_camera, gateway, networking_switch, laptop, workstation, pebble_watch, smartphone]
         model:
           type: string
         zone_id:
@@ -1259,7 +2460,7 @@ components:
           format: uuid
         device_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
         version:
           type: string
         file_url:
@@ -1289,7 +2490,7 @@ components:
       properties:
         device_type:
           type: string
-          enum: [edge_camera, observation_perch, smart_collar, gateway, feeder]
+          enum: [edge_camera, gateway, networking_switch, pebble_watch, workstation, smartphone]
         version:
           type: string
         file_url:
@@ -1533,6 +2734,11 @@ components:
         review_type:
           type: string
           enum: [performance, feline_health_assessment]
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         scheduled_for:
           type: string
           format: date
@@ -1548,6 +2754,48 @@ components:
           format: float
           nullable: true
         notes:
+          type: string
+          nullable: true
+        self_appraisal:
+          type: string
+          nullable: true
+        self_score:
+          type: number
+          format: float
+          nullable: true
+        peer_feedback:
+          type: string
+          nullable: true
+        peer_score:
+          type: number
+          format: float
+          nullable: true
+        peer_reviewer_id:
+          type: string
+          format: uuid
+          nullable: true
+        manager_assessment:
+          type: string
+          nullable: true
+        manager_score:
+          type: number
+          format: float
+          nullable: true
+        kpi_ratings:
+          type: string
+          nullable: true
+        wellness_audit_score:
+          type: number
+          format: float
+          nullable: true
+        habitat_recommendations:
+          type: string
+          nullable: true
+        clinical_auditor_id:
+          type: string
+          format: uuid
+          nullable: true
+        vhr_record_id:
           type: string
           nullable: true
         completed_at:
@@ -1574,6 +2822,11 @@ components:
         review_type:
           type: string
           enum: [performance, feline_health_assessment]
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         scheduled_for:
           type: string
           format: date
@@ -1582,10 +2835,45 @@ components:
           format: uuid
         notes:
           type: string
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        vhr_record_id:
+          type: string
 
     ReviewCycleUpdate:
       type: object
       properties:
+        review_period:
+          type: string
+        phase:
+          type: string
+          enum: [self_appraisal, peer_feedback, manager_review, completed]
         status:
           type: string
           enum: [scheduled, in_progress, completed, overdue]
@@ -1597,9 +2885,103 @@ components:
           format: float
         notes:
           type: string
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        vhr_record_id:
+          type: string
         completed_at:
           type: string
           format: date-time
+
+    SelfAppraisalRequest:
+      type: object
+      required:
+        - self_appraisal
+        - self_score
+      properties:
+        self_appraisal:
+          type: string
+        self_score:
+          type: number
+          format: float
+
+    PeerFeedbackRequest:
+      type: object
+      required:
+        - peer_reviewer_id
+        - peer_feedback
+        - peer_score
+      properties:
+        peer_reviewer_id:
+          type: string
+          format: uuid
+        peer_feedback:
+          type: string
+        peer_score:
+          type: number
+          format: float
+
+    ManagerAssessmentRequest:
+      type: object
+      required:
+        - manager_id
+        - manager_assessment
+        - manager_score
+      properties:
+        manager_id:
+          type: string
+          format: uuid
+        manager_assessment:
+          type: string
+        manager_score:
+          type: number
+          format: float
+        kpi_ratings:
+          type: string
+
+    VeterinaryAuditRequest:
+      type: object
+      required:
+        - clinical_auditor_id
+        - wellness_audit_score
+        - habitat_recommendations
+      properties:
+        clinical_auditor_id:
+          type: string
+          format: uuid
+        wellness_audit_score:
+          type: number
+          format: float
+        habitat_recommendations:
+          type: string
+        vhr_record_id:
+          type: string
 
     CareSchedule:
       type: object
@@ -1897,6 +3279,25 @@ components:
           enum: [open, closed, acknowledged]
         author_username:
           type: string
+        severity:
+          type: string
+          enum: [low, medium, high, urgent, critical]
+        category:
+          type: string
+        source:
+          type: string
+          enum: [internal, customer, system]
+        customer_id:
+          type: string
+          nullable: true
+        assignee_username:
+          type: string
+          nullable: true
+        resolution_notes:
+          type: string
+          nullable: true
+        is_urgent:
+          type: boolean
         acknowledged_at:
           type: string
           format: date-time
@@ -1914,7 +3315,6 @@ components:
     ITTicketCreate:
       type: object
       required:
-        - forgejo_repo
         - title
         - author_username
       properties:
@@ -1928,6 +3328,83 @@ components:
           type: string
         author_username:
           type: string
+        severity:
+          type: string
+          enum: [low, medium, high, urgent, critical]
+        category:
+          type: string
+        source:
+          type: string
+        customer_id:
+          type: string
+        is_urgent:
+          type: boolean
+
+    UpdateTicketRequest:
+      type: object
+      properties:
+        state:
+          type: string
+          enum: [open, closed, acknowledged]
+        assignee_username:
+          type: string
+        resolution_notes:
+          type: string
+
+    CustomerTicketCreate:
+      type: object
+      required:
+        - category
+        - title
+        - body
+      properties:
+        customer_id:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+
+    TicketComment:
+      type: object
+      required:
+        - comment_id
+        - ticket_id
+        - author_username
+        - comment
+        - is_internal
+        - created_at
+      properties:
+        comment_id:
+          type: string
+          format: uuid
+        ticket_id:
+          type: string
+          format: uuid
+        author_username:
+          type: string
+        comment:
+          type: string
+        is_internal:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    TicketCommentCreate:
+      type: object
+      required:
+        - author_username
+        - comment
+      properties:
+        author_username:
+          type: string
+        comment:
+          type: string
+        is_internal:
+          type: boolean
 
     PebbleAlertPayload:
       type: object
@@ -2028,6 +3505,758 @@ components:
         created_at:
           type: string
           format: date-time
+
+    Timesheet:
+      type: object
+      required:
+        - timesheet_id
+        - employee_id
+        - shift_date
+        - start_time
+        - end_time
+        - task_code
+        - hours_worked
+        - status
+        - created_at
+      properties:
+        timesheet_id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        break_minutes:
+          type: integer
+          default: 0
+        task_code:
+          type: string
+          enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+        hours_worked:
+          type: number
+          format: float
+        billable:
+          type: boolean
+          default: false
+        cost_center:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [draft, submitted, approved, rejected]
+        approved_by:
+          type: string
+          nullable: true
+        approved_at:
+          type: string
+          format: date-time
+          nullable: true
+        frappe_timesheet_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TimesheetSubmitRequest:
+      type: object
+      required:
+        - employee_id
+        - start_time
+        - end_time
+        - task_code
+      properties:
+        employee_id:
+          type: string
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        break_minutes:
+          type: integer
+          default: 0
+        task_code:
+          type: string
+          enum: [habitat_maintenance, feline_feeding, veterinary_assist, admin, invest_ops]
+        hours_worked:
+          type: number
+          format: float
+        billable:
+          type: boolean
+          default: false
+        cost_center:
+          type: string
+        notes:
+          type: string
+
+    TimesheetStatusUpdateRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+        approver_id:
+          type: string
+        reviewer_id:
+          type: string
+        reason:
+          type: string
+
+    SalaryComponent:
+      type: object
+      required:
+        - salary_component
+        - type
+        - amount
+      properties:
+        salary_component:
+          type: string
+        type:
+          type: string
+          enum: [Earning, Deduction]
+        amount:
+          type: number
+        description:
+          type: string
+
+    SalarySlip:
+      type: object
+      required:
+        - salary_slip_id
+        - employee_id
+        - posting_date
+        - gross_pay
+        - net_pay
+        - status
+      properties:
+        name:
+          type: string
+        salary_slip_id:
+          type: string
+        employee:
+          type: string
+        employee_id:
+          type: string
+        employee_name:
+          type: string
+        posting_date:
+          type: string
+          format: date
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        gross_pay:
+          type: number
+        total_deductions:
+          type: number
+        net_pay:
+          type: number
+        currency:
+          type: string
+          default: USD
+        status:
+          type: string
+          enum: [Draft, Submitted, Cancelled]
+        earnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalaryComponent'
+        deductions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalaryComponent'
+        payroll_entry:
+          type: string
+
+    PayrollEntry:
+      type: object
+      required:
+        - start_date
+        - end_date
+      properties:
+        payroll_entry_id:
+          type: string
+        posting_date:
+          type: string
+          format: date
+        company:
+          type: string
+        currency:
+          type: string
+          default: USD
+        payroll_frequency:
+          type: string
+          enum: [Monthly, Weekly, Biweekly]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        department:
+          type: string
+        status:
+          type: string
+          enum: [Draft, Submitted, Cancelled]
+        salary_slips_created:
+          type: integer
+        salary_slips_submitted:
+          type: integer
+        total_gross_pay:
+          type: number
+        total_net_pay:
+          type: number
+        employees:
+          type: array
+          items:
+            type: string
+
+    OnboardingRequest:
+      type: object
+      required:
+        - first_name
+        - role_title
+        - department
+      properties:
+        employee_id:
+          type: string
+        employee_type:
+          type: string
+          enum: [human, feline]
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        role_title:
+          type: string
+        department:
+          type: string
+        dietary_plan:
+          type: string
+        feeding_times:
+          type: array
+          items:
+            type: string
+        ssh_key:
+          type: string
+        storage_quota:
+          type: string
+
+    OnboardingResult:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        idp_identity_id:
+          type: string
+        status:
+          type: string
+        checklist_tasks:
+          type: array
+          items:
+            type: string
+        care_schedule:
+          $ref: '#/components/schemas/CareSchedule'
+        vcs_account:
+          $ref: '#/components/schemas/VCSAccount'
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+        hardware_assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetAllocation'
+        message:
+          type: string
+
+    OffboardingRequest:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        reason:
+          type: string
+        target_status:
+          type: string
+          enum: [separated, retired]
+
+    OffboardingResult:
+      type: object
+      properties:
+        employee_id:
+          type: string
+        status:
+          type: string
+        identity_revoked:
+          type: boolean
+        sessions_revoked:
+          type: boolean
+        storage_archived:
+          type: boolean
+        archive_vault_path:
+          type: string
+        hardware_tickets:
+          $ref: '#/components/schemas/AssetRecoverySummary'
+        trading_hold_state:
+          type: boolean
+        care_transition:
+          type: string
+        message:
+          type: string
+
+    VCSAccount:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        ssh_key_ids:
+          type: array
+          items:
+            type: integer
+        status:
+          type: string
+
+    Workspace:
+      type: object
+      properties:
+        username:
+          type: string
+        quota:
+          type: string
+        group_folders:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+
+    AssetAllocation:
+      type: object
+      properties:
+        asset_tag:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        status_label:
+          type: string
+
+    AssetRecoverySummary:
+      type: object
+      properties:
+        ticket_id:
+          type: string
+        total_items:
+          type: integer
+        status:
+          type: string
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssetAllocation'
+
+    GroupFolder:
+      type: object
+      properties:
+        id:
+          type: integer
+        mount_point:
+          type: string
+        quota:
+          type: string
+        groups:
+          type: array
+          items:
+            type: string
+
+    Document:
+      type: object
+      required:
+        - title
+      properties:
+        document_id:
+          type: string
+        title:
+          type: string
+        department:
+          type: string
+        category:
+          type: string
+        content:
+          type: string
+        author:
+          type: string
+        shared_with:
+          type: array
+          items:
+            type: string
+        webdav_path:
+          type: string
+        version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CalendarEvent:
+      type: object
+      required:
+        - title
+      properties:
+        event_id:
+          type: string
+        calendar:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        department:
+          type: string
+        location:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        organizer:
+          type: string
+        status:
+          type: string
+
+    ExecutiveReport:
+      type: object
+      required:
+        - report_id
+        - period
+        - title
+        - status
+        - total_revenue
+        - operating_expenses
+        - payroll_expenses
+        - net_profit
+        - operational_burn
+        - cash_reserves
+        - runway_months
+        - total_headcount
+        - attendance_rate
+      properties:
+        report_id:
+          type: string
+          example: rep-2026-10
+        period:
+          type: string
+          example: "2026-10"
+        title:
+          type: string
+          example: "OCI Executive Management Summary - October 2026"
+        status:
+          type: string
+          example: archived
+        total_revenue:
+          type: number
+          format: double
+          example: 125000.00
+        operating_expenses:
+          type: number
+          format: double
+          example: 45000.00
+        payroll_expenses:
+          type: number
+          format: double
+          example: 38500.00
+        net_profit:
+          type: number
+          format: double
+          example: 41500.00
+        operational_burn:
+          type: number
+          format: double
+          example: 83500.00
+        cash_reserves:
+          type: number
+          format: double
+          example: 540000.00
+        runway_months:
+          type: number
+          format: double
+          example: 6.47
+        total_headcount:
+          type: integer
+          example: 12
+        human_headcount:
+          type: integer
+          example: 7
+        feline_headcount:
+          type: integer
+          example: 5
+        attendance_rate:
+          type: number
+          format: double
+          example: 98.4
+        overtime_hours:
+          type: number
+          format: double
+          example: 14.5
+        timesheets_approved:
+          type: integer
+          example: 28
+        webdav_path_pdf:
+          type: string
+          example: "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_2026-10.pdf"
+        webdav_path_csv:
+          type: string
+          example: "/remote.php/dav/files/admin/Executive/Reports/2026-10/executive_summary_2026-10.csv"
+        generated_by:
+          type: string
+          example: "system-reporting-worker"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    GenerateExecutiveReportRequest:
+      type: object
+      required:
+        - period
+      properties:
+        period:
+          type: string
+          example: "2026-10"
+        generated_by:
+          type: string
+          example: "emp-human-alice"
+
+    CustomerRegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: "Arthur Pendelton"
+        email:
+          type: string
+          format: email
+          example: "arthur@investor.com"
+        password:
+          type: string
+          format: password
+          example: "SecureCat#2026!"
+        bank_account:
+          type: string
+          example: "Chase Premier Checking (****4821)"
+        initial_deposit_usd:
+          type: number
+          example: 10000.00
+
+    CustomerRegisterResponse:
+      type: object
+      required:
+        - customer_id
+        - name
+        - email
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        portfolio:
+          type: object
+          properties:
+            portfolio_id:
+              type: string
+              format: uuid
+            account_name:
+              type: string
+            total_balance_usd:
+              type: number
+            cash_balance_usd:
+              type: number
+
+    CloseAccountRequest:
+      type: object
+      required:
+        - portfolio_id
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          example: "Customer initiated self-service liquidation"
+
+    CloseAccountResponse:
+      type: object
+      required:
+        - portfolio_id
+        - status
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: "closed"
+        liquidated_positions_count:
+          type: integer
+          example: 4
+        gross_proceeds_usd:
+          type: number
+          example: 96350.40
+        disbursed_cash_usd:
+          type: number
+          example: 128450.75
+        disbursement_transfer_id:
+          type: string
+          example: "ach-disburse-018f3a9a-0001"
+        disbursement_account:
+          type: string
+          example: "Chase Premier Checking (****4821)"
+
+    GDPRErasureRequest:
+      type: object
+      required:
+        - confirmation
+      properties:
+        confirmation:
+          type: string
+          enum: ["DELETE"]
+        reason:
+          type: string
+          example: "Customer request under GDPR Article 17"
+
+    GDPRErasureCertificate:
+      type: object
+      required:
+        - certificate_id
+        - request_id
+        - issued_at
+        - hmac_signature
+      properties:
+        certificate_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        customer_id:
+          type: string
+        issued_at:
+          type: string
+          format: date-time
+        entities_affected:
+          type: array
+          items:
+            type: string
+        sessions_invalidated:
+          type: integer
+        compliance_regulations:
+          type: array
+          items:
+            type: string
+        hmac_signature:
+          type: string
+
+    GenerateStatementRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: ["monthly", "1099_b"]
+        period_month:
+          type: integer
+          example: 3
+        period_year:
+          type: integer
+          example: 2026
+        tax_year:
+          type: integer
+          example: 2025
+
+    InvestmentStatementMetadata:
+      type: object
+      required:
+        - statement_id
+        - statement_type
+        - period_label
+      properties:
+        statement_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        portfolio_id:
+          type: string
+          format: uuid
+        statement_type:
+          type: string
+          enum: ["monthly", "1099_b"]
+        period_label:
+          type: string
+          example: "2026-03"
+        document_hash:
+          type: string
+        file_size_bytes:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    StatementListResponse:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestmentStatementMetadata'
+        total:
+          type: integer
 
     ErrorResponse:
       type: object

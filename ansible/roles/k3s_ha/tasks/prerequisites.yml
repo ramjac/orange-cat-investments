@@ -1,0 +1,46 @@
+---
+- name: Update apt cache if Debian/Ubuntu
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+  ignore_errors: true
+
+- name: Install Longhorn and K3s system dependencies
+  ansible.builtin.package:
+    name: "{{ longhorn_prereq_packages }}"
+    state: present
+  ignore_errors: true
+
+- name: Ensure iscsid service is enabled and running (required for Longhorn)
+  ansible.builtin.systemd:
+    name: iscsid
+    state: started
+    enabled: true
+  ignore_errors: true
+
+- name: Ensure kernel module iscsi_tcp is loaded
+  community.general.modprobe:
+    name: iscsi_tcp
+    state: present
+  ignore_errors: true
+
+- name: Configure sysctl settings for high connection count and inotify watches
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop:
+    - { key: "fs.inotify.max_user_watches", value: "1048576" }
+    - { key: "fs.inotify.max_user_instances", value: "8192" }
+    - { key: "vm.max_map_count", value: "262144" }
+    - { key: "net.ipv4.ip_forward", value: "1" }
+  ignore_errors: true
+
+- name: Create K3s pod-manifests directory for kube-vip static pod
+  ansible.builtin.file:
+    path: "{{ kube_vip_manifest_dir }}"
+    state: directory
+    mode: '0755'
+    recurse: true

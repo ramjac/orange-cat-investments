@@ -94,18 +94,34 @@ RETURNING leave_id, employee_id, leave_type, start_date, end_date, status, reaso
 
 -- name: CreateReviewCycle :one
 INSERT INTO workforce.review_cycles (
-    review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at
+    review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+    reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+    peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+    wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id, completed_at
 ) VALUES (
-    COALESCE($1, gen_random_uuid_v7()), $2, $3, $4, COALESCE($5, 'scheduled'), $6, $7, $8, $9
-) RETURNING review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at, created_at, updated_at;
+    COALESCE($1, gen_random_uuid_v7()), $2, $3, COALESCE($4, '2026-Q3'), COALESCE($5, 'self_appraisal'),
+    $6, COALESCE($7, 'scheduled'), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+) RETURNING review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+            reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+            peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+            wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id,
+            completed_at, created_at, updated_at;
 
 -- name: GetReviewCycleByID :one
-SELECT review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at, created_at, updated_at
+SELECT review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+       reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+       peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+       wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id,
+       completed_at, created_at, updated_at
 FROM workforce.review_cycles
 WHERE review_id = $1;
 
 -- name: ListReviewCycles :many
-SELECT review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at, created_at, updated_at
+SELECT review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+       reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+       peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+       wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id,
+       completed_at, created_at, updated_at
 FROM workforce.review_cycles
 WHERE ($1::uuid IS NULL OR employee_id = $1)
   AND ($2::text = '' OR status = $2)
@@ -115,11 +131,70 @@ ORDER BY scheduled_for DESC, created_at DESC;
 -- name: UpdateReviewCycle :one
 UPDATE workforce.review_cycles
 SET status = COALESCE($2, status),
-    reviewer_id = COALESCE($3, reviewer_id),
-    score = COALESCE($4, score),
-    notes = COALESCE($5, notes),
-    completed_at = COALESCE($6, completed_at),
+    phase = COALESCE($3, phase),
+    reviewer_id = COALESCE($4, reviewer_id),
+    score = COALESCE($5, score),
+    notes = COALESCE($6, notes),
+    self_appraisal = COALESCE($7, self_appraisal),
+    self_score = COALESCE($8, self_score),
+    peer_feedback = COALESCE($9, peer_feedback),
+    peer_score = COALESCE($10, peer_score),
+    peer_reviewer_id = COALESCE($11, peer_reviewer_id),
+    manager_assessment = COALESCE($12, manager_assessment),
+    manager_score = COALESCE($13, manager_score),
+    kpi_ratings = COALESCE($14, kpi_ratings),
+    wellness_audit_score = COALESCE($15, wellness_audit_score),
+    habitat_recommendations = COALESCE($16, habitat_recommendations),
+    clinical_auditor_id = COALESCE($17, clinical_auditor_id),
+    vhr_record_id = COALESCE($18, vhr_record_id),
+    completed_at = COALESCE($19, completed_at),
     updated_at = CURRENT_TIMESTAMP
 WHERE review_id = $1
-RETURNING review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at, created_at, updated_at;
+RETURNING review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+          reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+          peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+          wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id,
+          completed_at, created_at, updated_at;
+
+-- name: CreateExecutiveReport :one
+INSERT INTO workforce.executive_reports (
+    report_id, period, title, status,
+    total_revenue, operating_expenses, payroll_expenses, net_profit,
+    operational_burn, cash_reserves, runway_months,
+    total_headcount, human_headcount, feline_headcount,
+    attendance_rate, overtime_hours, timesheets_approved,
+    webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by
+) VALUES (
+    $1, $2, $3, COALESCE($4, 'archived'),
+    $5, $6, $7, $8,
+    $9, $10, $11,
+    $12, $13, $14,
+    $15, $16, $17,
+    $18, $19, $20, $21, COALESCE($22, 'system-reporting-worker')
+) RETURNING *;
+
+-- name: GetExecutiveReportByID :one
+SELECT * FROM workforce.executive_reports
+WHERE report_id = $1;
+
+-- name: GetExecutiveReportByPeriod :one
+SELECT * FROM workforce.executive_reports
+WHERE period = $1
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: ListExecutiveReports :many
+SELECT * FROM workforce.executive_reports
+ORDER BY period DESC, created_at DESC
+LIMIT $1 OFFSET $2;
+
+-- name: UpdateExecutiveReportStatus :one
+UPDATE workforce.executive_reports
+SET status = $2,
+    webdav_path_pdf = COALESCE($3, webdav_path_pdf),
+    webdav_path_csv = COALESCE($4, webdav_path_csv),
+    updated_at = CURRENT_TIMESTAMP
+WHERE report_id = $1
+RETURNING *;
+
 

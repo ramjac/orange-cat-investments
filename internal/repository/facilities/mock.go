@@ -100,19 +100,10 @@ func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCrea
 				UpdatedAt:    now,
 			},
 			&HardwareAsset{
-				AssetID:      "asset-perch-001",
-				SerialNumber: "PERCH-HABITAT-01",
-				AssetType:    "observation_perch",
-				Model:        "Ergonomic-Alpha-Perch-V2",
-				Status:       "active",
-				CreatedAt:    now,
-				UpdatedAt:    now,
-			},
-			&HardwareAsset{
-				AssetID:      "asset-collar-001",
-				SerialNumber: "COLLAR-SMART-01",
-				AssetType:    "smart_collar",
-				Model:        "BioSense-Feline-Tag-V3",
+				AssetID:      "asset-switch-001",
+				SerialNumber: "SW-CORE-01",
+				AssetType:    "networking_switch",
+				Model:        "Cisco-Catalyst-SMB-24P",
 				Status:       "active",
 				CreatedAt:    now,
 				UpdatedAt:    now,
@@ -122,15 +113,6 @@ func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCrea
 				SerialNumber: "GW-HABITAT-01",
 				AssetType:    "gateway",
 				Model:        "Edge-Gateway-IoT-V1",
-				Status:       "active",
-				CreatedAt:    now,
-				UpdatedAt:    now,
-			},
-			&HardwareAsset{
-				AssetID:      "asset-feeder-001",
-				SerialNumber: "FEEDER-01",
-				AssetType:    "feeder",
-				Model:        "AutoFeed-PortionMaster-V1",
 				Status:       "active",
 				CreatedAt:    now,
 				UpdatedAt:    now,
@@ -343,33 +325,6 @@ func (m *mockRepository) ListOTAJobsByAsset(ctx context.Context, assetID string)
 			UpdatedAt:   now,
 		},
 	}, nil
-}
-
-func (m *mockRepository) RecordFeederTelemetry(ctx context.Context, t *FeederTelemetry) (*FeederTelemetry, error) {
-	now := time.Now().UTC()
-	t.TelemetryID = "telemetry-feeder-" + time.Now().Format("20060102150405")
-	if t.DispensedAt.IsZero() {
-		t.DispensedAt = now
-	}
-	return t, nil
-}
-
-func (m *mockRepository) RecordCollarTelemetry(ctx context.Context, t *CollarTelemetry) (*CollarTelemetry, error) {
-	now := time.Now().UTC()
-	t.TelemetryID = "telemetry-collar-" + time.Now().Format("20060102150405")
-	if t.RecordedAt.IsZero() {
-		t.RecordedAt = now
-	}
-	return t, nil
-}
-
-func (m *mockRepository) RecordPerchTelemetry(ctx context.Context, t *PerchTelemetry) (*PerchTelemetry, error) {
-	now := time.Now().UTC()
-	t.TelemetryID = "telemetry-perch-" + time.Now().Format("20060102150405")
-	if t.RecordedAt.IsZero() {
-		t.RecordedAt = now
-	}
-	return t, nil
 }
 
 func (m *mockRepository) RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error) {

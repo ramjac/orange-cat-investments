@@ -1,0 +1,63 @@
+---
+- name: Download K3s installation script
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s_install.sh
+    mode: '0755'
+
+- name: Deploy kube-vip manifest on primary server
+  ansible.builtin.template:
+    src: kube-vip.yaml.j2
+    dest: "{{ kube_vip_manifest_dir }}/kube-vip.yaml"
+    mode: '0644'
+
+- name: Initialize primary K3s server with embedded etcd
+  ansible.builtin.command:
+    cmd: >
+      /tmp/k3s_install.sh server
+      --cluster-init
+      --token {{ k3s_cluster_token }}
+      --tls-san {{ k3s_vip }}
+      --node-ip {{ ansible_host }}
+      {{ k3s_install_args }}
+    creates: /usr/local/bin/k3s
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+
+- name: Ensure K3s service is started and enabled on primary server
+  ansible.builtin.systemd:
+    name: k3s
+    state: started
+    enabled: true
+
+- name: Wait for primary K3s API server to become ready
+  ansible.builtin.command:
+    cmd: "/usr/local/bin/kubectl get nodes --kubeconfig {{ k3s_kubeconfig_path }}"
+  register: kubectl_ready
+  until: kubectl_ready.rc == 0
+  retries: 20
+  delay: 6
+  changed_when: false
+
+- name: Create local ~/.kube directory on operator host
+  ansible.builtin.file:
+    path: "{{ lookup('env', 'HOME') }}/.kube"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Fetch K3s kubeconfig and replace 127.0.0.1 with cluster Virtual IP
+  ansible.builtin.slurp:
+    src: "{{ k3s_kubeconfig_path }}"
+  register: k3s_raw_kubeconfig
+
+- name: Save configured kubeconfig targeting cluster VIP on operator host
+  ansible.builtin.copy:
+    content: "{{ (k3s_raw_kubeconfig.content | b64decode) | regex_replace('127\\.0\\.0\\.1:6443', k3s_vip ~ ':6443') }}"
+    dest: "{{ lookup('env', 'HOME') }}/.kube/config-oci-ha"
+    mode: '0600'
+  delegate_to: localhost
+  become: false
+  run_once: true

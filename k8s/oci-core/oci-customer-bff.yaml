@@ -26,9 +26,9 @@ spec:
             - name: PORT
               value: "8083"
             - name: ENV
-              value: "dev"
+              value: "production"
             - name: SEED_DEV_SESSIONS
-              value: "true"
+              value: "false"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

@@ -3,8 +3,6 @@ package workforce
 import (
 	"context"
 	"fmt"
-	"sort"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,17 +60,31 @@ type LeaveRequest struct {
 }
 
 type ReviewCycle struct {
-	ReviewID     string     `json:"review_id"`
-	EmployeeID   string     `json:"employee_id"`
-	ReviewType   string     `json:"review_type"`
-	ScheduledFor string     `json:"scheduled_for"`
-	Status       string     `json:"status"`
-	ReviewerID   *string    `json:"reviewer_id,omitempty"`
-	Score        *float64   `json:"score,omitempty"`
-	Notes        *string    `json:"notes,omitempty"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ReviewID                string     `json:"review_id"`
+	EmployeeID              string     `json:"employee_id"`
+	ReviewType              string     `json:"review_type"`
+	ReviewPeriod            string     `json:"review_period"`
+	Phase                   string     `json:"phase"`
+	ScheduledFor            string     `json:"scheduled_for"`
+	Status                  string     `json:"status"`
+	ReviewerID              *string    `json:"reviewer_id,omitempty"`
+	Score                   *float64   `json:"score,omitempty"`
+	Notes                   *string    `json:"notes,omitempty"`
+	SelfAppraisal           *string    `json:"self_appraisal,omitempty"`
+	SelfScore               *float64   `json:"self_score,omitempty"`
+	PeerFeedback            *string    `json:"peer_feedback,omitempty"`
+	PeerScore               *float64   `json:"peer_score,omitempty"`
+	PeerReviewerID          *string    `json:"peer_reviewer_id,omitempty"`
+	ManagerAssessment       *string    `json:"manager_assessment,omitempty"`
+	ManagerScore            *float64   `json:"manager_score,omitempty"`
+	KPIRatings              *string    `json:"kpi_ratings,omitempty"`
+	WellnessAuditScore      *float64   `json:"wellness_audit_score,omitempty"`
+	HabitatRecommendations *string    `json:"habitat_recommendations,omitempty"`
+	ClinicalAuditorID       *string    `json:"clinical_auditor_id,omitempty"`
+	VHRRecordID             *string    `json:"vhr_record_id,omitempty"`
+	CompletedAt             *time.Time `json:"completed_at,omitempty"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 type VHRRecord struct {
@@ -101,6 +113,33 @@ type WorkplaceIncident struct {
 	ResolutionNotes  *string    `json:"resolution_notes,omitempty"`
 	ReportedAt       time.Time  `json:"reported_at"`
 	ResolvedAt       *time.Time `json:"resolved_at,omitempty"`
+}
+
+type ExecutiveReport struct {
+	ReportID           string    `json:"report_id"`
+	Period             string    `json:"period"`
+	Title              string    `json:"title"`
+	Status             string    `json:"status"`
+	TotalRevenue       float64   `json:"total_revenue"`
+	OperatingExpenses  float64   `json:"operating_expenses"`
+	PayrollExpenses    float64   `json:"payroll_expenses"`
+	NetProfit          float64   `json:"net_profit"`
+	OperationalBurn    float64   `json:"operational_burn"`
+	CashReserves       float64   `json:"cash_reserves"`
+	RunwayMonths       float64   `json:"runway_months"`
+	TotalHeadcount     int       `json:"total_headcount"`
+	HumanHeadcount     int       `json:"human_headcount"`
+	FelineHeadcount    int       `json:"feline_headcount"`
+	AttendanceRate     float64   `json:"attendance_rate"`
+	OvertimeHours      float64   `json:"overtime_hours"`
+	TimesheetsApproved int       `json:"timesheets_approved"`
+	WebDAVPathPDF      *string   `json:"webdav_path_pdf,omitempty"`
+	WebDAVPathCSV      *string   `json:"webdav_path_csv,omitempty"`
+	CSVContent         *string   `json:"csv_content,omitempty"`
+	PDFContent         []byte    `json:"pdf_content,omitempty"`
+	GeneratedBy        string    `json:"generated_by"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type Repository interface {
@@ -135,317 +174,26 @@ type Repository interface {
 	CreateWorkplaceIncident(ctx context.Context, inc *WorkplaceIncident) (*WorkplaceIncident, error)
 	ListWorkplaceIncidents(ctx context.Context, status string) ([]*WorkplaceIncident, error)
 	UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error)
+
+	// Executive Management Reports
+	CreateExecutiveReport(ctx context.Context, report *ExecutiveReport) (*ExecutiveReport, error)
+	GetExecutiveReportByID(ctx context.Context, id string) (*ExecutiveReport, error)
+	GetExecutiveReportByPeriod(ctx context.Context, period string) (*ExecutiveReport, error)
+	ListExecutiveReports(ctx context.Context, limit, offset int) ([]*ExecutiveReport, error)
+	UpdateExecutiveReportStatus(ctx context.Context, id, status string, webdavPDF, webdavCSV *string) (*ExecutiveReport, error)
 }
 
 type pgxRepository struct {
-	db            *pgxpool.Pool
-	mu            sync.RWMutex
-	employees     map[string]*Employee
-	checklists    map[string]*OnboardingTask
-	careSchedules map[string]*CareSchedule
-	leaveRequests map[string]*LeaveRequest
-	reviewCycles  map[string]*ReviewCycle
-	vhrRecords    map[string]*VHRRecord
-	incidents     map[string]*WorkplaceIncident
+	db *pgxpool.Pool
 }
 
+// NewRepository returns a PostgreSQL-backed workforce.Repository.
+// If db is nil, it delegates to NewMockRepository() for test and mock execution.
 func NewRepository(db *pgxpool.Pool) Repository {
-	repo := &pgxRepository{
-		db:            db,
-		employees:     make(map[string]*Employee),
-		checklists:    make(map[string]*OnboardingTask),
-		careSchedules: make(map[string]*CareSchedule),
-		leaveRequests: make(map[string]*LeaveRequest),
-		reviewCycles:  make(map[string]*ReviewCycle),
-		vhrRecords:    make(map[string]*VHRRecord),
-		incidents:     make(map[string]*WorkplaceIncident),
+	if db == nil {
+		return NewMockRepository()
 	}
-
-	// Seed sample personas into in-memory store for dev/testing when DB pool is uninitialized
-	repo.seedDefaults()
-	return repo
-}
-
-func (r *pgxRepository) seedDefaults() {
-	now := time.Now().UTC()
-	r.seedEmployees(now)
-	r.seedCareSchedules(now)
-	r.seedChecklists(now)
-	r.seedLeaveRequests(now)
-	r.seedReviewCycles(now)
-}
-
-func (r *pgxRepository) seedEmployees(now time.Time) {
-	r.seedFelineEmployees(now)
-	r.seedHumanEmployees(now)
-}
-
-func (r *pgxRepository) seedFelineEmployees(now time.Time) {
-	garfieldID := "emp-feline-garfield"
-	r.employees[garfieldID] = &Employee{
-		EmployeeID:   garfieldID,
-		EmployeeType: "feline",
-		FirstName:    "Garfield",
-		RoleTitle:    "Chief Observation Officer",
-		Department:   "Executive Feline Suite",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	barnebyID := "emp-feline-barneby"
-	r.employees[barnebyID] = &Employee{
-		EmployeeID:   barnebyID,
-		EmployeeType: "feline",
-		FirstName:    "Barneby",
-		RoleTitle:    "Senior Alpha Perch Analyst",
-		Department:   "Alpha Perch Research",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-}
-
-func (r *pgxRepository) seedHumanEmployees(now time.Time) {
-	aliceID := "emp-human-alice"
-	r.employees[aliceID] = &Employee{
-		EmployeeID:   aliceID,
-		EmployeeType: "human",
-		FirstName:    "Alice",
-		LastName:     strPtr("Vance"),
-		Email:        strPtr("alice.vance@oci.local"),
-		RoleTitle:    "Head of Human & Feline Resources",
-		Department:   "Workforce Operations",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	elenaID := "emp-human-elena"
-	r.employees[elenaID] = &Employee{
-		EmployeeID:   elenaID,
-		EmployeeType: "human",
-		FirstName:    "Elena",
-		LastName:     strPtr("Rostova"),
-		Email:        strPtr("elena.rostova@oci.local"),
-		RoleTitle:    "Chief Veterinary Officer",
-		Department:   "Feline Health & Welfare",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	rickID := "emp-human-rick"
-	r.employees[rickID] = &Employee{
-		EmployeeID:   rickID,
-		EmployeeType: "human",
-		FirstName:    "Rick",
-		LastName:     strPtr("Newhire"),
-		Email:        strPtr("rick.newhire@oci.local"),
-		RoleTitle:    "Junior Operations Associate",
-		Department:   "Workforce Operations",
-		Status:       "onboarding",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	eliseID := "emp-human-elise"
-	r.employees[eliseID] = &Employee{
-		EmployeeID:   eliseID,
-		EmployeeType: "human",
-		FirstName:    "Elise",
-		LastName:     strPtr("Dev"),
-		Email:        strPtr("elise.dev@oci.local"),
-		RoleTitle:    "Software Developer",
-		Department:   "Engineering & Platform Development",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	frankID := "emp-human-frank"
-	r.employees[frankID] = &Employee{
-		EmployeeID:   frankID,
-		EmployeeType: "human",
-		FirstName:    "Frank",
-		LastName:     strPtr("Operations"),
-		Email:        strPtr("frank.ops@oci.local"),
-		RoleTitle:    "Platform Security & K8s Infrastructure Lead",
-		Department:   "Platform Security & Infrastructure",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	bobID := "emp-human-bob"
-	r.employees[bobID] = &Employee{
-		EmployeeID:   bobID,
-		EmployeeType: "human",
-		FirstName:    "Bob",
-		LastName:     strPtr("Builder"),
-		Email:        strPtr("bob.builder@oci.local"),
-		RoleTitle:    "Lead Facilities & Edge Telemetry Engineer",
-		Department:   "Habitat Facilities & Infrastructure",
-		Status:       "active",
-		HiredAt:      now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-}
-
-func (r *pgxRepository) seedCareSchedules(now time.Time) {
-	garfieldID := "emp-feline-garfield"
-	r.careSchedules[garfieldID] = &CareSchedule{
-		ScheduleID:           "cs-garfield-01",
-		FelineID:             garfieldID,
-		DietaryPlan:          "High-protein salmon pate & prescription kibble",
-		FeedingTimes:         []string{"08:00 AM", "12:00 PM", "06:00 PM"},
-		EmergencyMedicalHold: false,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-	}
-
-	barnebyID := "emp-feline-barneby"
-	r.careSchedules[barnebyID] = &CareSchedule{
-		ScheduleID:           "cs-barneby-01",
-		FelineID:             barnebyID,
-		DietaryPlan:          "Grain-free organic turkey pate",
-		FeedingTimes:         []string{"07:30 AM", "05:30 PM"},
-		EmergencyMedicalHold: false,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-	}
-}
-
-func (r *pgxRepository) seedChecklists(now time.Time) {
-	aliceID := "emp-human-alice"
-	rickID := "emp-human-rick"
-
-	r.checklists["chk-rick-01"] = &OnboardingTask{
-		ChecklistID: "chk-rick-01",
-		EmployeeID:  rickID,
-		TaskName:    "Forgejo Account Provisioning & SPIFFE ID Issuance",
-		Category:    "access",
-		IsCompleted: false,
-		AssignedTo:  &aliceID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-
-	r.checklists["chk-rick-02"] = &OnboardingTask{
-		ChecklistID: "chk-rick-02",
-		EmployeeID:  rickID,
-		TaskName:    "Catnip Safety Orientation & Workstation Setup",
-		Category:    "training",
-		IsCompleted: false,
-		AssignedTo:  &aliceID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-}
-
-func (r *pgxRepository) seedLeaveRequests(now time.Time) {
-	garfieldID := "emp-feline-garfield"
-	barnebyID := "emp-feline-barneby"
-	elenaID := "emp-human-elena"
-
-	garfieldLeaveID := "018e0000-0000-7000-8000-000000000010"
-	r.leaveRequests[garfieldLeaveID] = &LeaveRequest{
-		LeaveID:    garfieldLeaveID,
-		EmployeeID: garfieldID,
-		LeaveType:  "catnip_break",
-		StartDate:  "2026-10-01",
-		EndDate:    "2026-10-03",
-		Status:     "approved",
-		Reason:     strPtr("Mandatory post-alpha observation rest & organic catnip relaxation"),
-		CreatedAt:  now.Add(-24 * time.Hour),
-		UpdatedAt:  now.Add(-24 * time.Hour),
-	}
-
-	barnebyLeaveID := "018e0000-0000-7000-8000-000000000011"
-	r.leaveRequests[barnebyLeaveID] = &LeaveRequest{
-		LeaveID:    barnebyLeaveID,
-		EmployeeID: barnebyID,
-		LeaveType:  "catnip_break",
-		StartDate:  "2026-10-05",
-		EndDate:    "2026-10-06",
-		Status:     "pending",
-		Reason:     strPtr("Alpha perch rotation decompression and premium catnip session"),
-		CreatedAt:  now.Add(-2 * time.Hour),
-		UpdatedAt:  now.Add(-2 * time.Hour),
-	}
-
-	elenaLeaveID := "018e0000-0000-7000-8000-000000000012"
-	r.leaveRequests[elenaLeaveID] = &LeaveRequest{
-		LeaveID:    elenaLeaveID,
-		EmployeeID: elenaID,
-		LeaveType:  "vacation",
-		StartDate:  "2026-10-15",
-		EndDate:    "2026-10-20",
-		Status:     "approved",
-		Reason:     strPtr("Annual veterinary feline habitat conference"),
-		CreatedAt:  now.Add(-48 * time.Hour),
-		UpdatedAt:  now.Add(-48 * time.Hour),
-	}
-}
-
-func (r *pgxRepository) seedReviewCycles(now time.Time) {
-	garfieldID := "emp-feline-garfield"
-	barnebyID := "emp-feline-barneby"
-	aliceID := "emp-human-alice"
-	elenaID := "emp-human-elena"
-
-	garfieldReviewID := "018e0000-0000-7000-8000-000000000020"
-	completedAt := now.Add(-72 * time.Hour)
-	garfieldScore := 4.95
-	garfieldReviewNotes := "Superb whisker symmetry, resting purr acoustics 92dB, optimal alpha sunbeam positioning. Lasagna tolerance remains peak."
-	r.reviewCycles[garfieldReviewID] = &ReviewCycle{
-		ReviewID:     garfieldReviewID,
-		EmployeeID:   garfieldID,
-		ReviewType:   "feline_health_assessment",
-		ScheduledFor: now.Add(-72 * time.Hour).Format("2006-01-02"),
-		Status:       "completed",
-		ReviewerID:   &elenaID,
-		Score:        &garfieldScore,
-		Notes:        &garfieldReviewNotes,
-		CompletedAt:  &completedAt,
-		CreatedAt:    now.Add(-7 * 24 * time.Hour),
-		UpdatedAt:    completedAt,
-	}
-
-	barnebyReviewID := "018e0000-0000-7000-8000-000000000021"
-	barnebyReviewNotes := "Quarterly weight check and alpha perch mobility audit"
-	r.reviewCycles[barnebyReviewID] = &ReviewCycle{
-		ReviewID:     barnebyReviewID,
-		EmployeeID:   barnebyID,
-		ReviewType:   "feline_health_assessment",
-		ScheduledFor: now.Add(48 * time.Hour).Format("2006-01-02"),
-		Status:       "scheduled",
-		ReviewerID:   &elenaID,
-		Notes:        &barnebyReviewNotes,
-		CreatedAt:    now.Add(-24 * time.Hour),
-		UpdatedAt:    now.Add(-24 * time.Hour),
-	}
-
-	aliceReviewID := "018e0000-0000-7000-8000-000000000022"
-	aliceReviewNotes := "Joint human-feline HR operations & catnip compliance review"
-	r.reviewCycles[aliceReviewID] = &ReviewCycle{
-		ReviewID:     aliceReviewID,
-		EmployeeID:   aliceID,
-		ReviewType:   "performance",
-		ScheduledFor: now.Add(7 * 24 * time.Hour).Format("2006-01-02"),
-		Status:       "scheduled",
-		Notes:        &aliceReviewNotes,
-		CreatedAt:    now.Add(-48 * time.Hour),
-		UpdatedAt:    now.Add(-48 * time.Hour),
-	}
+	return &pgxRepository{db: db}
 }
 
 func strPtr(s string) *string {
@@ -453,729 +201,771 @@ func strPtr(s string) *string {
 }
 
 func (r *pgxRepository) GetEmployeeByID(ctx context.Context, id string) (*Employee, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	emp, ok := r.employees[id]
-	if !ok {
-		return nil, fmt.Errorf("employee with id %s not found", id)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	return emp, nil
+	query := `SELECT employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at
+	          FROM workforce.employees WHERE employee_id::text = $1`
+	var emp Employee
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&emp.EmployeeID, &emp.EmployeeType, &emp.FirstName, &emp.LastName, &emp.Email,
+		&emp.RoleTitle, &emp.Department, &emp.Status, &emp.HiredAt, &emp.CreatedAt, &emp.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("employee with id %s not found: %w", id, err)
+	}
+	return &emp, nil
 }
 
 func (r *pgxRepository) ListEmployees(ctx context.Context, employeeType, status string) ([]*Employee, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var list []*Employee
-	for _, emp := range r.employees {
-		if employeeType != "" && emp.EmployeeType != employeeType {
-			continue
-		}
-		if status != "" && emp.Status != status {
-			continue
-		}
-		list = append(list, emp)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	return list, nil
+	query := `SELECT employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at
+	          FROM workforce.employees
+	          WHERE ($1 = '' OR employee_type = $1)
+	            AND ($2 = '' OR status = $2)
+	          ORDER BY hired_at ASC, created_at ASC`
+	rows, err := r.db.Query(ctx, query, employeeType, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*Employee
+	for rows.Next() {
+		var emp Employee
+		if err := rows.Scan(
+			&emp.EmployeeID, &emp.EmployeeType, &emp.FirstName, &emp.LastName, &emp.Email,
+			&emp.RoleTitle, &emp.Department, &emp.Status, &emp.HiredAt, &emp.CreatedAt, &emp.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, &emp)
+	}
+	if list == nil {
+		list = []*Employee{}
+	}
+	return list, rows.Err()
 }
 
 func (r *pgxRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Employee, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if emp.EmployeeID == "" {
-		emp.EmployeeID = fmt.Sprintf("emp-gen-%d", time.Now().UnixNano())
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	if emp.Status == "" {
-		emp.Status = "onboarding"
+	query := `INSERT INTO workforce.employees (
+		employee_id, employee_type, first_name, last_name, email, role_title, department, status, hired_at
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4, $5, $6, $7,
+		COALESCE(NULLIF($8, ''), 'onboarding'),
+		COALESCE(NULLIF($9::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), CURRENT_TIMESTAMP)
+	) RETURNING employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at`
+	var res Employee
+	err := r.db.QueryRow(ctx, query,
+		emp.EmployeeID, emp.EmployeeType, emp.FirstName, emp.LastName, emp.Email,
+		emp.RoleTitle, emp.Department, emp.Status, emp.HiredAt,
+	).Scan(
+		&res.EmployeeID, &res.EmployeeType, &res.FirstName, &res.LastName, &res.Email,
+		&res.RoleTitle, &res.Department, &res.Status, &res.HiredAt, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
 	}
-	emp.CreatedAt = now
-	emp.UpdatedAt = now
-	if emp.HiredAt.IsZero() {
-		emp.HiredAt = now
-	}
-
-	r.employees[emp.EmployeeID] = emp
-	return emp, nil
+	return &res, nil
 }
 
 func (r *pgxRepository) UpdateEmployeeStatus(ctx context.Context, id, status string) (*Employee, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	emp, ok := r.employees[id]
-	if !ok {
-		return nil, fmt.Errorf("employee with id %s not found", id)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	emp.Status = status
-	emp.UpdatedAt = time.Now().UTC()
-	return emp, nil
+	query := `UPDATE workforce.employees
+	          SET status = $2, updated_at = CURRENT_TIMESTAMP
+	          WHERE employee_id::text = $1
+	          RETURNING employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at`
+	var res Employee
+	err := r.db.QueryRow(ctx, query, id, status).Scan(
+		&res.EmployeeID, &res.EmployeeType, &res.FirstName, &res.LastName, &res.Email,
+		&res.RoleTitle, &res.Department, &res.Status, &res.HiredAt, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("employee with id %s not found: %w", id, err)
+	}
+	return &res, nil
 }
 
 func (r *pgxRepository) CreateOnboardingTask(ctx context.Context, task *OnboardingTask) (*OnboardingTask, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if task.ChecklistID == "" {
-		task.ChecklistID = fmt.Sprintf("chk-%d", time.Now().UnixNano())
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	task.CreatedAt = now
-	task.UpdatedAt = now
-
-	r.checklists[task.ChecklistID] = task
-	return task, nil
+	query := `INSERT INTO workforce.onboarding_checklists (
+		checklist_id, employee_id, task_name, category, is_completed, completed_at, assigned_to
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2::uuid, $3, $4, $5, $6, NULLIF($7, '')::uuid
+	) RETURNING checklist_id::text, employee_id::text, task_name, category, is_completed, completed_at, assigned_to::text, created_at, updated_at`
+	var res OnboardingTask
+	var assignedTo *string
+	err := r.db.QueryRow(ctx, query,
+		task.ChecklistID, task.EmployeeID, task.TaskName, task.Category, task.IsCompleted, task.CompletedAt, task.AssignedTo,
+	).Scan(
+		&res.ChecklistID, &res.EmployeeID, &res.TaskName, &res.Category, &res.IsCompleted, &res.CompletedAt, &assignedTo, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.AssignedTo = assignedTo
+	return &res, nil
 }
 
 func (r *pgxRepository) ListOnboardingChecklist(ctx context.Context, employeeID string) ([]*OnboardingTask, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var tasks []*OnboardingTask
-	for _, t := range r.checklists {
-		if t.EmployeeID == employeeID {
-			tasks = append(tasks, t)
-		}
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	return tasks, nil
+	query := `SELECT checklist_id::text, employee_id::text, task_name, category, is_completed, completed_at, assigned_to::text, created_at, updated_at
+	          FROM workforce.onboarding_checklists
+	          WHERE employee_id::text = $1
+	          ORDER BY created_at ASC`
+	rows, err := r.db.Query(ctx, query, employeeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*OnboardingTask
+	for rows.Next() {
+		var res OnboardingTask
+		var assignedTo *string
+		if err := rows.Scan(&res.ChecklistID, &res.EmployeeID, &res.TaskName, &res.Category, &res.IsCompleted, &res.CompletedAt, &assignedTo, &res.CreatedAt, &res.UpdatedAt); err != nil {
+			return nil, err
+		}
+		res.AssignedTo = assignedTo
+		list = append(list, &res)
+	}
+	if list == nil {
+		list = []*OnboardingTask{}
+	}
+	return list, rows.Err()
 }
 
 func (r *pgxRepository) UpdateOnboardingTask(ctx context.Context, taskID string, isCompleted bool) (*OnboardingTask, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	task, ok := r.checklists[taskID]
-	if !ok {
-		return nil, fmt.Errorf("task %s not found", taskID)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	now := time.Now().UTC()
-	task.IsCompleted = isCompleted
-	if isCompleted {
-		task.CompletedAt = &now
-	} else {
-		task.CompletedAt = nil
+	query := `UPDATE workforce.onboarding_checklists
+	          SET is_completed = $2,
+	              completed_at = CASE WHEN $2 = TRUE THEN CURRENT_TIMESTAMP ELSE NULL END,
+	              updated_at = CURRENT_TIMESTAMP
+	          WHERE checklist_id::text = $1
+	          RETURNING checklist_id::text, employee_id::text, task_name, category, is_completed, completed_at, assigned_to::text, created_at, updated_at`
+	var res OnboardingTask
+	var assignedTo *string
+	err := r.db.QueryRow(ctx, query, taskID, isCompleted).Scan(
+		&res.ChecklistID, &res.EmployeeID, &res.TaskName, &res.Category, &res.IsCompleted, &res.CompletedAt, &assignedTo, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("task with id %s not found: %w", taskID, err)
 	}
-	task.UpdatedAt = now
-	return task, nil
+	res.AssignedTo = assignedTo
+	return &res, nil
 }
 
 func (r *pgxRepository) GetCareScheduleByFelineID(ctx context.Context, felineID string) (*CareSchedule, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	cs, ok := r.careSchedules[felineID]
-	if !ok {
-		return nil, fmt.Errorf("care schedule for feline %s not found", felineID)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	return cs, nil
+	query := `SELECT schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at
+	          FROM workforce.care_schedules
+	          WHERE feline_id::text = $1`
+	var cs CareSchedule
+	var caretakerID *string
+	err := r.db.QueryRow(ctx, query, felineID).Scan(
+		&cs.ScheduleID, &cs.FelineID, &cs.DietaryPlan, &cs.FeedingTimes, &cs.SpecialMedicalNeeds, &cs.PreferredPerchZone, &cs.EmergencyMedicalHold, &caretakerID, &cs.CreatedAt, &cs.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("care schedule for feline %s not found: %w", felineID, err)
+	}
+	cs.CaretakerID = caretakerID
+	return &cs, nil
 }
 
 func (r *pgxRepository) UpsertCareSchedule(ctx context.Context, cs *CareSchedule) (*CareSchedule, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if existing, ok := r.careSchedules[cs.FelineID]; ok {
-		cs.ScheduleID = existing.ScheduleID
-		cs.CreatedAt = existing.CreatedAt
-	} else {
-		if cs.ScheduleID == "" {
-			cs.ScheduleID = fmt.Sprintf("cs-%d", time.Now().UnixNano())
-		}
-		cs.CreatedAt = now
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-	cs.UpdatedAt = now
-
-	r.careSchedules[cs.FelineID] = cs
-	return cs, nil
+	query := `INSERT INTO workforce.care_schedules (
+		schedule_id, feline_id, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2::uuid, $3, $4, $5, $6, $7, NULLIF($8, '')::uuid
+	) ON CONFLICT (feline_id) DO UPDATE SET
+		dietary_plan = EXCLUDED.dietary_plan,
+		feeding_times = EXCLUDED.feeding_times,
+		special_medical_needs = EXCLUDED.special_medical_needs,
+		preferred_perch_zone = EXCLUDED.preferred_perch_zone,
+		emergency_medical_hold = EXCLUDED.emergency_medical_hold,
+		caretaker_id = EXCLUDED.caretaker_id,
+		updated_at = CURRENT_TIMESTAMP
+	RETURNING schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at`
+	var res CareSchedule
+	var caretakerID *string
+	err := r.db.QueryRow(ctx, query,
+		cs.ScheduleID, cs.FelineID, cs.DietaryPlan, cs.FeedingTimes, cs.SpecialMedicalNeeds, cs.PreferredPerchZone, cs.EmergencyMedicalHold, cs.CaretakerID,
+	).Scan(
+		&res.ScheduleID, &res.FelineID, &res.DietaryPlan, &res.FeedingTimes, &res.SpecialMedicalNeeds, &res.PreferredPerchZone, &res.EmergencyMedicalHold, &caretakerID, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.CaretakerID = caretakerID
+	return &res, nil
 }
 
 func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID string, hold bool) (*CareSchedule, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	cs, ok := r.careSchedules[felineID]
-	if !ok {
-		now := time.Now().UTC()
-		cs = &CareSchedule{
-			ScheduleID:           fmt.Sprintf("cs-%d", time.Now().UnixNano()),
-			FelineID:             felineID,
-			DietaryPlan:          "Standard feline nutritional plan",
-			FeedingTimes:         []string{"09:00 AM", "05:00 PM"},
-			EmergencyMedicalHold: hold,
-			CreatedAt:            now,
-			UpdatedAt:            now,
-		}
-		r.careSchedules[felineID] = cs
-		return cs, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	cs.EmergencyMedicalHold = hold
-	cs.UpdatedAt = time.Now().UTC()
-	return cs, nil
+	query := `INSERT INTO workforce.care_schedules (
+		schedule_id, feline_id, dietary_plan, feeding_times, emergency_medical_hold
+	) VALUES (
+		gen_random_uuid_v7(), $1::uuid, 'Standard feline nutritional plan', ARRAY['09:00 AM', '05:00 PM'], $2
+	) ON CONFLICT (feline_id) DO UPDATE SET
+		emergency_medical_hold = EXCLUDED.emergency_medical_hold,
+		updated_at = CURRENT_TIMESTAMP
+	RETURNING schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at`
+	var res CareSchedule
+	var caretakerID *string
+	err := r.db.QueryRow(ctx, query, felineID, hold).Scan(
+		&res.ScheduleID, &res.FelineID, &res.DietaryPlan, &res.FeedingTimes, &res.SpecialMedicalNeeds, &res.PreferredPerchZone, &res.EmergencyMedicalHold, &caretakerID, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.CaretakerID = caretakerID
+	return &res, nil
 }
 
 func (r *pgxRepository) CreateLeaveRequest(ctx context.Context, req *LeaveRequest) (*LeaveRequest, error) {
-	if r.db != nil {
-		query := `INSERT INTO workforce.leave_requests (
-			leave_id, employee_id, leave_type, start_date, end_date, status, reason
-		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid()), $2, $3, $4::date, $5::date, COALESCE(NULLIF($6, ''), 'pending'), $7
-		) RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
-		var res LeaveRequest
-		err := r.db.QueryRow(ctx, query, req.LeaveID, req.EmployeeID, req.LeaveType, req.StartDate, req.EndDate, req.Status, req.Reason).Scan(
-			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		r.mu.Lock()
-		r.leaveRequests[res.LeaveID] = &res
-		r.mu.Unlock()
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if req.LeaveID == "" {
-		req.LeaveID = fmt.Sprintf("leave-%d", time.Now().UnixNano())
+	query := `INSERT INTO workforce.leave_requests (
+		leave_id, employee_id, leave_type, start_date, end_date, status, reason
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4::date, $5::date, COALESCE(NULLIF($6, ''), 'pending'), $7
+	) RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
+	var res LeaveRequest
+	err := r.db.QueryRow(ctx, query, req.LeaveID, req.EmployeeID, req.LeaveType, req.StartDate, req.EndDate, req.Status, req.Reason).Scan(
+		&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if req.Status == "" {
-		req.Status = "pending"
-	}
-	req.CreatedAt = now
-	req.UpdatedAt = now
-
-	r.leaveRequests[req.LeaveID] = req
-	return req, nil
+	return &res, nil
 }
 
 func (r *pgxRepository) GetLeaveRequestByID(ctx context.Context, id string) (*LeaveRequest, error) {
-	if r.db != nil {
-		query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
-		          FROM workforce.leave_requests WHERE leave_id::text = $1`
-		var res LeaveRequest
-		err := r.db.QueryRow(ctx, query, id).Scan(
-			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
-		}
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	req, ok := r.leaveRequests[id]
-	if !ok {
-		return nil, fmt.Errorf("leave request with id %s not found", id)
+	query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
+	          FROM workforce.leave_requests WHERE leave_id::text = $1`
+	var res LeaveRequest
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
 	}
-	return req, nil
+	return &res, nil
 }
 
 func (r *pgxRepository) ListLeaveRequests(ctx context.Context, employeeID, status string) ([]*LeaveRequest, error) {
-	if r.db != nil {
-		query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
-		          FROM workforce.leave_requests
-		          WHERE ($1 = '' OR employee_id::text = $1)
-		            AND ($2 = '' OR status = $2)
-		          ORDER BY created_at DESC`
-		rows, err := r.db.Query(ctx, query, employeeID, status)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		var list []*LeaveRequest
-		for rows.Next() {
-			var res LeaveRequest
-			if err := rows.Scan(&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt); err != nil {
-				return nil, err
-			}
-			list = append(list, &res)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		if list == nil {
-			list = []*LeaveRequest{}
-		}
-		return list, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
+	          FROM workforce.leave_requests
+	          WHERE ($1 = '' OR employee_id::text = $1)
+	            AND ($2 = '' OR status = $2)
+	          ORDER BY created_at DESC`
+	rows, err := r.db.Query(ctx, query, employeeID, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
 	var list []*LeaveRequest
-	for _, req := range r.leaveRequests {
-		if employeeID != "" && req.EmployeeID != employeeID {
-			continue
+	for rows.Next() {
+		var res LeaveRequest
+		if err := rows.Scan(&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt); err != nil {
+			return nil, err
 		}
-		if status != "" && req.Status != status {
-			continue
-		}
-		list = append(list, req)
+		list = append(list, &res)
 	}
-
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].CreatedAt.After(list[j].CreatedAt)
-	})
 	if list == nil {
 		list = []*LeaveRequest{}
 	}
-	return list, nil
+	return list, rows.Err()
 }
 
 func (r *pgxRepository) UpdateLeaveRequestStatus(ctx context.Context, id, status string) (*LeaveRequest, error) {
-	if r.db != nil {
-		query := `UPDATE workforce.leave_requests
-		          SET status = $2, updated_at = CURRENT_TIMESTAMP
-		          WHERE leave_id::text = $1
-		          RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
-		var res LeaveRequest
-		err := r.db.QueryRow(ctx, query, id, status).Scan(
-			&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
-		}
-		r.mu.Lock()
-		r.leaveRequests[res.LeaveID] = &res
-		r.mu.Unlock()
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	req, ok := r.leaveRequests[id]
-	if !ok {
-		return nil, fmt.Errorf("leave request with id %s not found", id)
+	query := `UPDATE workforce.leave_requests
+	          SET status = $2, updated_at = CURRENT_TIMESTAMP
+	          WHERE leave_id::text = $1
+	          RETURNING leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at`
+	var res LeaveRequest
+	err := r.db.QueryRow(ctx, query, id, status).Scan(
+		&res.LeaveID, &res.EmployeeID, &res.LeaveType, &res.StartDate, &res.EndDate, &res.Status, &res.Reason, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("leave request with id %s not found: %w", id, err)
 	}
+	return &res, nil
+}
 
-	req.Status = status
-	req.UpdatedAt = time.Now().UTC()
-	return req, nil
+func scanReviewCycle(row interface{ Scan(dest ...any) error }) (*ReviewCycle, error) {
+	var res ReviewCycle
+	var schedFor string
+	var revID, peerRevID, clinAudID, vhrID *string
+	err := row.Scan(
+		&res.ReviewID, &res.EmployeeID, &res.ReviewType, &res.ReviewPeriod, &res.Phase, &schedFor, &res.Status,
+		&revID, &res.Score, &res.Notes, &res.SelfAppraisal, &res.SelfScore, &res.PeerFeedback, &res.PeerScore,
+		&peerRevID, &res.ManagerAssessment, &res.ManagerScore, &res.KPIRatings,
+		&res.WellnessAuditScore, &res.HabitatRecommendations, &clinAudID, &vhrID,
+		&res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.ScheduledFor = schedFor
+	res.ReviewerID = revID
+	res.PeerReviewerID = peerRevID
+	res.ClinicalAuditorID = clinAudID
+	res.VHRRecordID = vhrID
+	return &res, nil
 }
 
 func (r *pgxRepository) CreateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
-	if r.db != nil {
-		query := `INSERT INTO workforce.review_cycles (
-		              review_id, employee_id, review_type, scheduled_for, status, reviewer_id, score, notes, completed_at
-		          ) VALUES (
-		              COALESCE($1, gen_random_uuid_v7()), $2, $3, $4, COALESCE($5, 'scheduled'), $6, $7, $8, $9
-		          ) RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
-		var res ReviewCycle
-		var revID *string
-		var schedFor string
-		var revUUID *string
-		if rc.ReviewID != "" {
-			revUUID = &rc.ReviewID
-		}
-		err := r.db.QueryRow(ctx, query, revUUID, rc.EmployeeID, rc.ReviewType, rc.ScheduledFor, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
-			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		res.ScheduledFor = schedFor
-		res.ReviewerID = revID
-		r.mu.Lock()
-		r.reviewCycles[res.ReviewID] = &res
-		r.mu.Unlock()
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if rc.ReviewID == "" {
-		rc.ReviewID = fmt.Sprintf("018e0000-0000-7000-8000-%012d", len(r.reviewCycles)+1)
+	query := `INSERT INTO workforce.review_cycles (
+	              review_id, employee_id, review_type, review_period, phase, scheduled_for, status,
+	              reviewer_id, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	              peer_reviewer_id, manager_assessment, manager_score, kpi_ratings,
+	              wellness_audit_score, habitat_recommendations, clinical_auditor_id, vhr_record_id, completed_at
+	          ) VALUES (
+	              COALESCE($1, gen_random_uuid_v7()), $2, $3, COALESCE(NULLIF($4, ''), '2026-Q3'), COALESCE(NULLIF($5, ''), 'self_appraisal'),
+	              $6, COALESCE(NULLIF($7, ''), 'scheduled'), $8, $9, $10, $11, $12, $13, $14,
+	              $15, $16, $17, $18::jsonb, $19, $20, $21, $22, $23
+	          ) RETURNING review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                      reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                      peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                      wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                      completed_at, created_at, updated_at`
+	var revUUID *string
+	if rc.ReviewID != "" {
+		revUUID = &rc.ReviewID
 	}
-	if rc.Status == "" {
-		rc.Status = "scheduled"
-	}
-	rc.CreatedAt = now
-	rc.UpdatedAt = now
-
-	r.reviewCycles[rc.ReviewID] = rc
-	return rc, nil
+	row := r.db.QueryRow(ctx, query,
+		revUUID, rc.EmployeeID, rc.ReviewType, rc.ReviewPeriod, rc.Phase,
+		rc.ScheduledFor, rc.Status, rc.ReviewerID, rc.Score, rc.Notes,
+		rc.SelfAppraisal, rc.SelfScore, rc.PeerFeedback, rc.PeerScore,
+		rc.PeerReviewerID, rc.ManagerAssessment, rc.ManagerScore, rc.KPIRatings,
+		rc.WellnessAuditScore, rc.HabitatRecommendations, rc.ClinicalAuditorID, rc.VHRRecordID,
+		rc.CompletedAt,
+	)
+	return scanReviewCycle(row)
 }
 
 func (r *pgxRepository) GetReviewCycleByID(ctx context.Context, id string) (*ReviewCycle, error) {
-	if r.db != nil {
-		query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
-		          FROM workforce.review_cycles
-		          WHERE review_id::text = $1`
-		var res ReviewCycle
-		var revID *string
-		var schedFor string
-		err := r.db.QueryRow(ctx, query, id).Scan(
-			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("review cycle with id %s not found: %w", id, err)
-		}
-		res.ScheduledFor = schedFor
-		res.ReviewerID = revID
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	rc, ok := r.reviewCycles[id]
-	if !ok {
-		return nil, fmt.Errorf("review cycle with id %s not found", id)
+	query := `SELECT review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                 reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                 peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                 wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                 completed_at, created_at, updated_at
+	          FROM workforce.review_cycles
+	          WHERE review_id::text = $1`
+	row := r.db.QueryRow(ctx, query, id)
+	res, err := scanReviewCycle(row)
+	if err != nil {
+		return nil, fmt.Errorf("review cycle with id %s not found: %w", id, err)
 	}
-	return rc, nil
+	return res, nil
 }
 
 func (r *pgxRepository) ListReviewCycles(ctx context.Context, employeeID, status, reviewType string) ([]*ReviewCycle, error) {
-	if r.db != nil {
-		query := `SELECT review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at
-		          FROM workforce.review_cycles
-		          WHERE ($1 = '' OR employee_id::text = $1)
-		            AND ($2 = '' OR status = $2)
-		            AND ($3 = '' OR review_type = $3)
-		          ORDER BY scheduled_for DESC, created_at DESC`
-		rows, err := r.db.Query(ctx, query, employeeID, status, reviewType)
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                 reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                 peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                 wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                 completed_at, created_at, updated_at
+	          FROM workforce.review_cycles
+	          WHERE ($1 = '' OR employee_id::text = $1)
+	            AND ($2 = '' OR status = $2)
+	            AND ($3 = '' OR review_type = $3)
+	          ORDER BY scheduled_for DESC, created_at DESC`
+	rows, err := r.db.Query(ctx, query, employeeID, status, reviewType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*ReviewCycle
+	for rows.Next() {
+		res, err := scanReviewCycle(rows)
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-
-		var list []*ReviewCycle
-		for rows.Next() {
-			var res ReviewCycle
-			var revID *string
-			var schedFor string
-			if err := rows.Scan(&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt); err != nil {
-				return nil, err
-			}
-			res.ScheduledFor = schedFor
-			res.ReviewerID = revID
-			list = append(list, &res)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		if list == nil {
-			list = []*ReviewCycle{}
-		}
-		return list, nil
+		list = append(list, res)
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var list []*ReviewCycle
-	for _, rc := range r.reviewCycles {
-		if employeeID != "" && rc.EmployeeID != employeeID {
-			continue
-		}
-		if status != "" && rc.Status != status {
-			continue
-		}
-		if reviewType != "" && rc.ReviewType != reviewType {
-			continue
-		}
-		list = append(list, rc)
-	}
-
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].ScheduledFor == list[j].ScheduledFor {
-			return list[i].CreatedAt.After(list[j].CreatedAt)
-		}
-		return list[i].ScheduledFor > list[j].ScheduledFor
-	})
 	if list == nil {
 		list = []*ReviewCycle{}
 	}
-	return list, nil
+	return list, rows.Err()
 }
 
 func (r *pgxRepository) UpdateReviewCycle(ctx context.Context, rc *ReviewCycle) (*ReviewCycle, error) {
-	if r.db != nil {
-		query := `UPDATE workforce.review_cycles
-		          SET status = COALESCE($2, status),
-		              reviewer_id = CASE WHEN $3::text IS NOT NULL THEN $3::uuid ELSE reviewer_id END,
-		              score = CASE WHEN $4::numeric IS NOT NULL THEN $4::numeric ELSE score END,
-		              notes = CASE WHEN $5::text IS NOT NULL THEN $5::text ELSE notes END,
-		              completed_at = CASE WHEN $6::timestamptz IS NOT NULL THEN $6::timestamptz ELSE completed_at END,
-		              updated_at = CURRENT_TIMESTAMP
-		          WHERE review_id::text = $1
-		          RETURNING review_id::text, employee_id::text, review_type, scheduled_for::text, status, reviewer_id::text, score, notes, completed_at, created_at, updated_at`
-		var res ReviewCycle
-		var revID *string
-		var schedFor string
-		err := r.db.QueryRow(ctx, query, rc.ReviewID, rc.Status, rc.ReviewerID, rc.Score, rc.Notes, rc.CompletedAt).Scan(
-			&res.ReviewID, &res.EmployeeID, &res.ReviewType, &schedFor, &res.Status, &revID, &res.Score, &res.Notes, &res.CompletedAt, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("review cycle with id %s not found: %w", rc.ReviewID, err)
-		}
-		res.ScheduledFor = schedFor
-		res.ReviewerID = revID
-		r.mu.Lock()
-		r.reviewCycles[res.ReviewID] = &res
-		r.mu.Unlock()
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	existing, ok := r.reviewCycles[rc.ReviewID]
-	if !ok {
-		return nil, fmt.Errorf("review cycle with id %s not found", rc.ReviewID)
+	query := `UPDATE workforce.review_cycles
+	          SET status = COALESCE($2, status),
+	              phase = CASE WHEN $3::text IS NOT NULL THEN $3::text ELSE phase END,
+	              reviewer_id = CASE WHEN $4::text IS NOT NULL THEN $4::uuid ELSE reviewer_id END,
+	              score = CASE WHEN $5::numeric IS NOT NULL THEN $5::numeric ELSE score END,
+	              notes = CASE WHEN $6::text IS NOT NULL THEN $6::text ELSE notes END,
+	              self_appraisal = CASE WHEN $7::text IS NOT NULL THEN $7::text ELSE self_appraisal END,
+	              self_score = CASE WHEN $8::numeric IS NOT NULL THEN $8::numeric ELSE self_score END,
+	              peer_feedback = CASE WHEN $9::text IS NOT NULL THEN $9::text ELSE peer_feedback END,
+	              peer_score = CASE WHEN $10::numeric IS NOT NULL THEN $10::numeric ELSE peer_score END,
+	              peer_reviewer_id = CASE WHEN $11::text IS NOT NULL THEN $11::uuid ELSE peer_reviewer_id END,
+	              manager_assessment = CASE WHEN $12::text IS NOT NULL THEN $12::text ELSE manager_assessment END,
+	              manager_score = CASE WHEN $13::numeric IS NOT NULL THEN $13::numeric ELSE manager_score END,
+	              kpi_ratings = CASE WHEN $14::text IS NOT NULL THEN $14::jsonb ELSE kpi_ratings END,
+	              wellness_audit_score = CASE WHEN $15::numeric IS NOT NULL THEN $15::numeric ELSE wellness_audit_score END,
+	              habitat_recommendations = CASE WHEN $16::text IS NOT NULL THEN $16::text ELSE habitat_recommendations END,
+	              clinical_auditor_id = CASE WHEN $17::text IS NOT NULL THEN $17::uuid ELSE clinical_auditor_id END,
+	              vhr_record_id = CASE WHEN $18::text IS NOT NULL THEN $18::uuid ELSE vhr_record_id END,
+	              completed_at = CASE WHEN $19::timestamptz IS NOT NULL THEN $19::timestamptz ELSE completed_at END,
+	              updated_at = CURRENT_TIMESTAMP
+	          WHERE review_id::text = $1
+	          RETURNING review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
+	                    reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
+	                    peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
+	                    wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
+	                    completed_at, created_at, updated_at`
+	row := r.db.QueryRow(ctx, query,
+		rc.ReviewID, rc.Status, rc.Phase, rc.ReviewerID, rc.Score, rc.Notes,
+		rc.SelfAppraisal, rc.SelfScore, rc.PeerFeedback, rc.PeerScore,
+		rc.PeerReviewerID, rc.ManagerAssessment, rc.ManagerScore, rc.KPIRatings,
+		rc.WellnessAuditScore, rc.HabitatRecommendations, rc.ClinicalAuditorID, rc.VHRRecordID,
+		rc.CompletedAt,
+	)
+	res, err := scanReviewCycle(row)
+	if err != nil {
+		return nil, fmt.Errorf("review cycle with id %s not found: %w", rc.ReviewID, err)
 	}
-
-	if rc.Status != "" {
-		existing.Status = rc.Status
-	}
-	if rc.ReviewerID != nil {
-		existing.ReviewerID = rc.ReviewerID
-	}
-	if rc.Score != nil {
-		existing.Score = rc.Score
-	}
-	if rc.Notes != nil {
-		existing.Notes = rc.Notes
-	}
-	if rc.CompletedAt != nil {
-		existing.CompletedAt = rc.CompletedAt
-	}
-	existing.UpdatedAt = time.Now().UTC()
-	return existing, nil
+	return res, nil
 }
 
 func (r *pgxRepository) CreateVHRRecord(ctx context.Context, rec *VHRRecord) (*VHRRecord, error) {
-	if r.db != nil {
-		query := `INSERT INTO workforce.vhr_records (
-			record_id, feline_id, veterinarian_id, visit_date, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes
-		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4::date, $5, $6, $7, $8, $9
-		) RETURNING record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at`
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO workforce.vhr_records (
+		record_id, feline_id, veterinarian_id, visit_date, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4::date, $5, $6, $7, $8, $9
+	) RETURNING record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at`
+	var res VHRRecord
+	var vetID *string
+	var vDate string
+	err := r.db.QueryRow(ctx, query, rec.RecordID, rec.FelineID, rec.VeterinarianID, rec.VisitDate, rec.WeightKG, rec.DentalScore, rec.VaccinationStatus, rec.Prescriptions, rec.ClinicalNotes).Scan(
+		&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	res.VeterinarianID = vetID
+	res.VisitDate = vDate
+	return &res, nil
+}
+
+func (r *pgxRepository) ListVHRRecords(ctx context.Context, felineID string) ([]*VHRRecord, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at
+	          FROM workforce.vhr_records
+	          WHERE ($1 = '' OR feline_id::text = $1)
+	          ORDER BY visit_date DESC`
+	rows, err := r.db.Query(ctx, query, felineID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*VHRRecord
+	for rows.Next() {
 		var res VHRRecord
 		var vetID *string
 		var vDate string
-		err := r.db.QueryRow(ctx, query, rec.RecordID, rec.FelineID, rec.VeterinarianID, rec.VisitDate, rec.WeightKG, rec.DentalScore, rec.VaccinationStatus, rec.Prescriptions, rec.ClinicalNotes).Scan(
-			&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt,
-		)
-		if err != nil {
+		if err := rows.Scan(&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt); err != nil {
 			return nil, err
 		}
 		res.VeterinarianID = vetID
 		res.VisitDate = vDate
-		r.mu.Lock()
-		r.vhrRecords[res.RecordID] = &res
-		r.mu.Unlock()
-		return &res, nil
+		list = append(list, &res)
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if rec.RecordID == "" {
-		rec.RecordID = fmt.Sprintf("vhr-%d", time.Now().UnixNano())
-	}
-	rec.CreatedAt = now
-	rec.UpdatedAt = now
-	r.vhrRecords[rec.RecordID] = rec
-	return rec, nil
-}
-
-func (r *pgxRepository) ListVHRRecords(ctx context.Context, felineID string) ([]*VHRRecord, error) {
-	if r.db != nil {
-		query := `SELECT record_id::text, feline_id::text, veterinarian_id::text, visit_date::text, weight_kg, dental_score, vaccination_status, prescriptions, clinical_notes, created_at, updated_at
-		          FROM workforce.vhr_records
-		          WHERE ($1 = '' OR feline_id::text = $1)
-		          ORDER BY visit_date DESC`
-		rows, err := r.db.Query(ctx, query, felineID)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		var list []*VHRRecord
-		for rows.Next() {
-			var res VHRRecord
-			var vetID *string
-			var vDate string
-			if err := rows.Scan(&res.RecordID, &res.FelineID, &vetID, &vDate, &res.WeightKG, &res.DentalScore, &res.VaccinationStatus, &res.Prescriptions, &res.ClinicalNotes, &res.CreatedAt, &res.UpdatedAt); err != nil {
-				return nil, err
-			}
-			res.VeterinarianID = vetID
-			res.VisitDate = vDate
-			list = append(list, &res)
-		}
-		if list == nil {
-			list = []*VHRRecord{}
-		}
-		return list, nil
-	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var list []*VHRRecord
-	for _, rec := range r.vhrRecords {
-		if felineID != "" && rec.FelineID != felineID {
-			continue
-		}
-		list = append(list, rec)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].VisitDate > list[j].VisitDate
-	})
 	if list == nil {
 		list = []*VHRRecord{}
 	}
-	return list, nil
+	return list, rows.Err()
 }
 
 func (r *pgxRepository) CreateWorkplaceIncident(ctx context.Context, inc *WorkplaceIncident) (*WorkplaceIncident, error) {
-	if r.db != nil {
-		query := `INSERT INTO workforce.incidents (
-			incident_id, title, category, involved_feline_id, involved_human_id, severity, status, description, resolution_notes
-		) VALUES (
-			COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'low'), COALESCE(NULLIF($7, ''), 'open'), $8, $9
-		) RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
-		var res WorkplaceIncident
-		var fID, hID *string
-		err := r.db.QueryRow(ctx, query, inc.IncidentID, inc.Title, inc.Category, inc.InvolvedFelineID, inc.InvolvedHumanID, inc.Severity, inc.Status, inc.Description, inc.ResolutionNotes).Scan(
-			&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		res.InvolvedFelineID = fID
-		res.InvolvedHumanID = hID
-		r.mu.Lock()
-		r.incidents[res.IncidentID] = &res
-		r.mu.Unlock()
-		return &res, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	now := time.Now().UTC()
-	if inc.IncidentID == "" {
-		inc.IncidentID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
+	query := `INSERT INTO workforce.incidents (
+		incident_id, title, category, involved_feline_id, involved_human_id, severity, status, description, resolution_notes
+	) VALUES (
+		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'low'), COALESCE(NULLIF($7, ''), 'open'), $8, $9
+	) RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
+	var res WorkplaceIncident
+	var fID, hID *string
+	err := r.db.QueryRow(ctx, query, inc.IncidentID, inc.Title, inc.Category, inc.InvolvedFelineID, inc.InvolvedHumanID, inc.Severity, inc.Status, inc.Description, inc.ResolutionNotes).Scan(
+		&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if inc.Status == "" {
-		inc.Status = "open"
-	}
-	if inc.Severity == "" {
-		inc.Severity = "low"
-	}
-	inc.ReportedAt = now
-	r.incidents[inc.IncidentID] = inc
-	return inc, nil
+	res.InvolvedFelineID = fID
+	res.InvolvedHumanID = hID
+	return &res, nil
 }
 
 func (r *pgxRepository) ListWorkplaceIncidents(ctx context.Context, status string) ([]*WorkplaceIncident, error) {
-	if r.db != nil {
-		query := `SELECT incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at
-		          FROM workforce.incidents
-		          WHERE ($1 = '' OR status = $1)
-		          ORDER BY reported_at DESC`
-		rows, err := r.db.Query(ctx, query, status)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-
-		var list []*WorkplaceIncident
-		for rows.Next() {
-			var res WorkplaceIncident
-			var fID, hID *string
-			if err := rows.Scan(&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt); err != nil {
-				return nil, err
-			}
-			res.InvolvedFelineID = fID
-			res.InvolvedHumanID = hID
-			list = append(list, &res)
-		}
-		if list == nil {
-			list = []*WorkplaceIncident{}
-		}
-		return list, nil
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
 	}
-
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	query := `SELECT incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at
+	          FROM workforce.incidents
+	          WHERE ($1 = '' OR status = $1)
+	          ORDER BY reported_at DESC`
+	rows, err := r.db.Query(ctx, query, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
 	var list []*WorkplaceIncident
-	for _, inc := range r.incidents {
-		if status != "" && inc.Status != status {
-			continue
-		}
-		list = append(list, inc)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].ReportedAt.After(list[j].ReportedAt)
-	})
-	if list == nil {
-		list = []*WorkplaceIncident{}
-	}
-	return list, nil
-}
-
-func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error) {
-	now := time.Now().UTC()
-	if r.db != nil {
-		query := `UPDATE workforce.incidents
-		          SET status = $2,
-		              resolution_notes = CASE WHEN $3 <> '' THEN $3 ELSE resolution_notes END,
-		              resolved_at = CASE WHEN $2 = 'resolved' THEN CURRENT_TIMESTAMP ELSE resolved_at END
-		          WHERE incident_id::text = $1
-		          RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
+	for rows.Next() {
 		var res WorkplaceIncident
 		var fID, hID *string
-		err := r.db.QueryRow(ctx, query, id, status, resolutionNotes).Scan(
-			&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
-		)
-		if err != nil {
+		if err := rows.Scan(&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt); err != nil {
 			return nil, err
 		}
 		res.InvolvedFelineID = fID
 		res.InvolvedHumanID = hID
-		r.mu.Lock()
-		r.incidents[res.IncidentID] = &res
-		r.mu.Unlock()
-		return &res, nil
+		list = append(list, &res)
 	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	inc, ok := r.incidents[id]
-	if !ok {
-		return nil, fmt.Errorf("incident with id %s not found", id)
+	if list == nil {
+		list = []*WorkplaceIncident{}
 	}
+	return list, rows.Err()
+}
 
+func (r *pgxRepository) UpdateWorkplaceIncidentStatus(ctx context.Context, id, status, resolutionNotes string) (*WorkplaceIncident, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
 	switch status {
 	case "open", "under_review", "resolved":
 	default:
 		return nil, fmt.Errorf("invalid incident status %q: status must be one of 'open', 'under_review', 'resolved'", status)
 	}
 
-	inc.Status = status
-	if resolutionNotes != "" {
-		inc.ResolutionNotes = &resolutionNotes
+	query := `UPDATE workforce.incidents
+	          SET status = $2,
+	              resolution_notes = CASE WHEN $3 <> '' THEN $3 ELSE resolution_notes END,
+	              resolved_at = CASE WHEN $2 = 'resolved' THEN CURRENT_TIMESTAMP ELSE resolved_at END
+	          WHERE incident_id::text = $1
+	          RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
+	var res WorkplaceIncident
+	var fID, hID *string
+	err := r.db.QueryRow(ctx, query, id, status, resolutionNotes).Scan(
+		&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
+	)
+	if err != nil {
+		return nil, err
 	}
-	if status == "resolved" {
-		inc.ResolvedAt = &now
-	}
-	return inc, nil
+	res.InvolvedFelineID = fID
+	res.InvolvedHumanID = hID
+	return &res, nil
 }
+
+func (r *pgxRepository) CreateExecutiveReport(ctx context.Context, report *ExecutiveReport) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `INSERT INTO workforce.executive_reports (
+	              report_id, period, title, status,
+	              total_revenue, operating_expenses, payroll_expenses, net_profit,
+	              operational_burn, cash_reserves, runway_months,
+	              total_headcount, human_headcount, feline_headcount,
+	              attendance_rate, overtime_hours, timesheets_approved,
+	              webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by
+	          ) VALUES (
+	              $1, $2, $3, COALESCE($4, 'archived'),
+	              $5, $6, $7, $8,
+	              $9, $10, $11,
+	              $12, $13, $14,
+	              $15, $16, $17,
+	              $18, $19, $20, $21, COALESCE($22, 'system-reporting-worker')
+	          ) RETURNING report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at`
+
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query,
+		report.ReportID, report.Period, report.Title, report.Status,
+		report.TotalRevenue, report.OperatingExpenses, report.PayrollExpenses, report.NetProfit,
+		report.OperationalBurn, report.CashReserves, report.RunwayMonths,
+		report.TotalHeadcount, report.HumanHeadcount, report.FelineHeadcount,
+		report.AttendanceRate, report.OvertimeHours, report.TimesheetsApproved,
+		report.WebDAVPathPDF, report.WebDAVPathCSV, report.CSVContent, report.PDFContent, report.GeneratedBy,
+	).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) GetExecutiveReportByID(ctx context.Context, id string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports WHERE report_id = $1`
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) GetExecutiveReportByPeriod(ctx context.Context, period string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports WHERE period = $1 ORDER BY created_at DESC LIMIT 1`
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, period).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (r *pgxRepository) ListExecutiveReports(ctx context.Context, limit, offset int) ([]*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	          FROM workforce.executive_reports
+	          ORDER BY period DESC, created_at DESC
+	          LIMIT $1 OFFSET $2`
+	rows, err := r.db.Query(ctx, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*ExecutiveReport
+	for rows.Next() {
+		var res ExecutiveReport
+		err := rows.Scan(
+			&res.ReportID, &res.Period, &res.Title, &res.Status,
+			&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+			&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+			&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+			&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+			&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+			&res.CreatedAt, &res.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, &res)
+	}
+	if list == nil {
+		list = []*ExecutiveReport{}
+	}
+	return list, rows.Err()
+}
+
+func (r *pgxRepository) UpdateExecutiveReportStatus(ctx context.Context, id, status string, webdavPDF, webdavCSV *string) (*ExecutiveReport, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE workforce.executive_reports
+	          SET status = $2,
+	              webdav_path_pdf = COALESCE($3, webdav_path_pdf),
+	              webdav_path_csv = COALESCE($4, webdav_path_csv),
+	              updated_at = CURRENT_TIMESTAMP
+	          WHERE report_id = $1
+	          RETURNING report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at`
+
+	var res ExecutiveReport
+	err := r.db.QueryRow(ctx, query, id, status, webdavPDF, webdavCSV).Scan(
+		&res.ReportID, &res.Period, &res.Title, &res.Status,
+		&res.TotalRevenue, &res.OperatingExpenses, &res.PayrollExpenses, &res.NetProfit,
+		&res.OperationalBurn, &res.CashReserves, &res.RunwayMonths,
+		&res.TotalHeadcount, &res.HumanHeadcount, &res.FelineHeadcount,
+		&res.AttendanceRate, &res.OvertimeHours, &res.TimesheetsApproved,
+		&res.WebDAVPathPDF, &res.WebDAVPathCSV, &res.CSVContent, &res.PDFContent, &res.GeneratedBy,
+		&res.CreatedAt, &res.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+

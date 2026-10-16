@@ -1,0 +1,17 @@
+# ==============================================================================
+# Orange Cat Investments (OCI) - Pi-hole Local DNS Host Mappings (/etc/pihole/custom.list)
+# Cluster Virtual IP (VIP): 192.168.1.250
+# ==============================================================================
+192.168.1.250 employee.oci.local
+192.168.1.250 employee-bff.oci.local
+192.168.1.250 api.oci.local
+192.168.1.250 auth.oci.local
+192.168.1.250 pebble-proxy.oci.local
+192.168.1.250 forgejo.oci.local
+192.168.1.250 nextcloud.oci.local
+192.168.1.250 erpnext.oci.local
+192.168.1.250 hr.oci.local
+192.168.1.250 snipeit.oci.local
+192.168.1.250 longhorn.oci.local
+192.168.1.250 monitoring.oci.local
+192.168.1.250 logs.oci.local

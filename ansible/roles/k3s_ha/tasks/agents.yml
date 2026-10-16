@@ -1,0 +1,23 @@
+---
+- name: Download K3s installation script on worker agent
+  ansible.builtin.get_url:
+    url: https://get.k3s.io
+    dest: /tmp/k3s_install.sh
+    mode: '0755'
+
+- name: Join K3s agent to cluster via VIP
+  ansible.builtin.command:
+    cmd: >
+      /tmp/k3s_install.sh agent
+      --server https://{{ k3s_vip }}:6443
+      --token {{ k3s_cluster_token }}
+      --node-ip {{ ansible_host }}
+    creates: /usr/local/bin/k3s-agent
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+
+- name: Ensure K3s-agent service is started and enabled
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: started
+    enabled: true

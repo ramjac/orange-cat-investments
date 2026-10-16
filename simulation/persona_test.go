@@ -12,7 +12,7 @@ func TestNewRegistry(t *testing.T) {
 	require.NotNil(t, r)
 
 	personas := r.List()
-	assert.Len(t, personas, 12)
+	assert.Len(t, personas, 13)
 
 	for _, p := range personas {
 		assert.NotEmpty(t, p.ID, "persona ID should not be empty")

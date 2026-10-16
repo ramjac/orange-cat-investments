@@ -1,0 +1,19 @@
+---
+- name: Run prerequisites on all cluster nodes
+  ansible.builtin.include_tasks: prerequisites.yml
+
+- name: Initialize primary server node
+  ansible.builtin.include_tasks: primary_server.yml
+  when: inventory_hostname in groups['k3s_primary_server']
+
+- name: Join secondary server nodes to HA control plane
+  ansible.builtin.include_tasks: secondary_servers.yml
+  when: inventory_hostname in groups['k3s_secondary_servers']
+
+- name: Join agent nodes (if present)
+  ansible.builtin.include_tasks: agents.yml
+  when: "'k3s_agents' in groups and inventory_hostname in groups['k3s_agents']"
+
+- name: Verify cluster state and quorum
+  ansible.builtin.include_tasks: verify.yml
+  when: inventory_hostname in groups['k3s_primary_server']

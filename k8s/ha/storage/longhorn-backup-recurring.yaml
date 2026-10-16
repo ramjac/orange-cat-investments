@@ -1,0 +1,26 @@
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: snapshot-every-4h
+  namespace: longhorn-system
+spec:
+  cron: "0 */4 * * *"
+  task: "snapshot"
+  retain: 12
+  concurrency: 2
+  labels:
+    interval: four-hourly
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: backup-nightly-s3
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * *"
+  task: "backup"
+  retain: 30
+  concurrency: 1
+  labels:
+    interval: daily
+
