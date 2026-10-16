@@ -11,17 +11,30 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ### Key Operational Planes & Tech Stack:
 * **Orchestration & Infrastructure:** K3s Kubernetes, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
 * **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`). Supports partitioned modular schemas (`01-workforce-core.sql`, `02-facilities-core.sql`, etc.) for white-labeled SMB deployments.
-* **Custom Backend Services:**
-  * **Unified API Server (`cmd/server`):** Serves domain REST APIs across `core-invest`, `facilities`, `ops`, and `workforce`. Supports runtime domain feature flags (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`).
-  * **Go REST BFFs (`cmd/customer-bff` & `cmd/employee-bff`):** Connect web/mobile frontends using `net/http`. Uses server-side Valkey session management and double-submit CSRF protection.
-  * **Wearable Gateway Proxy (`cmd/pebble-proxy`):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations (`ops.it_tickets`).
-  * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, and automated cert-manager CA rotation tickers.
-* **Client Applications:**
-  * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers (Identity Provider: **ZITADEL OIDC**). Features portfolio analytics, WebRTC habitat stream player, trading terminal, and ESG transparency dashboard.
-  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule, Emergency Medical Hold, VHR charting, leave requests, and performance review cycles.
-  * **Hugo Marketing Site (`web/marketing`):** Static public marketing website.
-  * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app with offline SQLite sync engine, QR scanning, and firmware OTA rollout tracking.
-  * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (Embedded JavaScript / RePebble Alloy framework).
+* **Enterprise Multi-Tier Architecture & Custom Services:**
+  * **Tier 1: Client Applications:**
+    * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers (Identity Provider: **ZITADEL OIDC**). Features portfolio analytics, WebRTC habitat stream player, trading terminal, and ESG transparency dashboard.
+    * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff, employers, caretakers, and facilities engineers (Identity Provider: **Forgejo OAuth2**). Includes interactive Care Schedule, Emergency Medical Hold, VHR charting, leave requests, and performance review cycles.
+    * **Hugo Marketing Site (`web/marketing`):** Static public marketing website.
+    * **Flutter Mobile App (`mobile/flutter_app`):** Field maintenance mobile app with offline SQLite sync engine, QR scanning, and firmware OTA rollout tracking.
+    * **Pebble Watch App (`embedded/pebble`):** On-call alert response watch app (Embedded JavaScript / RePebble Alloy framework).
+  * **Tier 2: Backend-for-Frontend (BFF) Layer:**
+    * **Customer BFF (`cmd/customer-bff` :8083):** Dedicated presentation proxy managing ZITADEL OIDC sessions (`__Host-customer-session`), CSRF tokens, and SSE ticker streaming. *Invariant: NEVER connects directly to Domain APIs or DB schemas.*
+    * **Employee BFF (`cmd/employee-bff` :8081):** Dedicated presentation proxy managing Forgejo OAuth2 sessions (`__Host-employee-session`), CSRF tokens, and COTS integrations. *Invariant: NEVER connects directly to Domain APIs or DB schemas.*
+  * **Tier 3: Business Logic Layer (BLL):**
+    * **Customer BLL (`cmd/customer-bll`):** Middle-tier orchestrator for customer business rules, trade order execution, Plaid bank linking, broker adapter coordination, and async event publishing.
+    * **Internal BLL (`cmd/internal-bll`):** Middle-tier orchestrator for corporate sagas (`OnboardingSaga`, `OffboardingEngine`), veterinary care directives, executive BI reporting, and incident event publishing.
+  * **Tier 4: Domain APIs (gRPC on PostgreSQL):**
+    * **Workforce Domain API (`cmd/workforce-api` :50051):** Owns `workforce` schema.
+    * **Facilities Domain API (`cmd/facilities-api` :50052):** Owns `facilities` schema.
+    * **Core Invest Domain API (`cmd/core-invest-api` :50053):** Owns `core_invest` schema.
+    * **Ops Domain API (`cmd/ops-api` :50054):** Owns `ops` schema.
+    * *(Note: Currently hosted in unified server `cmd/server` during active microservice decomposition).*
+    * *Invariants: Domain APIs NEVER call each other. Authorized callers are strictly BLL APIs and authorized background/batch jobs.*
+  * **Tier 5: Event Bus, Async Workers & Batch Schedulers:**
+    * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, async ACH bank transfer settlements, and automated cert-manager CA rotation tickers.
+    * **Scheduled Batch Schedulers:** Cron runners for recurring ACH DCA deposits and automated end-of-month PDF statements.
+    * **Wearable Gateway Proxy (`cmd/pebble-proxy` :8082):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations and pub/sub real-time incident alerting.
 * **Simulation Driver:**
   * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all 12 personas across corporate staff, feline executives, and retail investors in mock or live execution modes.
 
@@ -41,17 +54,26 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ├── config/                # Platform branding & white-label design token manifest (`branding.yaml`)
 ├── docs/                  # Architecture Decision Records (`adr/`) and specifications
 ├── personas/              # Profile specifications for all 12 corporate & customer personas
-├── proto/                 # Protobuf definitions (`oci/core/`, `oci/ops/`)
+├── proto/                 # Protobuf definitions (`oci/workforce/`, `oci/facilities/`, etc.)
 ├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `gen/go`)
 │   ├── branding/          # Design token & white-label configuration loader
 │   └── envelope/          # Standard EventEnvelope[T] message wrapper
 ├── scripts/               # SQL scripts (`init.sql`, modular schemas) & bootstrapping
 ├── cmd/                   # Go application entrypoints
-│   ├── server/            # Unified API server hosting all 4 domains
 │   ├── customer-bff/      # Customer portal backend-for-frontend (:8083)
 │   ├── employee-bff/      # Employee portal backend-for-frontend (:8081)
+│   ├── customer-bll/      # Customer Business Logic Layer API (planned/target)
+│   ├── internal-bll/      # Internal Business Logic Layer API (planned/target)
+│   ├── workforce-api/     # Workforce Domain gRPC API (:50051, planned/target)
+│   ├── facilities-api/    # Facilities Domain gRPC API (:50052, planned/target)
+│   ├── core-invest-api/   # Core Invest Domain gRPC API (:50053, planned/target)
+│   ├── ops-api/           # Ops Domain gRPC API (:50054, planned/target)
+│   ├── server/            # Unified API server hosting all 4 domains (active refactoring)
 │   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy (:8082)
-│   └── worker/            # Background worker (Watermill, OTA, CA rotation)
+│   ├── portal-server/     # Static SPA file server container with /healthz
+│   ├── worker/            # Background worker (Watermill, OTA, CA rotation, ACH queue)
+│   ├── mock-bank/         # Isolated mock Plaid/bank API (external-sim)
+│   └── mock-broker/       # Isolated mock Alpaca/broker API (external-sim)
 ├── simulation/            # Full platform simulation driver & persona action suites
 │   └── cmd/simulator/     # Standalone simulation CLI (`-mode live|mock`)
 ├── web/                   # Frontend applications
@@ -92,7 +114,13 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
      - Platform simulation driver and persona action suites (`simulation/...`).
      - Isolated external simulation / mock microservices running in `external-sim` (`cmd/mock-broker/...`, `cmd/mock-bank/...`).
    * Hardcoding is also permissible for external unintegrated market ticker symbols where no market data feed is connected.
-2. **Schema Isolation:** Custom Go services strictly access their designated database schema (`workforce`, `facilities`, `core_invest`, `ops`). Direct cross-schema table queries or cross-Domain API calls are prohibited.
+2. **Schema & Multi-Tier Layer Isolation Invariants:**
+   * **Tier Hierarchy:** The platform enforces strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
+   * **BFF Isolation Invariant:** Frontend BFF applications (`customer-bff`, `employee-bff`) must **NEVER connect directly to Domain APIs, database schemas (`pgxpool`), or async queue consumers**. They must exclusively interface with client frontends, manage session cookies/CSRF tokens, and delegate all business operations to the Business Logic Layer (BLL) or COTS APIs.
+   * **Domain API Isolation Invariant:** Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) encapsulate their isolated PostgreSQL schemas over gRPC mTLS. **Domain APIs NEVER call each other.** Direct cross-domain database queries and inter-domain API calls are strictly forbidden. The ONLY authorized clients of Domain APIs are BLL APIs and authorized background worker/batch jobs.
+   * **Business Logic Layer (BLL) Role:** BLL services (`customer-bll`, `internal-bll`) contain all business orchestration, financial calculations, sagas, external provider clients (broker/bank), and event emissions. They sit strictly between BFFs and Domain APIs.
+   * **Async & Batch Processing Invariant:** Financial clearing operations (ACH settlement), batch generation (PDF reports), or periodic DCA execution run asynchronously via Watermill queue consumers or scheduled batch runners, never in synchronous request-response loops of BFFs.
+   * **Pub/Sub Real-Time Alerting Standard:** Safety incidents (`events.workforce.incident_created.v1`) must fan out asynchronously to web portal banners (SSE/WebSocket) and Pebble watch alerts (`cmd/pebble-proxy`), ensuring emergency responsiveness without synchronous coupling.
 3. **Dual Identity Provider Model:**
    * **ZITADEL:** Strictly reserved for external customer identity management (`web/customer-portal`).
    * **Forgejo:** System of record for internal employee, employer, staff, and developer identity management (`web/employee-portal`).

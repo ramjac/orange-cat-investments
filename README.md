@@ -526,34 +526,139 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.6 Self-Hosted GitOps, Production Containerization & Gated Promotion Pipeline via Forgejo [Implemented]
-Simulate a complete real-world software engineering lifecycle within the self-hosted environment:
-* **Production Multi-Stage Dockerfiles & Packaging:**
-  * Author optimized, secure multi-stage Dockerfiles for all custom Go backend services:
-    * [`cmd/server/Dockerfile`](file:///home/ramjac/orange-cat-investments/cmd/server/Dockerfile) (alpine minimal runtime)
-    * [`cmd/customer-bff/Dockerfile`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/Dockerfile)
-    * [`cmd/employee-bff/Dockerfile`](file:///home/ramjac/orange-cat-investments/cmd/employee-bff/Dockerfile)
-    * [`cmd/pebble-proxy/Dockerfile`](file:///home/ramjac/orange-cat-investments/cmd/pebble-proxy/Dockerfile)
-    * [`cmd/worker/Dockerfile`](file:///home/ramjac/orange-cat-investments/cmd/worker/Dockerfile)
-  * Author production NGINX-based multi-stage Dockerfiles for frontend web portals:
-    * [`web/customer-portal/Dockerfile`](file:///home/ramjac/orange-cat-investments/web/customer-portal/Dockerfile)
-    * [`web/employee-portal/Dockerfile`](file:///home/ramjac/orange-cat-investments/web/employee-portal/Dockerfile)
-* **Simulator CLI Compatibility for Live Staging Testing:**
-  * Update [`simulation/cmd/simulator/main.go`](file:///home/ramjac/orange-cat-investments/simulation/cmd/simulator/main.go) to support unified base URL flags (e.g., `-url` or smart staging URL routing) that automatically configure both API Server (`https://dev.api.oci.local`) and BFF endpoints (`https://dev.employee-bff.oci.local`), allowing the simulation suite to execute against Kubernetes staging environments without flag mismatch errors.
-* **Forgejo Actions Runner & Persona SDLC Workflow:**
-  * Deploy Forgejo Actions runner pods in `oci-internal` ([`k8s/oci-internal/forgejo-runner.yaml`](file:///home/ramjac/orange-cat-investments/k8s/oci-internal/forgejo-runner.yaml)) to execute continuous integration pipelines directly on the cluster.
-  * Define workflow pipelines ([`.forgejo/workflows/ci.yaml`](file:///home/ramjac/orange-cat-investments/.forgejo/workflows/ci.yaml)) to run automated tests (`go test -race ./...`, `go vet`, frontend tests) on every push and pull request.
-  * Add a Senior developer persona Marcus Lead ([`personas/marcus_senior_dev.md`](file:///home/ramjac/orange-cat-investments/personas/marcus_senior_dev.md)) who authors ADRs ([`docs/adr/0003-gitops-containerization-promotion-pipeline.md`](file:///home/ramjac/orange-cat-investments/docs/adr/0003-gitops-containerization-promotion-pipeline.md)) and reviews/approves pull requests by Elise Dev.
-  * Model the full software developer lifecycle using persona Elise Dev (`emp-human-elise`):
-    1. Elise creates a feature branch and pushes changes to a Forgejo repository.
-    2. Opens a Pull Request in Forgejo; automated CI workflow validates the build.
-    3. Peer review by Senior developer and PR merge trigger an automated build pushing container images to the local Forgejo container registry (`localhost:32000`).
-* **Automated Merge Deployment to `oci-dev`:**
-  * In Forgejo Actions CI ([`.forgejo/workflows/ci.yaml`](file:///home/ramjac/orange-cat-investments/.forgejo/workflows/ci.yaml)), build and push container images tagged with `:dev-latest` and unique commit SHA `sha-<commit>` to the local cluster container registry (`localhost:32000`).
-  * Automatically apply manifests in [`k8s/oci-dev/`](file:///home/ramjac/orange-cat-investments/k8s/oci-dev/) and wait for rolling update completion via `kubectl rollout status`.
-* **Live Integration Testing Gate & Production Promotion:**
-  * Execute the full 13-persona simulation driver in live mode against the active `oci-dev` staging cluster (`go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local`).
-  * Gate production promotion strictly on 100% test pass: only when live staging verification succeeds without error are container images retagged to `:prod-stable` and `:latest` and manifests in [`k8s/oci-core/`](file:///home/ramjac/orange-cat-investments/k8s/oci-core/) rolled out to production.
+### 7.7 Exercise all application types
+Review repo to verify implementation of all architectural patterns across an enterprise-grade multi-tier system. The platform intentionally demonstrates an enterprise-grade microservices architecture designed to scale well beyond a single small business, featuring strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
+
+* **Custom Application Types & Monorepo Mapping:**
+  * **Internal Web Portal (`web/employee-portal` + `cmd/employee-bff`):**
+    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Employee BFF (`:8081`).
+    * *COTS Application Directory / Launcher:* Base launchpad page with 1-click status cards linking directly to internal COTS platforms (Nextcloud, Forgejo, ERPNext/Frappe HR, Snipe-IT, and Grafana).
+    * *Intranet & Workplace Policies:* Internal HR knowledge base with WebDAV document reader linking directly to policy documents, standard operating procedures (SOPs), and clinical protocols in Nextcloud departmental group folders.
+    * *Engineering Architecture & Handbook:* Internal engineering documentation viewer with developer expectations, GitOps workflow, and direct markdown rendering of Architecture Decision Records (ADRs `0001`, `0002`, `0003`).
+    * *Built-Out Internal Functionality:*
+      * *Veterinary Care Schedules & Medical Holds:* Feline executive care editor (dietary protocols, feeding times, special medical directives, perch zones) and one-click Emergency Medical Trading Hold toggle halting algorithmic trading triggers.
+      * *Electronic Veterinary Health Records (VHR):* Clinical examination records, dental scoring (1–5 scale), biometric weight progression charts, vaccination histories, and prescription tracking.
+      * *IT Helpdesk & Issue Tracker:* Bi-directional synchronization with Forgejo issue tracker (`oci-internal/helpdesk`), priority triage, discussion threads, and on-call escalation.
+      * *IT Onboarding & Lifecycle Sagas:* Distributed sagas (`OnboardingSaga` & `OffboardingEngine`) automating user accounts across Forgejo (Git repos & SSH keys), Nextcloud (storage quotas & group folders), and Snipe-IT (hardware asset checkouts).
+      * *Timesheets & Attendance Tracking:* Clock-in/clock-out tracking with activity categorization, meal deduction calculations, and automated provisioning to Frappe HR DocTypes / ERPNext cost centers.
+      * *Compensation & Payroll:* Salary/hourly compensation records, catnip allowances, direct deposit bank routing, and immutable paystub history with tax withholding summaries.
+      * *Executive Reports & Business Intelligence:* Monthly P&L dashboards, operational burn rates, cash reserves, total AUM trends, and automated monthly management report generator depositing PDF/CSV packages into Nextcloud WebDAV compliance vault.
+      * *Leave Requests & Catnip Breaks:* Paid time off, medical leave, and feline sabbatical requests with manager approval state machines and calendar integration.
+      * *Performance Review Cycles & Assessments:* Dual-evaluation cycles for human staff and feline executives (rating whisker symmetry, nap discipline, zoomie precision, and alpha contribution).
+      * *Workplace Incidents & Hazard Logs:* Safety hazard reporting (e.g. knocked water glasses, wire chew incidents), status tracking, and mitigation logs.
+      * *Dynamic Quantitative Backtesting Workbench:* Quantitative historical alpha backtesting engine with customizable feline observation multipliers, Sharpe ratio, and drawdown metrics.
+    * *Architectural Invariants:*
+      * This application **NEVER directly connects to Domain APIs or database schemas**.
+      * Exclusively consumes the Internal Business Logic Layer (`cmd/internal-bll`) and COTS REST/OAuth2/WebDAV APIs.
+      * Manages browser authentication sessions via opaque HTTP-only cookies (`__Host-employee-session`) and validates double-submit CSRF tokens.
+
+  * **Customer Web Portal (`web/customer-portal` + `cmd/customer-bff`):**
+    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Customer BFF (`:8083`).
+    * *Account Summary Landing Page:* Real-time portfolio valuation, cash balance, YTD return metrics, asset allocation breakdowns, and historical valuation growth charts.
+    * *Orange Observation & Investment Insights:* Live low-latency (<500ms) WebRTC habitat video stream player with real-time AI vision overlays (activity classification & confidence scores), plus the live Zoomie Index score banner.
+    * *Bank Account Linking:* Plaid client integration (`pkg/bank/plaid`) with mock bank verification for ACH account linking.
+    * *Funds Transfers & Capital Deposits:* Automated Dollar-Cost Averaging (DCA) deposit scheduler (weekly, bi-weekly, monthly) and transfer status tracking.
+    * *Investment Order Management:* Active trading terminal supporting 1-click "Zoomie Pounce" instant executions, market orders, bracket orders (stop-loss + take-profit), and trailing stop orders.
+    * *Performance Summaries & Regulatory Statements:* Statements & Tax Forms hub rendering IRS Form 1099-B capital gains tax returns and monthly portfolio statements generated via pure Go PDF 1.4 engine (`pkg/reporting`).
+    * *Built-Out Customer Functionality:*
+      * *Live Market Ticker Stream:* Server-Sent Events (SSE) pushing real-time market price updates and percentage changes.
+      * *Developer API Keys & Webhooks:* Self-service HMAC API key generation for customer quant trading bots and custom webhook endpoint subscriptions.
+      * *Feline Welfare & ESG Transparency Dashboard:* Public-facing welfare metrics (overall welfare score, veterinary adherence, perch comfort rating, individual feline executive vitals).
+      * *Customer Support Desk:* Ticket submission with category routing (Trading, Banking, Habitat, UI Bug, General), synchronized with a dedicated Forgejo repository (`oci-internal/customer-support`) and bi-directional message thread.
+      * *Account Settings, Liquidation & GDPR Privacy:* Self-service GDPR "Right to be Forgotten" pipeline that anonymizes customer PII across databases and sessions, automatically issuing an immutable, cryptographically verifiable PDF GDPR Erasure Certificate.
+    * *Architectural Invariants:*
+      * This application **NEVER directly connects to Domain APIs, scheduled jobs, or async queue consumers**.
+      * Exclusively consumes the Customer Business Logic Layer (`cmd/customer-bll`).
+      * Manages customer browser authentication sessions via ZITADEL OIDC, issuing opaque HTTP-only cookies (`__Host-customer-session`) and enforcing CSRF protection.
+
+  * **Static Public Website (`web/marketing`):**
+    * *Architecture:* Fast, lightweight static website generated using Hugo and served via a hardened web container.
+    * *Content & Scope:* Single-page public marketing website highlighting OCI's feline behavioral observation alpha model, investment tier comparisons (Observer vs. Momentum Alpha), live Zoomie Index snapshot badge, and clear calls-to-action (CTA) to register via the Customer Web Portal. Consumes design tokens and branding guidelines from `config/branding.yaml`.
+    * *Implementation & CI/CD Pipeline Plan:*
+      1. Create Hugo site structure in `web/marketing/` (layouts, static assets, content, design tokens).
+      2. Author dedicated Forgejo Action / build script (`scripts/build-marketing.sh`):
+         * Step 1: Run Hugo build (`hugo --minify`) to compile HTML/CSS/JS into `public/`.
+         * Step 2: Multi-stage Docker build packaging compiled static assets into an ultra-lean Nginx or `cmd/portal-server` container (`oci-marketing:latest`).
+      3. Author Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
+
+  * **Domain APIs (Workforce, Facilities, Core Invest, Ops):**
+    * *Architecture:* Standalone, single-responsibility gRPC microservices running on top of isolated PostgreSQL database schemas.
+    * *Primary Concern:* Data correctness, transaction boundaries, schema invariants, and performant querying.
+    * *Architectural Invariants:*
+      * **Domain APIs do not call each other.** Cross-domain database joins and direct cross-domain API calls are strictly forbidden.
+      * The only authorized clients of Domain APIs are **Business Logic Layer (BLL) APIs** and authorized background worker/batch jobs.
+      * Zero public ingress: Domain APIs are completely unexposed to external traffic and protected by Kubernetes NetworkPolicies.
+    * *Refactoring Plan (Decomposing the Unified API Server):*
+      1. *Protobuf Contract Definitions:* Define strict Protobuf 3 specs in `proto/oci/`:
+         * `proto/oci/workforce/v1/workforce.proto` (Employees, Care Schedules, Reviews, VHR, Incidents)
+         * `proto/oci/facilities/v1/facilities.proto` (Hardware Assets, Maintenance Logs, Firmware Releases, OTA Jobs)
+         * `proto/oci/core_invest/v1/core_invest.proto` (Portfolios, Holdings, Orders, Observations, Deposits)
+         * `proto/oci/ops/v1/ops.proto` (IT Tickets, Alert Subscriptions, Audit Logs)
+      2. *Code Generation:* Generate Go gRPC server and client stubs into `pkg/gen/go/` via `buf` or `protoc`.
+      3. *Microservice Separation:* Split `cmd/server` into 4 dedicated service binaries:
+         * `cmd/workforce-api` (Port 50051, isolated connection to PostgreSQL `workforce` schema)
+         * `cmd/facilities-api` (Port 50052, isolated connection to PostgreSQL `facilities` schema)
+         * `cmd/core-invest-api` (Port 50053, isolated connection to PostgreSQL `core_invest` schema)
+         * `cmd/ops-api` (Port 50054, isolated connection to PostgreSQL `ops` schema)
+      4. *Security & mTLS:* Enforce inter-service mutual TLS (mTLS) with dynamic certificate reloaders (`crypto/tls`) provisioned by `cert-manager`.
+      5. *Kubernetes Manifests:* Create individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/` restricting gRPC ingress exclusively to authorized BLL pods.
+
+  * **Business Logic Layer APIs (Customer BLL & Internal BLL):**
+    * *Architecture:* Middle-tier microservices that sit strictly between the BFFs and the Domain APIs.
+    * *Primary Concern:* Business rules, multi-domain orchestration, quantitative calculations, distributed sagas, third-party adapter execution (broker/bank), and event emission.
+    * *Refactoring Plan (Separating into Dual BLL Services):*
+      1. *Customer BLL (`cmd/customer-bll`):*
+         * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter (`pkg/broker/alpaca`), verifies bank accounts via Plaid adapter (`pkg/bank/plaid`), and computes portfolio performance metrics.
+         * Emits asynchronous events to RabbitMQ (`events.investment.order_placed.v1`, `events.banking.ach_transfer_requested.v1`).
+         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/customer-bff`.
+      2. *Internal BLL (`cmd/internal-bll`):*
+         * Orchestrates corporate operations: executes `OnboardingSaga` and `OffboardingEngine` across `workforce-api` and `ops-api`, validates veterinary care directives, calculates executive BI metrics, and triggers edge firmware updates via `facilities-api`.
+         * Emits asynchronous events to RabbitMQ (`events.workforce.incident_created.v1`, `events.facilities.ota_triggered.v1`, `events.reporting.generate_monthly_requested.v1`).
+         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/employee-bff`.
+      3. *BFF Decoupling:* Refactor `cmd/customer-bff` and `cmd/employee-bff` to remove in-process database repositories, transforming them into pure presentation proxies that delegate business logic to `cmd/customer-bll` and `cmd/internal-bll`.
+
+  * **Async Queue Consumer Application (`cmd/worker`):**
+    * *Architecture:* Event-driven worker subscribing to RabbitMQ message streams using the Go Watermill framework.
+    * *Existing Handlers:*
+      * Observation-triggered algorithmic portfolio allocation and automated trade execution.
+      * Dynamic quantitative strategy backtest computation engine.
+      * Edge device OTA firmware update pipeline (download, checksum verification, device flashing, status callback).
+      * Executive report generation orchestrator depositing PDF/CSV assets into Nextcloud WebDAV.
+    * *Plan for Async Bank Transfers & ACH Settlement:*
+      1. Define `events.banking.ach_transfer_requested.v1` envelope containing transfer ID, customer ID, bank account, amount USD, and transfer type (deposit/withdrawal).
+      2. Implement `HandleACHTransferRequested` in `cmd/worker`:
+         * Consumes transfer requests from RabbitMQ.
+         * Calls external mock banking API (`cmd/mock-bank`) to initiate ACH clearing.
+         * Enforces realistic asynchronous settlement delay (e.g., simulating a multi-second clearing window).
+         * Calls `core-invest-api` to credit or debit portfolio cash balance upon settlement.
+         * Emits `events.banking.ach_settled.v1` to notify the Customer BLL and trigger customer notification.
+
+  * **Scheduled / Batch Job Application:**
+    * *Architecture:* Time-triggered cron and batch worker executing periodic business maintenance workflows.
+    * *Existing Handlers:* Automated PKI intermediate CA rotation ticker checking and rotating expired certificates.
+    * *Plan for Recurring ACH Batch Processor & Statement Generator:*
+      1. *Recurring ACH Deposit Processor:*
+         * Scheduled cron runner (e.g. daily at 00:00 UTC or periodic ticker) executing in `cmd/worker` or standalone Kubernetes `CronJob`.
+         * Queries due recurring deposit schedules from `core-invest-api`.
+         * Dispatches `events.banking.ach_transfer_requested.v1` to the async queue consumer for each due deposit.
+      2. *Automated End-of-Month Statement Batch Generator:*
+         * Scheduled cron runner executing on the 1st of every month at 01:00 UTC.
+         * Batches all active customer portfolios, invokes `pkg/reporting` to generate IRS 1099-B tax forms and monthly portfolio PDF statements, deposits copies into Nextcloud WebDAV compliance vault, and emits completion notifications.
+
+  * **Pub/Sub Application (Incident Alerting Pipeline):**
+    * *Architecture:* Topic-based event publication and real-time subscriber fanout across wearables and web frontends.
+    * *Plan for Workplace Incident Alert Pipeline:*
+      1. *Incident Event Publication:* When a safety incident is logged in the Internal BLL (e.g., feline knocks water glass onto IT server rack in Zone Alpha), publish `events.workforce.incident_created.v1` to RabbitMQ with incident ID, room zone, severity level (`urgent`, `critical`, `info`), and hazard description.
+      2. *Real-Time Web Portal Banner:* A pub/sub consumer forwards the incident event to an active Server-Sent Events (SSE) or WebSocket hub in `cmd/employee-bff`, broadcasting an emergency banner across all active employee portal browser sessions.
+      3. *Wearable Alert Push to Pebble Watch:* A dedicated listener in `cmd/pebble-proxy` catches the incident event, converts it into a wearable alert payload, and immediately dispatches a vibrating alert notification with one-click physical button acknowledgment (ACK) to on-call engineers wearing Pebble smartwatches.
+
+### 7.8 Monitoring and Alerting
+Make better use of our logging and monitoring infra to surface issues
+* **Monitors:**
+  * Monitors for COTS apps
+  * Healthcheck monitors for websites and APIs
+* **Alert notifications:**
+  * Pub/sub alert to watches and internal web banner?
 
 ### 7.11 Zero Trust Security Architecture: Dynamic mTLS, Network Policies & Secret Management
 Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:
@@ -567,7 +672,4 @@ Complete the zero-trust security architecture to eliminate trust assumptions bet
 * **Zero Static Secrets & Workload Identity:**
   * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
   * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending on network perimeter security.
-
-
-
 
