@@ -55,3 +55,8 @@ build/
 
 # Local server / environment notes (private host details)
 local-server-notes.md
+
+# TLS Private Keys
+*.key
+k8s/ha/lan/tls/*.key
+
