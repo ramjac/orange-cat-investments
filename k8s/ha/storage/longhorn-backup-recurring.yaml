@@ -23,14 +23,4 @@ spec:
   concurrency: 1
   labels:
     interval: daily
----
-# Secret template for Longhorn volume encryption at rest (StorageClass: longhorn-crypto)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: longhorn-crypto-key
-  namespace: longhorn-system
-type: Opaque
-stringData:
-  CRYPTO_KEY_VALUE: "OCI-LUKS-Encryption-Key-2026-SuperSecure"
-  CRYPTO_KEY_PROVIDER: "secret"
+

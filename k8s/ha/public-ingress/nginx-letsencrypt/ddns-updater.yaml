@@ -36,16 +36,21 @@ spec:
                 - -c
                 - |
                   set -eu
-                  CURRENT_IP=$(curl -s https://api.ipify.org || curl -s https://icanhazip.com)
+                  CURRENT_IP=$(curl -fsS https://api.ipify.org || curl -fsS https://icanhazip.com)
                   echo "Detected public WAN IP: ${CURRENT_IP}"
                   
                   # Query Cloudflare for current record ID and IP
-                  RECORD_INFO=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?name=${RECORD_NAME}&type=A" \
+                  RECORD_INFO=$(curl -fsS -X GET "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records?name=${RECORD_NAME}&type=A" \
                     -H "Authorization: Bearer ${API_TOKEN}" \
                     -H "Content-Type: application/json")
                   
                   RECORD_ID=$(echo "${RECORD_INFO}" | grep -o '"id":"[^"]*' | head -n1 | cut -d'"' -f4)
                   EXISTING_IP=$(echo "${RECORD_INFO}" | grep -o '"content":"[^"]*' | head -n1 | cut -d'"' -f4)
+                  
+                  if [ -z "${RECORD_ID}" ]; then
+                    echo "Error: Failed to find DNS record ID for ${RECORD_NAME} in response: ${RECORD_INFO}" >&2
+                    exit 1
+                  fi
                   
                   if [ "${CURRENT_IP}" = "${EXISTING_IP}" ]; then
                     echo "DNS record already up-to-date (${CURRENT_IP}). No change needed."
@@ -53,10 +58,15 @@ spec:
                   fi
                   
                   echo "Updating ${RECORD_NAME} (${RECORD_ID}) from ${EXISTING_IP} to ${CURRENT_IP}..."
-                  curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
+                  UPDATE_RESP=$(curl -fsS -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${RECORD_ID}" \
                     -H "Authorization: Bearer ${API_TOKEN}" \
                     -H "Content-Type: application/json" \
-                    --data "{\"type\":\"A\",\"name\":\"${RECORD_NAME}\",\"content\":\"${CURRENT_IP}\",\"ttl\":120,\"proxied\":false}"
+                    --data "{\"type\":\"A\",\"name\":\"${RECORD_NAME}\",\"content\":\"${CURRENT_IP}\",\"ttl\":120,\"proxied\":false}")
+                  
+                  echo "${UPDATE_RESP}" | grep '"success":true' >/dev/null || {
+                    echo "Error: Cloudflare update reported failure: ${UPDATE_RESP}" >&2
+                    exit 1
+                  }
                   
                   echo "DDNS update successful!"
               env:

@@ -35,6 +35,13 @@ spec:
     - host: customer.orangecatinvestments.com
       http:
         paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-service
+                port:
+                  number: 8083
           - path: /
             pathType: Prefix
             backend:

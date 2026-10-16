@@ -30,7 +30,7 @@ func GenerateExecutiveCSV(r *ExecutiveReport) (string, error) {
 		{"Financial", "Runway Months", fmt.Sprintf("%.2f", fin.RunwayMonths), "Months", "Cash reserves divided by monthly burn rate"},
 		{"Workforce", "Total Headcount", fmt.Sprintf("%d", wf.TotalHeadcount), "Staff", "All active corporate human staff and feline analysts"},
 		{"Workforce", "Human Headcount", fmt.Sprintf("%d", wf.HumanHeadcount), "Staff", "Full-time engineering ops hr and veterinary staff"},
-		{"Workforce", "Feline Headcount", fmt.Sprintf("%d", wf.FelineHeadcount), "Executives", "Executive feline leadership (Garfield and Barneby)"},
+		{"Workforce", "Feline Headcount", fmt.Sprintf("%d", wf.FelineHeadcount), "Executives", "Executive feline leadership and quantitative trading talent"},
 		{"Workforce", "Attendance Rate", fmt.Sprintf("%.2f", wf.AttendanceRate), "Percent", "Shift attendance verified through badge and timesheets"},
 		{"Workforce", "Total Hours Worked", fmt.Sprintf("%.2f", wf.TotalHoursWorked), "Hours", "Combined human and feline logged duty hours"},
 		{"Workforce", "Overtime Hours", fmt.Sprintf("%.2f", wf.OvertimeHours), "Hours", "Additional shift and on-call duty hours logged"},
@@ -46,7 +46,11 @@ func GenerateExecutiveCSV(r *ExecutiveReport) (string, error) {
 	}
 
 	for _, row := range records {
-		if err := w.Write(row); err != nil {
+		sanitizedRow := make([]string, len(row))
+		for i, col := range row {
+			sanitizedRow[i] = sanitizeCSVField(col)
+		}
+		if err := w.Write(sanitizedRow); err != nil {
 			return "", err
 		}
 	}
@@ -58,3 +62,18 @@ func GenerateExecutiveCSV(r *ExecutiveReport) (string, error) {
 
 	return buf.String(), nil
 }
+
+// sanitizeCSVField neutralizes spreadsheet formula injection risks (OWASP CSV Injection).
+// If a string starts with '=', '+', '-', '@', '\t', or '\r', it is prefixed with a single quote.
+func sanitizeCSVField(val string) string {
+	if len(val) == 0 {
+		return val
+	}
+	switch val[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + val
+	default:
+		return val
+	}
+}
+

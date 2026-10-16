@@ -45,7 +45,8 @@ while True:
         break
 ")
 
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Set restrictive umask before creating credential files to avoid world-readable exposure
+umask 077
 
 cat <<EOF > "${CREDENTIALS_FILE}"
 ================================================================================
@@ -92,6 +93,18 @@ cat <<EOF > "${CREDENTIALS_JSON}"
 EOF
 
 chmod 600 "${CREDENTIALS_FILE}" "${CREDENTIALS_JSON}"
+
+# Provision Kubernetes secret if kubectl is configured
+if command -v kubectl &>/dev/null; then
+  if kubectl get namespace oci-internal &>/dev/null; then
+    kubectl create secret generic starter-admin-credentials \
+      --namespace oci-internal \
+      --from-literal=ADMIN_USERNAME="admin" \
+      --from-literal=ADMIN_EMAIL="admin@oci.local" \
+      --from-literal=ADMIN_PASSWORD="${GENERATED_PASSWORD}" \
+      --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+  fi
+fi
 
 echo "================================================================================"
 echo "  ✅ Starter Platform Administrator Credentials Generated Successfully!"

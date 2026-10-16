@@ -52,9 +52,34 @@ if [[ "${TARGET_NAMESPACE}" == "oci-core" || "${TARGET_NAMESPACE}" == "prod"* ||
 fi
 
 if [[ -n "${TARGET_DB}" ]]; then
-    if [[ "${TARGET_DB}" == *"oci-core"* || "${TARGET_DB}" == *"/oci?"* || "${TARGET_DB}" == *"/oci\""* ]]; then
-        echo "❌ CRITICAL SECURITY ERROR: Database URL appears to target production 'oci-core' database!" >&2
-        echo "Seed data is strictly restricted to development ('oci-dev')." >&2
+    DB_VALIDATION=$(python3 -c "
+import urllib.parse, sys
+
+try:
+    parsed = urllib.parse.urlparse(sys.argv[1])
+    path = parsed.path.strip('/')
+    host = parsed.hostname or ''
+    # Reject production database or namespace references
+    if path == 'oci' or 'oci-core' in host or 'prod' in host:
+        print('INVALID_PROD')
+    elif path != 'oci_dev' and not path.endswith('_dev') and not path.startswith('dev'):
+        print('INVALID_NOT_DEV')
+    else:
+        print('VALID')
+except Exception as e:
+    print('ERROR')
+" "${TARGET_DB}")
+
+    if [[ "${DB_VALIDATION}" == "INVALID_PROD" ]]; then
+        echo "❌ CRITICAL SECURITY ERROR: Database URL targets production database or host!" >&2
+        echo "Target database cannot be production 'oci' or host 'oci-core'. Seed data is strictly restricted to development ('oci_dev')." >&2
+        exit 1
+    elif [[ "${DB_VALIDATION}" == "INVALID_NOT_DEV" ]]; then
+        echo "❌ CRITICAL SECURITY ERROR: Database name in URL is not a recognized development database!" >&2
+        echo "Expected development database name 'oci_dev', got target from: ${TARGET_DB}" >&2
+        exit 1
+    elif [[ "${DB_VALIDATION}" == "ERROR" ]]; then
+        echo "❌ ERROR: Malformed database connection URL: ${TARGET_DB}" >&2
         exit 1
     fi
 fi
@@ -67,7 +92,7 @@ fi
 # 2. Execute Seeding
 if [[ -n "${TARGET_DB}" ]]; then
     echo "Applying seed data directly via database connection string..."
-    psql "${TARGET_DB}" -f "${SEED_SQL}"
+    psql "${TARGET_DB}" -v ON_ERROR_STOP=1 -f "${SEED_SQL}"
 elif command -v kubectl &>/dev/null; then
     echo "Applying seed data via kubectl to StatefulSet 'postgres-dev' in namespace '${TARGET_NAMESPACE}'..."
     if ! kubectl get namespace "${TARGET_NAMESPACE}" &>/dev/null; then
@@ -80,7 +105,7 @@ elif command -v kubectl &>/dev/null; then
     kubectl rollout status statefulset/postgres-dev -n "${TARGET_NAMESPACE}" --timeout=60s || true
 
     kubectl exec -i -n "${TARGET_NAMESPACE}" statefulset/postgres-dev -- \
-        psql -U oci_admin -d oci_dev < "${SEED_SQL}"
+        psql -U oci_admin -d oci_dev -v ON_ERROR_STOP=1 < "${SEED_SQL}"
 else
     echo "ERROR: Neither TARGET_DB nor 'kubectl' command found." >&2
     echo "Please set DEV_DATABASE_URL or ensure kubectl is configured for namespace '${TARGET_NAMESPACE}'." >&2

@@ -108,6 +108,20 @@ kubectl rollout status deployment/valkey -n oci-core --timeout=120s || true
 echo "Waiting for RabbitMQ..."
 kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s || true
 
+# Provision starter platform administrator in Forgejo IdP if deployed
+if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-admin-credentials -n oci-internal &>/dev/null; then
+    echo ""
+    echo "8. Provisioning starter platform administrator account in Forgejo IdP..."
+    if kubectl rollout status deployment/forgejo -n oci-internal --timeout=90s 2>/dev/null; then
+        ADMIN_PWD=$(kubectl get secret starter-admin-credentials -n oci-internal -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d 2>/dev/null || true)
+        if [[ -n "${ADMIN_PWD}" ]]; then
+            kubectl exec -n oci-internal deployment/forgejo -- \
+                forgejo admin user create --admin --username "admin" --password "${ADMIN_PWD}" --email "admin@oci.local" 2>/dev/null || true
+            echo "Starter admin account 'admin' provisioned in Forgejo."
+        fi
+    fi
+fi
+
 echo ""
 echo "=============================================================="
 echo "  OCI Platform Workloads Successfully Deployed!              "

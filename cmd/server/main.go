@@ -189,14 +189,17 @@ func main() {
 	}
 
 	var hrClient workforce_svc.HRClient
-	frappeURL := os.Getenv("FRAPPE_HR_URL")
-	if frappeURL != "" {
+	hrURL := os.Getenv("HR_SYSTEM_URL")
+	if hrURL == "" {
+		hrURL = os.Getenv("FRAPPE_HR_URL")
+	}
+	if hrURL != "" {
 		hrClient = frappe.NewClient(frappe.Config{
-			BaseURL:   frappeURL,
+			BaseURL:   hrURL,
 			APIKey:    os.Getenv("FRAPPE_API_KEY"),
 			APISecret: os.Getenv("FRAPPE_API_SECRET"),
 		})
-		logger.Info("Frappe HR client initialized", "url", frappeURL)
+		logger.Info("connected API server to HR management system", "url", hrURL)
 	}
 
 	var workspaceClient workforce_svc.WorkspaceClient

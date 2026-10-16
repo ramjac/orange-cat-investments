@@ -108,8 +108,17 @@ func TestConfigValidateTarget(t *testing.T) {
 	assert.Error(t, err, "live mode targeting oci-core namespace service must be blocked")
 	assert.Contains(t, err.Error(), "strictly restricted to 'oci-dev'")
 
+	// Live mode targeting spoofed URL with userinfo must be blocked
+	spoofedCfg := &Config{
+		Mode:      "live",
+		ServerURL: "https://dev.api.oci.local@api.oci.local",
+	}
+	err = spoofedCfg.ValidateTarget()
+	assert.Error(t, err, "spoofed URL with userinfo must be blocked")
+
 	// Verify NewDriver blocks invalid targets
 	_, err = NewDriver(prodCfg)
 	assert.Error(t, err, "NewDriver must fail if target is production")
 }
+
 

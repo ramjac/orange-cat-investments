@@ -1,0 +1,22 @@
+# ==============================================================================
+# Longhorn Storage Encryption Secret Template (StorageClass: longhorn-crypto)
+# ==============================================================================
+# CRITICAL SECURITY NOTICE:
+# Do NOT check actual passphrase values into version control.
+# Generate a unique 32-byte cryptographically secure key:
+#   head -c 32 /dev/urandom | base64
+# Then create the secret in longhorn-system:
+#   kubectl create secret generic longhorn-crypto-key \
+#     --namespace longhorn-system \
+#     --from-literal=CRYPTO_KEY_VALUE="<YOUR-GENERATED-KEY>" \
+#     --from-literal=CRYPTO_KEY_PROVIDER="secret"
+# ==============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: longhorn-crypto-key
+  namespace: longhorn-system
+type: Opaque
+stringData:
+  CRYPTO_KEY_VALUE: "REPLACE_WITH_CSPRNG_PASSPHRASE"
+  CRYPTO_KEY_PROVIDER: "secret"

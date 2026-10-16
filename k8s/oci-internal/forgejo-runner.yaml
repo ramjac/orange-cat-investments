@@ -17,19 +17,10 @@ data:
         - "ubuntu-latest:docker://node:20-bookworm"
         - "ubuntu-22.04:docker://node:20-bookworm"
         - "docker:docker://docker:dind"
+      envs:
+        DOCKER_HOST: tcp://localhost:2375
     host:
       workdir: /tmp/runner/workspace
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: forgejo-runner-secret
-  namespace: oci-internal
-  labels:
-    app: forgejo-runner
-type: Opaque
-stringData:
-  RUNNER_TOKEN: "oci_internal_forgejo_runner_token_secret"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -53,6 +44,8 @@ spec:
           image: codeberg.org/forgejo/act_runner:latest
           imagePullPolicy: IfNotPresent
           env:
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2375"
             - name: GITEA_INSTANCE_URL
               value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
             - name: GITEA_RUNNER_REGISTRATION_TOKEN
@@ -63,7 +56,7 @@ spec:
             - name: GITEA_RUNNER_NAME
               value: "oci-cluster-runner"
             - name: GITEA_RUNNER_LABELS
-              value: "ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm"
+              value: "ubuntu-latest:docker://node:20-bookworm,ubuntu-22.04:docker://node:20-bookworm,docker:docker://docker:dind"
             - name: CONFIG_FILE
               value: "/config/config.yaml"
           resources:
@@ -78,9 +71,30 @@ spec:
               mountPath: /config
             - name: runner-data
               mountPath: /data
+        # Docker-in-Docker sidecar engine providing Docker daemon for container jobs
+        - name: daemon
+          image: docker:26-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: docker-storage
+              mountPath: /var/lib/docker
       volumes:
         - name: runner-config
           configMap:
             name: forgejo-runner-config
         - name: runner-data
           emptyDir: {}
+        - name: docker-storage
+          emptyDir: {}
+

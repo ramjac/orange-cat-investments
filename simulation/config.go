@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -84,17 +85,29 @@ func (c *Config) ValidateTarget() error {
 	}
 
 	for _, t := range targets {
-		u := strings.ToLower(strings.TrimSpace(t.url))
-		if u == "" {
+		raw := strings.TrimSpace(t.url)
+		if raw == "" {
 			continue
 		}
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("simulation target %s ('%s') is invalid URL: %w", t.name, t.url, err)
+		}
+		if parsed.User != nil {
+			return fmt.Errorf("simulation target %s ('%s') is rejected: unexpected userinfo in URL", t.name, t.url)
+		}
+		hostname := strings.ToLower(parsed.Hostname())
+		if hostname == "" {
+			continue
+		}
+
 		// Disallow explicit production domains or namespace references
-		isProdNamespace := strings.Contains(u, "oci-core") || strings.Contains(u, ".production")
-		isProdDomain := (strings.Contains(u, "api.oci.local") && !strings.Contains(u, "dev.api.oci.local")) ||
-			(strings.Contains(u, "employee-bff.oci.local") && !strings.Contains(u, "dev.employee-bff.oci.local")) ||
-			(strings.Contains(u, "customer-bff.oci.local") && !strings.Contains(u, "dev.customer-bff.oci.local")) ||
-			(strings.Contains(u, "employee.oci.local") && !strings.Contains(u, "dev.employee.oci.local")) ||
-			(strings.Contains(u, "customer.oci.local") && !strings.Contains(u, "dev.customer.oci.local"))
+		isProdNamespace := strings.Contains(hostname, "oci-core") || strings.Contains(hostname, ".production")
+		isProdDomain := (strings.Contains(hostname, "api.oci.local") && !strings.Contains(hostname, "dev.api.oci.local")) ||
+			(strings.Contains(hostname, "employee-bff.oci.local") && !strings.Contains(hostname, "dev.employee-bff.oci.local")) ||
+			(strings.Contains(hostname, "customer-bff.oci.local") && !strings.Contains(hostname, "dev.customer-bff.oci.local")) ||
+			(strings.Contains(hostname, "employee.oci.local") && !strings.Contains(hostname, "dev.employee.oci.local")) ||
+			(strings.Contains(hostname, "customer.oci.local") && !strings.Contains(hostname, "dev.customer.oci.local"))
 
 		if isProdNamespace || isProdDomain {
 			return fmt.Errorf("simulation target %s ('%s') is rejected: simulation is strictly restricted to 'oci-dev' (e.g. https://dev.api.oci.local or local dev/test servers); production 'oci-core' is protected and must remain clean", t.name, t.url)

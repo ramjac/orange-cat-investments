@@ -58,14 +58,17 @@ func main() {
 	}
 
 	var hrClient wfService.HRClient
-	frappeURL := os.Getenv("FRAPPE_HR_URL")
-	if frappeURL != "" {
+	hrURL := os.Getenv("HR_SYSTEM_URL")
+	if hrURL == "" {
+		hrURL = os.Getenv("FRAPPE_HR_URL")
+	}
+	if hrURL != "" {
 		hrClient = frappe.NewClient(frappe.Config{
-			BaseURL:   frappeURL,
+			BaseURL:   hrURL,
 			APIKey:    os.Getenv("FRAPPE_API_KEY"),
 			APISecret: os.Getenv("FRAPPE_API_SECRET"),
 		})
-		logger.Info("Frappe HR client initialized", "url", frappeURL)
+		logger.Info("connected Employee BFF to HR management system", "url", hrURL)
 	}
 
 	var workspaceClient wfService.WorkspaceClient
@@ -100,7 +103,15 @@ func main() {
 
 	mux := http.NewServeMux()
 	sessionStore := NewSessionStore()
-	authHandler := NewAuthHandler(sessionStore)
+
+	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
+
+	issueTrackerURL := os.Getenv("FORGEJO_URL")
+	if issueTrackerURL == "" {
+		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
+	}
+
+	authHandler := NewAuthHandler(sessionStore, issueTrackerURL, isProd)
 	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
 
@@ -112,10 +123,6 @@ func main() {
 	}
 
 	var issueTracker ops_svc.IssueTrackerClient
-	issueTrackerURL := os.Getenv("FORGEJO_URL")
-	if issueTrackerURL == "" {
-		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
-	}
 	if issueTrackerURL != "" {
 		issueTracker = forgejo.NewClient(forgejo.Config{
 			BaseURL: issueTrackerURL,
@@ -131,7 +138,7 @@ func main() {
 		opsSvc = ops_svc.NewService(opsRepo)
 	}
 	opsH := ops_handler.NewHandler(opsSvc)
-	opsH.RegisterRoutes(mux)
+	registerProtectedOpsRoutes(mux, opsH, sessionStore)
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

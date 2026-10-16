@@ -35,6 +35,20 @@ else
   kubectl apply -f "https://raw.githubusercontent.com/longhorn/longhorn/${LONGHORN_VERSION}/deploy/longhorn.yaml"
 fi
 
+echo "==> Ensuring volume encryption secret exists in longhorn-system..."
+if command -v kubectl >/dev/null 2>&1; then
+  if ! kubectl get secret longhorn-crypto-key -n longhorn-system >/dev/null 2>&1; then
+    echo "Generating new unique encryption key for longhorn-crypto StorageClass..."
+    GENERATED_KEY=$(head -c 32 /dev/urandom | base64)
+    kubectl create secret generic longhorn-crypto-key \
+      --namespace longhorn-system \
+      --from-literal=CRYPTO_KEY_VALUE="${GENERATED_KEY}" \
+      --from-literal=CRYPTO_KEY_PROVIDER="secret"
+  else
+    echo "Encryption key 'longhorn-crypto-key' already exists."
+  fi
+fi
+
 echo "==> Applying StorageClasses and Recurring Jobs..."
 kubectl apply -f "${SCRIPT_DIR}/longhorn-storageclasses.yaml"
 kubectl apply -f "${SCRIPT_DIR}/longhorn-backup-recurring.yaml"

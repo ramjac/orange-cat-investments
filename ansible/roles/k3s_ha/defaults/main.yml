@@ -8,7 +8,7 @@ k3s_kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
 
 # K3s installation parameters
 k3s_cluster_token: "OCI-SuperSecretClusterToken-ChangeMe-2026"
-k3s_install_args: "--write-kubeconfig-mode 644 --disable=traefik --disable=servicelb --flannel-backend=vxlan"
+k3s_install_args: "--write-kubeconfig-mode 600 --disable=traefik --disable=servicelb --flannel-backend=vxlan"
 
 # kube-vip version for control plane Virtual IP
 kube_vip_version: "v0.8.9"

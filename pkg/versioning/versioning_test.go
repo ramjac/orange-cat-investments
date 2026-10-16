@@ -93,7 +93,38 @@ func TestVersioningMiddleware(t *testing.T) {
 			t.Fatalf("expected status 406 Not Acceptable, got %d", rec.Code)
 		}
 	})
+
+	t.Run("Accept header with q=0 on v2 and supported v1 succeeds with v1", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("Accept", "application/vnd.oci.v2+json;q=0, application/vnd.oci.v1+json")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v1" {
+			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
+		}
+	})
+
+	t.Run("Accept header negotiates acceptable version when preferred version unsupported", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("Accept", "application/vnd.oci.v2+json;q=0.9, application/vnd.oci.v1+json;q=0.5")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v1" {
+			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
+		}
+	})
 }
+
 
 func TestDeprecateHelper(t *testing.T) {
 	rec := httptest.NewRecorder()

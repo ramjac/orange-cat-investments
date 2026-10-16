@@ -6,15 +6,19 @@ This guide documents the alternative method for exposing customer services (`cus
 
 ## 1. Network & Router Prerequisites
 
-1. **Static Internal Cluster Virtual IP:**
-   * Ensure `kube-vip` or `MetalLB` is running and serving internal cluster IP `192.168.1.250`.
+1. **Static Ingress LoadBalancer IP:**
+   * Ensure `MetalLB` is running and serving a dedicated ingress IP from its pool (e.g., `192.168.1.251`).
+   * *Note:* Keep the control plane virtual IP (`192.168.1.250` managed by `kube-vip`) dedicated to Kubernetes API traffic; do not forward public web ports to the control-plane VIP.
 2. **Router Port Forwarding (NAT):**
    * Log into your gateway / firewall (pfSense, UniFi, OPNsense, ASUS, etc.).
    * Configure Port Forwarding rules:
-     * **HTTP:** External Port `80` (TCP) -> Target IP `192.168.1.250` Port `80`
-     * **HTTPS:** External Port `443` (TCP) -> Target IP `192.168.1.250` Port `443`
+     * **HTTP:** External Port `80` (TCP) -> Target Ingress IP `192.168.1.251` Port `80`
+     * **HTTPS:** External Port `443` (TCP) -> Target Ingress IP `192.168.1.251` Port `443`
 3. **NAT Hairpinning / Loopback:**
    * Enable "NAT Reflection" or "Hairpin NAT" so devices inside the local network can resolve the external domain to the internal cluster without timeout.
+
+> [!CAUTION] Security & Ingress Controller Isolation
+> Forwarding WAN ports 80/443 directly to an ingress controller routes external internet traffic into the cluster. Internal services (Employee Portal, Forgejo, Nextcloud, Domain APIs, Longhorn dashboard) MUST use an isolated internal ingress class (`ingressClassName: internal`) or enforce CIDR IP whitelisting (`nginx.ingress.kubernetes.io/whitelist-source-range: "192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"`). Only customer-facing public routes (`customer.orangecatinvestments.com`) should be exposed to public traffic.
 
 ---
 

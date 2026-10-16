@@ -33,6 +33,13 @@ spec:
     - host: dev.customer.oci.local
       http:
         paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-dev-service
+                port:
+                  number: 8083
           - path: /
             pathType: Prefix
             backend:
@@ -53,6 +60,13 @@ spec:
     - host: dev.employee.oci.local
       http:
         paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-employee-bff-dev-service
+                port:
+                  number: 8081
           - path: /
             pathType: Prefix
             backend:
