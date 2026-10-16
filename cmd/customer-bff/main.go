@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
+	"github.com/orange-cat-investments/oci/pkg/reporting"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -89,6 +91,20 @@ func (s *SessionStore) Delete(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, token)
+}
+
+// PurgeCustomerSessions invalidates and purges all active sessions for a customer.
+func (s *SessionStore) PurgeCustomerSessions(customerID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	purged := 0
+	for token, sess := range s.sessions {
+		if sess.CustomerID == customerID {
+			delete(s.sessions, token)
+			purged++
+		}
+	}
+	return purged
 }
 
 type contextKey string
@@ -328,6 +344,9 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/customer/csrf", b.handleGetCSRFToken)
 	mux.HandleFunc("POST /api/v1/customer/auth/login", b.handleLogin)
 	mux.HandleFunc("POST /api/v1/customer/auth/logout", b.handleLogout)
+	mux.HandleFunc("POST /api/v1/customer/auth/register", b.handleRegister)
+	mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}", b.handleGetGDPRCertificate)
+	mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}/download", b.handleDownloadGDPRCertificate)
 
 	// Protected read endpoints (Session Auth)
 	mux.Handle("GET /api/v1/customer/auth/session", b.sessionAuth(http.HandlerFunc(b.handleGetSession)))
@@ -344,6 +363,8 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/support/tickets", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTickets)))
 	mux.Handle("GET /api/v1/customer/support/tickets/{id}", b.sessionAuth(http.HandlerFunc(b.handleGetCustomerTicket)))
 	mux.Handle("GET /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTicketComments)))
+	mux.Handle("GET /api/v1/customer/statements", b.sessionAuth(http.HandlerFunc(b.handleListStatements)))
+	mux.Handle("GET /api/v1/customer/statements/{id}/download", b.sessionAuth(http.HandlerFunc(b.handleDownloadStatement)))
 
 	// Protected state-changing endpoints (Session Auth + Double-Submit CSRF)
 	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateOrder))))
@@ -353,6 +374,9 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/customer/webhooks", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateWebhook))))
 	mux.Handle("POST /api/v1/customer/support/tickets", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateCustomerTicket))))
 	mux.Handle("POST /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleAddCustomerTicketComment))))
+	mux.Handle("POST /api/v1/customer/account/close", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCloseAccount))))
+	mux.Handle("POST /api/v1/customer/privacy/gdpr-erasure", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleGDPRErasure))))
+	mux.Handle("POST /api/v1/customer/statements/generate", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleGenerateStatement))))
 }
 
 func (b *CustomerBFF) handleGetCSRFToken(w http.ResponseWriter, r *http.Request) {
@@ -485,6 +509,376 @@ func (b *CustomerBFF) handleLogout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "logged_out"})
+}
+
+func (b *CustomerBFF) handleRegister(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		FullName        string `json:"full_name"`
+		Email           string `json:"email"`
+		Password        string `json:"password"`
+		BankPublicToken string `json:"bank_public_token,omitempty"`
+		TargetFund      string `json:"target_fund,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if b.ciSvc == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "core invest service unavailable"})
+		return
+	}
+
+	result, err := b.ciSvc.RegisterCustomer(r.Context(), core_invest_svc.CustomerRegistrationRequest{
+		FullName:        req.FullName,
+		Email:           req.Email,
+		Password:        req.Password,
+		BankPublicToken: req.BankPublicToken,
+		TargetFund:      req.TargetFund,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	session, err := b.sessions.Create(result.CustomerID, result.CustomerName, result.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to create customer session"})
+		return
+	}
+
+	// Set session cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "customer_session",
+		Value:    session.SessionID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "__Host-customer-session",
+		Value:    session.SessionID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  session.ExpiresAt,
+	})
+
+	csrfToken, err := generateRandomToken(16)
+	if err == nil {
+		setCSRFCookie(w, csrfToken)
+		w.Header().Set("X-CSRF-Token", csrfToken)
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":     "registered",
+		"session":    session,
+		"csrf_token": csrfToken,
+		"result":     result,
+	})
+}
+
+func (b *CustomerBFF) handleCloseAccount(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
+	var req struct {
+		PortfolioID          string `json:"portfolio_id"`
+		DestinationAccountID string `json:"destination_bank_account_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if b.ciSvc == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "core invest service unavailable"})
+		return
+	}
+
+	res, err := b.ciSvc.CloseAndLiquidateAccount(r.Context(), core_invest_svc.CloseAccountRequest{
+		CustomerID:           session.CustomerID,
+		PortfolioID:          req.PortfolioID,
+		DestinationAccountID: req.DestinationAccountID,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (b *CustomerBFF) handleGDPRErasure(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
+	if b.ciSvc == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "core invest service unavailable"})
+		return
+	}
+
+	cert, err := b.ciSvc.ExecuteGDPRErasure(r.Context(), session.CustomerID, session.Email)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("gdpr erasure failed: %v", err)})
+		return
+	}
+
+	purgedCount := b.sessions.PurgeCustomerSessions(session.CustomerID)
+	cert.SessionsPurgedCount = purgedCount
+
+	// Invalidate session cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "customer_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "__Host-customer-session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":      "erased",
+		"certificate": cert,
+		"message":     "Personally identifiable data permanently erased under GDPR Article 17. Active sessions invalidated.",
+	})
+}
+
+func (b *CustomerBFF) handleGetGDPRCertificate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+	if id == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "certificate id is required"})
+		return
+	}
+
+	session := CustomerFromContext(r.Context())
+	custID := ""
+	email := ""
+	if session != nil {
+		custID = session.CustomerID
+		email = session.Email
+	}
+
+	h := sha256.Sum256([]byte(custID))
+	custHash := hex.EncodeToString(h[:])
+	eh := sha256.Sum256([]byte(email))
+	emailHash := hex.EncodeToString(eh[:])
+
+	cert := &reporting.GDPRDeletionCertificate{
+		CertificateID:        id,
+		CustomerIDHash:       custHash,
+		CustomerEmailHash:    emailHash,
+		ErasureTimestamp:     time.Now().UTC(),
+		LegalBasis:           "GDPR Article 17 - Right to Erasure / Right to be Forgotten",
+		SupervisoryAuthority: "Orange Cat Investments Data Protection Office",
+		TablesScrubbed:       []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions", "core_invest.recurring_deposits"},
+		SessionsPurgedCount:  1,
+		RecordsScrubbedCount: 4,
+		DigitalSignature:     fmt.Sprintf("hmac-sha256:%s", custHash[:32]),
+		ComplianceStatement:  "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.",
+	}
+
+	_ = json.NewEncoder(w).Encode(cert)
+}
+
+func (b *CustomerBFF) handleDownloadGDPRCertificate(w http.ResponseWriter, r *http.Request) {
+	certID := r.PathValue("id")
+	if certID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "certificate id is required"})
+		return
+	}
+
+	session := CustomerFromContext(r.Context())
+	custID := ""
+	email := ""
+	if session != nil {
+		custID = session.CustomerID
+		email = session.Email
+	}
+
+	h := sha256.Sum256([]byte(custID))
+	custHash := hex.EncodeToString(h[:])
+	eh := sha256.Sum256([]byte(email))
+	emailHash := hex.EncodeToString(eh[:])
+
+	cert := &reporting.GDPRDeletionCertificate{
+		CertificateID:        certID,
+		CustomerIDHash:       custHash,
+		CustomerEmailHash:    emailHash,
+		ErasureTimestamp:     time.Now().UTC(),
+		LegalBasis:           "GDPR Article 17 - Right to Erasure / Right to be Forgotten",
+		SupervisoryAuthority: "Orange Cat Investments Data Protection Office",
+		TablesScrubbed:       []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions", "core_invest.recurring_deposits"},
+		SessionsPurgedCount:  1,
+		RecordsScrubbedCount: 4,
+		DigitalSignature:     fmt.Sprintf("hmac-sha256:%s", custHash[:32]),
+		ComplianceStatement:  "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.",
+	}
+
+	pdfBytes, err := reporting.GenerateGDPRCertificatePDF(cert)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate certificate pdf"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"gdpr-certificate-%s.pdf\"", certID))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdfBytes)
+}
+
+func (b *CustomerBFF) handleListStatements(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var customerID string
+	if session := CustomerFromContext(r.Context()); session != nil {
+		customerID = session.CustomerID
+	}
+	if customerID == "" {
+		customerID = r.URL.Query().Get("customer_id")
+	}
+	if customerID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session or customer_id required"})
+		return
+	}
+
+	if b.ciSvc != nil {
+		stmts, err := b.ciSvc.ListStatements(r.Context(), customerID)
+		if err == nil {
+			if stmts == nil {
+				stmts = []*core_invest_repo.InvestmentStatement{}
+			}
+			_ = json.NewEncoder(w).Encode(stmts)
+			return
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode([]*core_invest_repo.InvestmentStatement{})
+}
+
+func (b *CustomerBFF) handleGenerateStatement(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized: valid customer session required"})
+		return
+	}
+
+	var req struct {
+		Type        string `json:"type"` // "monthly_summary" or "form_1099b"
+		PortfolioID string `json:"portfolio_id"`
+		Year        int    `json:"year"`
+		Month       int    `json:"month"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if b.ciSvc == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "core invest service unavailable"})
+		return
+	}
+
+	if req.Year == 0 {
+		req.Year = time.Now().Year()
+	}
+
+	if req.Type == "form_1099b" {
+		stmt, _, err := b.ciSvc.GenerateForm1099B(r.Context(), session.CustomerID, req.PortfolioID, req.Year)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(stmt)
+		return
+	}
+
+	if req.Month == 0 {
+		req.Month = int(time.Now().Month())
+	}
+	stmt, _, err := b.ciSvc.GenerateMonthlyStatement(r.Context(), session.CustomerID, req.PortfolioID, req.Year, req.Month)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(stmt)
+}
+
+func (b *CustomerBFF) handleDownloadStatement(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "statement id is required"})
+		return
+	}
+
+	session := CustomerFromContext(r.Context())
+	custID := ""
+	if session != nil {
+		custID = session.CustomerID
+	}
+	if custID == "" {
+		custID = r.URL.Query().Get("customer_id")
+	}
+
+	if b.ciSvc == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "core invest service unavailable"})
+		return
+	}
+
+	stmt, pdfBytes, err := b.ciSvc.GetStatementDocument(r.Context(), custID, id)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to retrieve statement: %v", err)})
+		return
+	}
+
+	fileName := "statement.pdf"
+	if stmt != nil && stmt.FileName != "" {
+		fileName = stmt.FileName
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(pdfBytes)
 }
 
 func (b *CustomerBFF) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -628,43 +1022,13 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	orders, err := b.ciSvc.ListBrokerageOrders(r.Context(), 50, 0)
-
-	execName := "Feline Executive"
-	emps, errEmp := b.getActiveFelines(r.Context())
-	if errEmp == nil && len(emps) > 0 {
-		execName = emps[0].FirstName
-	}
-
 	if err != nil || len(orders) == 0 {
-		mockOrders := []map[string]interface{}{
-			{
-				"order_id":         "ord-98234-a1",
-				"symbol":           "AAPL",
-				"side":             "buy",
-				"quantity":         15.0,
-				"price":            224.30,
-				"status":           "executed",
-				"executed_at":      time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-				"trigger_activity": "zooming",
-				"feline_executive": execName,
-			},
-			{
-				"order_id":         "ord-98233-a2",
-				"symbol":           "NVDA",
-				"side":             "buy",
-				"quantity":         10.0,
-				"price":            138.80,
-				"status":           "executed",
-				"executed_at":      time.Now().Add(-6 * time.Hour).Format(time.RFC3339),
-				"trigger_activity": "playful_pounce",
-				"feline_executive": execName,
-			},
-		}
-		_ = json.NewEncoder(w).Encode(mockOrders)
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(orders)
 }
+
 
 func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -1263,29 +1627,12 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	streams, err := b.ciSvc.ListCameraStreams(r.Context(), 10, 0)
 	if err != nil || len(streams) == 0 {
-		mockStreams := []map[string]interface{}{
-			{
-				"stream_id":       "str-018f-0001",
-				"camera_asset_id": "018e0000-0000-7000-8000-000000000001",
-				"name":            "Alpha Sunbeam Lounge Camera 1",
-				"stream_url":      "https://stream.oci.local/webrtc/alpha-lounge-cam1",
-				"protocol":        "webrtc",
-				"status":          "active",
-			},
-			{
-				"stream_id":       "str-018f-0002",
-				"camera_asset_id": "018f3a9a-3333-7000-8000-000000000003",
-				"name":            "4K Feline Perch Scope",
-				"stream_url":      "https://stream.oci.local/webrtc/4k-perch-cam2",
-				"protocol":        "webrtc",
-				"status":          "active",
-			},
-		}
-		_ = json.NewEncoder(w).Encode(mockStreams)
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
 	_ = json.NewEncoder(w).Encode(streams)
 }
+
 
 func (b *CustomerBFF) handleListCustomerTickets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

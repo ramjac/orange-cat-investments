@@ -2011,6 +2011,210 @@ paths:
               schema:
                 $ref: '#/components/schemas/TicketComment'
 
+  /customer/auth/register:
+    post:
+      summary: Customer Self-Registration & Onboarding
+      description: Self-service investor onboarding with NIST-compliant password validation, linked bank account (Plaid/ACH), and instant zero-balance portfolio creation.
+      operationId: registerCustomer
+      tags:
+        - Customer Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomerRegisterRequest'
+      responses:
+        '201':
+          description: Customer and portfolio successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerRegisterResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+
+  /customer/account/close:
+    post:
+      summary: Account Liquidation & Closure Workflow
+      description: Liquidates all open equity positions via market sell orders, simulates cash settlement, initiates Plaid ACH disbursement of net cash balance, and marks portfolio as closed.
+      operationId: closeCustomerAccount
+      tags:
+        - Customer Lifecycle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseAccountRequest'
+      responses:
+        '200':
+          description: Account successfully closed and funds disbursed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseAccountResponse'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/privacy/gdpr-erasure:
+    post:
+      summary: GDPR Article 17 Right to be Forgotten Erasure
+      description: Permanent scrubbing of customer PII across database tables, purging of active sessions from Valkey, pseudonymous ledger anonymization (SEC Rule 17a-4), and issuance of an HMAC-SHA256 deletion certificate.
+      operationId: executeGDPRErasure
+      tags:
+        - Customer Privacy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GDPRErasureRequest'
+      responses:
+        '200':
+          description: GDPR erasure successfully executed and tamper-evident certificate generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GDPRErasureCertificate'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/privacy/gdpr-certificate/{id}:
+    get:
+      summary: Retrieve Tamper-Evident GDPR Deletion Certificate
+      description: Fetches metadata and HMAC-SHA256 signature of a generated GDPR erasure certificate. Accessible publicly for former customers as proof of erasure.
+      operationId: getGDPRCertificate
+      tags:
+        - Customer Privacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: GDPR erasure certificate details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GDPRErasureCertificate'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/privacy/gdpr-certificate/{id}/download:
+    get:
+      summary: Download Tamper-Evident GDPR Deletion Certificate (PDF 1.4)
+      description: Downloads the legal proof-of-erasure certificate formatted in pure Go PDF 1.4 with cryptographic HMAC signature and regulatory retention disclosures.
+      operationId: downloadGDPRCertificatePDF
+      tags:
+        - Customer Privacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF binary document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /customer/statements:
+    get:
+      summary: List Investment Statements & Tax Forms
+      description: Retrieves list of generated monthly statements and Form 1099-B tax returns for the authenticated customer.
+      operationId: listCustomerStatements
+      tags:
+        - Customer Statements
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of available statements
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementListResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/statements/generate:
+    post:
+      summary: Generate Monthly Statement or Form 1099-B On-Demand
+      description: Compiles holdings, trade executions, capital gain lots, and renders an authenticated PDF 1.4 document.
+      operationId: generateCustomerStatement
+      tags:
+        - Customer Statements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateStatementRequest'
+      responses:
+        '201':
+          description: Statement generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvestmentStatementMetadata'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /customer/statements/{id}/download:
+    get:
+      summary: Download Investment Statement or Tax Form (PDF 1.4)
+      description: Downloads an authenticated PDF 1.4 document for monthly summaries or Form 1099-B tax returns.
+      operationId: downloadCustomerStatementPDF
+      tags:
+        - Customer Statements
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PDF binary document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /ops/pebble/alerts:
     get:
       summary: Get Pebble Companion Watch Alert Payloads
@@ -3857,6 +4061,202 @@ components:
         generated_by:
           type: string
           example: "emp-human-alice"
+
+    CustomerRegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          example: "Arthur Pendelton"
+        email:
+          type: string
+          format: email
+          example: "arthur@investor.com"
+        password:
+          type: string
+          format: password
+          example: "SecureCat#2026!"
+        bank_account:
+          type: string
+          example: "Chase Premier Checking (****4821)"
+        initial_deposit_usd:
+          type: number
+          example: 10000.00
+
+    CustomerRegisterResponse:
+      type: object
+      required:
+        - customer_id
+        - name
+        - email
+      properties:
+        customer_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        portfolio:
+          type: object
+          properties:
+            portfolio_id:
+              type: string
+              format: uuid
+            account_name:
+              type: string
+            total_balance_usd:
+              type: number
+            cash_balance_usd:
+              type: number
+
+    CloseAccountRequest:
+      type: object
+      required:
+        - portfolio_id
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          example: "Customer initiated self-service liquidation"
+
+    CloseAccountResponse:
+      type: object
+      required:
+        - portfolio_id
+        - status
+      properties:
+        portfolio_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: "closed"
+        liquidated_positions_count:
+          type: integer
+          example: 4
+        gross_proceeds_usd:
+          type: number
+          example: 96350.40
+        disbursed_cash_usd:
+          type: number
+          example: 128450.75
+        disbursement_transfer_id:
+          type: string
+          example: "ach-disburse-018f3a9a-0001"
+        disbursement_account:
+          type: string
+          example: "Chase Premier Checking (****4821)"
+
+    GDPRErasureRequest:
+      type: object
+      required:
+        - confirmation
+      properties:
+        confirmation:
+          type: string
+          enum: ["DELETE"]
+        reason:
+          type: string
+          example: "Customer request under GDPR Article 17"
+
+    GDPRErasureCertificate:
+      type: object
+      required:
+        - certificate_id
+        - request_id
+        - issued_at
+        - hmac_signature
+      properties:
+        certificate_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+        customer_id:
+          type: string
+        issued_at:
+          type: string
+          format: date-time
+        entities_affected:
+          type: array
+          items:
+            type: string
+        sessions_invalidated:
+          type: integer
+        compliance_regulations:
+          type: array
+          items:
+            type: string
+        hmac_signature:
+          type: string
+
+    GenerateStatementRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: ["monthly", "1099_b"]
+        period_month:
+          type: integer
+          example: 3
+        period_year:
+          type: integer
+          example: 2026
+        tax_year:
+          type: integer
+          example: 2025
+
+    InvestmentStatementMetadata:
+      type: object
+      required:
+        - statement_id
+        - statement_type
+        - period_label
+      properties:
+        statement_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+          format: uuid
+        portfolio_id:
+          type: string
+          format: uuid
+        statement_type:
+          type: string
+          enum: ["monthly", "1099_b"]
+        period_label:
+          type: string
+          example: "2026-03"
+        document_hash:
+          type: string
+        file_size_bytes:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    StatementListResponse:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvestmentStatementMetadata'
+        total:
+          type: integer
 
     ErrorResponse:
       type: object

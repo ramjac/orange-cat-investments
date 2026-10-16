@@ -370,6 +370,42 @@ CREATE TABLE IF NOT EXISTS core_invest.portfolio_snapshots (
     snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Portfolio Holdings (Granular Equity / Asset Positions per Portfolio)
+CREATE TABLE IF NOT EXISTS core_invest.portfolio_holdings (
+    holding_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL,
+    quantity DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
+    cost_basis_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    avg_price_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    current_price_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    market_value_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    unrealized_gain_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    unrealized_gain_pct DECIMAL(7, 4) NOT NULL DEFAULT 0.0000,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_portfolio_symbol UNIQUE (portfolio_id, symbol)
+);
+
+-- Tax Lot Sales (Itemized Capital Dispositions for IRS Form 1099-B Tax Reporting)
+CREATE TABLE IF NOT EXISTS core_invest.tax_lot_sales (
+    lot_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+    symbol VARCHAR(20) NOT NULL,
+    description VARCHAR(100) NOT NULL,
+    quantity DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
+    date_acquired DATE NOT NULL,
+    date_sold DATE NOT NULL,
+    gross_proceeds_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    cost_basis_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    wash_sale_loss_disallowed DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    realized_gain_loss_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+    is_short_term BOOLEAN NOT NULL DEFAULT TRUE,
+    tax_year INT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Camera Streams (Real-time WebRTC/RTSP Computer Vision Stream Ingestion)
 CREATE TABLE IF NOT EXISTS core_invest.camera_streams (
     stream_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
@@ -423,6 +459,38 @@ CREATE TABLE IF NOT EXISTS core_invest.backtest_runs (
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Investment Statements & Tax Documentation (Form 1099-B & Monthly Summaries)
+CREATE TABLE IF NOT EXISTS core_invest.investment_statements (
+    statement_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    portfolio_id UUID NOT NULL REFERENCES core_invest.investment_portfolios(portfolio_id) ON DELETE CASCADE,
+    customer_id VARCHAR(100) NOT NULL,
+    statement_type VARCHAR(50) NOT NULL CHECK (statement_type IN ('monthly_summary', 'form_1099b')),
+    period VARCHAR(50) NOT NULL,
+    tax_year INT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    file_name VARCHAR(200) NOT NULL,
+    total_proceeds_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+    net_gain_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+    status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'generating', 'archived')),
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- GDPR Right to be Forgotten Erasure Certificates (Article 17 Audit Trail)
+CREATE TABLE IF NOT EXISTS core_invest.gdpr_erasure_certificates (
+    certificate_id UUID PRIMARY KEY DEFAULT gen_random_uuid_v7(),
+    customer_id_hash VARCHAR(128) NOT NULL,
+    customer_email_hash VARCHAR(128) NOT NULL,
+    legal_basis VARCHAR(100) NOT NULL DEFAULT 'GDPR Article 17',
+    supervisory_authority VARCHAR(100) NOT NULL DEFAULT 'Orange Cat Investments Data Protection Office',
+    tables_scrubbed TEXT[] NOT NULL DEFAULT '{}',
+    sessions_purged_count INT NOT NULL DEFAULT 0,
+    records_scrubbed_count INT NOT NULL DEFAULT 0,
+    digital_signature VARCHAR(128) NOT NULL,
+    compliance_statement TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 --------------------------------------------------------------------------------
@@ -522,6 +590,31 @@ VALUES
     ('018f3a9a-2222-7000-8000-000000000002', '018e0000-0000-7000-8000-000000000099', 'OCI Alpha Growth Fund', 128450.75, 32100.25, 'active'),
     ('018f3a9a-2222-7000-8000-000000000003', '018e0000-0000-7000-8000-000000000098', 'Chloe Spark High-Velocity Alpha', 85200.00, 15400.00, 'active')
 ON CONFLICT (portfolio_id) DO NOTHING;
+
+-- Seed Initial Portfolio Holdings
+INSERT INTO core_invest.portfolio_holdings (
+    holding_id, portfolio_id, symbol, quantity, cost_basis_usd, avg_price_usd, current_price_usd, market_value_usd, unrealized_gain_usd, unrealized_gain_pct
+) VALUES
+    ('018f3a9a-9999-7000-8000-000000000001', '018f3a9a-2222-7000-8000-000000000002', 'AAPL', 120.0000, 21420.00, 178.50, 224.30, 26916.00, 5496.00, 25.6583),
+    ('018f3a9a-9999-7000-8000-000000000002', '018f3a9a-2222-7000-8000-000000000002', 'NVDA', 85.0000, 9367.00, 110.20, 138.80, 11798.00, 2431.00, 25.9528),
+    ('018f3a9a-9999-7000-8000-000000000003', '018f3a9a-2222-7000-8000-000000000002', 'MSFT', 90.0000, 34200.00, 380.00, 448.20, 40338.00, 6138.00, 17.9474),
+    ('018f3a9a-9999-7000-8000-000000000004', '018f3a9a-2222-7000-8000-000000000002', 'TSLA', 70.0000, 13300.00, 190.00, 247.12, 17298.40, 3998.40, 30.0632),
+    ('018f3a9a-9999-7000-8000-000000000005', '018f3a9a-2222-7000-8000-000000000003', 'NVDA', 150.0000, 16860.00, 112.40, 138.80, 20820.00, 3960.00, 23.4875),
+    ('018f3a9a-9999-7000-8000-000000000006', '018f3a9a-2222-7000-8000-000000000003', 'TSLA', 120.0000, 22260.00, 185.50, 247.12, 29654.40, 7394.40, 33.2183),
+    ('018f3a9a-9999-7000-8000-000000000007', '018f3a9a-2222-7000-8000-000000000003', 'AAPL', 85.0000, 15308.50, 180.10, 224.30, 19065.50, 3757.00, 24.5420)
+ON CONFLICT (portfolio_id, symbol) DO NOTHING;
+
+-- Seed Initial Tax Lot Sales for Form 1099-B Tax Documentation
+INSERT INTO core_invest.tax_lot_sales (
+    lot_id, portfolio_id, symbol, description, quantity, date_acquired, date_sold,
+    gross_proceeds_usd, cost_basis_usd, wash_sale_loss_disallowed, realized_gain_loss_usd, is_short_term, tax_year
+) VALUES
+    ('018f3a9a-aaaa-7000-8000-000000000001', '018f3a9a-2222-7000-8000-000000000002', 'NVDA', '50 shs NVDA', 50.0000, '2025-02-14', '2025-08-20', 6940.00, 5500.00, 0.00, 1440.00, true, 2025),
+    ('018f3a9a-aaaa-7000-8000-000000000002', '018f3a9a-2222-7000-8000-000000000002', 'AAPL', '35 shs AAPL', 35.0000, '2025-01-10', '2025-09-15', 7850.00, 6200.00, 0.00, 1650.00, true, 2025),
+    ('018f3a9a-aaaa-7000-8000-000000000003', '018f3a9a-2222-7000-8000-000000000002', 'MSFT', '20 shs MSFT', 20.0000, '2024-03-01', '2025-11-12', 8960.00, 7100.00, 0.00, 1860.00, false, 2025),
+    ('018f3a9a-aaaa-7000-8000-000000000004', '018f3a9a-2222-7000-8000-000000000003', 'TSLA', '40 shs TSLA', 40.0000, '2025-03-15', '2025-07-22', 9884.80, 7420.00, 0.00, 2464.80, true, 2025),
+    ('018f3a9a-aaaa-7000-8000-000000000005', '018f3a9a-2222-7000-8000-000000000003', 'NVDA', '60 shs NVDA', 60.0000, '2025-02-01', '2025-08-10', 8328.00, 6744.00, 0.00, 1584.00, true, 2025)
+ON CONFLICT (lot_id) DO NOTHING;
 
 -- Automated Allocation Strategy
 INSERT INTO core_invest.allocation_strategies (strategy_id, name, trigger_activity, action_type, target_asset_symbol, multiplier, is_active)

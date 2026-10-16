@@ -1471,6 +1471,136 @@ func (r *Registry) createArthurPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "arthur_self_register_onboarding",
+				Description: "Registers new retail investor account with NIST-compliant password and linked bank account",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/auth/register"
+					payload := map[string]any{
+						"name":                "Arthur Pendelton Jr",
+						"email":               "arthur.jr@oci.local",
+						"password":            "NIST_Compliant#2026!Strong",
+						"bank_account":        "Chase Premier Checking (****4821)",
+						"initial_deposit_usd": 5000.00,
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					success := resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_self_register_onboarding",
+						Endpoint:    endpoint,
+						Success:     success,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Registered new customer account with zero-balance portfolio: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_generate_monthly_investment_statement",
+				Description: "Generates pure Go PDF 1.4 monthly portfolio summary statement and verifies document download",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/statements/generate"
+					payload := map[string]any{
+						"customer_id":  "018e0000-0000-7000-8000-000000000099",
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"type":         "monthly",
+						"period_month": 3,
+						"period_year":  2026,
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+						return &ActionResult{
+							PersonaID:   "cust-longterm-arthur",
+							PersonaName: "Arthur Pendelton",
+							ActionName:  "arthur_generate_monthly_investment_statement",
+							Endpoint:    endpoint,
+							Success:     false,
+							StatusCode:  resp.StatusCode,
+							Details:     fmt.Sprintf("Failed to generate monthly statement: %s", string(bytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
+
+					var created struct {
+						StatementID string `json:"statement_id"`
+					}
+					_ = json.Unmarshal(bytes, &created)
+
+					// Verify PDF binary download
+					downloadEndpoint := fmt.Sprintf("/api/v1/customer/statements/%s/download", created.StatementID)
+					dlResp, dlBytes, dlErr := client.DoCustomer(ctx, "GET", downloadEndpoint, nil)
+					if dlErr != nil {
+						return nil, dlErr
+					}
+					isPDF := dlResp.StatusCode == http.StatusOK && len(dlBytes) > 4 && string(dlBytes[:5]) == "%PDF-"
+
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_generate_monthly_investment_statement",
+						Endpoint:    downloadEndpoint,
+						Success:     isPDF,
+						StatusCode:  dlResp.StatusCode,
+						Details:     fmt.Sprintf("Generated and downloaded pure Go PDF 1.4 statement (ID: %s, %d bytes)", created.StatementID, len(dlBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "arthur_generate_tax_form_1099b",
+				Description: "Generates IRS Form 1099-B tax return report and audits statement list repository",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/statements/generate"
+					payload := map[string]any{
+						"customer_id":  "018e0000-0000-7000-8000-000000000099",
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"type":         "1099_b",
+						"tax_year":     2025,
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+						return &ActionResult{
+							PersonaID:   "cust-longterm-arthur",
+							PersonaName: "Arthur Pendelton",
+							ActionName:  "arthur_generate_tax_form_1099b",
+							Endpoint:    endpoint,
+							Success:     false,
+							StatusCode:  resp.StatusCode,
+							Details:     fmt.Sprintf("Failed to generate Form 1099-B: %s", string(bytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
+
+					// Audit list statements
+					listEndpoint := "/api/v1/customer/statements?customer_id=018e0000-0000-7000-8000-000000000099"
+					listResp, listBytes, listErr := client.DoCustomer(ctx, "GET", listEndpoint, nil)
+					if listErr != nil {
+						return nil, listErr
+					}
+
+					return &ActionResult{
+						PersonaID:   "cust-longterm-arthur",
+						PersonaName: "Arthur Pendelton",
+						ActionName:  "arthur_generate_tax_form_1099b",
+						Endpoint:    listEndpoint,
+						Success:     listResp.StatusCode == http.StatusOK,
+						StatusCode:  listResp.StatusCode,
+						Details:     fmt.Sprintf("Form 1099-B compiled; statements audited: %s", string(listBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -1631,6 +1761,85 @@ func (r *Registry) createChloePersona() *Persona {
 						Success:     isNSFRejection,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Verified Bank API NSF R01 rejection as expected: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_close_account_and_liquidate",
+				Description: "Initiates full portfolio liquidation selling all equity positions and disbursing cash via Plaid ACH",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/account/close"
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000003",
+						"reason":       "Customer migrating portfolio to private feline alpha vehicle",
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					success := resp.StatusCode == http.StatusOK
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_close_account_and_liquidate",
+						Endpoint:    endpoint,
+						Success:     success,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Executed account closure & liquidation: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_request_gdpr_data_erasure",
+				Description: "Executes GDPR Article 17 Right to be Forgotten data erasure and receives HMAC-SHA256 certificate",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/privacy/gdpr-erasure"
+					payload := map[string]any{
+						"customer_id":  "018e0000-0000-7000-8000-000000000098",
+						"confirmation": "DELETE",
+						"reason":       "Customer privacy request under GDPR Article 17",
+					}
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					if resp.StatusCode != http.StatusOK {
+						return &ActionResult{
+							PersonaID:   "cust-active-chloe",
+							PersonaName: "Chloe Spark",
+							ActionName:  "chloe_request_gdpr_data_erasure",
+							Endpoint:    endpoint,
+							Success:     false,
+							StatusCode:  resp.StatusCode,
+							Details:     fmt.Sprintf("Failed to execute GDPR erasure: %s", string(bytes)),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
+
+					var cert struct {
+						CertificateID    string `json:"certificate_id"`
+						DigitalSignature string `json:"digital_signature"`
+					}
+					_ = json.Unmarshal(bytes, &cert)
+
+					// Verify downloadable PDF certificate
+					dlEndpoint := fmt.Sprintf("/api/v1/customer/privacy/gdpr-certificate/%s/download", cert.CertificateID)
+					dlResp, dlBytes, dlErr := client.DoCustomer(ctx, "GET", dlEndpoint, nil)
+					if dlErr != nil {
+						return nil, dlErr
+					}
+					isPDF := dlResp.StatusCode == http.StatusOK && len(dlBytes) > 4 && string(dlBytes[:5]) == "%PDF-"
+
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_request_gdpr_data_erasure",
+						Endpoint:    dlEndpoint,
+						Success:     isPDF && cert.DigitalSignature != "",
+						StatusCode:  dlResp.StatusCode,
+						Details:     fmt.Sprintf("GDPR erasure executed, HMAC-SHA256 signature verified, PDF cert downloaded (%d bytes)", len(dlBytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

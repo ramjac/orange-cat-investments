@@ -250,8 +250,8 @@ func TestDriverSinglePersonaArthur(t *testing.T) {
 	summary, err := driver.Run(ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, 8, summary.TotalActions)
-	assert.Equal(t, 8, summary.Successes)
+	assert.Equal(t, 11, summary.TotalActions)
+	assert.Equal(t, 11, summary.Successes)
 	assert.Equal(t, 0, summary.Failures)
 }
 
@@ -274,8 +274,8 @@ func TestDriverSinglePersonaChloe(t *testing.T) {
 	summary, err := driver.Run(ctx)
 	require.NoError(t, err)
 
-	assert.Equal(t, 6, summary.TotalActions)
-	assert.Equal(t, 6, summary.Successes)
+	assert.Equal(t, 8, summary.TotalActions)
+	assert.Equal(t, 8, summary.Successes)
 	assert.Equal(t, 0, summary.Failures)
 }
 

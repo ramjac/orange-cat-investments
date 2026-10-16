@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/handler"
@@ -31,6 +32,7 @@ import (
 	broker_ledger "github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	"github.com/orange-cat-investments/oci/pkg/reporting"
 )
 
 // Client wraps HTTP communication with the OCI stack (Domain API server and Employee BFF).
@@ -222,6 +224,11 @@ func registerFacilitiesRoutes(serverMux *http.ServeMux, facService facilities_sv
 	})
 }
 
+var (
+	mockGDPRCertsMu sync.RWMutex
+	mockGDPRCerts   = make(map[string]*reporting.GDPRDeletionCertificate)
+)
+
 func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid.Client, brokerClient *alpaca.Client, ciService core_invest_svc.Service) {
 	registerCustRoutes := func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -372,6 +379,200 @@ func registerCustomerRoutes(custMux, serverMux *http.ServeMux, bankClient *plaid
 				return
 			}
 			json.NewEncoder(w).Encode(orders)
+		})
+		mux.HandleFunc("POST /api/v1/customer/auth/register", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				Name              string  `json:"name"`
+				Email             string  `json:"email"`
+				Password          string  `json:"password"`
+				BankAccount       string  `json:"bank_account"`
+				InitialDepositUSD float64 `json:"initial_deposit_usd"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			res, err := ciService.RegisterCustomer(r.Context(), core_invest_svc.CustomerRegistrationRequest{
+				FullName:        req.Name,
+				Email:           req.Email,
+				Password:        req.Password,
+				BankPublicToken: req.BankAccount,
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(res)
+		})
+		mux.HandleFunc("POST /api/v1/customer/account/close", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID  string `json:"customer_id"`
+				PortfolioID string `json:"portfolio_id"`
+				Reason      string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000098"
+			}
+			if req.PortfolioID == "" {
+				req.PortfolioID = "018f3a9a-2222-7000-8000-000000000003"
+			}
+			res, err := ciService.CloseAndLiquidateAccount(r.Context(), core_invest_svc.CloseAccountRequest{
+				CustomerID:           req.CustomerID,
+				PortfolioID:          req.PortfolioID,
+				DestinationAccountID: "plaid-dest-acc-01",
+			})
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(res)
+		})
+		mux.HandleFunc("POST /api/v1/customer/privacy/gdpr-erasure", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID   string `json:"customer_id"`
+				Email        string `json:"email"`
+				Confirmation string `json:"confirmation"`
+				Reason       string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000098" // Chloe Spark
+			}
+			if req.Email == "" {
+				req.Email = "chloe@oci.local"
+			}
+			cert, err := ciService.ExecuteGDPRErasure(r.Context(), req.CustomerID, req.Email)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			mockGDPRCertsMu.Lock()
+			mockGDPRCerts[cert.CertificateID] = cert
+			mockGDPRCertsMu.Unlock()
+
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(cert)
+		})
+		mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			certID := r.PathValue("id")
+			mockGDPRCertsMu.RLock()
+			cert, ok := mockGDPRCerts[certID]
+			mockGDPRCertsMu.RUnlock()
+			if !ok {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"error": "certificate not found"})
+				return
+			}
+			json.NewEncoder(w).Encode(cert)
+		})
+		mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+			certID := r.PathValue("id")
+			mockGDPRCertsMu.RLock()
+			cert, ok := mockGDPRCerts[certID]
+			mockGDPRCertsMu.RUnlock()
+			if !ok {
+				http.Error(w, "certificate not found", http.StatusNotFound)
+				return
+			}
+			pdfBytes, err := reporting.GenerateGDPRCertificatePDF(cert)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=gdpr-erasure-certificate-%s.pdf", cert.CertificateID))
+			w.Write(pdfBytes)
+		})
+		mux.HandleFunc("GET /api/v1/customer/statements", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			custID := r.URL.Query().Get("customer_id")
+			if custID == "" {
+				custID = "018e0000-0000-7000-8000-000000000099" // Arthur Pendelton
+			}
+			items, err := ciService.ListStatements(r.Context(), custID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"items": items, "total": len(items)})
+		})
+		mux.HandleFunc("POST /api/v1/customer/statements/generate", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			var req struct {
+				CustomerID  string `json:"customer_id"`
+				PortfolioID string `json:"portfolio_id"`
+				Type        string `json:"type"`
+				PeriodMonth int    `json:"period_month"`
+				PeriodYear  int    `json:"period_year"`
+				TaxYear     int    `json:"tax_year"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if req.CustomerID == "" {
+				req.CustomerID = "018e0000-0000-7000-8000-000000000099"
+			}
+			if req.PortfolioID == "" {
+				req.PortfolioID = "018f3a9a-2222-7000-8000-000000000002"
+			}
+			var stmt *core_invest_repo.InvestmentStatement
+			var err error
+			if req.Type == "1099_b" {
+				yr := req.TaxYear
+				if yr == 0 {
+					yr = 2025
+				}
+				stmt, _, err = ciService.GenerateForm1099B(r.Context(), req.CustomerID, req.PortfolioID, yr)
+			} else {
+				m := req.PeriodMonth
+				if m == 0 {
+					m = 3
+				}
+				y := req.PeriodYear
+				if y == 0 {
+					y = 2026
+				}
+				stmt, _, err = ciService.GenerateMonthlyStatement(r.Context(), req.CustomerID, req.PortfolioID, y, m)
+			}
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(stmt)
+		})
+		mux.HandleFunc("GET /api/v1/customer/statements/{id}/download", func(w http.ResponseWriter, r *http.Request) {
+			stmtID := r.PathValue("id")
+			custID := r.URL.Query().Get("customer_id")
+			if custID == "" {
+				custID = "018e0000-0000-7000-8000-000000000099"
+			}
+			stmt, pdfBytes, err := ciService.GetStatementDocument(r.Context(), custID, stmtID)
+			if err != nil {
+				http.Error(w, "statement not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-%s.pdf", stmt.StatementType, stmt.Period))
+			w.Write(pdfBytes)
 		})
 	}
 	registerCustRoutes(custMux)

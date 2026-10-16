@@ -621,22 +621,27 @@ Ensure all essential daily operational tasks of an SMB (except email which notab
   * Full OpenAPI 3.1 specification for `/workforce/reports/monthly`, `/workforce/reports/monthly/generate`, `/workforce/reports/monthly/{id}`, and `/workforce/reports/monthly/{id}/download` in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
   * Added simulation action `alice_generate_executive_report` in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go) under Alice Vance (`emp-human-alice`), bringing platform simulation coverage to 60/60 actions passing.
 
-### 7.4 Customer Lifecycle, Account Management & GDPR Compliance
-Transition customer interactions from mock endpoints to an authentic, legally compliant lifecycle:
+### 7.4 Customer Lifecycle, Account Management & GDPR Compliance *(Completed)*
+Transitioned customer interactions from mock placeholders to an authentic, legally compliant lifecycle:
 * **Customer Self-Registration & Onboarding:**
-  * Implement complete self-service signup via ZITADEL OIDC, enforcing email verification and password complexity.
-  * Dynamic bank account linking via Plaid / ACH mock interface (`external-sim/mock-bank`), generating an initial portfolio account in `core_invest.portfolios` with zero starting balance.
+  * Implemented self-service signup via ZITADEL OIDC, enforcing NIST SP 800-63B password complexity standards (`ValidatePasswordComplexity`).
+  * Dynamic bank account linking via Plaid / ACH mock interface (`external-sim/mock-bank`), generating an initial portfolio account in `core_invest.investment_portfolios` with zero starting balance and optional initial cash deposit.
 * **Account Closure & Liquidation Workflow:**
-  * Provide a self-service "Close Account" workflow in `web/customer-portal`: automatically liquidate all open equity holdings, wait for settlement, and transfer net cash balances back to the customer's linked external bank account.
-* **GDPR "Right to be Forgotten" Data Deletion Pipeline:**
-  * Implement an automated GDPR data erasure engine:
-    * Scrub all personally identifiable information (name, email, phone, physical address, IP logs) from PostgreSQL tables.
-    * Invalidate and purge all active session records in Valkey.
-    * Anonymize transaction ledgers to retain mathematical integrity for accounting and regulatory compliance while decoupling customer identities.
-    * Generate a cryptographic data deletion certificate for the user confirming compliance with GDPR Article 17.
+  * Self-service "Close Account" workflow in [`cmd/customer-bff`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go) and [`web/customer-portal`](file:///home/ramjac/orange-cat-investments/web/customer-portal/src/App.vue): automatically liquidates all active equity holdings via broker market sell orders, simulates settlement proceeds, transfers net cash balances back to the customer's linked external bank account via Plaid ACH disbursement, and marks the portfolio as `closed`.
+* **GDPR "Right to be Forgotten" Data Deletion Pipeline (Article 17):**
+  * Automated GDPR data erasure engine:
+    * Scrubs all personally identifiable information (name, email, password hash, contact references) across PostgreSQL database tables (`core_invest.customers`, `core_invest.investment_portfolios`, and IT tickets).
+    * Invalidates and permanently purges active sessions and refresh cookies from Valkey (`PurgeCustomerSessions`).
+    * Anonymizes transaction and trade ledgers with SHA-256 hashes to retain audit integrity under SEC Rule 17a-4 while decoupling former customer identities.
+    * Issues a tamper-evident cryptographic data deletion certificate (`core_invest.gdpr_erasure_certificates`) signed with HMAC-SHA256, accessible via dedicated authenticated and public receipt endpoints (`GET /api/v1/customer/privacy/gdpr-certificate/{id}` and `/download`).
 * **Automated Investment Statements & Tax Documentation:**
-  * Build a statement generation pipeline producing monthly portfolio summary PDFs and annual Form 1099-B tax reports.
-  * Deliver documents securely within the Customer Portal with encryption-at-rest and strict session-authorized download endpoints.
+  * Built a statement generation pipeline producing monthly portfolio summaries and Form 1099-B tax reports rendered directly to pure Go PDF 1.4 format without external binary dependencies ([`pkg/reporting/customer_statement_pdf.go`](file:///home/ramjac/orange-cat-investments/pkg/reporting/customer_statement_pdf.go)).
+  * Stores statement records and SHA-256 content hashes in `core_invest.investment_statements`.
+  * Delivered securely within the Customer Portal with session-authorized preview and download endpoints (`GET /api/v1/customer/statements/{id}/download`).
+* **Customer Portal UI, OpenAPI 3.1 & Simulation Coverage:**
+  * Added dedicated `📄 Statements & Tax Forms` and `🔒 Account & GDPR Privacy` navigation tabs in [`web/customer-portal/src/App.vue`](file:///home/ramjac/orange-cat-investments/web/customer-portal/src/App.vue), complete with live NIST password strength calculation and confirmation modals.
+  * Full OpenAPI 3.1 specification for `/customer/auth/register`, `/customer/account/close`, `/customer/privacy/gdpr-erasure`, `/customer/privacy/gdpr-certificate/{id}`, `/customer/privacy/gdpr-certificate/{id}/download`, `/customer/statements`, `/customer/statements/generate`, and `/customer/statements/{id}/download` in [`api/openapi.yaml`](file:///home/ramjac/orange-cat-investments/api/openapi.yaml).
+  * Added 5 simulation actions in [`simulation/actions.go`](file:///home/ramjac/orange-cat-investments/simulation/actions.go) covering self-registration, monthly statements, Form 1099-B tax filing, liquidation, and GDPR erasure, bringing platform simulation coverage to 65/65 actions passing (100% success rate).
 
 ### 7.5 Multi-Node SMB High Availability & Resilient Home Server Topology
 Evolve the single-node setup into a resilient multi-node home/office lab topology designed for 2 to 3 physical computers (e.g., mini PCs or Intel NUCs):

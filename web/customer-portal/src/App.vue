@@ -14,8 +14,11 @@
           <h4>{{ portfolio.customer_name || (currentPersona === 'arthur' ? 'Arthur Pendelton' : 'Chloe Spark') }}</h4>
           <span>{{ portfolio.account_name || (currentPersona === 'arthur' ? 'Long-Term Value Investor' : 'Short-Term Momentum Alpha Trader') }}</span>
         </div>
-        <button class="switch-persona-btn" @click="togglePersona">
+        <button class="switch-persona-btn" @click="togglePersona" style="margin-right: 0.5rem;">
           Switch Persona
+        </button>
+        <button class="switch-persona-btn" style="background: var(--secondary-color, #ea580c); color: white;" @click="showRegisterModal = true">
+          ✨ Register New Account
         </button>
       </div>
     </header>
@@ -42,6 +45,12 @@
       </button>
       <button :class="['tab-btn', { active: currentTab === 'support' }]" @click="currentTab = 'support'">
         🎧 Support & Inquiries
+      </button>
+      <button :class="['tab-btn', { active: currentTab === 'statements' }]" @click="currentTab = 'statements'">
+        📄 Statements & Tax Forms
+      </button>
+      <button :class="['tab-btn', { active: currentTab === 'privacy' }]" @click="currentTab = 'privacy'">
+        🔒 Account & GDPR Privacy
       </button>
     </nav>
 
@@ -575,6 +584,381 @@
       </div>
     </div>
 
+    <!-- TAB: Statements & Tax Forms -->
+    <div v-if="currentTab === 'statements'" class="grid-layout">
+      <!-- Left Column: Generate Document on-demand -->
+      <div class="card">
+        <h3>📄 Financial Documents & Tax Reports</h3>
+        <p class="subtext">
+          Generate IRS Form 1099-B tax returns or monthly portfolio statements rendered directly to pure Go PDF 1.4 format.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 1.5rem; margin-top: 1.25rem;">
+          <!-- Monthly Statement Generator -->
+          <div style="background: var(--background-color, #0f172a); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #334155;">
+            <h4 style="margin: 0 0 0.5rem 0; color: #fdba74;">📑 Generate Monthly Statement</h4>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
+              Summarizes monthly equity performance, month-end holdings valuation, cash yields, and observation trade execution records.
+            </p>
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+              <div style="flex: 1;">
+                <label class="form-label" style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.25rem;">Month</label>
+                <select v-model="statementMonth" class="form-control" style="padding: 0.5rem; font-size: 0.85rem;">
+                  <option value="01">01 - January</option>
+                  <option value="02">02 - February</option>
+                  <option value="03">03 - March</option>
+                  <option value="04">04 - April</option>
+                  <option value="05">05 - May</option>
+                  <option value="06">06 - June</option>
+                  <option value="07">07 - July</option>
+                  <option value="08">08 - August</option>
+                  <option value="09">09 - September</option>
+                  <option value="10">10 - October</option>
+                  <option value="11">11 - November</option>
+                  <option value="12">12 - December</option>
+                </select>
+              </div>
+              <div style="flex: 1;">
+                <label class="form-label" style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.25rem;">Year</label>
+                <select v-model="statementYear" class="form-control" style="padding: 0.5rem; font-size: 0.85rem;">
+                  <option :value="2026">2026</option>
+                  <option :value="2025">2025</option>
+                </select>
+              </div>
+            </div>
+            <button
+              class="btn-primary"
+              :disabled="isGeneratingMonthly"
+              @click="generateMonthlyStatementWorkflow"
+              style="font-size: 0.85rem; padding: 0.6rem;"
+            >
+              {{ isGeneratingMonthly ? 'Rendering PDF...' : '📑 Generate Monthly Statement PDF' }}
+            </button>
+          </div>
+
+          <!-- Form 1099-B Tax Return Generator -->
+          <div style="background: var(--background-color, #0f172a); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #334155;">
+            <h4 style="margin: 0 0 0.5rem 0; color: #6ee7b7;">📋 Generate IRS Form 1099-B</h4>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem;">
+              Annual Proceeds From Broker and Barter Exchange Transactions report showing short/long-term capital gain calculations under 26 U.S.C. § 6045.
+            </p>
+            <div style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-size: 0.75rem; color: #94a3b8; display: block; margin-bottom: 0.25rem;">Tax Year</label>
+              <select v-model="taxYear" class="form-control" style="padding: 0.5rem; font-size: 0.85rem;">
+                <option :value="2025">Tax Year 2025 (Annual Filing)</option>
+                <option :value="2024">Tax Year 2024 (Prior Year)</option>
+              </select>
+            </div>
+            <button
+              class="btn-primary"
+              :disabled="isGeneratingTax"
+              @click="generateForm1099BWorkflow"
+              style="background: #059669; font-size: 0.85rem; padding: 0.6rem;"
+            >
+              {{ isGeneratingTax ? 'Compiling 1099-B...' : '📋 Generate Form 1099-B Tax Return PDF' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Document History Table & Direct Downloads -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <h3>Available Documents & Archival</h3>
+          <button class="btn-secondary" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" @click="fetchStatements">
+            🔄 Refresh
+          </button>
+        </div>
+        <p class="subtext">Authenticated PDF 1.4 documents ready for secure browser preview or download.</p>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Period / Year</th>
+                <th>Created</th>
+                <th>Size</th>
+                <th style="text-align: right;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="stmt in statements" :key="stmt.statement_id">
+                <td>
+                  <span :class="['badge', stmt.statement_type === '1099_b' ? 'badge-ack' : 'badge-open']">
+                    {{ stmt.statement_type === '1099_b' ? 'FORM 1099-B' : 'MONTHLY' }}
+                  </span>
+                </td>
+                <td><strong>{{ stmt.period_label }}</strong></td>
+                <td style="color: #94a3b8; font-size: 0.75rem;">{{ formatDate(stmt.created_at) }}</td>
+                <td style="color: #94a3b8; font-size: 0.75rem;">{{ stmt.file_size_bytes ? (stmt.file_size_bytes / 1024).toFixed(1) + ' KB' : 'N/A' }}</td>
+                <td style="text-align: right;">
+                  <button
+                    class="btn-secondary"
+                    style="font-size: 0.75rem; padding: 0.3rem 0.6rem; background: #0284c7;"
+                    @click="downloadStatement(stmt)"
+                  >
+                    📥 Download PDF
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="statements.length === 0">
+                <td colspan="5" style="text-align: center; color: #94a3b8; padding: 2rem;">
+                  No statements or tax reports generated yet. Click generate on the left to compile your first report.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Account & GDPR Privacy -->
+    <div v-if="currentTab === 'privacy'" class="grid-layout">
+      <!-- Left Column: Account Details & Liquidation -->
+      <div class="card">
+        <h3>🔒 Account Lifecycle & Liquidation</h3>
+        <p class="subtext">
+          Manage your account state or initiate automated portfolio liquidation.
+        </p>
+
+        <div style="background: var(--background-color, #0f172a); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #334155; margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <span style="font-size: 0.85rem; color: #94a3b8;">Account Status</span>
+            <span :class="['badge', portfolio.status === 'closed' ? 'badge-closed' : 'badge-open']">
+              {{ portfolio.status ? portfolio.status.toUpperCase() : 'ACTIVE' }}
+            </span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem;">
+            <span style="color: #94a3b8;">Investor Name:</span>
+            <strong>{{ portfolio.customer_name || 'Arthur Pendelton' }}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem;">
+            <span style="color: #94a3b8;">Portfolio Reference:</span>
+            <code class="code-font">{{ portfolio.portfolio_id?.substring(0, 18) }}...</code>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.85rem;">
+            <span style="color: #94a3b8;">Active Equity Positions:</span>
+            <strong>{{ portfolio.holdings?.length || 0 }} Open Positions</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem;">
+            <span style="color: #94a3b8;">Total Portfolio Value:</span>
+            <strong class="positive-text">${{ portfolio.total_balance_usd?.toLocaleString('en-US', {minimumFractionDigits: 2}) }}</strong>
+          </div>
+        </div>
+
+        <div style="border: 1px solid #7f1d1d; background: rgba(239, 68, 68, 0.08); padding: 1.25rem; border-radius: 0.5rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: #f87171;">⚠️ Close Account & Liquidate Portfolio</h4>
+          <p style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 1rem;">
+            This workflow executes market sell orders for all active holdings via the broker gateway, converts your equity to cash, transfers all net cash proceeds back to your linked bank account via Plaid ACH disbursement, and marks your portfolio as closed.
+          </p>
+          <button
+            class="btn-primary"
+            style="background: #dc2626;"
+            :disabled="portfolio.status === 'closed'"
+            @click="showCloseModal = true"
+          >
+            {{ portfolio.status === 'closed' ? 'Account Is Closed' : '⚠️ Liquidate Portfolio & Close Account' }}
+          </button>
+        </div>
+
+        <!-- Liquidation Receipt Card if closed -->
+        <div v-if="closureReceipt" style="margin-top: 1.5rem; background: rgba(34, 197, 94, 0.1); border: 1px solid #16a34a; padding: 1rem; border-radius: 0.5rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: #4ade80;">✅ Account Closure & Liquidation Complete</h4>
+          <div style="font-size: 0.8rem; color: #e2e8f0; display: flex; flex-direction: column; gap: 0.35rem;">
+            <div>Liquidated Positions: <strong>{{ closureReceipt.liquidated_positions_count }}</strong></div>
+            <div>Gross Proceeds: <strong>${{ closureReceipt.gross_proceeds_usd?.toFixed(2) }}</strong></div>
+            <div>Net Disbursed Cash: <strong class="positive-text">${{ closureReceipt.disbursed_cash_usd?.toFixed(2) }}</strong></div>
+            <div>ACH Disbursement ID: <code class="code-font">{{ closureReceipt.disbursement_transfer_id }}</code></div>
+            <div>Destination Account: <strong>{{ closureReceipt.disbursement_account }}</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: GDPR Article 17 Erasure -->
+      <div class="card">
+        <h3>🛡️ GDPR Right to be Forgotten (Article 17)</h3>
+        <p class="subtext">
+          Permanently scrub customer PII, purge active Valkey sessions, and receive a cryptographically signed deletion certificate.
+        </p>
+
+        <div style="background: var(--background-color, #0f172a); padding: 1.25rem; border-radius: 0.5rem; border: 1px solid #334155; margin-bottom: 1.5rem;">
+          <h4 style="margin: 0 0 0.5rem 0; color: #38bdf8;">Compliance Framework & Retention Guardrails</h4>
+          <p style="font-size: 0.8rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.75rem;">
+            In accordance with GDPR Article 17(1) and SEC Rule 17a-4 / FINRA financial regulatory standards:
+          </p>
+          <ul style="font-size: 0.78rem; color: #cbd5e1; padding-left: 1.2rem; margin: 0; display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>PII Scrubbing:</strong> Names, emails, passwords, and contact tokens are permanently deleted from <code>core_invest.customers</code>.</li>
+            <li><strong>Session Invalidation:</strong> All active sessions and refresh cookies are purged from Valkey session store immediately.</li>
+            <li><strong>Audit Anonymization:</strong> Order books, trades, and ledgers are pseudonymized with SHA-256 hashes to retain audit integrity.</li>
+            <li><strong>Cryptographic Proof:</strong> An HMAC-SHA256 signed deletion certificate is issued as immutable legal proof of erasure.</li>
+          </ul>
+        </div>
+
+        <button
+          class="btn-primary"
+          style="background: #991b1b;"
+          @click="showGDPRModal = true"
+        >
+          🗑️ Request GDPR Data Erasure
+        </button>
+
+        <!-- Erasure Certificate Display if created -->
+        <div v-if="erasureCertificate" style="margin-top: 1.5rem; background: var(--background-color, #0f172a); border: 1px solid #0284c7; padding: 1.25rem; border-radius: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+            <h4 style="margin: 0; color: #38bdf8;">📜 Tamper-Evident Deletion Certificate</h4>
+            <span class="badge" style="background: #0284c7; color: white;">HMAC-SHA256 VERIFIED</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;">
+            <div>Certificate ID: <code class="code-font">{{ erasureCertificate.certificate_id }}</code></div>
+            <div>Issued At: <strong>{{ formatDate(erasureCertificate.issued_at) }}</strong></div>
+            <div>Scrubbed Entities: <span class="activity-chip">{{ erasureCertificate.entities_affected?.join(', ') }}</span></div>
+            <div>Cryptographic Signature:</div>
+            <code class="code-font" style="font-size: 0.75rem; color: #6ee7b7; word-break: break-all; background: #020617; padding: 0.4rem; border-radius: 0.25rem;">
+              {{ erasureCertificate.hmac_signature }}
+            </code>
+          </div>
+          <div style="margin-top: 1rem; display: flex; justify-content: flex-end;">
+            <button
+              class="btn-secondary"
+              style="background: #0284c7; font-size: 0.8rem; padding: 0.5rem 1rem;"
+              @click="downloadGDPRCertificate(erasureCertificate.certificate_id)"
+            >
+              📜 Download Legal Certificate (PDF 1.4)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 1: Customer Self-Registration & Onboarding -->
+    <div v-if="showRegisterModal" class="modal-overlay" @click.self="showRegisterModal = false">
+      <div class="modal-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0; color: var(--secondary-color, #ea580c);">✨ Open a New Investment Account</h3>
+          <button class="btn-secondary" style="padding: 0.25rem 0.5rem;" @click="showRegisterModal = false">✕</button>
+        </div>
+        <p class="subtext">
+          Onboard directly to OCI with automated ZITADEL OIDC identity creation, NIST-compliant password validation, and instant zero-balance portfolio generation.
+        </p>
+
+        <form @submit.prevent="handleRegisterCustomer" style="display: flex; flex-direction: column; gap: 0.85rem;">
+          <div class="form-group" style="margin: 0;">
+            <label>Legal Full Name *</label>
+            <input v-model="registerForm.name" required class="form-control" placeholder="e.g. Arthur Pendelton" />
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label>Email Address *</label>
+            <input v-model="registerForm.email" type="email" required class="form-control" placeholder="e.g. arthur@investor.com" />
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label>Password (NIST 800-63B standard) *</label>
+            <input v-model="registerForm.password" type="password" required class="form-control" placeholder="At least 8 chars, mixed case, number, symbol" />
+            <div style="display: flex; gap: 0.5rem; margin-top: 0.35rem; align-items: center; font-size: 0.75rem;">
+              <span style="color: #94a3b8;">Strength:</span>
+              <span :style="{ color: passwordStrengthColor, fontWeight: 'bold' }">{{ passwordStrengthLabel }}</span>
+              <div style="flex: 1; height: 6px; background: #334155; border-radius: 3px; overflow: hidden;">
+                <div :style="{ width: passwordStrengthPct + '%', background: passwordStrengthColor, height: '100%', transition: 'all 0.3s' }"></div>
+              </div>
+            </div>
+            <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.25rem;">
+              Must contain 8+ characters, uppercase, lowercase, a digit, and a special character (!@#$%^&*).
+            </div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label>Linked Bank Account (ACH via Plaid) *</label>
+            <input v-model="registerForm.bank_account" required class="form-control" placeholder="e.g. Chase Premier Checking (****4821)" />
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label>Initial Cash Deposit (USD)</label>
+            <input v-model.number="registerForm.initial_deposit" type="number" step="100" min="0" class="form-control" placeholder="0.00" />
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
+            <button type="button" class="btn-secondary" @click="showRegisterModal = false">Cancel</button>
+            <button type="submit" class="btn-primary" :disabled="isRegistering || !isPasswordValid" style="width: auto; padding: 0.6rem 1.25rem;">
+              {{ isRegistering ? 'Creating Account...' : '🚀 Create Account' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 2: Account Closure Confirmation -->
+    <div v-if="showCloseModal" class="modal-overlay" @click.self="showCloseModal = false">
+      <div class="modal-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0; color: #f87171;">⚠️ Confirm Account Liquidation</h3>
+          <button class="btn-secondary" style="padding: 0.25rem 0.5rem;" @click="showCloseModal = false">✕</button>
+        </div>
+        <p class="subtext">
+          Are you sure you want to close account <strong>{{ portfolio.account_name }}</strong>?
+        </p>
+
+        <div style="background: var(--background-color, #0f172a); padding: 1rem; border-radius: 0.5rem; border: 1px solid #7f1d1d; margin-bottom: 1rem; font-size: 0.85rem; color: #fca5a5;">
+          <strong>Warning:</strong> All {{ portfolio.holdings?.length || 0 }} open equity positions will be sold immediately at market price. All cash proceeds will be transferred to your linked bank account via Plaid ACH disbursement.
+        </div>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #cbd5e1; margin-bottom: 1.25rem; cursor: pointer;">
+          <input type="checkbox" v-model="closeConfirmChecked" />
+          I confirm that I want to liquidate my entire portfolio and close this account.
+        </label>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn-secondary" @click="showCloseModal = false">Cancel</button>
+          <button
+            type="button"
+            class="btn-primary"
+            style="background: #dc2626; width: auto; padding: 0.6rem 1.25rem;"
+            :disabled="!closeConfirmChecked || isClosingAccount"
+            @click="handleCloseAccountWorkflow"
+          >
+            {{ isClosingAccount ? 'Liquidating Positions...' : 'Confirm & Liquidate' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 3: GDPR Article 17 Erasure Confirmation -->
+    <div v-if="showGDPRModal" class="modal-overlay" @click.self="showGDPRModal = false">
+      <div class="modal-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0; color: #ef4444;">🛡️ GDPR Article 17 Erasure Request</h3>
+          <button class="btn-secondary" style="padding: 0.25rem 0.5rem;" @click="showGDPRModal = false">✕</button>
+        </div>
+        <p class="subtext">
+          Permanent data deletion is irreversible. Your profile, credentials, and active sessions will be completely purged.
+        </p>
+
+        <div style="background: var(--background-color, #0f172a); padding: 1rem; border-radius: 0.5rem; border: 1px solid #334155; margin-bottom: 1rem; font-size: 0.85rem;">
+          <p style="margin: 0 0 0.5rem 0; color: #94a3b8;">To prevent accidental data loss, please type <strong style="color: #f87171;">DELETE</strong> to confirm:</p>
+          <input
+            v-model="gdprConfirmText"
+            class="form-control"
+            placeholder="Type DELETE to confirm"
+            style="font-family: monospace; font-size: 0.9rem;"
+          />
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn-secondary" @click="showGDPRModal = false">Cancel</button>
+          <button
+            type="button"
+            class="btn-primary"
+            style="background: #991b1b; width: auto; padding: 0.6rem 1.25rem;"
+            :disabled="gdprConfirmText !== 'DELETE' || isErasingData"
+            @click="handleGDPRErasureWorkflow"
+          >
+            {{ isErasingData ? 'Erasing Personal Data...' : 'Permanently Delete My Data' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="toastMessage" class="alert-toast">
       {{ toastMessage }}
     </div>
@@ -677,6 +1061,66 @@ const orderForm = ref({ symbol: 'AAPL', side: 'buy', quantity: 10, order_type: '
 const depositForm = ref({ amount_usd: 500, frequency: 'monthly', bank_account: 'Chase Checking (****4821)' });
 const apiKeyForm = ref({ name: '' });
 const webhookForm = ref({ target_url: '' });
+
+// Statements & Tax Documentation State
+const statements = ref([]);
+const isGeneratingMonthly = ref(false);
+const isGeneratingTax = ref(false);
+const statementMonth = ref('03');
+const statementYear = ref(2026);
+const taxYear = ref(2025);
+
+// Lifecycle & Privacy State
+const showRegisterModal = ref(false);
+const isRegistering = ref(false);
+const registerForm = ref({
+  name: '',
+  email: '',
+  password: '',
+  bank_account: 'Chase Premier Checking (****4821)',
+  initial_deposit: 0
+});
+
+const showCloseModal = ref(false);
+const closeConfirmChecked = ref(false);
+const isClosingAccount = ref(false);
+const closureReceipt = ref(null);
+
+const showGDPRModal = ref(false);
+const gdprConfirmText = ref('');
+const isErasingData = ref(false);
+const erasureCertificate = ref(null);
+
+const isPasswordValid = computed(() => {
+  const p = registerForm.value.password || '';
+  return p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p);
+});
+
+const passwordStrengthPct = computed(() => {
+  const p = registerForm.value.password || '';
+  let score = 0;
+  if (p.length >= 8) score += 20;
+  if (p.length >= 12) score += 20;
+  if (/[A-Z]/.test(p)) score += 20;
+  if (/[0-9]/.test(p)) score += 20;
+  if (/[^A-Za-z0-9]/.test(p)) score += 20;
+  return score;
+});
+
+const passwordStrengthLabel = computed(() => {
+  const s = passwordStrengthPct.value;
+  if (s >= 80) return 'Strong (NIST Compliant)';
+  if (s >= 60) return 'Moderate';
+  if (s >= 20) return 'Weak';
+  return 'Too Short';
+});
+
+const passwordStrengthColor = computed(() => {
+  const s = passwordStrengthPct.value;
+  if (s >= 80) return '#4ade80';
+  if (s >= 60) return '#facc15';
+  return '#f87171';
+});
 
 function showToast(msg) {
   toastMessage.value = msg;
@@ -947,6 +1391,7 @@ async function togglePersona() {
     fetchTradeLogs();
     selectedTicket.value = null;
     fetchCustomerTickets();
+    fetchStatements();
     showToast('Switched to Chloe Spark (Momentum Trader mode)');
   } else {
     currentPersona.value = 'arthur';
@@ -956,6 +1401,7 @@ async function togglePersona() {
     fetchTradeLogs();
     selectedTicket.value = null;
     fetchCustomerTickets();
+    fetchStatements();
     showToast('Switched to Arthur Pendelton (Long-Term Investor mode)');
   }
 }
@@ -1216,11 +1662,196 @@ async function submitTicketComment() {
   }
 }
 
+async function fetchStatements() {
+  try {
+    const res = await fetch('/api/v1/customer/statements');
+    if (res.ok) {
+      const data = await res.json();
+      statements.value = data.items || [];
+    }
+  } catch (e) {}
+}
+
+async function generateMonthlyStatementWorkflow() {
+  isGeneratingMonthly.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/statements/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        type: 'monthly',
+        period_month: parseInt(statementMonth.value),
+        period_year: parseInt(statementYear.value)
+      })
+    });
+    if (res.ok) {
+      const created = await res.json();
+      statements.value.unshift(created);
+      showToast('Monthly Statement PDF generated successfully!');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to generate monthly statement');
+    }
+  } catch (e) {
+    showToast('Failed to generate monthly statement');
+  } finally {
+    isGeneratingMonthly.value = false;
+  }
+}
+
+async function generateForm1099BWorkflow() {
+  isGeneratingTax.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/statements/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        type: '1099_b',
+        tax_year: parseInt(taxYear.value)
+      })
+    });
+    if (res.ok) {
+      const created = await res.json();
+      statements.value.unshift(created);
+      showToast('Form 1099-B Tax Return generated successfully!');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to generate Form 1099-B');
+    }
+  } catch (e) {
+    showToast('Failed to generate Form 1099-B');
+  } finally {
+    isGeneratingTax.value = false;
+  }
+}
+
+function downloadStatement(stmt) {
+  const url = `/api/v1/customer/statements/${stmt.statement_id}/download`;
+  window.open(url, '_blank');
+}
+
+function downloadGDPRCertificate(certId) {
+  const url = `/api/v1/customer/privacy/gdpr-certificate/${certId}/download`;
+  window.open(url, '_blank');
+}
+
+async function handleRegisterCustomer() {
+  if (!isPasswordValid.value) {
+    showToast('Password does not meet NIST complexity criteria.');
+    return;
+  }
+  isRegistering.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: registerForm.value.name,
+        email: registerForm.value.email,
+        password: registerForm.value.password,
+        bank_account: registerForm.value.bank_account,
+        initial_deposit_usd: registerForm.value.initial_deposit || 0
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      showToast(`Account successfully registered! Welcome, ${data.name}`);
+      showRegisterModal.value = false;
+      registerForm.value = { name: '', email: '', password: '', bank_account: 'Chase Premier Checking (****4821)', initial_deposit: 0 };
+      if (data.portfolio && data.portfolio.portfolio_id) {
+        portfolio.value = data.portfolio;
+      }
+      fetchPortfolio();
+      fetchStatements();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to register account');
+    }
+  } catch (e) {
+    showToast('Failed to register account');
+  } finally {
+    isRegistering.value = false;
+  }
+}
+
+async function handleCloseAccountWorkflow() {
+  isClosingAccount.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/account/close', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        portfolio_id: portfolio.value?.portfolio_id,
+        reason: 'Customer initiated self-service liquidation'
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      closureReceipt.value = data;
+      showCloseModal.value = false;
+      closeConfirmChecked.value = false;
+      showToast('Portfolio liquidated and account closed. Funds disbursed via ACH.');
+      fetchPortfolio();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to close account');
+    }
+  } catch (e) {
+    showToast('Failed to close account');
+  } finally {
+    isClosingAccount.value = false;
+  }
+}
+
+async function handleGDPRErasureWorkflow() {
+  if (gdprConfirmText.value !== 'DELETE') return;
+  isErasingData.value = true;
+  try {
+    const res = await fetch('/api/v1/customer/privacy/gdpr-erasure', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken.value
+      },
+      body: JSON.stringify({
+        confirmation: 'DELETE',
+        reason: 'GDPR Article 17 Right to be Forgotten Request'
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      erasureCertificate.value = data;
+      showGDPRModal.value = false;
+      gdprConfirmText.value = '';
+      showToast('GDPR Erasure completed. Personal data permanently scrubbed.');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to execute GDPR erasure');
+    }
+  } catch (e) {
+    showToast('Failed to execute GDPR erasure');
+  } finally {
+    isErasingData.value = false;
+  }
+}
+
 watch(currentTab, (newTab) => {
   if (newTab === 'stream') {
     initWebRTCStream();
   } else {
     stopWebRTCStream();
+  }
+  if (newTab === 'statements') {
+    fetchStatements();
   }
 });
 
@@ -1240,6 +1871,7 @@ onMounted(async () => {
   fetchZoomieIndex();
   fetchTickerData();
   fetchCustomerTickets();
+  fetchStatements();
   if (currentTab.value === 'stream') {
     initWebRTCStream();
   }
@@ -1337,4 +1969,29 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .badge-open { background: #0284c7; color: white; }
 .badge-ack { background: #d97706; color: white; }
 .badge-closed { background: #059669; color: white; }
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.modal-card {
+  background: var(--card-color, #1e293b);
+  border: 1px solid #334155;
+  border-radius: 0.75rem;
+  max-width: 540px;
+  width: 100%;
+  padding: 1.5rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  max-height: 90vh;
+  overflow-y: auto;
+}
 </style>
