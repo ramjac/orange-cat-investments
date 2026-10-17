@@ -84,6 +84,95 @@ func TestCustomerBLL_OrderExecution_NormalAndMedicalHold(t *testing.T) {
 	assert.Contains(t, rec2.Body.String(), "emergency medical hold active")
 }
 
+func TestCustomerBLL_DefaultFeline_FromConfiguration(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+
+	var queriedFelineID string
+	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queriedFelineID = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"emergency_medical_hold": false,
+		})
+	}))
+	defer mockWorkforceServer.Close()
+
+	// Setting default employee via configuration
+	bll := &CustomerBLLServer{
+		publisher:       pubSub,
+		httpClient:      mockWorkforceServer.Client(),
+		workforceURL:    mockWorkforceServer.URL,
+		defaultFelineID: "emp-configured-cat-42",
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+
+	// Order request has NO FelineID
+	orderReq := TradeOrderRequest{
+		PortfolioID: "port-001",
+		Symbol:      "MSFT",
+		Side:        "buy",
+		Quantity:    5.0,
+		OrderType:   "market",
+	}
+	body, _ := json.Marshal(orderReq)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, queriedFelineID, "emp-configured-cat-42")
+}
+
+func TestCustomerBLL_DefaultFeline_FromWorkforceDatabase(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+
+	var queriedCareSchedulePath string
+	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/workforce/employees" {
+			// Emulate database returning active feline employee roster
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{"employee_id": "emp-db-feline-alpha", "first_name": "Barnaby", "employee_type": "feline", "status": "active"},
+			})
+			return
+		}
+		queriedCareSchedulePath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"emergency_medical_hold": false,
+		})
+	}))
+	defer mockWorkforceServer.Close()
+
+	// defaultFelineID is NOT configured, must query database data from workforce API
+	bll := &CustomerBLLServer{
+		publisher:    pubSub,
+		httpClient:   mockWorkforceServer.Client(),
+		workforceURL: mockWorkforceServer.URL,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+
+	// Order request has NO FelineID
+	orderReq := TradeOrderRequest{
+		PortfolioID: "port-002",
+		Symbol:      "GOOGL",
+		Side:        "buy",
+		Quantity:    2.0,
+		OrderType:   "market",
+	}
+	body, _ := json.Marshal(orderReq)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, queriedCareSchedulePath, "emp-db-feline-alpha")
+}
+
+
 func TestCustomerBLL_ACHDeposit(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)

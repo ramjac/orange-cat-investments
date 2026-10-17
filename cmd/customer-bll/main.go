@@ -30,6 +30,7 @@ type CustomerBLLServer struct {
 	bankClient       *plaid.Client
 	workforceURL     string
 	coreInvestURL    string
+	defaultFelineID  string
 }
 
 type TradeOrderRequest struct {
@@ -92,25 +93,23 @@ func (s *CustomerBLLServer) handleValidateAndExecuteOrder(w http.ResponseWriter,
 	}
 
 	// 1. Business Rule: Check feline medical hold from workforce domain
-	targetFeline := req.FelineID
-	if targetFeline == "" {
-		targetFeline = "emp-feline-garfield"
-	}
-
-	medicalHoldActive, err := s.checkFelineMedicalHold(r.Context(), targetFeline)
-	if err != nil {
-		s.log().Warn("could not query workforce medical hold, defaulting to safe hold check", "error", err)
-	}
-	if medicalHoldActive {
-		s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":     "algorithmic trading halted: emergency medical hold active for feline executive",
-			"feline_id": targetFeline,
-			"status":    "medical_hold_halt",
-		})
-		return
+	targetFeline := s.resolveTargetFeline(r.Context(), req.FelineID)
+	if targetFeline != "" {
+		medicalHoldActive, err := s.checkFelineMedicalHold(r.Context(), targetFeline)
+		if err != nil {
+			s.log().Warn("could not query workforce medical hold, defaulting to safe hold check", "error", err)
+		}
+		if medicalHoldActive {
+			s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":     "algorithmic trading halted: emergency medical hold active for feline executive",
+				"feline_id": targetFeline,
+				"status":    "medical_hold_halt",
+			})
+			return
+		}
 	}
 
 	// 2. Execute order with broker
@@ -187,6 +186,55 @@ func (s *CustomerBLLServer) checkFelineMedicalHold(ctx context.Context, felineID
 		return false, err
 	}
 	return data.EmergencyMedicalHold, nil
+}
+
+func (s *CustomerBLLServer) resolveTargetFeline(ctx context.Context, requestedID string) string {
+	if requestedID != "" {
+		return requestedID
+	}
+	// 1. Check configured default employee ID
+	if s.defaultFelineID != "" {
+		return s.defaultFelineID
+	}
+	// 2. Query workforce domain database data dynamically via API
+	if s.workforceURL != "" {
+		felineID, err := s.fetchFirstActiveFeline(ctx)
+		if err == nil && felineID != "" {
+			return felineID
+		}
+		if err != nil {
+			s.log().Warn("could not fetch default feline employee from workforce database", "error", err)
+		}
+	}
+	return ""
+}
+
+func (s *CustomerBLLServer) fetchFirstActiveFeline(ctx context.Context) (string, error) {
+	url := fmt.Sprintf("%s/api/v1/workforce/employees?employee_type=feline&status=active", s.workforceURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("workforce returned status %d", resp.StatusCode)
+	}
+
+	var employees []struct {
+		EmployeeID string `json:"employee_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&employees); err != nil {
+		return "", err
+	}
+	if len(employees) > 0 && employees[0].EmployeeID != "" {
+		return employees[0].EmployeeID, nil
+	}
+	return "", nil
 }
 
 func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Request) {
@@ -276,12 +324,18 @@ func main() {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
+	defaultFelineID := os.Getenv("DEFAULT_FELINE_ID")
+	if defaultFelineID == "" {
+		defaultFelineID = os.Getenv("DEFAULT_EMPLOYEE_ID")
+	}
+
 	serverObj := &CustomerBLLServer{
-		logger:        logger,
-		publisher:     pubSub,
-		httpClient:    &http.Client{Timeout: 5 * time.Second},
-		workforceURL:  workforceURL,
-		coreInvestURL: coreInvestURL,
+		logger:          logger,
+		publisher:       pubSub,
+		httpClient:      &http.Client{Timeout: 5 * time.Second},
+		workforceURL:    workforceURL,
+		coreInvestURL:   coreInvestURL,
+		defaultFelineID: defaultFelineID,
 	}
 
 	brokerURL := os.Getenv("BROKER_API_BASE_URL")

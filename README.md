@@ -651,8 +651,29 @@ Make better use of our logging and monitoring infra to surface issues
 * **Monitors:**
   * Monitors for COTS apps
   * Healthcheck monitors for websites and APIs
+  * Queue monitors for deadletter queues and also for excessive queue depth on the regular queues
+  * Monitor for Error level logs
 * **Alert notifications:**
   * Pub/sub alert to watches and internal web banner?
+
+### 7.9 Fault Tolerance and General Error Handling
+Ensuring that negative scenarios with external APIs are well handled and that internal failures are reasonably handled and have functioning alerts.
+* **External Errors:**
+  * Mock Bank API - Add error responses that can be turned on/off by a new endpoint outside the regular banking endpoints
+  * Mock Broker API - Add error responses that can be turned on/off by a new endpoint outside the regular broker endpoints
+* **Chaos Monkey:**
+  * Make scripts of actions to intentionally break OCI in certain ways. Likely by intentional kubernetes misconfiguration. After each of these, observe the results in terms of logs and alerts firing before restoring functionality and moving to the next test. Note anywhere there is a lack of logging/alerting.
+  	* Turn off Postgres for OCI internal
+  	* Turn off Postgres for OCI core
+  	* Break network access between BLLs and Domain APIs
+  	* Break network access between BFFs and BLLs
+  	* Turn off a Domain API (repeat this for each Domain API)
+  	* Turn off a BLL API (repeat this for each BLL)
+  	* Turn off a BFF API (repeat this for each BFF)
+  	* Turn off the mock Bank API
+  	* Turn off the mock Broker API
+  	* Add a deadletter message to a queue
+  	* Add a malformed/invalid message to a queue
 
 ### 7.11 Zero Trust Security Architecture: Dynamic mTLS, Network Policies & Secret Management
 Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:
