@@ -526,8 +526,8 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.7 Exercise all application types
-Review repo to verify implementation of all architectural patterns across an enterprise-grade multi-tier system. The platform intentionally demonstrates an enterprise-grade microservices architecture designed to scale well beyond a single small business, featuring strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
+### 7.7 Enterprise Multi-Tier Application Architecture (Implemented)
+Orange Cat Investments implements all architectural patterns across an enterprise-grade multi-tier system. The platform intentionally demonstrates an enterprise-grade microservices architecture designed to scale well beyond a single small business, featuring strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
 
 * **Custom Application Types & Monorepo Mapping:**
   * **Internal Web Portal (`web/employee-portal` + `cmd/employee-bff`):**
@@ -574,12 +574,11 @@ Review repo to verify implementation of all architectural patterns across an ent
   * **Static Public Website (`web/marketing`):**
     * *Architecture:* Fast, lightweight static website generated using Hugo and served via a hardened web container.
     * *Content & Scope:* Single-page public marketing website highlighting OCI's feline behavioral observation alpha model, investment tier comparisons (Observer vs. Momentum Alpha), live Zoomie Index snapshot badge, and clear calls-to-action (CTA) to register via the Customer Web Portal. Consumes design tokens and branding guidelines from `config/branding.yaml`.
-    * *Implementation & CI/CD Pipeline Plan:*
-      1. Create Hugo site structure in `web/marketing/` (layouts, static assets, content, design tokens).
-      2. Author dedicated Forgejo Action / build script (`scripts/build-marketing.sh`):
-         * Step 1: Run Hugo build (`hugo --minify`) to compile HTML/CSS/JS into `public/`.
-         * Step 2: Multi-stage Docker build packaging compiled static assets into an ultra-lean Nginx or `cmd/portal-server` container (`oci-marketing:latest`).
-      3. Author Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
+    * *Implementation & Delivery:*
+      1. Complete Hugo site structure in `web/marketing/` (layouts, static assets, content, design tokens).
+      2. Automated build script (`scripts/build-marketing.sh`): Compiles HTML/CSS/JS into `public/`.
+      3. Multi-stage Docker build packaging static assets into a lean `cmd/portal-server` container (`oci-marketing:latest`).
+      4. Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
 
   * **Domain APIs (Workforce, Facilities, Core Invest, Ops):**
     * *Architecture:* Standalone, single-responsibility gRPC microservices running on top of isolated PostgreSQL database schemas.
@@ -588,77 +587,93 @@ Review repo to verify implementation of all architectural patterns across an ent
       * **Domain APIs do not call each other.** Cross-domain database joins and direct cross-domain API calls are strictly forbidden.
       * The only authorized clients of Domain APIs are **Business Logic Layer (BLL) APIs** and authorized background worker/batch jobs.
       * Zero public ingress: Domain APIs are completely unexposed to external traffic and protected by Kubernetes NetworkPolicies.
-    * *Refactoring Plan (Decomposing the Unified API Server):*
-      1. *Protobuf Contract Definitions:* Define strict Protobuf 3 specs in `proto/oci/`:
+    * *Implementation & Delivery:*
+      1. *Protobuf Contract Definitions:* Strict Protobuf 3 specs defined in `proto/oci/`:
          * `proto/oci/workforce/v1/workforce.proto` (Employees, Care Schedules, Reviews, VHR, Incidents)
          * `proto/oci/facilities/v1/facilities.proto` (Hardware Assets, Maintenance Logs, Firmware Releases, OTA Jobs)
          * `proto/oci/core_invest/v1/core_invest.proto` (Portfolios, Holdings, Orders, Observations, Deposits)
          * `proto/oci/ops/v1/ops.proto` (IT Tickets, Alert Subscriptions, Audit Logs)
-      2. *Code Generation:* Generate Go gRPC server and client stubs into `pkg/gen/go/` via `buf` or `protoc`.
-      3. *Microservice Separation:* Split `cmd/server` into 4 dedicated service binaries:
+      2. *Code Generation:* Generated pure Go message types and service interfaces in `pkg/gen/go/` matching Protobuf contracts.
+      3. *Microservice Separation:* 4 dedicated service binaries created in `cmd/`:
          * `cmd/workforce-api` (Port 50051, isolated connection to PostgreSQL `workforce` schema)
          * `cmd/facilities-api` (Port 50052, isolated connection to PostgreSQL `facilities` schema)
          * `cmd/core-invest-api` (Port 50053, isolated connection to PostgreSQL `core_invest` schema)
          * `cmd/ops-api` (Port 50054, isolated connection to PostgreSQL `ops` schema)
-      4. *Security & mTLS:* Enforce inter-service mutual TLS (mTLS) with dynamic certificate reloaders (`crypto/tls`) provisioned by `cert-manager`.
-      5. *Kubernetes Manifests:* Create individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/` restricting gRPC ingress exclusively to authorized BLL pods.
+      4. *Security & Dynamic mTLS:* Inter-service mutual TLS enforced via `pkg/mtls` dynamic certificate reloaders (`crypto/tls` callbacks `GetCertificate` & `GetClientCertificate`) for zero static certs.
+      5. *Kubernetes Manifests:* Individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/domain-apis.yaml` restricting gRPC ingress exclusively to authorized BLL pods.
 
   * **Business Logic Layer APIs (Customer BLL & Internal BLL):**
     * *Architecture:* Middle-tier microservices that sit strictly between the BFFs and the Domain APIs.
     * *Primary Concern:* Business rules, multi-domain orchestration, quantitative calculations, distributed sagas, third-party adapter execution (broker/bank), and event emission.
-    * *Refactoring Plan (Separating into Dual BLL Services):*
-      1. *Customer BLL (`cmd/customer-bll`):*
-         * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter (`pkg/broker/alpaca`), verifies bank accounts via Plaid adapter (`pkg/bank/plaid`), and computes portfolio performance metrics.
+    * *Implementation & Delivery:*
+      1. *Customer BLL (`cmd/customer-bll` :8085):*
+         * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter, verifies bank accounts via Plaid adapter, and computes portfolio performance metrics.
          * Emits asynchronous events to RabbitMQ (`events.investment.order_placed.v1`, `events.banking.ach_transfer_requested.v1`).
-         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/customer-bff`.
-      2. *Internal BLL (`cmd/internal-bll`):*
+         * Exposes internal REST endpoints consumed exclusively by `cmd/customer-bff`.
+      2. *Internal BLL (`cmd/internal-bll` :8086):*
          * Orchestrates corporate operations: executes `OnboardingSaga` and `OffboardingEngine` across `workforce-api` and `ops-api`, validates veterinary care directives, calculates executive BI metrics, and triggers edge firmware updates via `facilities-api`.
          * Emits asynchronous events to RabbitMQ (`events.workforce.incident_created.v1`, `events.facilities.ota_triggered.v1`, `events.reporting.generate_monthly_requested.v1`).
-         * Exposes internal gRPC/REST endpoints consumed exclusively by `cmd/employee-bff`.
-      3. *BFF Decoupling:* Refactor `cmd/customer-bff` and `cmd/employee-bff` to remove in-process database repositories, transforming them into pure presentation proxies that delegate business logic to `cmd/customer-bll` and `cmd/internal-bll`.
+         * Exposes internal REST endpoints consumed exclusively by `cmd/employee-bff`.
+      3. *BFF Decoupling:* `cmd/customer-bff` and `cmd/employee-bff` configured to delegate business logic to `cmd/customer-bll` and `cmd/internal-bll`.
+      4. *Kubernetes Manifests:* Created `k8s/oci-core/bll-services.yaml` with deployments, services, and NetworkPolicies restricting ingress strictly to BFF pods.
 
   * **Async Queue Consumer Application (`cmd/worker`):**
     * *Architecture:* Event-driven worker subscribing to RabbitMQ message streams using the Go Watermill framework.
-    * *Existing Handlers:*
+    * *Supported Handlers:*
       * Observation-triggered algorithmic portfolio allocation and automated trade execution.
       * Dynamic quantitative strategy backtest computation engine.
       * Edge device OTA firmware update pipeline (download, checksum verification, device flashing, status callback).
       * Executive report generation orchestrator depositing PDF/CSV assets into Nextcloud WebDAV.
-    * *Plan for Async Bank Transfers & ACH Settlement:*
-      1. Define `events.banking.ach_transfer_requested.v1` envelope containing transfer ID, customer ID, bank account, amount USD, and transfer type (deposit/withdrawal).
-      2. Implement `HandleACHTransferRequested` in `cmd/worker`:
-         * Consumes transfer requests from RabbitMQ.
-         * Calls external mock banking API (`cmd/mock-bank`) to initiate ACH clearing.
-         * Enforces realistic asynchronous settlement delay (e.g., simulating a multi-second clearing window).
-         * Calls `core-invest-api` to credit or debit portfolio cash balance upon settlement.
-         * Emits `events.banking.ach_settled.v1` to notify the Customer BLL and trigger customer notification.
+      * **Async Bank Transfers & ACH Settlement:**
+        * Event contract: `events.banking.ach_transfer_requested.v1` with transfer ID, customer ID, bank account, amount USD, and transfer type.
+        * `HandleACHTransferRequested` in `cmd/worker`: Consumes transfer requests from RabbitMQ, calls mock bank API to initiate clearing, simulates asynchronous settlement window, calls `core-invest-api` to credit/debit portfolio cash balance, and publishes `events.banking.ach_settled.v1`.
 
   * **Scheduled / Batch Job Application:**
     * *Architecture:* Time-triggered cron and batch worker executing periodic business maintenance workflows.
-    * *Existing Handlers:* Automated PKI intermediate CA rotation ticker checking and rotating expired certificates.
-    * *Plan for Recurring ACH Batch Processor & Statement Generator:*
-      1. *Recurring ACH Deposit Processor:*
-         * Scheduled cron runner (e.g. daily at 00:00 UTC or periodic ticker) executing in `cmd/worker` or standalone Kubernetes `CronJob`.
-         * Queries due recurring deposit schedules from `core-invest-api`.
-         * Dispatches `events.banking.ach_transfer_requested.v1` to the async queue consumer for each due deposit.
-      2. *Automated End-of-Month Statement Batch Generator:*
-         * Scheduled cron runner executing on the 1st of every month at 01:00 UTC.
-         * Batches all active customer portfolios, invokes `pkg/reporting` to generate IRS 1099-B tax forms and monthly portfolio PDF statements, deposits copies into Nextcloud WebDAV compliance vault, and emits completion notifications.
+    * *Supported Handlers:*
+      * Automated PKI intermediate CA rotation ticker checking and rotating expired certificates.
+      * **Recurring ACH Deposit Processor:**
+        * Scheduled cron runner executing daily at 00:00 UTC (configured in `cmd/worker` and Kubernetes CronJob in `k8s/oci-core/batch-jobs.yaml`).
+        * Queries due recurring deposit schedules from `core-invest-api` and dispatches `events.banking.ach_transfer_requested.v1`.
+      * **Automated End-of-Month Statement Batch Generator:**
+        * Scheduled cron runner executing on the 1st of every month at 01:00 UTC (in `cmd/worker` and Kubernetes CronJob in `k8s/oci-core/batch-jobs.yaml`).
+        * Batches active customer portfolios, invokes `pkg/reporting` to generate IRS 1099-B tax forms and monthly portfolio PDF statements, deposits copies into Nextcloud WebDAV vault, and emits completion notifications.
 
   * **Pub/Sub Application (Incident Alerting Pipeline):**
     * *Architecture:* Topic-based event publication and real-time subscriber fanout across wearables and web frontends.
-    * *Plan for Workplace Incident Alert Pipeline:*
-      1. *Incident Event Publication:* When a safety incident is logged in the Internal BLL (e.g., feline knocks water glass onto IT server rack in Zone Alpha), publish `events.workforce.incident_created.v1` to RabbitMQ with incident ID, room zone, severity level (`urgent`, `critical`, `info`), and hazard description.
-      2. *Real-Time Web Portal Banner:* A pub/sub consumer forwards the incident event to an active Server-Sent Events (SSE) or WebSocket hub in `cmd/employee-bff`, broadcasting an emergency banner across all active employee portal browser sessions.
-      3. *Wearable Alert Push to Pebble Watch:* A dedicated listener in `cmd/pebble-proxy` catches the incident event, converts it into a wearable alert payload, and immediately dispatches a vibrating alert notification with one-click physical button acknowledgment (ACK) to on-call engineers wearing Pebble smartwatches.
+    * *Workplace Incident Alert Pipeline Implementation:*
+      1. *Incident Event Publication:* When a safety incident is logged in `cmd/internal-bll`, emits `events.workforce.incident_created.v1` to RabbitMQ with incident ID, room zone, severity level (`urgent`, `critical`, `info`), and hazard description.
+      2. *Real-Time Web Portal Banner:* Server-Sent Events (SSE) streaming hub in `cmd/employee-bff` (`GET /api/v1/employee/incidents/stream`) and ingestion broadcast endpoint (`POST /api/v1/employee/incidents/broadcast`), broadcasting emergency alert banners (`🚨 Workplace Incident Alert`) with 1-click Acknowledge/Dismiss across all active employee portal browser sessions.
+      3. *Wearable Alert Push to Pebble Watch:* Dedicated listener in `cmd/pebble-proxy` (`POST /api/v1/ops/pebble/incidents/broadcast`) converting incidents into pending wearable alerts, serving `GET /ops/pebble/alerts` with `AppMessageDict` keys for vibrating smartwatch notifications, and accepting physical button ACK signals via `POST /ops/pebble/ack`.
 
 ### 7.8 Monitoring and Alerting
 Make better use of our logging and monitoring infra to surface issues
 * **Monitors:**
   * Monitors for COTS apps
   * Healthcheck monitors for websites and APIs
+  * Queue monitors for deadletter queues and also for excessive queue depth on the regular queues
+  * Monitor for Error level logs
 * **Alert notifications:**
   * Pub/sub alert to watches and internal web banner?
+
+### 7.9 Fault Tolerance and General Error Handling
+Ensuring that negative scenarios with external APIs are well handled and that internal failures are reasonably handled and have functioning alerts.
+* **External Errors:**
+  * Mock Bank API - Add error responses that can be turned on/off by a new endpoint outside the regular banking endpoints
+  * Mock Broker API - Add error responses that can be turned on/off by a new endpoint outside the regular broker endpoints
+* **Chaos Monkey:**
+  * Make scripts of actions to intentionally break OCI in certain ways. Likely by intentional kubernetes misconfiguration. After each of these, observe the results in terms of logs and alerts firing before restoring functionality and moving to the next test. Note anywhere there is a lack of logging/alerting.
+  	* Turn off Postgres for OCI internal
+  	* Turn off Postgres for OCI core
+  	* Break network access between BLLs and Domain APIs
+  	* Break network access between BFFs and BLLs
+  	* Turn off a Domain API (repeat this for each Domain API)
+  	* Turn off a BLL API (repeat this for each BLL)
+  	* Turn off a BFF API (repeat this for each BFF)
+  	* Turn off the mock Bank API
+  	* Turn off the mock Broker API
+  	* Add a deadletter message to a queue
+  	* Add a malformed/invalid message to a queue
 
 ### 7.11 Zero Trust Security Architecture: Dynamic mTLS, Network Policies & Secret Management
 Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:

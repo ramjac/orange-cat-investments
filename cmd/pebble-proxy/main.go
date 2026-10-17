@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -65,6 +67,12 @@ func main() {
 	})
 	handler.RegisterRoutes(mux)
 
+	// Ingest workplace safety incidents into high-priority wearable alerts
+	incidentHandler := handleIncidentAlertBroadcast(repo, logger)
+	mux.HandleFunc("POST /api/v1/ops/pebble/incidents/broadcast", incidentHandler)
+	mux.HandleFunc("POST /ops/pebble/incidents/broadcast", incidentHandler)
+	mux.HandleFunc("POST /ops/pebble/alerts/incident", incidentHandler)
+
 	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
 
 	server := &http.Server{
@@ -97,3 +105,69 @@ func main() {
 
 	logger.Info("Pebble Companion Gateway Proxy stopped gracefully")
 }
+
+func handleIncidentAlertBroadcast(repo opsrepo.Repository, logger *slog.Logger) http.HandlerFunc {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IncidentID  string `json:"incident_id"`
+			Title       string `json:"title"`
+			Category    string `json:"category"`
+			Severity    string `json:"severity"`
+			RoomZone    string `json:"room_zone"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid incident payload"}`, http.StatusBadRequest)
+			return
+		}
+
+		ticketID := req.IncidentID
+		if ticketID == "" {
+			ticketID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
+		}
+
+		title := req.Title
+		if req.RoomZone != "" {
+			title = fmt.Sprintf("🚨 %s (%s)", req.Title, req.RoomZone)
+		} else {
+			title = fmt.Sprintf("🚨 %s", req.Title)
+		}
+
+		severity := req.Severity
+		if severity == "" {
+			severity = "critical"
+		}
+
+		desc := req.Description
+		ticket := &opsrepo.ITTicket{
+			TicketID:       ticketID,
+			Title:          title,
+			Body:           &desc,
+			State:          "open",
+			Severity:       severity,
+			Category:       "incident",
+			Source:         "workforce-incidents",
+			AuthorUsername: "incident-pipeline",
+			IsUrgent:       true,
+			CreatedAt:      time.Now().UTC(),
+			UpdatedAt:      time.Now().UTC(),
+		}
+
+		created, err := repo.CreateITTicket(r.Context(), ticket)
+		if err != nil {
+			logger.Error("failed to create incident alert ticket for pebble", "error", err)
+			http.Error(w, `{"error":"failed to create incident alert"}`, http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("registered workplace incident alert for Pebble wearable push", "ticket_id", created.TicketID, "severity", severity)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+	}
+}
+

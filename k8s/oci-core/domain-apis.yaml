@@ -1,0 +1,320 @@
+# Workforce Domain API (Port 50051)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workforce-api
+  namespace: oci-core
+  labels:
+    app: workforce-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workforce-api
+  template:
+    metadata:
+      labels:
+        app: workforce-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: workforce-api
+          image: localhost:32000/workforce-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50051"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: ENABLE_FELINE_WORKFORCE
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50051
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workforce-api-service
+  namespace: oci-core
+  labels:
+    app: workforce-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50051
+      targetPort: 50051
+      name: grpc-http
+  selector:
+    app: workforce-api
+---
+# Facilities Domain API (Port 50052)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: facilities-api
+  namespace: oci-core
+  labels:
+    app: facilities-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: facilities-api
+  template:
+    metadata:
+      labels:
+        app: facilities-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: facilities-api
+          image: localhost:32000/facilities-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50052
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50052"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50052
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50052
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: facilities-api-service
+  namespace: oci-core
+  labels:
+    app: facilities-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50052
+      targetPort: 50052
+      name: grpc-http
+  selector:
+    app: facilities-api
+---
+# Core Invest Domain API (Port 50053)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-invest-api
+  namespace: oci-core
+  labels:
+    app: core-invest-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core-invest-api
+  template:
+    metadata:
+      labels:
+        app: core-invest-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: core-invest-api
+          image: localhost:32000/core-invest-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50053
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50053"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: ENABLE_CORE_INVEST
+              value: "true"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50053
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50053
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-invest-api-service
+  namespace: oci-core
+  labels:
+    app: core-invest-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50053
+      targetPort: 50053
+      name: grpc-http
+  selector:
+    app: core-invest-api
+---
+# Ops Domain API (Port 50054)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-api
+  namespace: oci-core
+  labels:
+    app: ops-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-api
+  template:
+    metadata:
+      labels:
+        app: ops-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: ops-api
+          image: localhost:32000/ops-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50054
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50054"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50054
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50054
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-api-service
+  namespace: oci-core
+  labels:
+    app: ops-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50054
+      targetPort: 50054
+      name: grpc-http
+  selector:
+    app: ops-api
+---
+# NetworkPolicy: Restrict Ingress to Domain APIs strictly to BLL and Worker pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: domain-apis-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      tier: domain-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bll
+        - podSelector:
+            matchLabels:
+              app: oci-worker
+        - podSelector:
+            matchLabels:
+              app: oci-server
+      ports:
+        - protocol: TCP
+          port: 50051
+        - protocol: TCP
+          port: 50052
+        - protocol: TCP
+          port: 50053
+        - protocol: TCP
+          port: 50054

@@ -1,0 +1,260 @@
+syntax = "proto3";
+
+package oci.workforce.v1;
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1;workforcev1";
+
+service WorkforceService {
+  rpc GetEmployee (GetEmployeeRequest) returns (GetEmployeeResponse);
+  rpc ListEmployees (ListEmployeesRequest) returns (ListEmployeesResponse);
+  rpc CreateEmployee (CreateEmployeeRequest) returns (CreateEmployeeResponse);
+  
+  rpc GetCareSchedule (GetCareScheduleRequest) returns (GetCareScheduleResponse);
+  rpc UpdateCareSchedule (UpdateCareScheduleRequest) returns (UpdateCareScheduleResponse);
+  rpc SetMedicalHold (SetMedicalHoldRequest) returns (SetMedicalHoldResponse);
+
+  rpc SubmitLeaveRequest (SubmitLeaveRequestMessage) returns (SubmitLeaveResponse);
+  rpc ListLeaveRequests (ListLeaveRequestsRequest) returns (ListLeaveRequestsResponse);
+  rpc UpdateLeaveStatus (UpdateLeaveStatusRequest) returns (UpdateLeaveStatusResponse);
+
+  rpc CreateReviewCycle (CreateReviewCycleRequest) returns (CreateReviewCycleResponse);
+  rpc ListReviewCycles (ListReviewCyclesRequest) returns (ListReviewCyclesResponse);
+
+  rpc CreateVHRRecord (CreateVHRRecordRequest) returns (CreateVHRRecordResponse);
+  rpc ListVHRRecords (ListVHRRecordsRequest) returns (ListVHRRecordsResponse);
+
+  rpc CreateIncident (CreateIncidentRequest) returns (CreateIncidentResponse);
+  rpc ListIncidents (ListIncidentsRequest) returns (ListIncidentsResponse);
+}
+
+message Employee {
+  string employee_id = 1;
+  string employee_type = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string email = 5;
+  string role_title = 6;
+  string department = 7;
+  string status = 8;
+  string hired_at = 9;
+  string created_at = 10;
+  string updated_at = 11;
+}
+
+message GetEmployeeRequest {
+  string employee_id = 1;
+}
+
+message GetEmployeeResponse {
+  Employee employee = 1;
+}
+
+message ListEmployeesRequest {
+  string employee_type = 1;
+  string status = 2;
+}
+
+message ListEmployeesResponse {
+  repeated Employee employees = 1;
+}
+
+message CreateEmployeeRequest {
+  string employee_type = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string email = 4;
+  string role_title = 5;
+  string department = 6;
+}
+
+message CreateEmployeeResponse {
+  Employee employee = 1;
+}
+
+message CareSchedule {
+  string schedule_id = 1;
+  string feline_id = 2;
+  string dietary_plan = 3;
+  repeated string feeding_times = 4;
+  string special_medical_needs = 5;
+  string preferred_perch_zone = 6;
+  bool emergency_medical_hold = 7;
+  string caretaker_id = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+message GetCareScheduleRequest {
+  string feline_id = 1;
+}
+
+message GetCareScheduleResponse {
+  CareSchedule care_schedule = 1;
+}
+
+message UpdateCareScheduleRequest {
+  string feline_id = 1;
+  string dietary_plan = 2;
+  repeated string feeding_times = 3;
+  string special_medical_needs = 4;
+  string preferred_perch_zone = 5;
+  bool emergency_medical_hold = 6;
+  string caretaker_id = 7;
+}
+
+message UpdateCareScheduleResponse {
+  CareSchedule care_schedule = 1;
+}
+
+message SetMedicalHoldRequest {
+  string feline_id = 1;
+  bool emergency_medical_hold = 2;
+}
+
+message SetMedicalHoldResponse {
+  CareSchedule care_schedule = 1;
+}
+
+message LeaveRequest {
+  string leave_id = 1;
+  string employee_id = 2;
+  string leave_type = 3;
+  string start_date = 4;
+  string end_date = 5;
+  string status = 6;
+  string reason = 7;
+  string created_at = 8;
+}
+
+message SubmitLeaveRequestMessage {
+  string employee_id = 1;
+  string leave_type = 2;
+  string start_date = 3;
+  string end_date = 4;
+  string reason = 5;
+}
+
+message SubmitLeaveResponse {
+  LeaveRequest leave_request = 1;
+}
+
+message ListLeaveRequestsRequest {
+  string employee_id = 1;
+  string status = 2;
+}
+
+message ListLeaveRequestsResponse {
+  repeated LeaveRequest leave_requests = 1;
+}
+
+message UpdateLeaveStatusRequest {
+  string leave_id = 1;
+  string status = 2;
+}
+
+message UpdateLeaveStatusResponse {
+  LeaveRequest leave_request = 1;
+}
+
+message ReviewCycle {
+  string review_id = 1;
+  string employee_id = 2;
+  string review_type = 3;
+  string review_period = 4;
+  string phase = 5;
+  string scheduled_for = 6;
+  string status = 7;
+  double score = 8;
+  string notes = 9;
+}
+
+message CreateReviewCycleRequest {
+  string employee_id = 1;
+  string review_type = 2;
+  string review_period = 3;
+  string scheduled_for = 4;
+}
+
+message CreateReviewCycleResponse {
+  ReviewCycle review_cycle = 1;
+}
+
+message ListReviewCyclesRequest {
+  string employee_id = 1;
+}
+
+message ListReviewCyclesResponse {
+  repeated ReviewCycle review_cycles = 1;
+}
+
+message VHRRecord {
+  string record_id = 1;
+  string feline_id = 2;
+  string veterinarian_id = 3;
+  string visit_date = 4;
+  double weight_kg = 5;
+  int32 dental_score = 6;
+  string vaccination_status = 7;
+  string prescriptions = 8;
+  string clinical_notes = 9;
+  string created_at = 10;
+}
+
+message CreateVHRRecordRequest {
+  string feline_id = 1;
+  string veterinarian_id = 2;
+  string visit_date = 3;
+  double weight_kg = 4;
+  int32 dental_score = 5;
+  string vaccination_status = 6;
+  string prescriptions = 7;
+  string clinical_notes = 8;
+}
+
+message CreateVHRRecordResponse {
+  VHRRecord record = 1;
+}
+
+message ListVHRRecordsRequest {
+  string feline_id = 1;
+}
+
+message ListVHRRecordsResponse {
+  repeated VHRRecord records = 1;
+}
+
+message WorkplaceIncident {
+  string incident_id = 1;
+  string title = 2;
+  string category = 3;
+  string involved_feline_id = 4;
+  string involved_human_id = 5;
+  string severity = 6;
+  string status = 7;
+  string description = 8;
+  string resolution_notes = 9;
+  string reported_at = 10;
+  string resolved_at = 11;
+}
+
+message CreateIncidentRequest {
+  string title = 1;
+  string category = 2;
+  string involved_feline_id = 3;
+  string involved_human_id = 4;
+  string severity = 5;
+  string description = 6;
+}
+
+message CreateIncidentResponse {
+  WorkplaceIncident incident = 1;
+}
+
+message ListIncidentsRequest {
+  string severity = 1;
+  string status = 2;
+}
+
+message ListIncidentsResponse {
+  repeated WorkplaceIncident incidents = 1;
+}

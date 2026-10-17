@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ .Site.Title }} — {{ .Site.Params.tagline }}</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header / Nav -->
+  <header class="site-header">
+    <div class="header-container">
+      <a href="/" class="brand-link">
+        <span class="brand-icon">{{ .Site.Params.logoIcon }}</span>
+        <div class="brand-text">
+          <span class="brand-title">{{ .Site.Params.tradingName }}</span>
+          <span class="brand-subtitle">Algorithmic Feline Alpha</span>
+        </div>
+      </a>
+      <nav class="nav-links">
+        <a href="#alpha-model">Alpha Model</a>
+        <a href="#tiers">Investment Tiers</a>
+        <a href="#zoomie-index">Zoomie Index</a>
+        <a href="{{ .Site.Params.customerPortalURL }}" class="btn btn-secondary">Log In</a>
+        <a href="{{ .Site.Params.registerURL }}" class="btn btn-primary">Open Account</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-content">
+      <div class="zoomie-live-badge">
+        <span class="badge-dot pulse"></span>
+        <span class="badge-label">LIVE ZOOMIE INDEX</span>
+        <span class="badge-value" id="hero-zoomie-score">84.2</span>
+        <span class="badge-state">HIGH MOMENTUM</span>
+      </div>
+      <h1 class="hero-title">
+        The World's First <span class="highlight">Feline-Telemetry</span> Quantitative Fund
+      </h1>
+      <p class="hero-description">
+        {{ .Site.Params.tagline }}. Powered by real-time computer vision tracking of Chief Observation Officer Garfield and Alpha Perch Analyst Barneby.
+      </p>
+      <div class="hero-actions">
+        <a href="{{ .Site.Params.registerURL }}" class="btn btn-primary btn-lg">Start Investing Today</a>
+        <a href="{{ .Site.Params.customerPortalURL }}" class="btn btn-outline btn-lg">Launch Customer Portal</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Behavioral Alpha Model Section -->
+  <section id="alpha-model" class="section">
+    <div class="section-container">
+      <div class="section-header">
+        <span class="section-tag">PROPRIETARY ALGORITHM</span>
+        <h2>How Feline Behavioral Telemetry Powers Alpha</h2>
+        <p>Optical RTSP camera feeds capture millisecond-level feline posture, gaze tracking, nap latency, and zoomie acceleration to drive systematic portfolio positioning.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📹</div>
+          <h3>Optical Ingestion</h3>
+          <p>4K high-FPS cameras monitor Garfield and Barneby across designated high-altitude habitat perches with ultra-low latency inference.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🧠</div>
+          <h3>Computer Vision Inference</h3>
+          <p>Embedded deep learning models classify feline activity into six distinct behavioural regimes: zooming, napping, perched, eating, grooming, and pouncing.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Smart Order Routing</h3>
+          <p>Immediate translation of behavioral signals into bracket orders, stop-loss protections, and automated trade execution with microsecond precision.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🩺</div>
+          <h3>Veterinary ESG Guardrails</h3>
+          <p>Automated Emergency Medical Trading Holds by Chief Veterinary Officer Dr. Elena Rostova guarantee feline welfare precedes market execution.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Investment Tiers Section -->
+  <section id="tiers" class="section section-dark">
+    <div class="section-container">
+      <div class="section-header">
+        <span class="section-tag">INVESTMENT STRATEGIES</span>
+        <h2>Choose Your Investment Strategy</h2>
+        <p>Tailored risk profiles designed for both steady value compounding and aggressive momentum capture.</p>
+      </div>
+
+      <div class="tiers-grid">
+        <!-- Tier 1: Observer Strategy -->
+        <div class="tier-card">
+          <div class="tier-badge">CONSERVATIVE VALUE</div>
+          <h3 class="tier-name">Observer Tier</h3>
+          <p class="tier-target">Ideal for long-term investors seeking stable risk-adjusted yields (like Arthur Pendelton).</p>
+          <div class="tier-metrics">
+            <div class="metric-row">
+              <span class="metric-title">Primary Driver</span>
+              <span class="metric-val">Deep Nap & Perch Equilibrium</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Trading Frequency</span>
+              <span class="metric-val">Weekly Rebalancing & DCA</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Historical Sharpe Ratio</span>
+              <span class="metric-val">1.94</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Risk Profile</span>
+              <span class="metric-val">Low Volatility / Capital Preservation</span>
+            </div>
+          </div>
+          <ul class="tier-features">
+            <li>✓ Automated Dollar-Cost Averaging (ACH)</li>
+            <li>✓ End-of-month Form 1099-B tax generation</li>
+            <li>✓ Passive Garfield nap cycle portfolio rebalancing</li>
+            <li>✓ Nextcloud compliance report archive</li>
+          </ul>
+          <a href="{{ .Site.Params.registerURL }}" class="btn btn-outline btn-block">Select Observer Tier</a>
+        </div>
+
+        <!-- Tier 2: Momentum Alpha Strategy -->
+        <div class="tier-card tier-featured">
+          <div class="tier-badge featured-badge">HIGH MOMENTUM ALPHA</div>
+          <h3 class="tier-name">Momentum Alpha Tier</h3>
+          <p class="tier-target">Built for high-conviction traders targeting dynamic volatility spikes (like Chloe Spark).</p>
+          <div class="tier-metrics">
+            <div class="metric-row">
+              <span class="metric-title">Primary Driver</span>
+              <span class="metric-val">Sudden Zoomies & Pounce Spikes</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Execution Mode</span>
+              <span class="metric-val">Sub-second 1-Click Zoomie Pounce</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Historical Sharpe Ratio</span>
+              <span class="metric-val">2.41</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-title">Risk Profile</span>
+              <span class="metric-val">Active Momentum / Bracket Guards</span>
+            </div>
+          </div>
+          <ul class="tier-features">
+            <li>✓ Instant 1-click tactical pounce execution</li>
+            <li>✓ Live WebRTC stream with computer vision bounding boxes</li>
+            <li>✓ Real-time Server-Sent Events (SSE) price ticker</li>
+            <li>✓ Developer API keys & quant webhook streams</li>
+            <li>✓ Trailing stop-loss & bracket protection</li>
+          </ul>
+          <a href="{{ .Site.Params.registerURL }}" class="btn btn-primary btn-block">Select Momentum Alpha</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live Zoomie Index Snapshot Section -->
+  <section id="zoomie-index" class="section">
+    <div class="section-container">
+      <div class="zoomie-banner-card">
+        <div class="zoomie-banner-left">
+          <span class="badge-dot pulse"></span>
+          <h2>Live Feline Zoomie Index Snapshot</h2>
+          <p>Our proprietary composite index gauges overall habitat velocity and playful agility across all feline perches in real time.</p>
+          <div class="zoomie-stats">
+            <div class="z-stat">
+              <span class="z-num">84.2</span>
+              <span class="z-lbl">Momentum Score (0-100)</span>
+            </div>
+            <div class="z-stat">
+              <span class="z-num">+14.6%</span>
+              <span class="z-lbl">1-Hour Velocity Spike</span>
+            </div>
+            <div class="z-stat">
+              <span class="z-num">Active</span>
+              <span class="z-lbl">Barneby High-Perch Alert</span>
+            </div>
+          </div>
+        </div>
+        <div class="zoomie-banner-right">
+          <a href="{{ .Site.Params.customerPortalURL }}" class="btn btn-primary btn-lg">Watch Live Stream</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="cta-container">
+      <h2>Ready to invest with feline intelligence?</h2>
+      <p>Open an account in minutes through the Customer Portal. Regulated, encrypted, and backed by ESG-certified feline care standards.</p>
+      <div class="cta-actions">
+        <a href="{{ .Site.Params.registerURL }}" class="btn btn-primary btn-lg">Create Free Investor Account</a>
+        <a href="{{ .Site.Params.customerPortalURL }}" class="btn btn-secondary btn-lg">Sign In to Customer Portal</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <span class="brand-icon">{{ .Site.Params.logoIcon }}</span>
+          <span class="brand-title">{{ .Site.Params.legalName }}</span>
+        </div>
+        <p class="footer-tagline">{{ .Site.Params.tagline }}</p>
+      </div>
+      <div class="footer-bottom">
+        <p>&copy; 2026 {{ .Site.Params.legalName }}. All rights reserved.</p>
+        <p>Domain: <a href="https://{{ .Site.Params.baseDomain }}">{{ .Site.Params.baseDomain }}</a> | Customer Portal: <a href="{{ .Site.Params.customerPortalURL }}">customer.oci.local</a></p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

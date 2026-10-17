@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package oci.facilities.v1;
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1;facilitiesv1";
+
+service FacilitiesService {
+  rpc GetAsset (GetAssetRequest) returns (GetAssetResponse);
+  rpc ListAssets (ListAssetsRequest) returns (ListAssetsResponse);
+  rpc CreateAsset (CreateAssetRequest) returns (CreateAssetResponse);
+
+  rpc CreateMaintenanceLog (CreateMaintenanceLogRequest) returns (CreateMaintenanceLogResponse);
+  rpc ListMaintenanceLogs (ListMaintenanceLogsRequest) returns (ListMaintenanceLogsResponse);
+
+  rpc ListFirmwareReleases (ListFirmwareReleasesRequest) returns (ListFirmwareReleasesResponse);
+  rpc CreateOTAJob (CreateOTAJobRequest) returns (CreateOTAJobResponse);
+  rpc ListOTAJobs (ListOTAJobsRequest) returns (ListOTAJobsResponse);
+
+  rpc IngestEnvironmentalTelemetry (IngestTelemetryRequest) returns (IngestTelemetryResponse);
+}
+
+message HardwareAsset {
+  string asset_id = 1;
+  string serial_number = 2;
+  string asset_type = 3;
+  string model = 4;
+  string status = 5;
+  string zone_id = 6;
+  string assigned_employee_id = 7;
+  string last_ping_at = 8;
+  string created_at = 9;
+}
+
+message GetAssetRequest {
+  string asset_id = 1;
+}
+
+message GetAssetResponse {
+  HardwareAsset asset = 1;
+}
+
+message ListAssetsRequest {
+  int32 limit = 1;
+  string cursor_id = 2;
+  string asset_type = 3;
+}
+
+message ListAssetsResponse {
+  repeated HardwareAsset assets = 1;
+  string next_cursor = 2;
+}
+
+message CreateAssetRequest {
+  string serial_number = 1;
+  string asset_type = 2;
+  string model = 3;
+  string status = 4;
+  string zone_id = 5;
+}
+
+message CreateAssetResponse {
+  HardwareAsset asset = 1;
+}
+
+message MaintenanceLog {
+  string log_id = 1;
+  string ticket_id = 2;
+  string asset_id = 3;
+  string technician_id = 4;
+  string qr_code_scanned = 5;
+  string action_taken = 6;
+  string notes = 7;
+  string synced_at = 8;
+}
+
+message CreateMaintenanceLogRequest {
+  string asset_id = 1;
+  string qr_code_scanned = 2;
+  string action_taken = 3;
+  string technician_id = 4;
+  string notes = 5;
+}
+
+message CreateMaintenanceLogResponse {
+  MaintenanceLog log = 1;
+}
+
+message ListMaintenanceLogsRequest {
+  string asset_id = 1;
+  int32 limit = 2;
+}
+
+message ListMaintenanceLogsResponse {
+  repeated MaintenanceLog logs = 1;
+}
+
+message FirmwareRelease {
+  string release_id = 1;
+  string device_type = 2;
+  string version = 3;
+  string file_url = 4;
+  string checksum = 5;
+  string min_hardware_version = 6;
+  string status = 7;
+  string created_at = 8;
+}
+
+message ListFirmwareReleasesRequest {
+  string device_type = 1;
+}
+
+message ListFirmwareReleasesResponse {
+  repeated FirmwareRelease releases = 1;
+}
+
+message DeviceOTAJob {
+  string job_id = 1;
+  string asset_id = 2;
+  string release_id = 3;
+  string status = 4;
+  string error_message = 5;
+  string scheduled_at = 6;
+  string completed_at = 7;
+}
+
+message CreateOTAJobRequest {
+  repeated string asset_ids = 1;
+  string release_id = 2;
+}
+
+message CreateOTAJobResponse {
+  repeated DeviceOTAJob jobs = 1;
+}
+
+message ListOTAJobsRequest {
+  string asset_id = 1;
+  string status = 2;
+}
+
+message ListOTAJobsResponse {
+  repeated DeviceOTAJob jobs = 1;
+}
+
+message IngestTelemetryRequest {
+  string zone_id = 1;
+  double temperature_c = 2;
+  double relative_humidity_pct = 3;
+  double light_intensity_lux = 4;
+  double noise_level_db = 5;
+}
+
+message IngestTelemetryResponse {
+  string telemetry_id = 1;
+  string status = 2;
+}
