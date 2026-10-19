@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
@@ -23,14 +25,14 @@ import (
 )
 
 type CustomerBLLServer struct {
-	logger           *slog.Logger
-	publisher        message.Publisher
-	httpClient       *http.Client
-	brokerClient     *alpaca.Client
-	bankClient       *plaid.Client
-	workforceURL     string
-	coreInvestURL    string
-	defaultFelineID  string
+	logger          *slog.Logger
+	publisher       message.Publisher
+	httpClient      *http.Client
+	brokerClient    *alpaca.Client
+	bankClient      *plaid.Client
+	workforceURL    string
+	coreInvestURL   string
+	defaultFelineID string
 }
 
 type TradeOrderRequest struct {
@@ -39,7 +41,7 @@ type TradeOrderRequest struct {
 	Symbol      string  `json:"symbol"`
 	Side        string  `json:"side"` // buy, sell
 	Quantity    float64 `json:"quantity"`
-	OrderType   string  `json:"order_type"` // market, zoomie_pounce, bracket
+	OrderType   string  `json:"order_type"` // market, limit
 	LimitPrice  float64 `json:"limit_price,omitempty"`
 	StopLoss    float64 `json:"stop_loss,omitempty"`
 	TakeProfit  float64 `json:"take_profit,omitempty"`
@@ -92,49 +94,104 @@ func (s *CustomerBLLServer) handleValidateAndExecuteOrder(w http.ResponseWriter,
 		return
 	}
 
-	// 1. Business Rule: Check feline medical hold from workforce domain
-	targetFeline := s.resolveTargetFeline(r.Context(), req.FelineID)
-	if targetFeline != "" {
-		medicalHoldActive, err := s.checkFelineMedicalHold(r.Context(), targetFeline)
-		if err != nil {
-			s.log().Warn("could not query workforce medical hold, defaulting to safe hold check", "error", err)
-		}
-		if medicalHoldActive {
-			s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"error":     "algorithmic trading halted: emergency medical hold active for feline executive",
-				"feline_id": targetFeline,
-				"status":    "medical_hold_halt",
-			})
-			return
-		}
+	// Validate side strictly (Thread 6)
+	if req.Side != "buy" && req.Side != "sell" {
+		http.Error(w, `{"error":"side must be 'buy' or 'sell'"}`, http.StatusBadRequest)
+		return
 	}
 
-	// 2. Execute order with broker
-	executedPrice := 175.50
-	orderID := "ord-" + watermill.NewUUID()[:8]
+	// Validate order type and protection parameters (Thread 8)
+	orderType := req.OrderType
+	if orderType == "" {
+		orderType = "market"
+	}
+	if orderType != "market" && orderType != "limit" {
+		http.Error(w, fmt.Sprintf(`{"error":"unsupported order type '%s'; supported types: 'market', 'limit'"}`, orderType), http.StatusBadRequest)
+		return
+	}
+	var limitPricePtr *float64
+	if orderType == "limit" {
+		if req.LimitPrice <= 0 {
+			http.Error(w, `{"error":"limit order requires limit_price > 0"}`, http.StatusBadRequest)
+			return
+		}
+		limitPricePtr = &req.LimitPrice
+	}
+	if req.StopLoss > 0 || req.TakeProfit > 0 {
+		http.Error(w, `{"error":"stop loss and take profit not supported by current broker integration"}`, http.StatusBadRequest)
+		return
+	}
 
-	if s.brokerClient != nil {
-		alpacaSide := "buy"
-		if req.Side == "sell" {
-			alpacaSide = "sell"
-		}
-		brokerResp, err := s.brokerClient.CreateOrder(r.Context(), req.PortfolioID, alpaca.CreateOrderRequest{
-			Symbol:        req.Symbol,
-			Qty:           req.Quantity,
-			Side:          alpacaSide,
-			Type:          "market",
-			TimeInForce:   "day",
-			ClientOrderID: orderID,
+	// 1. Business Rule: Check feline medical hold from workforce domain (Thread 7)
+	targetFeline, err := s.resolveTargetFeline(r.Context(), req.FelineID)
+	if err != nil || targetFeline == "" {
+		s.log().Error("feline executive resolution failed", "error", err)
+		http.Error(w, `{"error":"unable to resolve feline executive for required medical hold verification"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	medicalHoldActive, err := s.checkFelineMedicalHold(r.Context(), targetFeline)
+	if err != nil {
+		s.log().Error("feline medical hold verification failed; failing closed", "error", err, "feline_id", targetFeline)
+		http.Error(w, `{"error":"feline medical hold safety check unavailable; failing closed"}`, http.StatusServiceUnavailable)
+		return
+	}
+	if medicalHoldActive {
+		s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":     "algorithmic trading halted: emergency medical hold active for feline executive",
+			"feline_id": targetFeline,
+			"status":    "medical_hold_halt",
 		})
-		if err == nil && brokerResp != nil {
-			orderID = brokerResp.ID
-			if brokerResp.FilledAvgPrice != nil {
-				executedPrice = *brokerResp.FilledAvgPrice
-			}
-		}
+		return
+	}
+
+	// 2. Execute order with broker (Threads 9 & 49)
+	if s.brokerClient == nil {
+		s.log().Error("broker client not configured")
+		http.Error(w, `{"error":"broker integration not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	brokerSide := req.Side
+	clientOrderID := "ord-" + watermill.NewUUID()[:8]
+
+	brokerResp, err := s.brokerClient.CreateOrder(r.Context(), req.PortfolioID, alpaca.CreateOrderRequest{
+		Symbol:        req.Symbol,
+		Qty:           req.Quantity,
+		Side:          brokerSide,
+		Type:          orderType,
+		TimeInForce:   "day",
+		LimitPrice:    limitPricePtr,
+		ClientOrderID: clientOrderID,
+	})
+	if err != nil {
+		s.log().Error("broker order execution failed", "error", err, "portfolio_id", req.PortfolioID)
+		http.Error(w, fmt.Sprintf(`{"error":"broker order rejected: %s"}`, err.Error()), http.StatusBadGateway)
+		return
+	}
+	if brokerResp == nil {
+		http.Error(w, `{"error":"empty response from broker"}`, http.StatusBadGateway)
+		return
+	}
+
+	executedPrice := 0.0
+	if brokerResp.FilledAvgPrice != nil {
+		executedPrice = *brokerResp.FilledAvgPrice
+	} else if req.LimitPrice > 0 {
+		executedPrice = req.LimitPrice
+	}
+
+	orderStatus := brokerResp.Status
+	if orderStatus == "" {
+		orderStatus = "submitted"
+	}
+
+	orderID := brokerResp.ID
+	if orderID == "" {
+		orderID = clientOrderID
 	}
 
 	result := TradeOrderResult{
@@ -144,11 +201,33 @@ func (s *CustomerBLLServer) handleValidateAndExecuteOrder(w http.ResponseWriter,
 		Side:        req.Side,
 		Quantity:    req.Quantity,
 		Price:       executedPrice,
-		Status:      "executed",
+		Status:      orderStatus,
 		ExecutedAt:  time.Now().UTC(),
 	}
 
-	// 3. Emit asynchronous event to RabbitMQ
+	// 3. Persist order through core-invest-api (Thread 10)
+	if s.coreInvestURL != "" {
+		orderPayload := map[string]interface{}{
+			"portfolio_id": req.PortfolioID,
+			"broker_name":  "broker",
+			"symbol":       req.Symbol,
+			"side":         req.Side,
+			"quantity":     req.Quantity,
+			"price":        executedPrice,
+		}
+		data, _ := json.Marshal(orderPayload)
+		persistReq, err := http.NewRequestWithContext(r.Context(), "POST", s.coreInvestURL+"/api/v1/core-invest/brokerage/orders", bytes.NewReader(data))
+		if err == nil {
+			persistReq.Header.Set("Content-Type", "application/json")
+			if resp, err := s.httpClient.Do(persistReq); err == nil {
+				_ = resp.Body.Close()
+			} else {
+				s.log().Warn("failed to persist order to core-invest-api", "error", err)
+			}
+		}
+	}
+
+	// 4. Emit asynchronous event
 	eventID := watermill.NewUUID()
 	event := envelope.NewEventEnvelope(eventID, "events.investment.order_placed.v1", orderID, result)
 	eventBytes, _ := json.Marshal(event)
@@ -162,7 +241,7 @@ func (s *CustomerBLLServer) handleValidateAndExecuteOrder(w http.ResponseWriter,
 
 func (s *CustomerBLLServer) checkFelineMedicalHold(ctx context.Context, felineID string) (bool, error) {
 	if s.workforceURL == "" {
-		return false, nil
+		return false, errors.New("workforce API URL is not configured")
 	}
 	url := fmt.Sprintf("%s/api/v1/workforce/care-schedules/%s", s.workforceURL, felineID)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -176,7 +255,7 @@ func (s *CustomerBLLServer) checkFelineMedicalHold(ctx context.Context, felineID
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return false, nil
+		return false, fmt.Errorf("workforce care schedule returned status %d", resp.StatusCode)
 	}
 
 	var data struct {
@@ -188,25 +267,26 @@ func (s *CustomerBLLServer) checkFelineMedicalHold(ctx context.Context, felineID
 	return data.EmergencyMedicalHold, nil
 }
 
-func (s *CustomerBLLServer) resolveTargetFeline(ctx context.Context, requestedID string) string {
+func (s *CustomerBLLServer) resolveTargetFeline(ctx context.Context, requestedID string) (string, error) {
 	if requestedID != "" {
-		return requestedID
+		return requestedID, nil
 	}
 	// 1. Check configured default employee ID
 	if s.defaultFelineID != "" {
-		return s.defaultFelineID
+		return s.defaultFelineID, nil
 	}
 	// 2. Query workforce domain database data dynamically via API
 	if s.workforceURL != "" {
 		felineID, err := s.fetchFirstActiveFeline(ctx)
-		if err == nil && felineID != "" {
-			return felineID
-		}
 		if err != nil {
 			s.log().Warn("could not fetch default feline employee from workforce database", "error", err)
+			return "", err
+		}
+		if felineID != "" {
+			return felineID, nil
 		}
 	}
-	return ""
+	return "", errors.New("no feline executive available or configured")
 }
 
 func (s *CustomerBLLServer) fetchFirstActiveFeline(ctx context.Context) (string, error) {
@@ -225,16 +305,20 @@ func (s *CustomerBLLServer) fetchFirstActiveFeline(ctx context.Context) (string,
 		return "", fmt.Errorf("workforce returned status %d", resp.StatusCode)
 	}
 
-	var employees []struct {
-		EmployeeID string `json:"employee_id"`
+	// Decode response envelope containing {items, total} (Thread 11)
+	var data struct {
+		Items []struct {
+			EmployeeID string `json:"employee_id"`
+		} `json:"items"`
+		Total int `json:"total"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&employees); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return "", err
 	}
-	if len(employees) > 0 && employees[0].EmployeeID != "" {
-		return employees[0].EmployeeID, nil
+	if len(data.Items) > 0 && data.Items[0].EmployeeID != "" {
+		return data.Items[0].EmployeeID, nil
 	}
-	return "", nil
+	return "", errors.New("no active feline employees found")
 }
 
 func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Request) {
@@ -249,6 +333,32 @@ func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	freq := req.Frequency
+	if freq == "" {
+		freq = "one_time"
+	}
+
+	// If recurring deposit, persist recurring schedule in core-invest domain (Thread 33)
+	if freq != "one_time" && s.coreInvestURL != "" {
+		schedPayload := map[string]interface{}{
+			"customer_id":  req.CustomerID,
+			"portfolio_id": req.PortfolioID,
+			"amount_usd":   req.AmountUSD,
+			"frequency":    freq,
+			"bank_account": req.BankAccount,
+		}
+		data, _ := json.Marshal(schedPayload)
+		schedReq, err := http.NewRequestWithContext(r.Context(), "POST", s.coreInvestURL+"/api/v1/core-invest/recurring-deposits", bytes.NewReader(data))
+		if err == nil {
+			schedReq.Header.Set("Content-Type", "application/json")
+			if resp, err := s.httpClient.Do(schedReq); err == nil {
+				_ = resp.Body.Close()
+			} else {
+				s.log().Warn("failed to persist recurring deposit schedule in core-invest-api", "error", err)
+			}
+		}
+	}
+
 	transferID := "ach-" + watermill.NewUUID()[:8]
 	result := ACHDepositResult{
 		TransferID:  transferID,
@@ -259,7 +369,7 @@ func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Requ
 		RequestedAt: time.Now().UTC(),
 	}
 
-	// Emit asynchronous ACH transfer requested event
+	// Emit asynchronous ACH transfer requested event (Thread 12)
 	achPayload := map[string]interface{}{
 		"transfer_id":   transferID,
 		"customer_id":   req.CustomerID,
@@ -267,12 +377,17 @@ func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Requ
 		"bank_account":  req.BankAccount,
 		"amount_usd":    req.AmountUSD,
 		"transfer_type": "deposit",
+		"frequency":     freq,
 	}
 	eventID := watermill.NewUUID()
 	event := envelope.NewEventEnvelope(eventID, "events.banking.ach_transfer_requested.v1", transferID, achPayload)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.banking.ach_transfer_requested.v1", message.NewMessage(event.EventID, eventBytes))
+		if err := s.publisher.Publish("events.banking.ach_transfer_requested.v1", message.NewMessage(event.EventID, eventBytes)); err != nil {
+			s.log().Error("failed to publish ACH transfer requested event", "error", err)
+			http.Error(w, `{"error":"failed to publish ACH transfer event to message broker"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -283,19 +398,60 @@ func (s *CustomerBLLServer) handleACHDeposit(w http.ResponseWriter, r *http.Requ
 func (s *CustomerBLLServer) handlePortfolioMetrics(w http.ResponseWriter, r *http.Request) {
 	portfolioID := r.URL.Query().Get("portfolio_id")
 	if portfolioID == "" {
-		portfolioID = "port-default"
+		http.Error(w, `{"error":"portfolio_id query parameter is required"}`, http.StatusBadRequest)
+		return
 	}
 
+	// Validate portfolio existence via core-invest-api (Thread 34)
+	if s.coreInvestURL == "" {
+		http.Error(w, `{"error":"core-invest-api not configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	checkReq, err := http.NewRequestWithContext(r.Context(), "GET", fmt.Sprintf("%s/api/v1/core-invest/portfolios/%s", s.coreInvestURL, portfolioID), nil)
+	if err != nil {
+		http.Error(w, `{"error":"failed to create portfolio query request"}`, http.StatusInternalServerError)
+		return
+	}
+	resp, err := s.httpClient.Do(checkReq)
+	if err != nil {
+		s.log().Error("failed to query portfolio from core-invest-api", "error", err, "portfolio_id", portfolioID)
+		http.Error(w, `{"error":"upstream core-invest-api unavailable"}`, http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		http.Error(w, `{"error":"portfolio not found"}`, http.StatusNotFound)
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, fmt.Sprintf(`{"error":"core-invest-api returned status %d"}`, resp.StatusCode), http.StatusBadGateway)
+		return
+	}
+
+	var portfolio struct {
+		PortfolioID     string  `json:"portfolio_id"`
+		CustomerID      string  `json:"customer_id"`
+		CashBalance     float64 `json:"cash_balance"`
+		InvestedBalance float64 `json:"invested_balance"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&portfolio)
+
 	metrics := map[string]interface{}{
-		"portfolio_id":   portfolioID,
-		"sharpe_ratio":   2.18,
-		"sortino_ratio":  3.05,
-		"ytd_return_pct": 28.45,
-		"beta_to_sp500":  0.42,
-		"alpha":          0.14,
-		"max_drawdown":   -4.12,
+		"portfolio_id":                 portfolioID,
+		"customer_id":                  portfolio.CustomerID,
+		"cash_balance":                 portfolio.CashBalance,
+		"invested_balance":             portfolio.InvestedBalance,
+		"total_value":                  portfolio.CashBalance + portfolio.InvestedBalance,
+		"sharpe_ratio":                 2.18,
+		"sortino_ratio":                3.05,
+		"ytd_return_pct":               28.45,
+		"beta_to_sp500":                0.42,
+		"alpha":                        0.14,
+		"max_drawdown":                 -4.12,
 		"feline_telemetry_correlation": 0.89,
-		"calculated_at":  time.Now().UTC(),
+		"calculated_at":                time.Now().UTC(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -322,17 +478,54 @@ func main() {
 	}
 
 	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+	var pubSub message.Publisher
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL == "" {
+		amqpURL = os.Getenv("AMQP_URL")
+	}
+	if amqpURL != "" {
+		amqpConfig := amqp.NewDurableQueueConfig(amqpURL)
+		amqpPub, err := amqp.NewPublisher(amqpConfig, watermillLogger)
+		if err != nil {
+			logger.Error("failed to connect Customer BLL to RabbitMQ AMQP publisher", "error", err)
+			os.Exit(1)
+		}
+		defer amqpPub.Close()
+		pubSub = amqpPub
+		logger.Info("Customer BLL connected to RabbitMQ AMQP broker successfully")
+	} else {
+		pubSub = gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+		logger.Info("Customer BLL running with in-memory GoChannel publisher (local test mode)")
+	}
 
 	defaultFelineID := os.Getenv("DEFAULT_FELINE_ID")
 	if defaultFelineID == "" {
 		defaultFelineID = os.Getenv("DEFAULT_EMPLOYEE_ID")
 	}
 
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	clientCA := os.Getenv("CLIENT_CA_FILE")
+	if certFile != "" && keyFile != "" && clientCA != "" {
+		clientTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Warn("failed to initialize client dynamic mTLS transport, using standard http client", "error", err)
+		} else {
+			httpClient = &http.Client{
+				Timeout: 10 * time.Second,
+				Transport: &http.Transport{
+					TLSClientConfig: clientTLS,
+				},
+			}
+			logger.Info("Customer BLL configured with outbound dynamic mTLS transport")
+		}
+	}
+
 	serverObj := &CustomerBLLServer{
 		logger:          logger,
 		publisher:       pubSub,
-		httpClient:      &http.Client{Timeout: 5 * time.Second},
+		httpClient:      httpClient,
 		workforceURL:    workforceURL,
 		coreInvestURL:   coreInvestURL,
 		defaultFelineID: defaultFelineID,
@@ -385,9 +578,6 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	certFile := os.Getenv("TLS_CERT_FILE")
-	keyFile := os.Getenv("TLS_KEY_FILE")
-	clientCA := os.Getenv("CLIENT_CA_FILE")
 	if certFile != "" && keyFile != "" {
 		tlsConfig, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
 		if err != nil {

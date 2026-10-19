@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -117,4 +118,36 @@ func CSRFProtectMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// InternalServiceAuthMiddleware authenticates internal service callers (such as worker or internal BLL)
+// via an internal service authorization token or shared secret.
+func InternalServiceAuthMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := r.Header.Get("X-Internal-Service-Key")
+			if token == "" {
+				authHeader := r.Header.Get("Authorization")
+				if strings.HasPrefix(authHeader, "Bearer ") {
+					token = strings.TrimPrefix(authHeader, "Bearer ")
+				}
+			}
+
+			expectedKey := os.Getenv("INTERNAL_SERVICE_KEY")
+			if expectedKey == "" {
+				expectedKey = "oci-internal-service-secret"
+			}
+
+			if token != expectedKey {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": "unauthorized: valid internal service key required",
+				})
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

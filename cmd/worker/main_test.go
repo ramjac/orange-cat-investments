@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -624,6 +625,200 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 
 	require.NoError(t, router.Close())
 }
+
+func TestHandleACHTransferRequested_Success(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	var bankCalled, coreInvestCalled bool
+	mockBank := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/transfer/create", r.URL.Path)
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		assert.Equal(t, "debit", body["direction"])
+		assert.Equal(t, 250.0, body["amount"])
+		bankCalled = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"created"}`))
+	}))
+	defer mockBank.Close()
+
+	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/core-invest/portfolios/port-001/balance", r.URL.Path)
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		assert.Equal(t, "ach-trans-123", body["transfer_id"])
+		assert.Equal(t, 250.0, body["delta_usd"])
+		coreInvestCalled = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"portfolio_id":"port-001","cash_balance":1250.0}`))
+	}))
+	defer mockCoreInvest.Close()
+
+	payload := EventEnvelope[ACHTransferRequestedPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.banking.ach_transfer_requested.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "test-corr-ach",
+		Payload: ACHTransferRequestedPayload{
+			TransferID:   "ach-trans-123",
+			CustomerID:   "cust-001",
+			PortfolioID:  "port-001",
+			BankAccount:  "bank-act-999",
+			AmountUSD:    250.0,
+			TransferType: "deposit",
+		},
+	}
+	data, _ := json.Marshal(payload)
+	msg := message.NewMessage(payload.EventID, data)
+
+	outMsgs, err := HandleACHTransferRequested(logger, mockCoreInvest.URL, mockBank.URL, http.DefaultClient, msg)
+	require.NoError(t, err)
+	require.Len(t, outMsgs, 1)
+	assert.True(t, bankCalled, "mock bank transfer/create should be called")
+	assert.True(t, coreInvestCalled, "core-invest balance update should be called")
+
+	var settled EventEnvelope[ACHSettledPayload]
+	err = json.Unmarshal(outMsgs[0].Payload, &settled)
+	require.NoError(t, err)
+	assert.Equal(t, "ach-trans-123", settled.Payload.TransferID)
+	assert.Equal(t, "settled", settled.Payload.Status)
+}
+
+func TestHandleACHTransferRequested_BankFailure(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	mockBank := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"insufficient funds"}`, http.StatusBadRequest)
+	}))
+	defer mockBank.Close()
+
+	payload := EventEnvelope[ACHTransferRequestedPayload]{
+		EventID:   watermill.NewUUID(),
+		EventType: "events.banking.ach_transfer_requested.v1",
+		Payload: ACHTransferRequestedPayload{
+			TransferID:   "ach-fail-001",
+			PortfolioID:  "port-001",
+			AmountUSD:    100.0,
+			TransferType: "deposit",
+		},
+	}
+	data, _ := json.Marshal(payload)
+	msg := message.NewMessage(payload.EventID, data)
+
+	outMsgs, err := HandleACHTransferRequested(logger, "http://localhost:59999", mockBank.URL, http.DefaultClient, msg)
+	assert.Error(t, err)
+	assert.Nil(t, outMsgs)
+	assert.Contains(t, err.Error(), "bank clearing rejected")
+}
+
+func TestRunACHRecurringBatch(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	watermillLogger := watermill.NewStdLogger(false, false)
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+
+	now := time.Now().UTC()
+	past := now.Add(-2 * time.Hour)
+	future := now.Add(24 * time.Hour)
+
+	var advanceCalled bool
+	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/core-invest/recurring-deposits" {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"deposit_id":     "dep-due",
+					"customer_id":    "cust-01",
+					"portfolio_id":   "port-01",
+					"amount_usd":     500.0,
+					"frequency":      "monthly",
+					"bank_account":   "act-01",
+					"status":         "active",
+					"next_charge_at": past,
+				},
+				{
+					"deposit_id":     "dep-future",
+					"customer_id":    "cust-02",
+					"portfolio_id":   "port-02",
+					"amount_usd":     100.0,
+					"frequency":      "weekly",
+					"bank_account":   "act-02",
+					"status":         "active",
+					"next_charge_at": future,
+				},
+			})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/advance") {
+			advanceCalled = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"advanced"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockCoreInvest.Close()
+
+	ch, err := pubSub.Subscribe(context.Background(), "events.banking.ach_transfer_requested.v1")
+	require.NoError(t, err)
+
+	err = runACHRecurringBatch(context.Background(), mockCoreInvest.URL, pubSub, mockCoreInvest.Client(), logger)
+	require.NoError(t, err)
+	assert.True(t, advanceCalled, "advance endpoint should be called for due deposit")
+
+	select {
+	case msg := <-ch:
+		msg.Ack()
+		assert.Contains(t, string(msg.Payload), "dep-due")
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for recurring ACH event")
+	}
+}
+
+func TestRunEOMStatementBatch(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	watermillLogger := watermill.NewStdLogger(false, false)
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+
+	var generatedCount int
+	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/core-invest/portfolios" {
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{"portfolio_id": "port-1", "customer_id": "cust-1"},
+				{"portfolio_id": "port-2", "customer_id": "cust-2"},
+			})
+			return
+		}
+		if r.URL.Path == "/api/v1/core-invest/statements/generate" {
+			generatedCount++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"generated"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockCoreInvest.Close()
+
+	ch, err := pubSub.Subscribe(context.Background(), "events.reporting.statements_generated.v1")
+	require.NoError(t, err)
+
+	now := time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
+	err = runEOMStatementBatch(context.Background(), mockCoreInvest.URL, pubSub, mockCoreInvest.Client(), logger, now)
+	require.NoError(t, err)
+	assert.Equal(t, 2, generatedCount, "both portfolios should have statements generated")
+
+	select {
+	case msg := <-ch:
+		msg.Ack()
+		var env EventEnvelope[StatementGeneratedPayload]
+		_ = json.Unmarshal(msg.Payload, &env)
+		assert.Equal(t, "2026-10", env.Payload.Period, "should target previous month")
+		assert.Equal(t, 2, env.Payload.TotalPortfolios, "derived total should match actual generated count")
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for statement generated event")
+	}
+}
+
 
 
 

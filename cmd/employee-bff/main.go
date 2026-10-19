@@ -142,10 +142,13 @@ func main() {
 
 	// Incident Alert Real-Time SSE Stream & Broadcast Hub
 	incidentBroker := NewIncidentBroker(logger)
-	mux.HandleFunc("GET /api/v1/employee/incidents/stream", incidentBroker.HandleStream)
-	mux.HandleFunc("POST /api/v1/employee/incidents/broadcast", incidentBroker.HandleBroadcast)
-	mux.HandleFunc("GET /employee/incidents/stream", incidentBroker.HandleStream)
-	mux.HandleFunc("POST /employee/incidents/broadcast", incidentBroker.HandleBroadcast)
+	sessionAuth := SessionAuthMiddleware(sessionStore)
+	serviceAuth := InternalServiceAuthMiddleware()
+
+	mux.Handle("GET /api/v1/employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
+	mux.Handle("GET /employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
+	mux.Handle("POST /api/v1/employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
+	mux.Handle("POST /employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

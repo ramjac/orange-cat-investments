@@ -1,13 +1,8 @@
+@import url('theme.css');
+
 :root {
-  --primary-color: #f97316;
-  --secondary-color: #ea580c;
-  --accent-color: #3b82f6;
-  --background-color: #0f172a;
-  --card-color: #1e293b;
-  --text-color: #f8fafc;
   --text-muted: #94a3b8;
   --border-color: #334155;
-  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --radius-md: 0.5rem;
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
@@ -118,9 +113,9 @@ a:hover {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-  color: white !important;
-  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
+  background: linear-gradient(135deg, #c2410c, #9a3412);
+  color: #ffffff !important;
+  box-shadow: 0 4px 14px rgba(194, 65, 12, 0.35);
 }
 
 .btn-primary:hover {
@@ -329,7 +324,7 @@ a:hover {
 /* Tiers Grid */
 .tiers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 2.5rem;
   max-width: 900px;
   margin: 0 auto;

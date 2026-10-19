@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,9 +21,15 @@ import (
 )
 
 type updateBalanceRequest struct {
-	DeltaUSD float64 `json:"delta_usd"`
-	Reason   string  `json:"reason"`
+	TransferID string  `json:"transfer_id"`
+	DeltaUSD   float64 `json:"delta_usd"`
+	Reason     string  `json:"reason"`
 }
+
+var (
+	balanceMu        sync.Mutex
+	settledTransfers = make(map[string]map[string]interface{})
+)
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -70,47 +77,7 @@ func main() {
 	ciHandler.RegisterRoutes(mux)
 
 	// Endpoint to update portfolio balance upon ACH settlement or dividend allocation
-	handleBalanceUpdate := func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		if id == "" {
-			id = r.URL.Query().Get("id")
-		}
-		if id == "" {
-			http.Error(w, `{"error":"portfolio id required"}`, http.StatusBadRequest)
-			return
-		}
-		var req updateBalanceRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
-			return
-		}
-
-		p, err := repo.GetPortfolioByID(r.Context(), id)
-		if err != nil || p == nil {
-			p, err = repo.GetPortfolioByCustomerID(r.Context(), id)
-		}
-		if err != nil || p == nil {
-			http.Error(w, `{"error":"portfolio not found"}`, http.StatusNotFound)
-			return
-		}
-
-		p.CashBalanceUSD += req.DeltaUSD
-		p.TotalBalanceUSD += req.DeltaUSD
-		updatedP, err := repo.UpdatePortfolio(r.Context(), p)
-		if err != nil {
-			http.Error(w, `{"error":"failed to update balance"}`, http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":                    "balance_updated",
-			"portfolio_id":              updatedP.PortfolioID,
-			"updated_cash_balance_usd":  updatedP.CashBalanceUSD,
-			"updated_total_balance_usd": updatedP.TotalBalanceUSD,
-		})
-	}
-
+	handleBalanceUpdate := newBalanceUpdateHandler(repo, pool)
 	mux.HandleFunc("POST /core-invest/portfolios/{id}/balance", handleBalanceUpdate)
 	mux.HandleFunc("POST /api/v1/core-invest/portfolios/{id}/balance", handleBalanceUpdate)
 
@@ -164,4 +131,102 @@ func main() {
 	}
 
 	logger.Info("Core Invest Domain API stopped gracefully")
+}
+
+func newBalanceUpdateHandler(repo core_invest_repo.Repository, pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			id = r.URL.Query().Get("id")
+		}
+		if id == "" {
+			http.Error(w, `{"error":"portfolio id required"}`, http.StatusBadRequest)
+			return
+		}
+		var req updateBalanceRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
+			return
+		}
+
+		balanceMu.Lock()
+		defer balanceMu.Unlock()
+
+		// Idempotency check: if transfer_id already settled, return existing result
+		if req.TransferID != "" {
+			if existing, found := settledTransfers[req.TransferID]; found {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(existing)
+				return
+			}
+		}
+
+		ctx := r.Context()
+		if pool != nil {
+			tx, err := pool.Begin(ctx)
+			if err == nil {
+				defer tx.Rollback(ctx)
+				var portfolioID string
+				var cashBalance, totalBalance float64
+				err = tx.QueryRow(ctx, `
+					UPDATE core_invest.investment_portfolios
+					SET cash_balance_usd = cash_balance_usd + $1,
+					    total_balance_usd = total_balance_usd + $1,
+					    updated_at = CURRENT_TIMESTAMP
+					WHERE portfolio_id::text = $2 OR customer_id = $2
+					RETURNING portfolio_id, cash_balance_usd, total_balance_usd
+				`, req.DeltaUSD, id).Scan(&portfolioID, &cashBalance, &totalBalance)
+
+				if err == nil {
+					_ = tx.Commit(ctx)
+					respData := map[string]interface{}{
+						"status":                    "balance_updated",
+						"portfolio_id":              portfolioID,
+						"updated_cash_balance_usd":  cashBalance,
+						"updated_total_balance_usd": totalBalance,
+						"transfer_id":               req.TransferID,
+					}
+					if req.TransferID != "" {
+						settledTransfers[req.TransferID] = respData
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(respData)
+					return
+				}
+			}
+		}
+
+		// Fallback for mock/in-memory repo under balanceMu lock
+		p, err := repo.GetPortfolioByID(ctx, id)
+		if err != nil || p == nil {
+			p, err = repo.GetPortfolioByCustomerID(ctx, id)
+		}
+		if err != nil || p == nil {
+			http.Error(w, `{"error":"portfolio not found"}`, http.StatusNotFound)
+			return
+		}
+
+		p.CashBalanceUSD += req.DeltaUSD
+		p.TotalBalanceUSD += req.DeltaUSD
+		updatedP, err := repo.UpdatePortfolio(ctx, p)
+		if err != nil {
+			http.Error(w, `{"error":"failed to update balance"}`, http.StatusInternalServerError)
+			return
+		}
+
+		respData := map[string]interface{}{
+			"status":                    "balance_updated",
+			"portfolio_id":              updatedP.PortfolioID,
+			"updated_cash_balance_usd":  updatedP.CashBalanceUSD,
+			"updated_total_balance_usd": updatedP.TotalBalanceUSD,
+			"transfer_id":               req.TransferID,
+		}
+		if req.TransferID != "" {
+			settledTransfers[req.TransferID] = respData
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(respData)
+	}
 }

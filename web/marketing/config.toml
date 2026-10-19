@@ -1,7 +1,6 @@
 baseURL = "https://oci.local/"
 languageCode = "en-us"
 title = "Orange Cat Investments"
-theme = "oci-theme"
 
 [params]
   legalName = "Orange Cat Investments LLC"

@@ -36,6 +36,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /core-invest/recurring-deposits", h.ListRecurringDeposits)
 	mux.HandleFunc("POST /core-invest/recurring-deposits", h.CreateRecurringDeposit)
+	mux.HandleFunc("POST /core-invest/recurring-deposits/{id}/advance", h.AdvanceRecurringDepositSchedule)
+	mux.HandleFunc("GET /core-invest/portfolios", h.ListPortfolios)
+	mux.HandleFunc("GET /core-invest/portfolios/{id}", h.GetPortfolio)
 
 	// API v1 route aliases
 	mux.HandleFunc("GET /api/v1/core-invest/streams", h.ListCameraStreams)
@@ -56,6 +59,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/core-invest/recurring-deposits", h.ListRecurringDeposits)
 	mux.HandleFunc("POST /api/v1/core-invest/recurring-deposits", h.CreateRecurringDeposit)
+	mux.HandleFunc("POST /api/v1/core-invest/recurring-deposits/{id}/advance", h.AdvanceRecurringDepositSchedule)
+	mux.HandleFunc("GET /api/v1/core-invest/portfolios", h.ListPortfolios)
+	mux.HandleFunc("GET /api/v1/core-invest/portfolios/{id}", h.GetPortfolio)
 }
 
 func (h *Handler) GetCameraStreamByID(w http.ResponseWriter, r *http.Request) {
@@ -372,4 +378,61 @@ func (h *Handler) CreateRecurringDeposit(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(dep)
 }
+
+func (h *Handler) GetPortfolio(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if id == "" {
+		http.Error(w, `{"error":"portfolio id is required"}`, http.StatusBadRequest)
+		return
+	}
+	p, err := h.service.GetPortfolio(r.Context(), id)
+	if err != nil || p == nil {
+		http.Error(w, `{"error":"portfolio not found"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(p)
+}
+
+func (h *Handler) ListPortfolios(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListPortfolios(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(list)
+}
+
+func (h *Handler) AdvanceRecurringDepositSchedule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+	if id == "" {
+		http.Error(w, `{"error":"recurring deposit id required"}`, http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		NextChargeAt time.Time `json:"next_charge_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.AdvanceRecurringDepositSchedule(r.Context(), id, req.NextChargeAt); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"advanced"}`))
+}
+
 

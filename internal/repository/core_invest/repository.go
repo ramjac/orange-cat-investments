@@ -191,10 +191,12 @@ type Repository interface {
 	// Portfolios
 	GetPortfolioByCustomerID(ctx context.Context, customerID string) (*Portfolio, error)
 	GetPortfolioByID(ctx context.Context, portfolioID string) (*Portfolio, error)
+	ListPortfolios(ctx context.Context) ([]*Portfolio, error)
 	CreatePortfolio(ctx context.Context, p *Portfolio) (*Portfolio, error)
 	UpdatePortfolio(ctx context.Context, p *Portfolio) (*Portfolio, error)
 	GetHoldingsByPortfolioID(ctx context.Context, portfolioID string) ([]*PortfolioHolding, error)
 	UpsertHolding(ctx context.Context, holding *PortfolioHolding) (*PortfolioHolding, error)
+	AdvanceRecurringDepositSchedule(ctx context.Context, id string, nextChargeAt time.Time) error
 
 	// API Keys
 	CreateAPIKey(ctx context.Context, key *CustomerAPIKey) (*CustomerAPIKey, error)
@@ -551,6 +553,42 @@ func (r *pgxRepository) GetPortfolioByID(ctx context.Context, portfolioID string
 	}
 	return &p, nil
 }
+
+func (r *pgxRepository) ListPortfolios(ctx context.Context) ([]*Portfolio, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT portfolio_id, customer_id, account_name, total_balance_usd, cash_balance_usd, status, created_at, updated_at
+              FROM core_invest.investment_portfolios
+              ORDER BY created_at ASC`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*Portfolio
+	for rows.Next() {
+		var p Portfolio
+		if err := rows.Scan(&p.PortfolioID, &p.CustomerID, &p.AccountName, &p.TotalBalanceUSD, &p.CashBalanceUSD, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &p)
+	}
+	return list, nil
+}
+
+func (r *pgxRepository) AdvanceRecurringDepositSchedule(ctx context.Context, id string, nextChargeAt time.Time) error {
+	if r.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE core_invest.recurring_deposits
+              SET next_charge_at = $2
+              WHERE deposit_id = $1`
+	_, err := r.db.Exec(ctx, query, id, nextChargeAt)
+	return err
+}
+
 
 func (r *pgxRepository) GetHoldingsByPortfolioID(ctx context.Context, portfolioID string) ([]*PortfolioHolding, error) {
 	if r.db == nil {

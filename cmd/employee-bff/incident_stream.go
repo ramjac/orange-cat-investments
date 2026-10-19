@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // IncidentBroker manages active SSE client connections and fans out incident events.
@@ -66,11 +68,13 @@ func (b *IncidentBroker) Broadcast(msg []byte) {
 
 // HandleStream handles Server-Sent Events (SSE) connections from the Employee Web Portal.
 func (b *IncidentBroker) HandleStream(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		http.Error(w, `{"error":"streaming unsupported"}`, http.StatusInternalServerError)
 		return
 	}
+
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -79,8 +83,12 @@ func (b *IncidentBroker) HandleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	// Send initial connected handshake event
-	_, _ = fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\"}\n\n")
-	flusher.Flush()
+	if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\"}\n\n"); err != nil {
+		return
+	}
+	if err := rc.Flush(); err != nil {
+		return
+	}
 
 	clientChan := make(chan []byte, 16)
 	b.AddClient(clientChan)
@@ -95,8 +103,12 @@ func (b *IncidentBroker) HandleStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = fmt.Fprintf(w, "event: incident\ndata: %s\n\n", string(msg))
-			flusher.Flush()
+			if _, err := fmt.Fprintf(w, "event: incident\ndata: %s\n\n", string(msg)); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -110,14 +122,14 @@ func (b *IncidentBroker) HandleBroadcast(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Verify valid JSON
-	var raw json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	// Validate and compact JSON to avoid raw embedded newlines breaking SSE data framing
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, body); err != nil {
 		http.Error(w, `{"error":"invalid JSON payload"}`, http.StatusBadRequest)
 		return
 	}
 
-	b.Broadcast(body)
+	b.Broadcast(buf.Bytes())
 	b.logger.Info("broadcasted workplace incident to SSE clients", "client_count", b.ClientCount())
 
 	w.Header().Set("Content-Type", "application/json")

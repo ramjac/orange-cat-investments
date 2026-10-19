@@ -38,32 +38,7 @@ func TestCoreInvestAPI_BalanceUpdate(t *testing.T) {
 	mux := http.NewServeMux()
 	ciHandler.RegisterRoutes(mux)
 
-	handleBalanceUpdate := func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		if id == "" {
-			id = r.URL.Query().Get("id")
-		}
-		var req updateBalanceRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-
-		p, _ := repo.GetPortfolioByID(r.Context(), id)
-		if p == nil {
-			p, _ = repo.GetPortfolioByCustomerID(r.Context(), id)
-		}
-		require.NotNil(t, p)
-
-		p.CashBalanceUSD += req.DeltaUSD
-		p.TotalBalanceUSD += req.DeltaUSD
-		updatedP, err := repo.UpdatePortfolio(r.Context(), p)
-		require.NoError(t, err)
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":                   "balance_updated",
-			"portfolio_id":             updatedP.PortfolioID,
-			"updated_cash_balance_usd": updatedP.CashBalanceUSD,
-		})
-	}
+	handleBalanceUpdate := newBalanceUpdateHandler(repo, nil)
 	mux.HandleFunc("POST /core-invest/portfolios/{id}/balance", handleBalanceUpdate)
 
 	// Create test portfolio first
@@ -79,8 +54,9 @@ func TestCoreInvestAPI_BalanceUpdate(t *testing.T) {
 	assert.Equal(t, 1000.0, p.CashBalanceUSD)
 
 	payload := updateBalanceRequest{
-		DeltaUSD: 500.0,
-		Reason:   "ACH deposit settled",
+		TransferID: "ach-transfer-unique-001",
+		DeltaUSD:   500.0,
+		Reason:     "ACH deposit settled",
 	}
 	body, _ := json.Marshal(payload)
 	rec := httptest.NewRecorder()
@@ -89,4 +65,12 @@ func TestCoreInvestAPI_BalanceUpdate(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"updated_cash_balance_usd":1500`)
+
+	// Replaying the exact same transfer should be deduplicated (idempotent) and not double-credit
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("POST", "/core-invest/portfolios/port-test-01/balance", bytes.NewReader(body))
+	mux.ServeHTTP(rec2, req2)
+
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), `"updated_cash_balance_usd":1500`)
 }

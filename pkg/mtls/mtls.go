@@ -48,10 +48,11 @@ func (r *DynamicCertReloader) ReloadIfNeeded() (*tls.Certificate, error) {
 		certStat.ModTime().Equal(r.lastCertMod) &&
 		keyStat.ModTime().Equal(r.lastKeyMod) &&
 		r.cachedCert != nil
+	cached := r.cachedCert
 	r.mu.RUnlock()
 
 	if isCurrent {
-		return r.cachedCert, nil
+		return cached, nil
 	}
 
 	r.mu.Lock()
@@ -95,27 +96,29 @@ func (r *DynamicCertReloader) GetClientCertificate(cri *tls.CertificateRequestIn
 
 // NewServerTLSConfig creates a server-side tls.Config enforcing mTLS with dynamic certificate reloading.
 func NewServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, error) {
+	if certFile == "" || keyFile == "" || clientCAFile == "" {
+		return nil, fmt.Errorf("certFile, keyFile, and clientCAFile are required to enforce mTLS")
+	}
+
 	reloader, err := NewDynamicCertReloader(certFile, keyFile)
 	if err != nil {
 		return nil, err
 	}
 
+	caCertPEM, err := os.ReadFile(clientCAFile)
+	if err != nil {
+		return nil, fmt.Errorf("read client ca file %s: %w", clientCAFile, err)
+	}
+	caPool := x509.NewCertPool()
+	if !caPool.AppendCertsFromPEM(caCertPEM) {
+		return nil, fmt.Errorf("failed to parse client ca pem in %s", clientCAFile)
+	}
+
 	tlsConfig := &tls.Config{
 		MinVersion:     tls.VersionTLS12,
 		GetCertificate: reloader.GetCertificate,
-	}
-
-	if clientCAFile != "" {
-		caCertPEM, err := os.ReadFile(clientCAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read client ca file %s: %w", clientCAFile, err)
-		}
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM(caCertPEM) {
-			return nil, fmt.Errorf("failed to parse client ca pem in %s", clientCAFile)
-		}
-		tlsConfig.ClientCAs = caPool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		ClientCAs:      caPool,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
 	}
 
 	return tlsConfig, nil
@@ -123,6 +126,9 @@ func NewServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, er
 
 // NewClientTLSConfig creates a client-side tls.Config for mTLS with dynamic client cert reloading.
 func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, error) {
+	if certFile == "" || keyFile == "" || serverCAFile == "" {
+		return nil, fmt.Errorf("certFile, keyFile, and serverCAFile are required for mTLS")
+	}
 	reloader, err := NewDynamicCertReloader(certFile, keyFile)
 	if err != nil {
 		return nil, err

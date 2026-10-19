@@ -116,4 +116,15 @@ func TestServerAndClientTLSConfig(t *testing.T) {
 	httpClient, err := NewDynamicHTTPClient(certFile, keyFile, caFile, 5*time.Second)
 	require.NoError(t, err)
 	assert.NotNil(t, httpClient)
+
+	// Validate failing closed when required certs/CAs are missing
+	_, err = NewServerTLSConfig("", keyFile, caFile)
+	assert.Error(t, err)
+	_, err = NewServerTLSConfig(certFile, keyFile, "")
+	assert.Error(t, err)
+
+	_, err = NewClientTLSConfig(certFile, "", caFile)
+	assert.Error(t, err)
+	_, err = NewClientTLSConfig(certFile, keyFile, "")
+	assert.Error(t, err)
 }

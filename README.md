@@ -581,7 +581,7 @@ Orange Cat Investments implements all architectural patterns across an enterpris
       4. Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
 
   * **Domain APIs (Workforce, Facilities, Core Invest, Ops):**
-    * *Architecture:* Standalone, single-responsibility gRPC microservices running on top of isolated PostgreSQL database schemas.
+    * *Architecture:* Standalone, single-responsibility microservices running on top of isolated PostgreSQL database schemas. (Currently exposing HTTP/REST microservice endpoints aligned with the Protobuf contract models, with native gRPC wire transport planned as a future milestone).
     * *Primary Concern:* Data correctness, transaction boundaries, schema invariants, and performant querying.
     * *Architectural Invariants:*
       * **Domain APIs do not call each other.** Cross-domain database joins and direct cross-domain API calls are strictly forbidden.
@@ -593,14 +593,14 @@ Orange Cat Investments implements all architectural patterns across an enterpris
          * `proto/oci/facilities/v1/facilities.proto` (Hardware Assets, Maintenance Logs, Firmware Releases, OTA Jobs)
          * `proto/oci/core_invest/v1/core_invest.proto` (Portfolios, Holdings, Orders, Observations, Deposits)
          * `proto/oci/ops/v1/ops.proto` (IT Tickets, Alert Subscriptions, Audit Logs)
-      2. *Code Generation:* Generated pure Go message types and service interfaces in `pkg/gen/go/` matching Protobuf contracts.
+      2. *Code Generation:* Generated Go data structures and contract interfaces in `pkg/gen/go/` matching Protobuf schemas.
       3. *Microservice Separation:* 4 dedicated service binaries created in `cmd/`:
          * `cmd/workforce-api` (Port 50051, isolated connection to PostgreSQL `workforce` schema)
          * `cmd/facilities-api` (Port 50052, isolated connection to PostgreSQL `facilities` schema)
          * `cmd/core-invest-api` (Port 50053, isolated connection to PostgreSQL `core_invest` schema)
          * `cmd/ops-api` (Port 50054, isolated connection to PostgreSQL `ops` schema)
       4. *Security & Dynamic mTLS:* Inter-service mutual TLS enforced via `pkg/mtls` dynamic certificate reloaders (`crypto/tls` callbacks `GetCertificate` & `GetClientCertificate`) for zero static certs.
-      5. *Kubernetes Manifests:* Individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/domain-apis.yaml` restricting gRPC ingress exclusively to authorized BLL pods.
+      5. *Kubernetes Manifests:* Individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/domain-apis.yaml` restricting ingress exclusively to authorized BLL, batch, and worker pods.
 
   * **Business Logic Layer APIs (Customer BLL & Internal BLL):**
     * *Architecture:* Middle-tier microservices that sit strictly between the BFFs and the Domain APIs.
@@ -609,12 +609,12 @@ Orange Cat Investments implements all architectural patterns across an enterpris
       1. *Customer BLL (`cmd/customer-bll` :8085):*
          * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter, verifies bank accounts via Plaid adapter, and computes portfolio performance metrics.
          * Emits asynchronous events to RabbitMQ (`events.investment.order_placed.v1`, `events.banking.ach_transfer_requested.v1`).
-         * Exposes internal REST endpoints consumed exclusively by `cmd/customer-bff`.
+         * Exposes internal REST endpoints consumed by `cmd/customer-bff`.
       2. *Internal BLL (`cmd/internal-bll` :8086):*
          * Orchestrates corporate operations: executes `OnboardingSaga` and `OffboardingEngine` across `workforce-api` and `ops-api`, validates veterinary care directives, calculates executive BI metrics, and triggers edge firmware updates via `facilities-api`.
          * Emits asynchronous events to RabbitMQ (`events.workforce.incident_created.v1`, `events.facilities.ota_triggered.v1`, `events.reporting.generate_monthly_requested.v1`).
-         * Exposes internal REST endpoints consumed exclusively by `cmd/employee-bff`.
-      3. *BFF Decoupling:* `cmd/customer-bff` and `cmd/employee-bff` configured to delegate business logic to `cmd/customer-bll` and `cmd/internal-bll`.
+         * Exposes internal REST endpoints for corporate operations.
+      3. *Phased BFF Decoupling:* `cmd/customer-bff` routes customer order validation and trade placement to `cmd/customer-bll` when `CUSTOMER_BLL_URL` is set, and rejects direct order execution if the BLL fails. Complete decoupling of remaining read routes across `customer-bff` and `employee-bff` is scheduled for subsequent refactoring phases; legacy direct repository bindings remain in place as transition fallbacks.
       4. *Kubernetes Manifests:* Created `k8s/oci-core/bll-services.yaml` with deployments, services, and NetworkPolicies restricting ingress strictly to BFF pods.
 
   * **Async Queue Consumer Application (`cmd/worker`):**

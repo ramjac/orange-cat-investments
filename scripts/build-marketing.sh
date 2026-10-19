@@ -20,8 +20,6 @@ else
     cp -r "$MARKETING_DIR/static/"* "$PUBLIC_DIR/" 2>/dev/null || true
 
     # Render template values from branding tokens
-    PRIMARY_COLOR="#f97316"
-    SECONDARY_COLOR="#ea580c"
     LEGAL_NAME="Orange Cat Investments LLC"
     TRADING_NAME="Orange Cat Investments"
     TAGLINE="Feline-Driven Wealth Management & Algorithmic Quantitative Telemetry"
@@ -34,7 +32,7 @@ else
         -e "s|{{ \.Site\.Title }}|$TRADING_NAME|g" \
         -e "s|{{ \.Site\.Params\.legalName }}|$LEGAL_NAME|g" \
         -e "s|{{ \.Site\.Params\.tradingName }}|$TRADING_NAME|g" \
-        -e "s|{{ \.Site\.Params\.tagline }}|$TAGLINE|g" \
+        -e "s|{{ \.Site\.Params\.tagline }}|${TAGLINE//&/\\&}|g" \
         -e "s|{{ \.Site\.Params\.baseDomain }}|$BASE_DOMAIN|g" \
         -e "s|{{ \.Site\.Params\.customerPortalURL }}|$CUSTOMER_PORTAL|g" \
         -e "s|{{ \.Site\.Params\.registerURL }}|$REGISTER_URL|g" \

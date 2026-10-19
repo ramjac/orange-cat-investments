@@ -18,7 +18,7 @@
     </header>
 
     <!-- Real-Time Pub/Sub Workplace Incident Alert Banner -->
-    <div v-if="activeEmergencyAlert" class="emergency-alert-banner" :class="activeEmergencyAlert.severity">
+    <div v-if="activeEmergencyAlert" class="emergency-alert-banner" :class="activeEmergencyAlert.severity" role="alert" aria-live="assertive">
       <div class="alert-content">
         <span class="alert-icon">🚨</span>
         <div class="alert-text">
@@ -3219,14 +3219,14 @@ async function submitIncident() {
   }
 }
 
-async function resolveIncident(id) {
+async function updateIncidentStatus(id, status, notes) {
   try {
     const res = await fetch(`/api/v1/workforce/incidents/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        status: 'resolved',
-        resolution_notes: 'Resolved in incident management console'
+        status: status,
+        resolution_notes: notes || `Status updated to ${status}`
       })
     });
 
@@ -3241,12 +3241,21 @@ async function resolveIncident(id) {
       incidentLogs.value[idx] = updated;
     } else {
       const inc = incidentLogs.value.find(i => i.incident_id === id);
-      if (inc) inc.status = 'resolved';
+      if (inc) inc.status = status;
     }
-    showToast('Incident resolved and archived.');
+    return true;
   } catch (err) {
-    showToast(`Failed to resolve incident: ${err.message}`);
+    showToast(`Failed to update incident: ${err.message}`);
+    return false;
   }
+}
+
+async function resolveIncident(id) {
+  const success = await updateIncidentStatus(id, 'resolved', 'Resolved in incident management console');
+  if (success) {
+    showToast('Incident resolved and archived.');
+  }
+  return success;
 }
 
 const activeEmergencyAlert = ref(null);
@@ -3260,7 +3269,11 @@ async function acknowledgeEmergencyAlert() {
   if (!activeEmergencyAlert.value) return;
   const alertId = activeEmergencyAlert.value.incident_id;
   if (alertId) {
-    await resolveIncident(alertId);
+    const success = await updateIncidentStatus(alertId, 'under_review', 'Acknowledged by on-duty staff');
+    if (!success) {
+      // Do not clear the banner if updating the incident status failed
+      return;
+    }
   }
   activeEmergencyAlert.value = null;
   showToast('Emergency incident acknowledged.');

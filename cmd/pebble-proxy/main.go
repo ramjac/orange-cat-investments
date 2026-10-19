@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -68,7 +69,7 @@ func main() {
 	handler.RegisterRoutes(mux)
 
 	// Ingest workplace safety incidents into high-priority wearable alerts
-	incidentHandler := handleIncidentAlertBroadcast(repo, logger)
+	incidentHandler := requireServiceAuth(handleIncidentAlertBroadcast(repo, logger))
 	mux.HandleFunc("POST /api/v1/ops/pebble/incidents/broadcast", incidentHandler)
 	mux.HandleFunc("POST /ops/pebble/incidents/broadcast", incidentHandler)
 	mux.HandleFunc("POST /ops/pebble/alerts/incident", incidentHandler)
@@ -106,6 +107,31 @@ func main() {
 	logger.Info("Pebble Companion Gateway Proxy stopped gracefully")
 }
 
+func requireServiceAuth(next http.HandlerFunc) http.HandlerFunc {
+	expectedKey := os.Getenv("INTERNAL_SERVICE_KEY")
+	if expectedKey == "" {
+		expectedKey = "oci-internal-service-secret"
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("X-Internal-Service-Key")
+		if token == "" {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+		if token != expectedKey {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "unauthorized: valid internal service key required",
+			})
+			return
+		}
+		next(w, r)
+	}
+}
+
 func handleIncidentAlertBroadcast(repo opsrepo.Repository, logger *slog.Logger) http.HandlerFunc {
 	if logger == nil {
 		logger = slog.Default()
@@ -141,15 +167,26 @@ func handleIncidentAlertBroadcast(repo opsrepo.Repository, logger *slog.Logger) 
 			severity = "critical"
 		}
 
+		ticketCategory := "habitat"
+		if req.Category == "unauthorized_treat" {
+			ticketCategory = "general"
+		} else if req.Category == "software" || req.Category == "hardware" || req.Category == "trading" {
+			ticketCategory = req.Category
+		}
+
 		desc := req.Description
+		if req.IncidentID != "" {
+			desc = fmt.Sprintf("[Workforce Incident ID: %s] %s", req.IncidentID, req.Description)
+		}
+
 		ticket := &opsrepo.ITTicket{
 			TicketID:       ticketID,
 			Title:          title,
 			Body:           &desc,
 			State:          "open",
 			Severity:       severity,
-			Category:       "incident",
-			Source:         "workforce-incidents",
+			Category:       ticketCategory,
+			Source:         "system",
 			AuthorUsername: "incident-pipeline",
 			IsUrgent:       true,
 			CreatedAt:      time.Now().UTC(),

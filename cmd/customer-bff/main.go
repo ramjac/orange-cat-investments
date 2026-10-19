@@ -1064,11 +1064,25 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	if req.PortfolioID == "" {
 		req.PortfolioID = r.URL.Query().Get("portfolio_id")
 	}
-	if req.PortfolioID == "" && b.ciSvc != nil {
+
+	if session.CustomerID == "" {
+		http.Error(w, `{"error":"unauthorized: customer identity required"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Verify customer identity and portfolio ownership before delegation or local execution
+	if req.PortfolioID != "" && b.ciSvc != nil {
+		port, err := b.ciSvc.GetPortfolio(r.Context(), req.PortfolioID)
+		if err == nil && port != nil && port.CustomerID != "" && port.CustomerID != session.CustomerID {
+			http.Error(w, `{"error":"forbidden: portfolio does not belong to authenticated customer"}`, http.StatusForbidden)
+			return
+		}
+	} else if b.ciSvc != nil {
 		if p, err := b.ciSvc.GetPortfolio(r.Context(), session.CustomerID); err == nil && p != nil {
 			req.PortfolioID = p.PortfolioID
 		}
 	}
+
 	if req.PortfolioID == "" && b.broker != nil {
 		accs, err := b.broker.ListAccounts(r.Context())
 		if err == nil {
@@ -1092,6 +1106,7 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 
 	if b.customerBLLURL != "" {
 		bllReqBody, _ := json.Marshal(map[string]interface{}{
+			"customer_id":  session.CustomerID,
 			"portfolio_id": req.PortfolioID,
 			"symbol":       req.Symbol,
 			"side":         req.Side,
@@ -1100,16 +1115,23 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 			"limit_price":  req.Price,
 		})
 		bllReq, err := http.NewRequestWithContext(r.Context(), "POST", b.customerBLLURL+"/api/v1/customer-bll/orders", bytes.NewReader(bllReqBody))
-		if err == nil {
-			bllReq.Header.Set("Content-Type", "application/json")
-			bllResp, err := http.DefaultClient.Do(bllReq)
-			if err == nil {
-				defer bllResp.Body.Close()
-				w.WriteHeader(bllResp.StatusCode)
-				_, _ = io.Copy(w, bllResp.Body)
-				return
-			}
+		if err != nil {
+			http.Error(w, `{"error":"failed to create upstream order request"}`, http.StatusInternalServerError)
+			return
 		}
+		bllReq.Header.Set("Content-Type", "application/json")
+		bllReq.Header.Set("X-Customer-ID", session.CustomerID)
+		bllResp, err := http.DefaultClient.Do(bllReq)
+		if err != nil {
+			b.logger.Error("upstream Customer BLL order execution failed", "error", err)
+			http.Error(w, `{"error":"upstream customer-bll service unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		defer bllResp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(bllResp.StatusCode)
+		_, _ = io.Copy(w, bllResp.Body)
+		return
 	}
 
 	order := &core_invest_repo.BrokerageOrder{

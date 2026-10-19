@@ -27,7 +27,7 @@ func setupTestPebbleProxyServer(t *testing.T) (*httptest.Server, opsrepo.Reposit
 	})
 	handler.RegisterRoutes(mux)
 
-	incidentHandler := handleIncidentAlertBroadcast(repo, nil)
+	incidentHandler := requireServiceAuth(handleIncidentAlertBroadcast(repo, nil))
 	mux.HandleFunc("POST /api/v1/ops/pebble/incidents/broadcast", incidentHandler)
 	mux.HandleFunc("POST /ops/pebble/incidents/broadcast", incidentHandler)
 	mux.HandleFunc("POST /ops/pebble/alerts/incident", incidentHandler)
@@ -69,7 +69,19 @@ func TestPebbleProxy_IncidentAlertAndPebbleAckLifecycle(t *testing.T) {
 	bodyBytes, err := json.Marshal(incidentPayload)
 	require.NoError(t, err)
 
-	ingestResp, err := http.Post(server.URL+"/ops/pebble/alerts/incident", "application/json", bytes.NewReader(bodyBytes))
+	// Unauthenticated request should be rejected with 401 Unauthorized
+	unauthResp, err := http.Post(server.URL+"/ops/pebble/alerts/incident", "application/json", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+	_ = unauthResp.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, unauthResp.StatusCode)
+
+	// Authenticated request with internal service key succeeds
+	authReq, err := http.NewRequest("POST", server.URL+"/ops/pebble/alerts/incident", bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+	authReq.Header.Set("Content-Type", "application/json")
+	authReq.Header.Set("X-Internal-Service-Key", "oci-internal-service-secret")
+
+	ingestResp, err := http.DefaultClient.Do(authReq)
 	require.NoError(t, err)
 	defer ingestResp.Body.Close()
 

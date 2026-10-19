@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
@@ -30,8 +32,6 @@ type InternalBLLServer struct {
 	workforceURL   string
 	facilitiesURL  string
 	opsURL         string
-	employeeBFFURL string
-	pebbleProxyURL string
 	onboardingSaga *saga.OnboardingSaga
 	offboardingEng *saga.OffboardingEngine
 }
@@ -87,14 +87,57 @@ func (s *InternalBLLServer) handleCreateIncident(w http.ResponseWriter, r *http.
 		return
 	}
 
-	incidentID := "inc-" + watermill.NewUUID()[:8]
 	roomZone := req.RoomZone
 	if roomZone == "" {
 		roomZone = "Zone Alpha (Habitat Perch 1)"
 	}
 
+	// 1. Forward to workforce domain API and extract canonical incident_id (Thread 37)
+	canonicalID := ""
+	if s.workforceURL != "" {
+		postBody, _ := json.Marshal(map[string]interface{}{
+			"title":              req.Title,
+			"category":           req.Category,
+			"involved_feline_id": req.InvolvedFelineID,
+			"involved_human_id":  req.InvolvedHumanID,
+			"severity":           req.Severity,
+			"room_zone":          roomZone,
+			"description":        req.Description,
+		})
+		wfReq, err := http.NewRequestWithContext(r.Context(), "POST", s.workforceURL+"/api/v1/workforce/incidents", bytes.NewReader(postBody))
+		if err != nil {
+			http.Error(w, `{"error":"failed to create workforce incident request"}`, http.StatusInternalServerError)
+			return
+		}
+		wfReq.Header.Set("Content-Type", "application/json")
+		resp, err := s.httpClient.Do(wfReq)
+		if err != nil {
+			s.log().Error("workforce domain API unavailable", "error", err)
+			http.Error(w, `{"error":"upstream workforce domain API unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+			s.log().Error("workforce domain API rejected incident creation", "status", resp.StatusCode)
+			http.Error(w, fmt.Sprintf(`{"error":"workforce API rejected incident: status %d"}`, resp.StatusCode), http.StatusBadGateway)
+			return
+		}
+
+		var savedInc struct {
+			IncidentID string `json:"incident_id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&savedInc); err == nil && savedInc.IncidentID != "" {
+			canonicalID = savedInc.IncidentID
+		}
+	}
+
+	if canonicalID == "" {
+		canonicalID = "inc-" + watermill.NewUUID()[:8]
+	}
+
 	payload := IncidentCreatedPayload{
-		IncidentID:       incidentID,
+		IncidentID:       canonicalID,
 		Title:            req.Title,
 		Category:         req.Category,
 		InvolvedFelineID: req.InvolvedFelineID,
@@ -105,50 +148,17 @@ func (s *InternalBLLServer) handleCreateIncident(w http.ResponseWriter, r *http.
 		ReportedAt:       time.Now().UTC(),
 	}
 
-	// Forward to workforce domain API if reachable
-	if s.workforceURL != "" {
-		postBody, _ := json.Marshal(map[string]interface{}{
-			"title":              req.Title,
-			"category":           req.Category,
-			"involved_feline_id": req.InvolvedFelineID,
-			"involved_human_id":  req.InvolvedHumanID,
-			"severity":           req.Severity,
-			"description":        req.Description,
-		})
-		wfReq, err := http.NewRequestWithContext(r.Context(), "POST", s.workforceURL+"/api/v1/workforce/incidents", bytes.NewReader(postBody))
-		if err == nil {
-			wfReq.Header.Set("Content-Type", "application/json")
-			_, _ = s.httpClient.Do(wfReq)
-		}
-	}
-
-	// Publish events.workforce.incident_created.v1 to RabbitMQ for web portal and Pebble watch alerting
+	// 2. Publish events.workforce.incident_created.v1 to RabbitMQ for async worker fanout (Threads 15 & 38)
 	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(eventID, "events.workforce.incident_created.v1", incidentID, payload)
+	event := envelope.NewEventEnvelope(eventID, "events.workforce.incident_created.v1", canonicalID, payload)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.workforce.incident_created.v1", message.NewMessage(event.EventID, eventBytes))
-		s.log().Info("published workplace incident event", "incident_id", incidentID, "severity", req.Severity)
-	}
-
-	// Fan out to Employee BFF SSE hub for real-time web banner
-	if s.employeeBFFURL != "" {
-		postBody, _ := json.Marshal(payload)
-		bcastReq, err := http.NewRequestWithContext(r.Context(), "POST", s.employeeBFFURL+"/api/v1/employee/incidents/broadcast", bytes.NewReader(postBody))
-		if err == nil {
-			bcastReq.Header.Set("Content-Type", "application/json")
-			_, _ = s.httpClient.Do(bcastReq)
+		if err := s.publisher.Publish("events.workforce.incident_created.v1", message.NewMessage(event.EventID, eventBytes)); err != nil {
+			s.log().Error("failed to publish incident event", "error", err, "incident_id", canonicalID)
+			http.Error(w, `{"error":"failed to publish incident event to message broker"}`, http.StatusInternalServerError)
+			return
 		}
-	}
-
-	// Fan out to Pebble Proxy gateway for smartwatch vibrating alerts
-	if s.pebbleProxyURL != "" {
-		postBody, _ := json.Marshal(payload)
-		pebbleReq, err := http.NewRequestWithContext(r.Context(), "POST", s.pebbleProxyURL+"/api/v1/ops/pebble/incidents/broadcast", bytes.NewReader(postBody))
-		if err == nil {
-			pebbleReq.Header.Set("Content-Type", "application/json")
-			_, _ = s.httpClient.Do(pebbleReq)
-		}
+		s.log().Info("published workplace incident event", "incident_id", canonicalID, "severity", req.Severity)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -163,24 +173,83 @@ func (s *InternalBLLServer) handleTriggerOTA(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	jobID := "ota-job-" + watermill.NewUUID()[:8]
-	otaPayload := map[string]interface{}{
-		"job_id":     jobID,
-		"asset_ids":  req.AssetIDs,
-		"release_id": req.ReleaseID,
-		"status":     "scheduled",
+	if len(req.AssetIDs) == 0 || req.ReleaseID == "" {
+		http.Error(w, `{"error":"asset_ids and release_id are required"}`, http.StatusBadRequest)
+		return
 	}
 
-	otaEventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(otaEventID, "events.facilities.ota_triggered.v1", jobID, otaPayload)
-	eventBytes, _ := json.Marshal(event)
-	if s.publisher != nil {
-		_ = s.publisher.Publish("events.facilities.ota_triggered.v1", message.NewMessage(event.EventID, eventBytes))
+	type otaJob struct {
+		JobID     string `json:"job_id"`
+		AssetID   string `json:"asset_id"`
+		ReleaseID string `json:"release_id"`
+	}
+
+	var createdJobs []otaJob
+
+	// 1. Persist per-device jobs via facilities-api (Thread 14)
+	if s.facilitiesURL != "" {
+		postBody, _ := json.Marshal(map[string]interface{}{
+			"asset_ids":  req.AssetIDs,
+			"release_id": req.ReleaseID,
+		})
+		facReq, err := http.NewRequestWithContext(r.Context(), "POST", s.facilitiesURL+"/api/v1/facilities/firmware/ota-jobs", bytes.NewReader(postBody))
+		if err == nil {
+			facReq.Header.Set("Content-Type", "application/json")
+			resp, err := s.httpClient.Do(facReq)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusAccepted {
+					var facResp struct {
+						Jobs []otaJob `json:"jobs"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&facResp); err == nil {
+						createdJobs = facResp.Jobs
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback if facilities-api not responding with job list
+	if len(createdJobs) == 0 {
+		for _, assetID := range req.AssetIDs {
+			createdJobs = append(createdJobs, otaJob{
+				JobID:     "ota-job-" + watermill.NewUUID()[:8],
+				AssetID:   assetID,
+				ReleaseID: req.ReleaseID,
+			})
+		}
+	}
+
+	// 2. Publish worker-compatible per-device events (Thread 14 & 15)
+	for _, job := range createdJobs {
+		otaPayload := map[string]interface{}{
+			"job_id":      job.JobID,
+			"asset_id":    job.AssetID,
+			"release_id":  job.ReleaseID,
+			"device_type": "edge_camera",
+			"version":     "v2.1.0",
+			"file_url":    fmt.Sprintf("https://firmware.oci.local/releases/%s.bin", job.ReleaseID),
+			"checksum":    "sha256-verified",
+		}
+		otaEventID := watermill.NewUUID()
+		event := envelope.NewEventEnvelope(otaEventID, "events.facilities.ota_triggered.v1", job.JobID, otaPayload)
+		eventBytes, _ := json.Marshal(event)
+		if s.publisher != nil {
+			if err := s.publisher.Publish("events.facilities.ota_triggered.v1", message.NewMessage(event.EventID, eventBytes)); err != nil {
+				s.log().Error("failed to publish OTA triggered event", "error", err, "job_id", job.JobID)
+				http.Error(w, `{"error":"failed to publish OTA event to message broker"}`, http.StatusInternalServerError)
+				return
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(otaPayload)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "scheduled",
+		"jobs":   createdJobs,
+	})
 }
 
 func (s *InternalBLLServer) handleTriggerReport(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +274,11 @@ func (s *InternalBLLServer) handleTriggerReport(w http.ResponseWriter, r *http.R
 	event := envelope.NewEventEnvelope(repEventID, "events.reporting.generate_monthly_requested.v1", reportID, repPayload)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.reporting.generate_monthly_requested.v1", message.NewMessage(event.EventID, eventBytes))
+		if err := s.publisher.Publish("events.reporting.generate_monthly_requested.v1", message.NewMessage(event.EventID, eventBytes)); err != nil {
+			s.log().Error("failed to publish report generation event", "error", err, "report_id", reportID)
+			http.Error(w, `{"error":"failed to publish report event to message broker"}`, http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -236,31 +309,57 @@ func main() {
 	}
 
 	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+	var pubSub message.Publisher
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL == "" {
+		amqpURL = os.Getenv("AMQP_URL")
+	}
+	if amqpURL != "" {
+		amqpConfig := amqp.NewDurableQueueConfig(amqpURL)
+		amqpPub, err := amqp.NewPublisher(amqpConfig, watermillLogger)
+		if err != nil {
+			logger.Error("failed to connect Internal BLL to RabbitMQ AMQP publisher", "error", err)
+			os.Exit(1)
+		}
+		defer amqpPub.Close()
+		pubSub = amqpPub
+		logger.Info("Internal BLL connected to RabbitMQ AMQP broker successfully")
+	} else {
+		pubSub = gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
+		logger.Info("Internal BLL running with in-memory GoChannel publisher (local test mode)")
+	}
 
 	mockWfRepo := workforce.NewMockRepository()
 	mockWfSvc := workforce_svc.NewService(mockWfRepo)
 	onboardingSaga := saga.NewOnboardingSaga(mockWfSvc, nil, logger)
 	offboardingEng := saga.NewOffboardingEngine(mockWfSvc, nil, logger)
 
-	employeeBFFURL := os.Getenv("EMPLOYEE_BFF_URL")
-	if employeeBFFURL == "" {
-		employeeBFFURL = "http://localhost:8081"
-	}
-	pebbleProxyURL := os.Getenv("PEBBLE_PROXY_URL")
-	if pebbleProxyURL == "" {
-		pebbleProxyURL = "http://localhost:8082"
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	clientCA := os.Getenv("CLIENT_CA_FILE")
+	if certFile != "" && keyFile != "" && clientCA != "" {
+		clientTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Warn("failed to configure outbound client dynamic mTLS", "error", err)
+		} else {
+			httpClient = &http.Client{
+				Timeout: 10 * time.Second,
+				Transport: &http.Transport{
+					TLSClientConfig: clientTLS,
+				},
+			}
+			logger.Info("Internal BLL configured with outbound dynamic mTLS transport")
+		}
 	}
 
 	serverObj := &InternalBLLServer{
 		logger:         logger,
 		publisher:      pubSub,
-		httpClient:     &http.Client{Timeout: 5 * time.Second},
+		httpClient:     httpClient,
 		workforceURL:   workforceURL,
 		facilitiesURL:  facilitiesURL,
 		opsURL:         opsURL,
-		employeeBFFURL: employeeBFFURL,
-		pebbleProxyURL: pebbleProxyURL,
 		onboardingSaga: onboardingSaga,
 		offboardingEng: offboardingEng,
 	}
@@ -285,9 +384,6 @@ func main() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	certFile := os.Getenv("TLS_CERT_FILE")
-	keyFile := os.Getenv("TLS_KEY_FILE")
-	clientCA := os.Getenv("CLIENT_CA_FILE")
 	if certFile != "" && keyFile != "" {
 		tlsConfig, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
 		if err != nil {
