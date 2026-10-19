@@ -57,6 +57,23 @@ echo "Checking starter platform administrator bootstrap credentials..."
 "${REPO_ROOT}/scripts/generate-starter-admin.sh"
 
 echo ""
+echo "Checking cert-manager & PKI prerequisites..."
+if kubectl get crd certificates.cert-manager.io &>/dev/null; then
+    if [[ -f "${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" && -f "${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.key" ]]; then
+        kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create secret tls oci-lan-root-ca-key-pair \
+            --namespace cert-manager \
+            --cert="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" \
+            --key="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.key" \
+            --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/intranet-cluster-issuer.yaml"
+        echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
+    fi
+else
+    echo "WARNING: cert-manager CRDs not detected. If running on MicroK8s, run 'microk8s enable cert-manager'."
+fi
+
+echo ""
 if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo ""
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."

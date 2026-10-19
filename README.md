@@ -364,6 +364,14 @@ docker compose -f docker-compose.smb.yaml up -d
 
 If you have an existing Kubernetes cluster or local node (such as MicroK8s, Minikube, kind, or an existing K3s installation) configured in your local `~/.kube/config`:
 
+> [!NOTE]
+> **Cluster Prerequisites (Cert-Manager & Intranet PKI):**
+> Orange Cat Investments enforces dynamic mutual TLS (mTLS) for inter-service communication via `cert-manager`. Before running `deploy-k8s.sh`, ensure `cert-manager` is active:
+> * **MicroK8s:** Run `microk8s enable cert-manager`
+> * **K3s / Standard K8s:** Install cert-manager via Helm or the official manifest:
+>   `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
+> * **Intranet Root CA:** Ensure the intranet Root CA secret (`oci-lan-root-ca-key-pair`) and ClusterIssuer (`k8s/ha/lan/tls/intranet-cluster-issuer.yaml`) are provisioned for `oci-lan-issuer`.
+
 ```bash
 chmod +x scripts/deploy-k8s.sh
 ./scripts/deploy-k8s.sh
