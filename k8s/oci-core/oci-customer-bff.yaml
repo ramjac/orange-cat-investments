@@ -29,6 +29,8 @@ spec:
               value: "production"
             - name: SEED_DEV_SESSIONS
               value: "false"
+            - name: CUSTOMER_BLL_URL
+              value: "http://customer-bll-service.oci-core.svc.cluster.local:8084"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

@@ -320,6 +320,11 @@ func (h *WorkforceHandler) handleFrappeHRWebhook(w http.ResponseWriter, r *http.
 			req.FirstName = "Employee"
 		}
 
+		if h.onboardingSaga == nil {
+			writeError(w, http.StatusNotImplemented, "onboarding saga is not configured on domain API (orchestration belongs to BLL)")
+			return
+		}
+
 		res, err := h.onboardingSaga.Execute(r.Context(), req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -335,6 +340,11 @@ func (h *WorkforceHandler) handleFrappeHRWebhook(w http.ResponseWriter, r *http.
 	}
 
 	if event == "employee_separated" || status == "separated" || status == "retired" {
+		if h.offboardingEng == nil {
+			writeError(w, http.StatusNotImplemented, "offboarding engine is not configured on domain API (orchestration belongs to BLL)")
+			return
+		}
+
 		req := saga.OffboardingRequest{
 			EmployeeID:   payload.EmployeeID,
 			Reason:       "Frappe HR webhook trigger",
@@ -969,6 +979,11 @@ func (h *WorkforceHandler) handleOnboardEmployee(w http.ResponseWriter, r *http.
 		req.EmployeeType = "human"
 	}
 
+	if h.onboardingSaga == nil {
+		writeError(w, http.StatusNotImplemented, "onboarding saga is not configured on domain API (orchestration belongs to BLL)")
+		return
+	}
+
 	result, err := h.onboardingSaga.Execute(r.Context(), req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -988,6 +1003,11 @@ func (h *WorkforceHandler) handleOffboardEmployee(w http.ResponseWriter, r *http
 	}
 	if req.EmployeeID == "" {
 		writeError(w, http.StatusBadRequest, "employee_id is required")
+		return
+	}
+
+	if h.offboardingEng == nil {
+		writeError(w, http.StatusNotImplemented, "offboarding engine is not configured on domain API (orchestration belongs to BLL)")
 		return
 	}
 

@@ -662,6 +662,30 @@ func (m *mockRepository) GetPortfolioByID(ctx context.Context, portfolioID strin
 	}, nil
 }
 
+func (m *mockRepository) ListPortfolios(ctx context.Context) ([]*Portfolio, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var list []*Portfolio
+	for _, p := range m.portfolios {
+		list = append(list, p)
+	}
+	return list, nil
+}
+
+func (m *mockRepository) AdvanceRecurringDepositSchedule(ctx context.Context, id string, nextChargeAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	d, ok := m.deposits[id]
+	if !ok {
+		return fmt.Errorf("recurring deposit not found: %s", id)
+	}
+	d.NextChargeAt = nextChargeAt
+	return nil
+}
+
+
 func (m *mockRepository) CreatePortfolio(ctx context.Context, p *Portfolio) (*Portfolio, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

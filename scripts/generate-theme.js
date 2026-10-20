@@ -63,7 +63,9 @@ function main() {
 
   const targets = [
     path.join(rootDir, 'web', 'customer-portal', 'src', 'theme.css'),
-    path.join(rootDir, 'web', 'employee-portal', 'src', 'theme.css')
+    path.join(rootDir, 'web', 'employee-portal', 'src', 'theme.css'),
+    path.join(rootDir, 'web', 'marketing', 'static', 'css', 'theme.css'),
+    path.join(rootDir, 'web', 'marketing', 'public', 'css', 'theme.css')
   ];
 
   for (const targetPath of targets) {

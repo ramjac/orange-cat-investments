@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package oci.ops.v1;
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1;opsv1";
+
+service OpsService {
+  rpc CreateTicket (CreateTicketRequest) returns (CreateTicketResponse);
+  rpc GetTicket (GetTicketRequest) returns (GetTicketResponse);
+  rpc ListTickets (ListTicketsRequest) returns (ListTicketsResponse);
+  rpc AcknowledgeTicket (AcknowledgeTicketRequest) returns (AcknowledgeTicketResponse);
+  rpc CloseTicket (CloseTicketRequest) returns (CloseTicketResponse);
+
+  rpc ListAlerts (ListAlertsRequest) returns (ListAlertsResponse);
+  rpc CreateAlert (CreateAlertRequest) returns (CreateAlertResponse);
+  rpc AcknowledgeAlert (AcknowledgeAlertRequest) returns (AcknowledgeAlertResponse);
+}
+
+message ITTicket {
+  string ticket_id = 1;
+  string title = 2;
+  string body = 3;
+  string state = 4;
+  string severity = 5;
+  string category = 6;
+  string source = 7;
+  string customer_id = 8;
+  string author_username = 9;
+  string assignee_username = 10;
+  bool is_urgent = 11;
+  string acknowledged_by = 12;
+  string acknowledged_at = 13;
+  string created_at = 14;
+}
+
+message CreateTicketRequest {
+  string title = 1;
+  string body = 2;
+  string severity = 3;
+  string category = 4;
+  string source = 5;
+  string customer_id = 6;
+  string author_username = 7;
+  bool is_urgent = 8;
+}
+
+message CreateTicketResponse {
+  ITTicket ticket = 1;
+}
+
+message GetTicketRequest {
+  string ticket_id = 1;
+}
+
+message GetTicketResponse {
+  ITTicket ticket = 1;
+}
+
+message ListTicketsRequest {
+  string state = 1;
+  string category = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message ListTicketsResponse {
+  repeated ITTicket tickets = 1;
+}
+
+message AcknowledgeTicketRequest {
+  string ticket_id = 1;
+  string acknowledged_by = 2;
+}
+
+message AcknowledgeTicketResponse {
+  ITTicket ticket = 1;
+}
+
+message CloseTicketRequest {
+  string ticket_id = 1;
+  string resolution_notes = 2;
+}
+
+message CloseTicketResponse {
+  ITTicket ticket = 1;
+}
+
+message PebbleAlert {
+  string alert_id = 1;
+  string ticket_id = 2;
+  string title = 3;
+  string severity = 4;
+  string room_zone = 5;
+  bool acknowledged = 6;
+  string created_at = 7;
+}
+
+message ListAlertsRequest {
+  bool unacknowledged_only = 1;
+}
+
+message ListAlertsResponse {
+  repeated PebbleAlert alerts = 1;
+}
+
+message CreateAlertRequest {
+  string ticket_id = 1;
+  string title = 2;
+  string severity = 3;
+  string room_zone = 4;
+}
+
+message CreateAlertResponse {
+  PebbleAlert alert = 1;
+}
+
+message AcknowledgeAlertRequest {
+  string alert_id = 1;
+  string acknowledged_by = 2;
+  int32 button_id = 3;
+}
+
+message AcknowledgeAlertResponse {
+  string alert_id = 1;
+  string status = 2;
+}

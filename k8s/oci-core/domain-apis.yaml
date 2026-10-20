@@ -1,0 +1,479 @@
+# Workforce Domain API (Port 50051)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workforce-api
+  namespace: oci-core
+  labels:
+    app: workforce-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: workforce-api
+  template:
+    metadata:
+      labels:
+        app: workforce-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: workforce-api
+          image: localhost:32000/workforce-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50051"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: ENABLE_FELINE_WORKFORCE
+              value: "true"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50051
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50051
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: workforce-api-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: workforce-api-tls
+  namespace: oci-core
+spec:
+  secretName: workforce-api-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: workforce-api-service.oci-core.svc.cluster.local
+  dnsNames:
+    - workforce-api-service
+    - workforce-api-service.oci-core.svc
+    - workforce-api-service.oci-core.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workforce-api-service
+  namespace: oci-core
+  labels:
+    app: workforce-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50051
+      targetPort: 50051
+      name: grpc-http
+  selector:
+    app: workforce-api
+---
+# Facilities Domain API (Port 50052)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: facilities-api
+  namespace: oci-core
+  labels:
+    app: facilities-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: facilities-api
+  template:
+    metadata:
+      labels:
+        app: facilities-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: facilities-api
+          image: localhost:32000/facilities-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50052
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50052"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50052
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50052
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: facilities-api-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: facilities-api-tls
+  namespace: oci-core
+spec:
+  secretName: facilities-api-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: facilities-api-service.oci-core.svc.cluster.local
+  dnsNames:
+    - facilities-api-service
+    - facilities-api-service.oci-core.svc
+    - facilities-api-service.oci-core.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: facilities-api-service
+  namespace: oci-core
+  labels:
+    app: facilities-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50052
+      targetPort: 50052
+      name: grpc-http
+  selector:
+    app: facilities-api
+---
+# Core Invest Domain API (Port 50053)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: core-invest-api
+  namespace: oci-core
+  labels:
+    app: core-invest-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: core-invest-api
+  template:
+    metadata:
+      labels:
+        app: core-invest-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: core-invest-api
+          image: localhost:32000/core-invest-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50053
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50053"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: ENABLE_CORE_INVEST
+              value: "true"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50053
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50053
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: core-invest-api-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: core-invest-api-tls
+  namespace: oci-core
+spec:
+  secretName: core-invest-api-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: core-invest-api-service.oci-core.svc.cluster.local
+  dnsNames:
+    - core-invest-api-service
+    - core-invest-api-service.oci-core.svc
+    - core-invest-api-service.oci-core.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: core-invest-api-service
+  namespace: oci-core
+  labels:
+    app: core-invest-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50053
+      targetPort: 50053
+      name: grpc-http
+  selector:
+    app: core-invest-api
+---
+# Ops Domain API (Port 50054)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-api
+  namespace: oci-core
+  labels:
+    app: ops-api
+    tier: domain-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-api
+  template:
+    metadata:
+      labels:
+        app: ops-api
+        tier: domain-api
+    spec:
+      containers:
+        - name: ops-api
+          image: localhost:32000/ops-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50054
+              name: grpc-http
+          env:
+            - name: PORT
+              value: "50054"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: DATABASE_URL
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 50054
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 50054
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: ops-api-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ops-api-tls
+  namespace: oci-core
+spec:
+  secretName: ops-api-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: ops-api-service.oci-core.svc.cluster.local
+  dnsNames:
+    - ops-api-service
+    - ops-api-service.oci-core.svc
+    - ops-api-service.oci-core.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ops-api-service
+  namespace: oci-core
+  labels:
+    app: ops-api
+    tier: domain-api
+spec:
+  ports:
+    - port: 50054
+      targetPort: 50054
+      name: grpc-http
+  selector:
+    app: ops-api
+---
+# NetworkPolicy: Restrict Ingress to Domain APIs strictly to BLL, batch jobs, and Worker pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: domain-apis-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      tier: domain-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bll
+        - podSelector:
+            matchLabels:
+              tier: batch
+        - podSelector:
+            matchLabels:
+              app: oci-worker
+        - podSelector:
+            matchLabels:
+              app: oci-server
+      ports:
+        - protocol: TCP
+          port: 50051
+        - protocol: TCP
+          port: 50052
+        - protocol: TCP
+          port: 50053
+        - protocol: TCP
+          port: 50054

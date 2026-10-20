@@ -90,6 +90,7 @@ type Service interface {
 	// Bank & ACH Deposits
 	CreateRecurringDeposit(ctx context.Context, opts CreateRecurringDepositOpts) (*core_invest.RecurringDeposit, error)
 	ListRecurringDeposits(ctx context.Context, customerID string) ([]*core_invest.RecurringDeposit, error)
+	AdvanceRecurringDepositSchedule(ctx context.Context, id string, nextChargeAt time.Time) error
 
 	// Dynamic Backtesting Workbench
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
@@ -119,6 +120,7 @@ type Service interface {
 
 	// Portfolios
 	GetPortfolio(ctx context.Context, customerOrPortfolioID string) (*core_invest.Portfolio, error)
+	ListPortfolios(ctx context.Context) ([]*core_invest.Portfolio, error)
 	CreatePortfolio(ctx context.Context, p *core_invest.Portfolio) (*core_invest.Portfolio, error)
 
 	// API Keys & Webhooks
@@ -375,6 +377,10 @@ func (s *coreInvestService) ListRecurringDeposits(ctx context.Context, customerI
 	return s.repo.ListRecurringDeposits(ctx, customerID)
 }
 
+func (s *coreInvestService) AdvanceRecurringDepositSchedule(ctx context.Context, id string, nextChargeAt time.Time) error {
+	return s.repo.AdvanceRecurringDepositSchedule(ctx, id, nextChargeAt)
+}
+
 func (s *coreInvestService) StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error) {
 	if strategyID == "" {
 		return nil, errors.New("strategy_id is required")
@@ -483,6 +489,10 @@ func (s *coreInvestService) GetPortfolio(ctx context.Context, customerOrPortfoli
 		return p, nil
 	}
 	return s.repo.GetPortfolioByID(ctx, customerOrPortfolioID)
+}
+
+func (s *coreInvestService) ListPortfolios(ctx context.Context) ([]*core_invest.Portfolio, error) {
+	return s.repo.ListPortfolios(ctx)
 }
 
 func (s *coreInvestService) CreatePortfolio(ctx context.Context, p *core_invest.Portfolio) (*core_invest.Portfolio, error) {

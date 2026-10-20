@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -65,6 +68,12 @@ func main() {
 	})
 	handler.RegisterRoutes(mux)
 
+	// Ingest workplace safety incidents into high-priority wearable alerts
+	incidentHandler := requireServiceAuth(handleIncidentAlertBroadcast(repo, logger))
+	mux.HandleFunc("POST /api/v1/ops/pebble/incidents/broadcast", incidentHandler)
+	mux.HandleFunc("POST /ops/pebble/incidents/broadcast", incidentHandler)
+	mux.HandleFunc("POST /ops/pebble/alerts/incident", incidentHandler)
+
 	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
 
 	server := &http.Server{
@@ -97,3 +106,105 @@ func main() {
 
 	logger.Info("Pebble Companion Gateway Proxy stopped gracefully")
 }
+
+func requireServiceAuth(next http.HandlerFunc) http.HandlerFunc {
+	expectedKey := os.Getenv("INTERNAL_SERVICE_KEY")
+	if expectedKey == "" {
+		expectedKey = "oci-internal-service-secret"
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("X-Internal-Service-Key")
+		if token == "" {
+			authHeader := r.Header.Get("Authorization")
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				token = strings.TrimPrefix(authHeader, "Bearer ")
+			}
+		}
+		if token != expectedKey {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "unauthorized: valid internal service key required",
+			})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func handleIncidentAlertBroadcast(repo opsrepo.Repository, logger *slog.Logger) http.HandlerFunc {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IncidentID  string `json:"incident_id"`
+			Title       string `json:"title"`
+			Category    string `json:"category"`
+			Severity    string `json:"severity"`
+			RoomZone    string `json:"room_zone"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid incident payload"}`, http.StatusBadRequest)
+			return
+		}
+
+		ticketID := req.IncidentID
+		if ticketID == "" {
+			ticketID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
+		}
+
+		title := req.Title
+		if req.RoomZone != "" {
+			title = fmt.Sprintf("🚨 %s (%s)", req.Title, req.RoomZone)
+		} else {
+			title = fmt.Sprintf("🚨 %s", req.Title)
+		}
+
+		severity := req.Severity
+		if severity == "" {
+			severity = "critical"
+		}
+
+		ticketCategory := "habitat"
+		if req.Category == "unauthorized_treat" {
+			ticketCategory = "general"
+		} else if req.Category == "software" || req.Category == "hardware" || req.Category == "trading" {
+			ticketCategory = req.Category
+		}
+
+		desc := req.Description
+		if req.IncidentID != "" {
+			desc = fmt.Sprintf("[Workforce Incident ID: %s] %s", req.IncidentID, req.Description)
+		}
+
+		ticket := &opsrepo.ITTicket{
+			TicketID:       ticketID,
+			Title:          title,
+			Body:           &desc,
+			State:          "open",
+			Severity:       severity,
+			Category:       ticketCategory,
+			Source:         "system",
+			AuthorUsername: "incident-pipeline",
+			IsUrgent:       true,
+			CreatedAt:      time.Now().UTC(),
+			UpdatedAt:      time.Now().UTC(),
+		}
+
+		created, err := repo.CreateITTicket(r.Context(), ticket)
+		if err != nil {
+			logger.Error("failed to create incident alert ticket for pebble", "error", err)
+			http.Error(w, `{"error":"failed to create incident alert"}`, http.StatusInternalServerError)
+			return
+		}
+
+		logger.Info("registered workplace incident alert for Pebble wearable push", "ticket_id", created.TicketID, "severity", severity)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(created)
+	}
+}
+

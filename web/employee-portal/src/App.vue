@@ -17,6 +17,27 @@
       </div>
     </header>
 
+    <!-- Real-Time Pub/Sub Workplace Incident Alert Banner -->
+    <div v-if="activeEmergencyAlert" class="emergency-alert-banner" :class="activeEmergencyAlert.severity" role="alert" aria-live="assertive">
+      <div class="alert-content">
+        <span class="alert-icon">🚨</span>
+        <div class="alert-text">
+          <div class="alert-headline">
+            <span class="alert-title-tag">EMERGENCY WORKPLACE INCIDENT</span>
+            <span :class="['severity-badge', activeEmergencyAlert.severity]">{{ (activeEmergencyAlert.severity || 'ALERT').toUpperCase() }}</span>
+            <span v-if="activeEmergencyAlert.room_zone" class="zone-badge">📍 {{ activeEmergencyAlert.room_zone }}</span>
+          </div>
+          <h4 class="alert-title">{{ activeEmergencyAlert.title }}</h4>
+          <p class="alert-desc">{{ activeEmergencyAlert.description }}</p>
+        </div>
+      </div>
+      <div class="alert-actions">
+        <button class="btn-alert-ack" @click="acknowledgeEmergencyAlert">✓ Acknowledge</button>
+        <button class="btn-alert-view" @click="currentTab = 'incidents'">View Registry</button>
+        <button class="btn-alert-dismiss" @click="dismissEmergencyAlert">✕</button>
+      </div>
+    </div>
+
     <!-- Navigation Tabs -->
     <nav class="nav-tabs">
       <button
@@ -3198,14 +3219,14 @@ async function submitIncident() {
   }
 }
 
-async function resolveIncident(id) {
+async function updateIncidentStatus(id, status, notes) {
   try {
     const res = await fetch(`/api/v1/workforce/incidents/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        status: 'resolved',
-        resolution_notes: 'Resolved in incident management console'
+        status: status,
+        resolution_notes: notes || `Status updated to ${status}`
       })
     });
 
@@ -3220,11 +3241,68 @@ async function resolveIncident(id) {
       incidentLogs.value[idx] = updated;
     } else {
       const inc = incidentLogs.value.find(i => i.incident_id === id);
-      if (inc) inc.status = 'resolved';
+      if (inc) inc.status = status;
     }
-    showToast('Incident resolved and archived.');
+    return true;
   } catch (err) {
-    showToast(`Failed to resolve incident: ${err.message}`);
+    showToast(`Failed to update incident: ${err.message}`);
+    return false;
+  }
+}
+
+async function resolveIncident(id) {
+  const success = await updateIncidentStatus(id, 'resolved', 'Resolved in incident management console');
+  if (success) {
+    showToast('Incident resolved and archived.');
+  }
+  return success;
+}
+
+const activeEmergencyAlert = ref(null);
+let incidentEventSource = null;
+
+function dismissEmergencyAlert() {
+  activeEmergencyAlert.value = null;
+}
+
+async function acknowledgeEmergencyAlert() {
+  if (!activeEmergencyAlert.value) return;
+  const alertId = activeEmergencyAlert.value.incident_id;
+  if (alertId) {
+    const success = await updateIncidentStatus(alertId, 'under_review', 'Acknowledged by on-duty staff');
+    if (!success) {
+      // Do not clear the banner if updating the incident status failed
+      return;
+    }
+  }
+  activeEmergencyAlert.value = null;
+  showToast('Emergency incident acknowledged.');
+}
+
+function initIncidentSSE() {
+  if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') return;
+  try {
+    if (incidentEventSource) {
+      incidentEventSource.close();
+    }
+    incidentEventSource = new EventSource('/api/v1/employee/incidents/stream');
+    incidentEventSource.addEventListener('incident', (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        activeEmergencyAlert.value = payload;
+        if (payload.incident_id && !incidentLogs.value.some(i => i.incident_id === payload.incident_id)) {
+          incidentLogs.value.unshift(payload);
+        }
+        showToast(`🚨 Emergency Alert: ${payload.title}`);
+      } catch (e) {
+        console.error('Failed to parse incident SSE event', e);
+      }
+    });
+    incidentEventSource.onerror = () => {
+      // EventSource retries automatically in browsers
+    };
+  } catch (err) {
+    console.warn('Incident SSE initialization failed', err);
   }
 }
 
@@ -4626,6 +4704,7 @@ onMounted(() => {
   fetchCalendarEvents();
   fetchHelpdeskTickets();
   fetchExecutiveReports();
+  initIncidentSSE();
 });
 </script>
 
@@ -4873,4 +4952,109 @@ textarea.form-control { min-height: 80px; resize: vertical; }
 .badge-open { background: #0284c7; color: white; }
 .badge-ack { background: #d97706; color: white; }
 .badge-closed { background: #059669; color: white; }
+
+.emergency-alert-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(185, 28, 28, 0.45) 100%);
+  border: 1px solid #ef4444;
+  border-left: 6px solid #ef4444;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+  animation: alertPulse 2.5s infinite ease-in-out;
+}
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 4px 25px rgba(239, 68, 68, 0.6); }
+}
+.alert-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.alert-icon {
+  font-size: 2rem;
+  animation: alertBounce 1s infinite alternate;
+}
+@keyframes alertBounce {
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
+}
+.alert-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.alert-title-tag {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fca5a5;
+}
+.zone-badge {
+  background: #334155;
+  color: #e2e8f0;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.alert-title {
+  margin: 0.2rem 0;
+  color: #ffffff;
+  font-size: 1.05rem;
+}
+.alert-desc {
+  margin: 0;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+.alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.btn-alert-ack {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-alert-ack:hover {
+  background: #059669;
+}
+.btn-alert-view {
+  background: #334155;
+  color: #e2e8f0;
+  border: 1px solid #475569;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.375rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-alert-view:hover {
+  background: #475569;
+}
+.btn-alert-dismiss {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+}
+.btn-alert-dismiss:hover {
+  color: #ffffff;
+}
 </style>
+

@@ -140,6 +140,16 @@ func main() {
 	opsH := ops_handler.NewHandler(opsSvc)
 	registerProtectedOpsRoutes(mux, opsH, sessionStore)
 
+	// Incident Alert Real-Time SSE Stream & Broadcast Hub
+	incidentBroker := NewIncidentBroker(logger)
+	sessionAuth := SessionAuthMiddleware(sessionStore)
+	serviceAuth := InternalServiceAuthMiddleware()
+
+	mux.Handle("GET /api/v1/employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
+	mux.Handle("GET /employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
+	mux.Handle("POST /api/v1/employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
+	mux.Handle("POST /employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
+
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -161,24 +163,26 @@ type felineCache struct {
 }
 
 type CustomerBFF struct {
-	ciSvc       core_invest_svc.Service
-	wfSvc       workforce_svc.Service
-	opsSvc      ops_svc.Service
-	sessions    *SessionStore
-	logger      *slog.Logger
-	broker      *alpaca.Client
-	bank        *plaid.Client
-	vhrCache    vhrCache
-	felineCache felineCache
+	ciSvc          core_invest_svc.Service
+	wfSvc          workforce_svc.Service
+	opsSvc         ops_svc.Service
+	sessions       *SessionStore
+	logger         *slog.Logger
+	broker         *alpaca.Client
+	bank           *plaid.Client
+	customerBLLURL string
+	vhrCache       vhrCache
+	felineCache    felineCache
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
 	return &CustomerBFF{
-		ciSvc:    ciSvc,
-		wfSvc:    wfSvc,
-		opsSvc:   ops_svc.NewService(ops_repo.NewMockRepository()),
-		sessions: NewSessionStore(),
-		logger:   logger,
+		ciSvc:          ciSvc,
+		wfSvc:          wfSvc,
+		opsSvc:         ops_svc.NewService(ops_repo.NewMockRepository()),
+		sessions:       NewSessionStore(),
+		logger:         logger,
+		customerBLLURL: os.Getenv("CUSTOMER_BLL_URL"),
 		vhrCache: vhrCache{
 			ttl: 30 * time.Second,
 		},
@@ -186,6 +190,10 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 			ttl: 30 * time.Second,
 		},
 	}
+}
+
+func (b *CustomerBFF) SetCustomerBLLURL(url string) {
+	b.customerBLLURL = url
 }
 
 func (b *CustomerBFF) SetOpsService(svc ops_svc.Service) {
@@ -1056,11 +1064,25 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	if req.PortfolioID == "" {
 		req.PortfolioID = r.URL.Query().Get("portfolio_id")
 	}
-	if req.PortfolioID == "" && b.ciSvc != nil {
+
+	if session.CustomerID == "" {
+		http.Error(w, `{"error":"unauthorized: customer identity required"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Verify customer identity and portfolio ownership before delegation or local execution
+	if req.PortfolioID != "" && b.ciSvc != nil {
+		port, err := b.ciSvc.GetPortfolio(r.Context(), req.PortfolioID)
+		if err == nil && port != nil && port.CustomerID != "" && port.CustomerID != session.CustomerID {
+			http.Error(w, `{"error":"forbidden: portfolio does not belong to authenticated customer"}`, http.StatusForbidden)
+			return
+		}
+	} else if b.ciSvc != nil {
 		if p, err := b.ciSvc.GetPortfolio(r.Context(), session.CustomerID); err == nil && p != nil {
 			req.PortfolioID = p.PortfolioID
 		}
 	}
+
 	if req.PortfolioID == "" && b.broker != nil {
 		accs, err := b.broker.ListAccounts(r.Context())
 		if err == nil {
@@ -1080,6 +1102,36 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 	}
 	if req.Price <= 0 {
 		req.Price = 224.30
+	}
+
+	if b.customerBLLURL != "" {
+		bllReqBody, _ := json.Marshal(map[string]interface{}{
+			"customer_id":  session.CustomerID,
+			"portfolio_id": req.PortfolioID,
+			"symbol":       req.Symbol,
+			"side":         req.Side,
+			"quantity":     req.Quantity,
+			"order_type":   req.OrderType,
+			"limit_price":  req.Price,
+		})
+		bllReq, err := http.NewRequestWithContext(r.Context(), "POST", b.customerBLLURL+"/api/v1/customer-bll/orders", bytes.NewReader(bllReqBody))
+		if err != nil {
+			http.Error(w, `{"error":"failed to create upstream order request"}`, http.StatusInternalServerError)
+			return
+		}
+		bllReq.Header.Set("Content-Type", "application/json")
+		bllReq.Header.Set("X-Customer-ID", session.CustomerID)
+		bllResp, err := http.DefaultClient.Do(bllReq)
+		if err != nil {
+			b.logger.Error("upstream Customer BLL order execution failed", "error", err)
+			http.Error(w, `{"error":"upstream customer-bll service unavailable"}`, http.StatusBadGateway)
+			return
+		}
+		defer bllResp.Body.Close()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(bllResp.StatusCode)
+		_, _ = io.Copy(w, bllResp.Body)
+		return
 	}
 
 	order := &core_invest_repo.BrokerageOrder{

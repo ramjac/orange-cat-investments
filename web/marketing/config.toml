@@ -1,0 +1,18 @@
+baseURL = "https://oci.local/"
+languageCode = "en-us"
+title = "Orange Cat Investments"
+
+[params]
+  legalName = "Orange Cat Investments LLC"
+  tradingName = "Orange Cat Investments"
+  tagline = "Feline-Driven Wealth Management & Algorithmic Quantitative Telemetry"
+  baseDomain = "oci.local"
+  primaryColor = "#f97316"
+  secondaryColor = "#ea580c"
+  accentColor = "#3b82f6"
+  backgroundColor = "#0f172a"
+  cardColor = "#1e293b"
+  textColor = "#f8fafc"
+  logoIcon = "🐈"
+  customerPortalURL = "https://customer.oci.local"
+  registerURL = "https://customer.oci.local/#register"

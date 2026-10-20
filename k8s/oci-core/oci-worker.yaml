@@ -29,6 +29,22 @@ spec:
                 secretKeyRef:
                   name: oci-core-secrets
                   key: DATABASE_URL
+            - name: EMPLOYEE_BFF_URL
+              value: "http://oci-employee-bff.oci-core.svc.cluster.local:8081"
+            - name: PEBBLE_PROXY_URL
+              value: "http://oci-pebble-proxy.oci-core.svc.cluster.local:8082"
+            - name: CORE_INVEST_API_URL
+              value: "http://core-invest-api-service.oci-core.svc.cluster.local:50053"
+            - name: BANK_API_BASE_URL
+              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+            - name: RABBITMQ_URL
+              value: "amqp://guest:guest@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+            - name: INTERNAL_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: INTERNAL_SERVICE_KEY
+                  optional: true
           resources:
             requests:
               cpu: 100m
