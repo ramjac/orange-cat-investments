@@ -121,4 +121,17 @@ func TestMarketDataEndpoints(t *testing.T) {
 	bars := barsResp["bars"].(map[string]any)
 	assert.Contains(t, bars, "AAPL")
 	assert.Contains(t, bars, "NVDA")
+
+	// 3. Multi-symbol Latest Quotes
+	quotesReq := httptest.NewRequest("GET", "/v2/stocks/quotes/latest?symbols=AAPL,NVDA", nil)
+	quotesRec := httptest.NewRecorder()
+	handler.ServeHTTP(quotesRec, quotesReq)
+
+	assert.Equal(t, http.StatusOK, quotesRec.Code)
+	var quotesResp map[string]any
+	err = json.Unmarshal(quotesRec.Body.Bytes(), &quotesResp)
+	require.NoError(t, err)
+	quotes := quotesResp["quotes"].(map[string]any)
+	assert.Contains(t, quotes, "AAPL")
+	assert.Contains(t, quotes, "NVDA")
 }

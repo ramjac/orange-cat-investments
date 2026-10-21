@@ -1179,12 +1179,13 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	quotes, _ := b.broker.GetLatestQuotes(r.Context(), symbols)
+
 	tickerData := make([]map[string]interface{}, 0, len(symbols))
 	for _, sym := range symbols {
 		if bar, ok := bars[sym]; ok && bar.Close > 0 {
-			quote, _ := b.broker.GetLatestQuote(r.Context(), sym)
 			price := bar.Close
-			if quote != nil && quote.AskPrice > 0 {
+			if quote, ok := quotes[sym]; ok && quote.AskPrice > 0 {
 				price = (quote.BidPrice + quote.AskPrice) / 2.0
 			}
 			changePct := 0.0
