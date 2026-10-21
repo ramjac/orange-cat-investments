@@ -726,6 +726,50 @@ func TestHubAndDocuments_Endpoints(t *testing.T) {
 		assert.NotEmpty(t, docs)
 	})
 
+	t.Run("List Documents Validation Error - Search Query Exceeds Max Length", func(t *testing.T) {
+		longQuery := "a"
+		for i := 0; i < 105; i++ {
+			longQuery += "a"
+		}
+		req := httptest.NewRequest("GET", "/api/v1/workforce/documents?q="+longQuery, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "exceeds maximum length of 100 characters")
+	})
+
+	t.Run("List Documents Validation Error - Search Query Contains Control Characters", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/documents?q=invalid%00query", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "contains invalid control characters")
+	})
+
+	t.Run("List Documents Validation Error - Department Exceeds Max Length", func(t *testing.T) {
+		longDept := "a"
+		for i := 0; i < 105; i++ {
+			longDept += "a"
+		}
+		req := httptest.NewRequest("GET", "/api/v1/workforce/documents?department="+longDept, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "department parameter exceeds maximum length")
+	})
+
+	t.Run("List Documents Validation Error - Category Contains Control Characters", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/documents?category=bad%0Acat", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Contains(t, rec.Body.String(), "category parameter contains invalid control characters")
+	})
+
 	t.Run("Get Document by ID", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/documents/doc-001", nil)
 		rec := httptest.NewRecorder()
