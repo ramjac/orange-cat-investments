@@ -2,9 +2,11 @@ package saga
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
@@ -17,134 +19,128 @@ import (
 func TestForgejoVCSAdapter(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("NewForgejoVCSAdapter and nil client fallback", func(t *testing.T) {
+	t.Run("Nil client fallback", func(t *testing.T) {
 		adapter := NewForgejoVCSAdapter(nil)
-		acc, err := adapter.ProvisionAccount(ctx, "jdoe", "jdoe@oci.local", "John Doe", "ssh-rsa AAA...")
+
+		acc, err := adapter.ProvisionAccount(ctx, "john.doe", "john@oci.local", "John Doe", "ssh-ed25519 AAA...")
 		require.NoError(t, err)
-		assert.Equal(t, "jdoe", acc.Username)
-		assert.Equal(t, "Active", acc.Status)
-
-		err = adapter.RevokeAccess(ctx, "jdoe")
-		require.NoError(t, err)
-	})
-
-	t.Run("ProvisionAccount success path with SSH key", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/admin/users":
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte(`{"id":1,"username":"jdoe","email":"jdoe@oci.local","full_name":"John Doe"}`))
-			case "/api/v1/admin/users/jdoe/keys":
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte(`{"id":100,"title":"Primary Developer SSH Key","key":"ssh-rsa AAA..."}`))
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}))
-		defer server.Close()
-
-		client := forgejo.NewClient(forgejo.Config{
-			BaseURL: server.URL,
-		})
-		adapter := NewForgejoVCSAdapter(client)
-
-		acc, err := adapter.ProvisionAccount(ctx, "jdoe", "jdoe@oci.local", "John Doe", "ssh-rsa AAA...")
-		require.NoError(t, err)
-		assert.Equal(t, "jdoe", acc.Username)
-		assert.Equal(t, "jdoe@oci.local", acc.Email)
-		assert.Equal(t, []int64{100}, acc.SSHKeyIDs)
-		assert.Equal(t, "Active", acc.Status)
-	})
-
-	t.Run("ProvisionAccount existing user fallback path", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/admin/users":
-				// User already exists in Forgejo
-				w.WriteHeader(http.StatusConflict)
-				w.Write([]byte(`{"message":"user already exists"}`))
-			case "/api/v1/users/jdoe":
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"id":1,"username":"jdoe","email":"jdoe@oci.local","full_name":"John Doe"}`))
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}))
-		defer server.Close()
-
-		client := forgejo.NewClient(forgejo.Config{
-			BaseURL: server.URL,
-		})
-		adapter := NewForgejoVCSAdapter(client)
-
-		acc, err := adapter.ProvisionAccount(ctx, "jdoe", "jdoe@oci.local", "John Doe", "")
-		require.NoError(t, err)
-		assert.Equal(t, "jdoe", acc.Username)
+		assert.Equal(t, "john.doe", acc.Username)
+		assert.Equal(t, "john@oci.local", acc.Email)
 		assert.Equal(t, "John Doe", acc.FullName)
+		assert.Equal(t, "Active", acc.Status)
+		assert.Empty(t, acc.SSHKeyIDs)
+
+		err = adapter.RevokeAccess(ctx, "john.doe")
+		assert.NoError(t, err)
 	})
 
-	t.Run("ProvisionAccount error path - CreateUser and GetUser fail", func(t *testing.T) {
+	t.Run("Create user success with SSH key", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/admin/users":
+				assert.Equal(t, http.MethodPost, r.Method)
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(forgejo.User{
+					ID:       10,
+					UserName: "alice.dev",
+					Email:    "alice@oci.local",
+					FullName: "Alice Dev",
+				})
+			case "/api/v1/admin/users/alice.dev/keys":
+				assert.Equal(t, http.MethodPost, r.Method)
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(forgejo.PublicKey{
+					ID:    505,
+					Title: "Primary Developer SSH Key",
+					Key:   "ssh-ed25519 AAA...",
+				})
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		client := forgejo.NewClient(forgejo.Config{BaseURL: server.URL, Token: "test-token"})
+		adapter := NewForgejoVCSAdapter(client)
+
+		acc, err := adapter.ProvisionAccount(ctx, "alice.dev", "alice@oci.local", "Alice Dev", "ssh-ed25519 AAA...")
+		require.NoError(t, err)
+		assert.Equal(t, "alice.dev", acc.Username)
+		assert.Equal(t, "alice@oci.local", acc.Email)
+		assert.Equal(t, "Alice Dev", acc.FullName)
+		assert.Equal(t, []int64{505}, acc.SSHKeyIDs)
+		assert.Equal(t, "Active", acc.Status)
+	})
+
+	t.Run("User exists fallback and SSH key error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/api/v1/admin/users":
+				w.WriteHeader(http.StatusConflict)
+				w.Write([]byte(`{"message": "user already exists"}`))
+			case "/api/v1/users/existing.user":
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(forgejo.User{
+					ID:       20,
+					UserName: "existing.user",
+					Email:    "existing@oci.local",
+					FullName: "Existing User",
+				})
+			case "/api/v1/admin/users/existing.user/keys":
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"message": "key already added"}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		client := forgejo.NewClient(forgejo.Config{BaseURL: server.URL})
+		adapter := NewForgejoVCSAdapter(client)
+
+		acc, err := adapter.ProvisionAccount(ctx, "existing.user", "existing@oci.local", "Existing User", "ssh-ed25519 AAA...")
+		require.NoError(t, err)
+		assert.Equal(t, "existing.user", acc.Username)
+		assert.Empty(t, acc.SSHKeyIDs)
+	})
+
+	t.Run("User creation fails and GetUser fails", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"message":"internal server error"}`))
+			w.Write([]byte(`{"message": "internal server error"}`))
 		}))
 		defer server.Close()
 
-		client := forgejo.NewClient(forgejo.Config{
-			BaseURL: server.URL,
-		})
+		client := forgejo.NewClient(forgejo.Config{BaseURL: server.URL})
 		adapter := NewForgejoVCSAdapter(client)
 
-		acc, err := adapter.ProvisionAccount(ctx, "jdoe", "jdoe@oci.local", "John Doe", "")
+		acc, err := adapter.ProvisionAccount(ctx, "bad.user", "bad@oci.local", "Bad User", "")
 		require.Error(t, err)
 		assert.Nil(t, acc)
 		assert.Contains(t, err.Error(), "failed to provision Forgejo user")
 	})
 
-	t.Run("ProvisionAccount SSH key add failure ignored", func(t *testing.T) {
+	t.Run("RevokeAccess with client success and failure paths", func(t *testing.T) {
+		var deletedUser string
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/admin/users":
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte(`{"id":1,"username":"jdoe","email":"jdoe@oci.local","full_name":"John Doe"}`))
-			case "/api/v1/admin/users/jdoe/keys":
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte(`{"message":"invalid key format"}`))
-			default:
-				w.WriteHeader(http.StatusNotFound)
+			if r.Method == http.MethodDelete && r.URL.Path == "/api/v1/admin/users/departed.user" {
+				deletedUser = "departed.user"
+				w.WriteHeader(http.StatusNoContent)
+				return
 			}
-		}))
-		defer server.Close()
-
-		client := forgejo.NewClient(forgejo.Config{
-			BaseURL: server.URL,
-		})
-		adapter := NewForgejoVCSAdapter(client)
-
-		acc, err := adapter.ProvisionAccount(ctx, "jdoe", "jdoe@oci.local", "John Doe", "invalid-key")
-		require.NoError(t, err)
-		assert.Equal(t, "jdoe", acc.Username)
-		assert.Empty(t, acc.SSHKeyIDs)
-	})
-
-	t.Run("RevokeAccess success and failure paths", func(t *testing.T) {
-		serverSuccess := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-		}))
-		defer serverSuccess.Close()
-
-		adapterSuccess := NewForgejoVCSAdapter(forgejo.NewClient(forgejo.Config{BaseURL: serverSuccess.URL}))
-		err := adapterSuccess.RevokeAccess(ctx, "jdoe")
-		require.NoError(t, err)
-
-		serverErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"message":"server error"}`))
 		}))
-		defer serverErr.Close()
+		defer server.Close()
 
-		adapterErr := NewForgejoVCSAdapter(forgejo.NewClient(forgejo.Config{BaseURL: serverErr.URL}))
-		err = adapterErr.RevokeAccess(ctx, "jdoe")
+		client := forgejo.NewClient(forgejo.Config{BaseURL: server.URL})
+		adapter := NewForgejoVCSAdapter(client)
+
+		err := adapter.RevokeAccess(ctx, "departed.user")
+		assert.NoError(t, err)
+		assert.Equal(t, "departed.user", deletedUser)
+
+		err = adapter.RevokeAccess(ctx, "other.user")
 		require.Error(t, err)
 	})
 }
@@ -152,70 +148,100 @@ func TestForgejoVCSAdapter(t *testing.T) {
 func TestNextcloudWorkspaceAdapter(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("NewNextcloudWorkspaceAdapter and nil client fallback", func(t *testing.T) {
+	t.Run("Quota and group folder derivation logic with nil client", func(t *testing.T) {
 		adapter := NewNextcloudWorkspaceAdapter(nil)
-		ws, err := adapter.ProvisionWorkspace(ctx, "jdoe", "jdoe@oci.local", "Engineering", "")
-		require.NoError(t, err)
-		assert.Equal(t, "jdoe", ws.Username)
-		assert.Equal(t, "50 GB", ws.Quota)
-		assert.Contains(t, ws.GroupFolders, "engineering")
 
-		err = adapter.LockAndArchiveStorage(ctx, "jdoe", "/vault/path")
+		// 1. Default quota (25 GB) and standard department
+		ws1, err := adapter.ProvisionWorkspace(ctx, "bob.smith", "bob@oci.local", "Finance", "")
 		require.NoError(t, err)
+		assert.Equal(t, "25 GB", ws1.Quota)
+		assert.Equal(t, []string{"all-staff", "finance"}, ws1.GroupFolders)
+
+		// 2. Department with "Engineering" -> 50 GB
+		ws2, err := adapter.ProvisionWorkspace(ctx, "eng.user", "eng@oci.local", "Software Engineering", "")
+		require.NoError(t, err)
+		assert.Equal(t, "50 GB", ws2.Quota)
+		assert.Equal(t, []string{"all-staff", "software-engineering"}, ws2.GroupFolders)
+
+		// 3. Department with "Facilities" -> 50 GB
+		ws3, err := adapter.ProvisionWorkspace(ctx, "fac.user", "fac@oci.local", "Facilities Operations", "")
+		require.NoError(t, err)
+		assert.Equal(t, "50 GB", ws3.Quota)
+		assert.Equal(t, []string{"all-staff", "facilities-operations"}, ws3.GroupFolders)
+
+		// 4. Custom Quota provided
+		ws4, err := adapter.ProvisionWorkspace(ctx, "exec.user", "exec@oci.local", "Executive", "100 GB")
+		require.NoError(t, err)
+		assert.Equal(t, "100 GB", ws4.Quota)
+		assert.Equal(t, []string{"all-staff", "executive"}, ws4.GroupFolders)
+
+		// 5. Empty department
+		ws5, err := adapter.ProvisionWorkspace(ctx, "nodept.user", "nodept@oci.local", "", "")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"all-staff"}, ws5.GroupFolders)
+
+		err = adapter.LockAndArchiveStorage(ctx, "bob.smith", "/vault/path")
+		assert.NoError(t, err)
 	})
 
-	t.Run("ProvisionWorkspace success path", func(t *testing.T) {
+	t.Run("ProvisionWorkspace with client success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "/ocs/v1.php/cloud/users", r.URL.Path)
+			assert.Equal(t, "format=json", r.URL.RawQuery)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"ocs":{"meta":{"status":"ok","statuscode":100,"message":"OK"}}}`))
+			w.Write([]byte(`{"ocs":{"meta":{"status":"ok","statuscode":100}}}`))
 		}))
 		defer server.Close()
 
-		client := nextcloud.NewClient(nextcloud.Config{BaseURL: server.URL})
+		client := nextcloud.NewClient(nextcloud.Config{BaseURL: server.URL, AdminUser: "admin", AdminPassword: "pass"})
 		adapter := NewNextcloudWorkspaceAdapter(client)
 
-		ws, err := adapter.ProvisionWorkspace(ctx, "jdoe", "jdoe@oci.local", "Facilities Support", "")
+		ws, err := adapter.ProvisionWorkspace(ctx, "carol.dev", "carol@oci.local", "Engineering", "50 GB")
 		require.NoError(t, err)
-		assert.Equal(t, "jdoe", ws.Username)
+		assert.Equal(t, "carol.dev", ws.Username)
 		assert.Equal(t, "50 GB", ws.Quota)
-		assert.Contains(t, ws.GroupFolders, "facilities-support")
+		assert.Equal(t, "Active", ws.Status)
 	})
 
-	t.Run("ProvisionWorkspace error path", func(t *testing.T) {
+	t.Run("ProvisionWorkspace with client error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"ocs":{"meta":{"status":"failure","statuscode":500,"message":"Server error"}}}`))
+			w.Write([]byte(`{"error": "failed"}`))
 		}))
 		defer server.Close()
 
 		client := nextcloud.NewClient(nextcloud.Config{BaseURL: server.URL})
 		adapter := NewNextcloudWorkspaceAdapter(client)
 
-		ws, err := adapter.ProvisionWorkspace(ctx, "jdoe", "jdoe@oci.local", "Finance", "100 GB")
+		ws, err := adapter.ProvisionWorkspace(ctx, "fail.user", "fail@oci.local", "Engineering", "")
 		require.Error(t, err)
 		assert.Nil(t, ws)
 		assert.Contains(t, err.Error(), "failed to provision Nextcloud workspace")
 	})
 
-	t.Run("LockAndArchiveStorage success and failure paths", func(t *testing.T) {
-		serverSuccess := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"ocs":{"meta":{"status":"ok","statuscode":100,"message":"OK"}}}`))
+	t.Run("LockAndArchiveStorage with client success and error paths", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/ocs/v1.php/cloud/users/test.user/disable":
+				assert.Equal(t, http.MethodPut, r.Method)
+				w.WriteHeader(http.StatusOK)
+			case "/ocs/v1.php/cloud/users/test.user/archive":
+				assert.Equal(t, http.MethodPost, r.Method)
+				w.WriteHeader(http.StatusOK)
+			default:
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"ocs":{"meta":{"status":"failure","statuscode":500,"message":"Error"}}}`))
+			}
 		}))
-		defer serverSuccess.Close()
+		defer server.Close()
 
-		adapterSuccess := NewNextcloudWorkspaceAdapter(nextcloud.NewClient(nextcloud.Config{BaseURL: serverSuccess.URL}))
-		err := adapterSuccess.LockAndArchiveStorage(ctx, "jdoe", "/vault/jdoe.tar.gz")
-		require.NoError(t, err)
+		client := nextcloud.NewClient(nextcloud.Config{BaseURL: server.URL})
+		adapter := NewNextcloudWorkspaceAdapter(client)
 
-		serverErr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"ocs":{"meta":{"status":"failure","statuscode":500,"message":"Error"}}}`))
-		}))
-		defer serverErr.Close()
+		err := adapter.LockAndArchiveStorage(ctx, "test.user", "/vault/archives/test.tar.gz")
+		assert.NoError(t, err)
 
-		adapterErr := NewNextcloudWorkspaceAdapter(nextcloud.NewClient(nextcloud.Config{BaseURL: serverErr.URL}))
-		err = adapterErr.LockAndArchiveStorage(ctx, "jdoe", "/vault/jdoe.tar.gz")
+		err = adapter.LockAndArchiveStorage(ctx, "error.user", "/vault/archives/error.tar.gz")
 		require.Error(t, err)
 	})
 }
@@ -223,48 +249,90 @@ func TestNextcloudWorkspaceAdapter(t *testing.T) {
 func TestSnipeITHardwareAdapter(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("NewSnipeITHardwareAdapter and nil client fallback", func(t *testing.T) {
+	t.Run("AssignInitialHardware asset allocation logic with nil client", func(t *testing.T) {
 		adapter := NewSnipeITHardwareAdapter(nil)
-		allocs, err := adapter.AssignInitialHardware(ctx, "emp-123", "Staff Engineer", "Engineering")
-		require.NoError(t, err)
-		assert.Len(t, allocs, 4) // badge, laptop, desk, watch for engineer
 
-		recovery, err := adapter.CreateAssetRecoveryTickets(ctx, "emp-123", "Resignation")
+		// Regular role/dept -> 3 base assets
+		assets1, err := adapter.AssignInitialHardware(ctx, "emp-101", "Analyst", "Finance")
 		require.NoError(t, err)
-		assert.Equal(t, "Pending Recovery", recovery.Status)
-		assert.Contains(t, recovery.TicketID, "RECOVERY-emp-123")
+		assert.Len(t, assets1, 3)
+		assert.Equal(t, "BADGE-emp-101", assets1[0].AssetTag)
+		assert.Equal(t, "MBP-emp-101", assets1[1].AssetTag)
+		assert.Equal(t, "DESK-emp-101", assets1[2].AssetTag)
+
+		// Role contains "engineer" -> 4 assets including watch
+		assets2, err := adapter.AssignInitialHardware(ctx, "emp-102", "Senior Engineer", "Product")
+		require.NoError(t, err)
+		assert.Len(t, assets2, 4)
+		assert.Equal(t, "WATCH-emp-102", assets2[3].AssetTag)
+		assert.Equal(t, "Pebble Time Steel On-Call Wearable", assets2[3].Name)
+
+		// Department contains "facilities" -> 4 assets including watch
+		assets3, err := adapter.AssignInitialHardware(ctx, "emp-103", "Manager", "Facilities Ops")
+		require.NoError(t, err)
+		assert.Len(t, assets3, 4)
+		assert.Equal(t, "WATCH-emp-103", assets3[3].AssetTag)
 	})
 
-	t.Run("AssignInitialHardware with active client", func(t *testing.T) {
+	t.Run("AssignInitialHardware with client checkout", func(t *testing.T) {
+		checkedOutAsset := false
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"success","messages":"Checkout successful"}`))
+			if r.Method == http.MethodPost && r.URL.Path == "/api/v1/hardware/101/checkout" {
+				checkedOutAsset = true
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(snipeit.Asset{ID: 101, StatusLabel: "Deployed"})
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer server.Close()
+
+		client := snipeit.NewClient(snipeit.Config{BaseURL: server.URL, APIKey: "test-key"})
+		adapter := NewSnipeITHardwareAdapter(client)
+
+		assets, err := adapter.AssignInitialHardware(ctx, "emp-104", "Developer", "IT")
+		require.NoError(t, err)
+		assert.Len(t, assets, 3)
+		assert.True(t, checkedOutAsset)
+	})
+
+	t.Run("CreateAssetRecoveryTickets with nil client fallback", func(t *testing.T) {
+		adapter := NewSnipeITHardwareAdapter(nil)
+
+		summary, err := adapter.CreateAssetRecoveryTickets(ctx, "emp-105", "Resignation")
+		require.NoError(t, err)
+		assert.Contains(t, summary.TicketID, "RECOVERY-emp-105-")
+		assert.Equal(t, 2, summary.TotalItems)
+		assert.Equal(t, "Pending Recovery", summary.Status)
+		assert.Len(t, summary.Assets, 2)
+	})
+
+	t.Run("CreateAssetRecoveryTickets with client returning assets", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/api/v1/hardware" {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]any{
+					"rows": []snipeit.Asset{
+						{AssetTag: "MBP-emp-106", Name: "MacBook Pro", Model: "Laptop"},
+						{AssetTag: "BADGE-emp-106", Name: "Security Badge", Model: "Access Badge"},
+					},
+				})
+				return
+			}
+			http.NotFound(w, r)
 		}))
 		defer server.Close()
 
 		client := snipeit.NewClient(snipeit.Config{BaseURL: server.URL})
 		adapter := NewSnipeITHardwareAdapter(client)
 
-		allocs, err := adapter.AssignInitialHardware(ctx, "emp-456", "Marketing Specialist", "Marketing")
+		summary, err := adapter.CreateAssetRecoveryTickets(ctx, "emp-106", "Separation")
 		require.NoError(t, err)
-		assert.Len(t, allocs, 3) // standard 3 allocations
-	})
-
-	t.Run("CreateAssetRecoveryTickets success path", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"total":2,"rows":[{"id":101,"asset_tag":"MBP-456","name":"MacBook Pro","model":"Laptop"},{"id":102,"asset_tag":"BADGE-456","name":"Security Badge","model":"Badge"}]}`))
-		}))
-		defer server.Close()
-
-		client := snipeit.NewClient(snipeit.Config{BaseURL: server.URL})
-		adapter := NewSnipeITHardwareAdapter(client)
-
-		recovery, err := adapter.CreateAssetRecoveryTickets(ctx, "emp-456", "Separation")
-		require.NoError(t, err)
-		assert.Equal(t, "Pending Recovery", recovery.Status)
-		assert.Equal(t, 2, recovery.TotalItems)
-		assert.Len(t, recovery.Assets, 2)
+		assert.Contains(t, summary.TicketID, "RECOVER-emp-106-")
+		assert.Equal(t, 2, summary.TotalItems)
+		assert.Equal(t, "Pending Recovery", summary.Status)
+		assert.Len(t, summary.Assets, 2)
+		assert.Equal(t, "MBP-emp-106", summary.Assets[0].AssetTag)
 	})
 
 	t.Run("CreateAssetRecoveryTickets client error fallback path", func(t *testing.T) {
@@ -289,10 +357,17 @@ func TestSnipeITHardwareAdapter(t *testing.T) {
 func TestFrappeHRAdapter(t *testing.T) {
 	ctx := context.Background()
 
-	adapter := NewFrappeHRAdapter(frappe.NewClient(frappe.Config{}))
-	err := adapter.UpdateEmployeeStatus(ctx, "emp-101", "active")
+	adapterNil := NewFrappeHRAdapter(nil)
+	err := adapterNil.UpdateEmployeeStatus(ctx, "emp-201", "separated")
+	assert.NoError(t, err)
+
+	err = adapterNil.LogSeparation(ctx, "emp-201", time.Now().Format("2006-01-02"), "Career Transition")
+	assert.NoError(t, err)
+
+	adapterWithClient := NewFrappeHRAdapter(frappe.NewClient(frappe.Config{}))
+	err = adapterWithClient.UpdateEmployeeStatus(ctx, "emp-101", "active")
 	require.NoError(t, err)
 
-	err = adapter.LogSeparation(ctx, "emp-101", "2026-10-21", "Resignation")
+	err = adapterWithClient.LogSeparation(ctx, "emp-101", "2026-10-21", "Resignation")
 	require.NoError(t, err)
 }

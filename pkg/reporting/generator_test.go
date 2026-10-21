@@ -110,6 +110,67 @@ func TestGenerateExecutiveCSV_FormulaInjectionSanitization(t *testing.T) {
 }
 
 
+func TestEscapePDF(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "plain text with no special characters",
+			input:    "Hello World 123",
+			expected: "Hello World 123",
+		},
+		{
+			name:     "open parenthesis",
+			input:    "hello (world",
+			expected: "hello \\(world",
+		},
+		{
+			name:     "close parenthesis",
+			input:    "hello) world",
+			expected: "hello\\) world",
+		},
+		{
+			name:     "matched parentheses",
+			input:    "OCI (Orange Cat Investments)",
+			expected: "OCI \\(Orange Cat Investments\\)",
+		},
+		{
+			name:     "backslash",
+			input:    `path\to\file`,
+			expected: `path\\to\\file`,
+		},
+		{
+			name:     "escaped parentheses and backslash combined",
+			input:    `folder\(1)\file.pdf`,
+			expected: `folder\\\(1\)\\file.pdf`,
+		},
+		{
+			name:     "nested and multiple parentheses",
+			input:    "((a + b) * (c - d))",
+			expected: "\\(\\(a + b\\) * \\(c - d\\)\\)",
+		},
+		{
+			name:     "consecutive backslashes",
+			input:    `\\network\share`,
+			expected: `\\\\network\\share`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual := escapePDF(tt.input)
+			assert.Equal(t, tt.expected, actual)
+		})
+	}
+}
+
 func TestGenerateExecutivePDF(t *testing.T) {
 	r := sampleReport()
 	pdfBytes, err := GenerateExecutivePDF(r)
