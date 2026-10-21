@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +34,7 @@ func TestNextcloudClient_CreateUser(t *testing.T) {
 
 	user, err := client.CreateUser(context.Background(), CreateUserOption{
 		UserID:      "rick.newhire",
+		Password:    "SecurePass123!",
 		DisplayName: "Rick Newhire",
 		Email:       "rick.newhire@oci.local",
 		Quota:       "50 GB",
@@ -45,30 +45,14 @@ func TestNextcloudClient_CreateUser(t *testing.T) {
 	assert.Equal(t, "50 GB", user.Quota)
 }
 
-func TestNextcloudClient_CreateUser_DefaultPassword(t *testing.T) {
-	var capturedPasswords []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		err := r.ParseForm()
-		require.NoError(t, err)
-		capturedPasswords = append(capturedPasswords, r.FormValue("password"))
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"ocs":{"meta":{"status":"ok","statuscode":100,"message":"OK"}}}`))
-	}))
-	defer server.Close()
+func TestNextcloudClient_CreateUser_EmptyPassword(t *testing.T) {
+	client := NewClient(Config{BaseURL: "http://localhost"})
 
-	client := NewClient(Config{BaseURL: server.URL})
-
-	_, err1 := client.CreateUser(context.Background(), CreateUserOption{UserID: "user1"})
-	require.NoError(t, err1)
-
-	_, err2 := client.CreateUser(context.Background(), CreateUserOption{UserID: "user2"})
-	require.NoError(t, err2)
-
-	require.Len(t, capturedPasswords, 2)
-	assert.True(t, strings.HasPrefix(capturedPasswords[0], "NextCloud!"))
-	assert.True(t, strings.HasPrefix(capturedPasswords[1], "NextCloud!"))
-	assert.NotEqual(t, capturedPasswords[0], capturedPasswords[1], "generated passwords should be unique")
-	assert.Len(t, capturedPasswords[0], len("NextCloud!")+32, "password should contain prefix and 32 hex chars (16 bytes)")
+	_, err := client.CreateUser(context.Background(), CreateUserOption{
+		UserID: "user1",
+	})
+	require.Error(t, err)
+	assert.Equal(t, "password cannot be empty", err.Error())
 }
 
 func TestNextcloudClient_DisableUser(t *testing.T) {

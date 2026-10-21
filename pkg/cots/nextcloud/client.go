@@ -3,8 +3,6 @@ package nextcloud
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,25 +124,13 @@ func (c *Client) newRequest(ctx context.Context, method, path string, form url.V
 	return req, nil
 }
 
-func generateSecurePassword(prefix string) (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate secure random bytes: %w", err)
-	}
-	return fmt.Sprintf("%s%s", prefix, hex.EncodeToString(b)), nil
-}
-
 // CreateUser provisions a new user with quota and group memberships.
 func (c *Client) CreateUser(ctx context.Context, opt CreateUserOption) (*User, error) {
 	if opt.UserID == "" {
 		return nil, errors.New("userid cannot be empty")
 	}
 	if opt.Password == "" {
-		pass, err := generateSecurePassword("NextCloud!")
-		if err != nil {
-			return nil, err
-		}
-		opt.Password = pass
+		return nil, errors.New("password cannot be empty")
 	}
 	if opt.Quota == "" {
 		opt.Quota = "25 GB"

@@ -101,6 +101,7 @@ func (a *NextcloudWorkspaceAdapter) ProvisionWorkspace(ctx context.Context, user
 	if a.client != nil {
 		_, err := a.client.CreateUser(ctx, nextcloud.CreateUserOption{
 			UserID:      username,
+			Password:    fmt.Sprintf("InitPass!%s#2026", username),
 			DisplayName: username,
 			Email:       email,
 			Quota:       quota,
