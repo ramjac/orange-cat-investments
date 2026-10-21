@@ -549,6 +549,7 @@ func ValidatePasswordComplexity(pw string) error {
 	if len(pw) < 8 {
 		return errors.New("password must be at least 8 characters long")
 	}
+	const safeSpecialChars = "!@#$%^&*()-_=+[]{}|;:,.<>?/~"
 	var hasUpper, hasLower, hasDigit, hasSpecial bool
 	for _, ch := range pw {
 		switch {
@@ -558,8 +559,10 @@ func ValidatePasswordComplexity(pw string) error {
 			hasLower = true
 		case unicode.IsDigit(ch):
 			hasDigit = true
-		case unicode.IsPunct(ch) || unicode.IsSymbol(ch) || strings.ContainsRune("!@#$%^&*()-_=+[]{}|;:,.<>?/~`", ch):
+		case strings.ContainsRune(safeSpecialChars, ch):
 			hasSpecial = true
+		default:
+			return errors.New("password contains invalid or unsafe characters")
 		}
 	}
 	if !hasUpper {
