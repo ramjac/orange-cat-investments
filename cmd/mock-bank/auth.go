@@ -16,9 +16,15 @@ func RequireBankAuth(expectedClientID, expectedSecret string) func(http.Handler)
 				return
 			}
 
-			// If no credentials configured, allow all
-			if expectedClientID == "" && expectedSecret == "" {
-				next.ServeHTTP(w, r)
+			// If expected credentials are empty/not configured, deny access
+			if expectedClientID == "" || expectedSecret == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"error_type":    "INVALID_REQUEST",
+					"error_code":    "UNAUTHORIZED",
+					"error_message": "invalid or missing banking API credentials",
+				})
 				return
 			}
 
@@ -36,14 +42,14 @@ func RequireBankAuth(expectedClientID, expectedSecret string) func(http.Handler)
 			authHeader := r.Header.Get("Authorization")
 			if strings.HasPrefix(authHeader, "Bearer ") {
 				token := strings.TrimPrefix(authHeader, "Bearer ")
-				if token == expectedSecret || token == expectedClientID {
+				if token == expectedSecret {
 					next.ServeHTTP(w, r)
 					return
 				}
 			}
 
 			apiKey := r.Header.Get("X-Bank-API-Key")
-			if apiKey != "" && (apiKey == expectedSecret || apiKey == expectedClientID) {
+			if apiKey != "" && apiKey == expectedSecret {
 				next.ServeHTTP(w, r)
 				return
 			}
