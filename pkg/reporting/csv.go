@@ -9,6 +9,10 @@ import (
 
 // GenerateExecutiveCSV renders an ExecutiveReport into RFC 4180 CSV format.
 func GenerateExecutiveCSV(r *ExecutiveReport) (string, error) {
+	if r == nil {
+		return "", fmt.Errorf("report is nil")
+	}
+
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
