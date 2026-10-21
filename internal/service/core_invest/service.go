@@ -818,18 +818,18 @@ func (s *coreInvestService) GetStatement(ctx context.Context, statementID string
 	return s.repo.GetInvestmentStatementByID(ctx, statementID)
 }
 
-func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, customerID, portfolioID string, year, month int) (*core_invest.InvestmentStatement, []byte, error) {
-	if customerID == "" {
-		return nil, nil, errors.New("customer_id is required")
-	}
+type portfolioAccountInfo struct {
+	portfolioID  string
+	customerName string
+	accountName  string
+	totalBal     float64
+	cashBal      float64
+	portfolio    *core_invest.Portfolio
+}
+
+func (s *coreInvestService) resolvePortfolioAndAccountInfo(ctx context.Context, customerID, portfolioID string) portfolioAccountInfo {
 	if portfolioID == "" {
 		portfolioID = fmt.Sprintf("port-%s", customerID)
-	}
-	if year < 2000 || year > 2100 {
-		return nil, nil, fmt.Errorf("invalid year: %d", year)
-	}
-	if month < 1 || month > 12 {
-		return nil, nil, fmt.Errorf("invalid month: %d", month)
 	}
 
 	p, _ := s.GetPortfolio(ctx, customerID)
@@ -855,7 +855,24 @@ func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, custom
 		cashBal = p.CashBalanceUSD
 	}
 
-	// Dynamically pull portfolio holdings from database repository
+	return portfolioAccountInfo{
+		portfolioID:  portfolioID,
+		customerName: customerName,
+		accountName:  accountName,
+		totalBal:     totalBal,
+		cashBal:      cashBal,
+		portfolio:    p,
+	}
+}
+
+type statementHoldingsSummary struct {
+	holdings             []reporting.StatementHolding
+	totalMarketValue     float64
+	totalCostBasis       float64
+	totalUnrealizedGain float64
+}
+
+func (s *coreInvestService) fetchAndBuildStatementHoldings(ctx context.Context, portfolioID string, p *core_invest.Portfolio) statementHoldingsSummary {
 	dbHoldings, err := s.repo.GetHoldingsByPortfolioID(ctx, portfolioID)
 	if (err != nil || len(dbHoldings) == 0) && p != nil && p.CustomerID != "" && p.CustomerID != portfolioID {
 		dbHoldings, _ = s.repo.GetHoldingsByPortfolioID(ctx, p.CustomerID)
@@ -939,15 +956,21 @@ func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, custom
 		}
 	}
 
-	if totalBal == 0 && (totalHoldingsMarketValue > 0 || cashBal > 0) {
-		totalBal = totalHoldingsMarketValue + cashBal
+	return statementHoldingsSummary{
+		holdings:             statementHoldings,
+		totalMarketValue:     totalHoldingsMarketValue,
+		totalCostBasis:       totalHoldingsCostBasis,
+		totalUnrealizedGain: totalHoldingsUnrealizedGain,
 	}
+}
 
-	monthNames := []string{"", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
-	periodStr := fmt.Sprintf("%s %d", monthNames[month], year)
-	stmtID := fmt.Sprintf("stmt-%s-%d-%02d", portfolioID, year, month)
-	fileName := fmt.Sprintf("monthly-statement-%s-%d-%02d.pdf", portfolioID, year, month)
+type monthlyStatementMetrics struct {
+	openingBal     float64
+	unrealizedGain float64
+	grossReturnPct float64
+}
 
+func calculateMonthlyMetrics(totalBal, totalHoldingsUnrealizedGain, totalHoldingsCostBasis float64) monthlyStatementMetrics {
 	openingBal := totalBal * 0.85
 	if totalBal > totalHoldingsUnrealizedGain && totalHoldingsUnrealizedGain > 0 {
 		openingBal = totalBal - totalHoldingsUnrealizedGain
@@ -963,6 +986,49 @@ func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, custom
 		grossReturnPct = ((totalBal - openingBal) / openingBal) * 100.0
 	}
 
+	return monthlyStatementMetrics{
+		openingBal:     openingBal,
+		unrealizedGain: unrealizedGain,
+		grossReturnPct: grossReturnPct,
+	}
+}
+
+func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, customerID, portfolioID string, year, month int) (*core_invest.InvestmentStatement, []byte, error) {
+	if customerID == "" {
+		return nil, nil, errors.New("customer_id is required")
+	}
+	if year < 2000 || year > 2100 {
+		return nil, nil, fmt.Errorf("invalid year: %d", year)
+	}
+	if month < 1 || month > 12 {
+		return nil, nil, fmt.Errorf("invalid month: %d", month)
+	}
+
+	info := s.resolvePortfolioAndAccountInfo(ctx, customerID, portfolioID)
+	portfolioID = info.portfolioID
+	customerName := info.customerName
+	accountName := info.accountName
+	totalBal := info.totalBal
+	cashBal := info.cashBal
+	p := info.portfolio
+
+	holdingsSummary := s.fetchAndBuildStatementHoldings(ctx, portfolioID, p)
+	statementHoldings := holdingsSummary.holdings
+	totalHoldingsMarketValue := holdingsSummary.totalMarketValue
+	totalHoldingsCostBasis := holdingsSummary.totalCostBasis
+	totalHoldingsUnrealizedGain := holdingsSummary.totalUnrealizedGain
+
+	if totalBal == 0 && (totalHoldingsMarketValue > 0 || cashBal > 0) {
+		totalBal = totalHoldingsMarketValue + cashBal
+	}
+
+	monthNames := []string{"", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+	periodStr := fmt.Sprintf("%s %d", monthNames[month], year)
+	stmtID := fmt.Sprintf("stmt-%s-%d-%02d", portfolioID, year, month)
+	fileName := fmt.Sprintf("monthly-statement-%s-%d-%02d.pdf", portfolioID, year, month)
+
+	metrics := calculateMonthlyMetrics(totalBal, totalHoldingsUnrealizedGain, totalHoldingsCostBasis)
+
 	monthlyReport := &reporting.CustomerMonthlyStatement{
 		StatementID:               stmtID,
 		PortfolioID:               portfolioID,
@@ -971,13 +1037,13 @@ func (s *coreInvestService) GenerateMonthlyStatement(ctx context.Context, custom
 		AccountName:               accountName,
 		Period:                    periodStr,
 		TaxYear:                   year,
-		OpeningBalanceUSD:         openingBal,
+		OpeningBalanceUSD:         metrics.openingBal,
 		EndingBalanceUSD:          totalBal,
 		CashBalanceUSD:            cashBal,
 		NetContributionsUSD:       5000.00,
 		TotalRealizedGainUSD:      12450.00,
-		TotalUnrealizedGainUSD:    unrealizedGain,
-		GrossReturnPct:            grossReturnPct,
+		TotalUnrealizedGainUSD:    metrics.unrealizedGain,
+		GrossReturnPct:            metrics.grossReturnPct,
 		SharpeRatio:               2.14,
 		SortinoRatio:              3.08,
 		ZoomieAlphaAttributionUSD: 8420.50,
