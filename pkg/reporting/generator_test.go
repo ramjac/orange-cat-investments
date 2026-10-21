@@ -49,6 +49,13 @@ func sampleReport() *ExecutiveReport {
 	}
 }
 
+func TestGenerateExecutiveCSV_NilReport(t *testing.T) {
+	csvStr, err := GenerateExecutiveCSV(nil)
+	require.Error(t, err)
+	assert.EqualError(t, err, "report is nil")
+	assert.Empty(t, csvStr)
+}
+
 func TestGenerateExecutiveCSV(t *testing.T) {
 	r := sampleReport()
 	csvStr, err := GenerateExecutiveCSV(r)
