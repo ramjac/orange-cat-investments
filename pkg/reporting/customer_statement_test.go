@@ -9,6 +9,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCustomerPDFs_NilValidation(t *testing.T) {
+	t.Run("GenerateMonthlyStatementPDF nil statement", func(t *testing.T) {
+		bytes, err := GenerateMonthlyStatementPDF(nil)
+		require.Error(t, err)
+		assert.Nil(t, bytes)
+		assert.Contains(t, err.Error(), "statement is nil")
+	})
+
+	t.Run("GenerateForm1099BPDF nil statement", func(t *testing.T) {
+		bytes, err := GenerateForm1099BPDF(nil)
+		require.Error(t, err)
+		assert.Nil(t, bytes)
+		assert.Contains(t, err.Error(), "statement is nil")
+	})
+
+	t.Run("GenerateGDPRCertificatePDF nil certificate", func(t *testing.T) {
+		bytes, err := GenerateGDPRCertificatePDF(nil)
+		require.Error(t, err)
+		assert.Nil(t, bytes)
+		assert.Contains(t, err.Error(), "certificate is nil")
+	})
+}
+
 func TestGenerateMonthlyStatementPDF(t *testing.T) {
 	stmt := &CustomerMonthlyStatement{
 		StatementID:               "stmt-test-001",

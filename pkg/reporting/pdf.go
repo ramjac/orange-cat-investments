@@ -15,6 +15,10 @@ func escapePDF(s string) string {
 
 // GenerateExecutivePDF creates a valid PDF 1.4 document containing the executive management report.
 func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
+	if r == nil {
+		return nil, fmt.Errorf("report is nil")
+	}
+
 	var streamBuf bytes.Buffer
 
 	// Stream graphics & text commands

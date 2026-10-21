@@ -3,6 +3,7 @@ package reporting
 import (
 	"bytes"
 	"encoding/csv"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,53 @@ func TestGenerateExecutiveCSV_FormulaInjectionSanitization(t *testing.T) {
 }
 
 
+func TestEscapePDF(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain string",
+			input:    "Hello World",
+			expected: "Hello World",
+		},
+		{
+			name:     "string with parentheses",
+			input:    "Report (Q1) - Draft",
+			expected: `Report \(Q1\) - Draft`,
+		},
+		{
+			name:     "string with backslashes",
+			input:    `C:\Reports\Executive`,
+			expected: `C:\\Reports\\Executive`,
+		},
+		{
+			name:     "string with mixed backslashes and parentheses",
+			input:    `Path\(2026)\pdf`,
+			expected: `Path\\\(2026\)\\pdf`,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, escapePDF(tt.input))
+		})
+	}
+}
+
+func TestGenerateExecutivePDF_NilReport(t *testing.T) {
+	pdfBytes, err := GenerateExecutivePDF(nil)
+	require.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.Contains(t, err.Error(), "report is nil")
+}
+
 func TestGenerateExecutivePDF(t *testing.T) {
 	r := sampleReport()
 	pdfBytes, err := GenerateExecutivePDF(r)
@@ -133,4 +181,56 @@ func TestGenerateExecutivePDF(t *testing.T) {
 	assert.Contains(t, pdfStr, "xref")
 	assert.Contains(t, pdfStr, "trailer")
 	assert.Contains(t, pdfStr, "startxref")
+}
+
+func TestGenerateExecutivePDF_SpecialCharactersAndFormatting(t *testing.T) {
+	r := sampleReport()
+	r.Period = "2026-Q4 (Oct-Dec)"
+	r.Status = "archived (final)"
+	r.WebDAVPathPDF = "/remote.php/dav/files/admin/Executive/Reports/(2026)/report.pdf"
+	r.FinancialSummary.NetProfit = -50000.25
+	r.FinancialSummary.TotalRevenue = 0.00
+
+	pdfBytes, err := GenerateExecutivePDF(r)
+	require.NoError(t, err)
+	require.NotEmpty(t, pdfBytes)
+
+	pdfStr := string(pdfBytes)
+	assert.Contains(t, pdfStr, `2026-Q4 \(Oct-Dec\)`)
+	assert.Contains(t, pdfStr, `ARCHIVED \(FINAL\)`)
+	assert.Contains(t, pdfStr, `\(2026\)`)
+	assert.Contains(t, pdfStr, "$-50000.25")
+	assert.Contains(t, pdfStr, "$0.00")
+}
+
+func TestGenerateExecutivePDF_XRefAndStreamValidation(t *testing.T) {
+	r := sampleReport()
+	pdfBytes, err := GenerateExecutivePDF(r)
+	require.NoError(t, err)
+
+	pdfStr := string(pdfBytes)
+
+	// Parse stream length from object 4 header
+	streamStartTag := "4 0 obj\n<< /Length "
+	streamIdx := strings.Index(pdfStr, streamStartTag)
+	require.NotEqual(t, -1, streamIdx, "Object 4 stream header should be present")
+
+	var declaredLen int
+	_, err = fmt.Sscanf(pdfStr[streamIdx+len(streamStartTag):], "%d", &declaredLen)
+	require.NoError(t, err, "Declared stream length should be parseable as int")
+
+	streamContentStart := strings.Index(pdfStr, "stream\n") + len("stream\n")
+	streamContentEnd := strings.Index(pdfStr, "\nendstream")
+	actualStreamLen := streamContentEnd - streamContentStart
+	assert.Equal(t, declaredLen, actualStreamLen, "Declared PDF stream /Length must match actual byte length")
+
+	// Validate xref object byte offsets
+	for i := 1; i <= 7; i++ {
+		objHeader := fmt.Sprintf("%d 0 obj", i)
+		expectedOffset := strings.Index(pdfStr, objHeader)
+		require.NotEqual(t, -1, expectedOffset, "Object %d header should exist in PDF output", i)
+
+		xrefEntry := fmt.Sprintf("%010d 00000 n", expectedOffset)
+		assert.Contains(t, pdfStr, xrefEntry, "xref table must contain exact offset %010d for object %d", expectedOffset, i)
+	}
 }
