@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 )
 
 func escapePDF(s string) string {
@@ -17,9 +19,16 @@ func escapePDF(s string) string {
 func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
 	var streamBuf bytes.Buffer
 
-	// Stream graphics & text commands
-	sb := &streamBuf
+	drawExecutiveHeader(&streamBuf, r)
+	y := drawExecutiveFinancialSection(&streamBuf, r.FinancialSummary)
+	y = drawExecutiveWorkforceSection(&streamBuf, r.WorkforceSummary, y)
+	drawExecutiveComplianceSection(&streamBuf, r, y)
+	drawExecutiveFooter(&streamBuf)
 
+	return buildPDF(streamBuf.Bytes()), nil
+}
+
+func drawExecutiveHeader(sb *bytes.Buffer, r *ExecutiveReport) {
 	// Draw top banner (OCI Navy/Orange theme)
 	// Navy banner: x=40, y=710, w=532, h=50
 	sb.WriteString("0.1 0.15 0.25 rg\n") // Dark Navy
@@ -44,13 +53,14 @@ func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
 	sb.WriteString(fmt.Sprintf("(Period: %s   |   Status: %s   |   Generated: %s) Tj\n",
 		escapePDF(r.Period), escapePDF(strings.ToUpper(r.Status)), r.CreatedAt.Format("2006-01-02 15:04:05 UTC")))
 	sb.WriteString("ET\n")
+}
 
+func drawExecutiveFinancialSection(sb *bytes.Buffer, fin frappe.FinancialMetrics) int {
 	// Section 1: Financial Performance (ERPNext General Ledger)
 	sb.WriteString("0.96 0.5 0.15 rg\n")
 	sb.WriteString("40 680 532 18 re f\n") // Section header box
 	sb.WriteString("BT\n/F1 11 Tf\n1 1 1 rg\n50 685 Td\n(1. FINANCIAL PERFORMANCE & CASH RUNWAY (ERPNext)) Tj\nET\n")
 
-	fin := r.FinancialSummary
 	finItems := []struct {
 		Label string
 		Value string
@@ -82,14 +92,15 @@ func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
 
 		y -= 20
 	}
+	return y
+}
 
-	// Section 2: Workforce Operations & Feline Telemetry
-	y -= 10
+func drawExecutiveWorkforceSection(sb *bytes.Buffer, wf WorkforceMetrics, startY int) int {
+	y := startY - 10
 	sb.WriteString(fmt.Sprintf("0.1 0.15 0.25 rg\n40 %d 532 18 re f\n", y))
 	sb.WriteString(fmt.Sprintf("BT\n/F1 11 Tf\n1 1 1 rg\n50 %d Td\n(2. WORKFORCE OPERATIONS & FELINE TELEMETRY) Tj\nET\n", y+5))
 
 	y -= 20
-	wf := r.WorkforceSummary
 	wfItems := []struct {
 		Label string
 		Value string
@@ -119,9 +130,11 @@ func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
 
 		y -= 20
 	}
+	return y
+}
 
-	// Section 3: Nextcloud Compliance Archival & Audit Trail
-	y -= 10
+func drawExecutiveComplianceSection(sb *bytes.Buffer, r *ExecutiveReport, startY int) {
+	y := startY - 10
 	sb.WriteString(fmt.Sprintf("0.2 0.45 0.35 rg\n40 %d 532 18 re f\n", y))
 	sb.WriteString(fmt.Sprintf("BT\n/F1 11 Tf\n1 1 1 rg\n50 %d Td\n(3. COMPLIANCE ARCHIVE & AUDIT PRESERVATION (Nextcloud)) Tj\nET\n", y+5))
 
@@ -136,60 +149,11 @@ func GenerateExecutivePDF(r *ExecutiveReport) ([]byte, error) {
 	y -= 16
 	sb.WriteString("BT\n/F2 8.5 Tf\n0.2 0.2 0.2 rg\n")
 	sb.WriteString(fmt.Sprintf("50 %d Td\n(Archived Under Policy: Executive/Reports/YYYY-MM/  |  Classification: STRICTLY CONFIDENTIAL) Tj\nET\n", y))
+}
 
+func drawExecutiveFooter(sb *bytes.Buffer) {
 	// Footer separator & note
 	sb.WriteString("0.8 0.8 0.85 rg\n40 45 532 1 re f\n")
 	sb.WriteString("BT\n/F2 8 Tf\n0.5 0.5 0.55 rg\n")
 	sb.WriteString("50 32 Td\n(CONFIDENTIAL // ORANGE CAT INVESTMENTS INTERNAL BI // AUTOMATED MONTHLY REPORT) Tj\nET\n")
-
-	streamBytes := streamBuf.Bytes()
-
-	// Assemble PDF 1.4 objects
-	var out bytes.Buffer
-	offsets := make([]int, 8)
-
-	out.WriteString("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-
-	// Object 1: Catalog
-	offsets[1] = out.Len()
-	out.WriteString("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
-
-	// Object 2: Pages
-	offsets[2] = out.Len()
-	out.WriteString("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
-
-	// Object 3: Page
-	offsets[3] = out.Len()
-	out.WriteString("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> >>\nendobj\n")
-
-	// Object 4: Contents Stream
-	offsets[4] = out.Len()
-	fmt.Fprintf(&out, "4 0 obj\n<< /Length %d >>\nstream\n", len(streamBytes))
-	out.Write(streamBytes)
-	out.WriteString("\nendstream\nendobj\n")
-
-	// Object 5: Font F1 (Helvetica-Bold)
-	offsets[5] = out.Len()
-	out.WriteString("5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n")
-
-	// Object 6: Font F2 (Helvetica)
-	offsets[6] = out.Len()
-	out.WriteString("6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
-
-	// Object 7: Font F3 (Courier)
-	offsets[7] = out.Len()
-	out.WriteString("7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>\nendobj\n")
-
-	// Cross-reference table
-	xrefStart := out.Len()
-	out.WriteString("xref\n0 8\n0000000000 65535 f \n")
-	for i := 1; i <= 7; i++ {
-		fmt.Fprintf(&out, "%010d 00000 n \n", offsets[i])
-	}
-
-	// Trailer
-	out.WriteString("trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n")
-	fmt.Fprintf(&out, "%d\n%%%%EOF\n", xrefStart)
-
-	return out.Bytes(), nil
 }
