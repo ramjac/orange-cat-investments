@@ -21,8 +21,15 @@ func TestValidatePasswordComplexity(t *testing.T) {
 	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password!@#"))
 	// Missing special char
 	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123"))
+	// Unsafe/disallowed characters
+	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123'"))
+	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123\""))
+	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123\\"))
+	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123`"))
+	assert.Error(t, core_invest_svc.ValidatePasswordComplexity("Password123\x00!"))
 	// Valid password
 	assert.NoError(t, core_invest_svc.ValidatePasswordComplexity("OrangeCat2026!"))
+	assert.NoError(t, core_invest_svc.ValidatePasswordComplexity("OrangeCat2026!@#$%^&*()-_=+[]{}|;:,.<>?/~"))
 }
 
 func TestCustomerLifecycle_Register_And_Onboard(t *testing.T) {
