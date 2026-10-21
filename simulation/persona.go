@@ -26,12 +26,13 @@ type Action struct {
 
 // Persona represents an OCI persona (human employee, feline executive, or customer investor).
 type Persona struct {
-	ID         string
-	Name       string
-	Type       string // "human", "feline", or "customer"
-	RoleTitle  string
-	Department string
-	Actions    []Action
+	ID            string
+	Name          string
+	Type          string // "human", "feline", or "customer"
+	RoleTitle     string
+	Department    string
+	ActivityLevel float64
+	Actions       []Action
 }
 
 // Registry stores all registered OCI personas available for simulation.
