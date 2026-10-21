@@ -2,6 +2,8 @@ package saga
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +13,14 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	"github.com/orange-cat-investments/oci/pkg/cots/snipeit"
 )
+
+func generateSecureInitialPassword() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate secure random initial password: %w", err)
+	}
+	return fmt.Sprintf("InitPass!%s", hex.EncodeToString(b)), nil
+}
 
 // ForgejoVCSAdapter adapts pkg/cots/forgejo.Client to VCSClient interface.
 type ForgejoVCSAdapter struct {
@@ -32,10 +42,16 @@ func (a *ForgejoVCSAdapter) ProvisionAccount(ctx context.Context, username, emai
 		}, nil
 	}
 
+	initPass, err := generateSecureInitialPassword()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate initial password: %w", err)
+	}
+
 	u, err := a.client.CreateUser(ctx, forgejo.CreateUserOption{
 		Username: username,
 		Email:    email,
 		FullName: fullName,
+		Password: initPass,
 	})
 	if err != nil {
 		// If user already exists, retrieve existing user
@@ -99,8 +115,14 @@ func (a *NextcloudWorkspaceAdapter) ProvisionWorkspace(ctx context.Context, user
 	}
 
 	if a.client != nil {
-		_, err := a.client.CreateUser(ctx, nextcloud.CreateUserOption{
+		initPass, err := generateSecureInitialPassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate initial password: %w", err)
+		}
+
+		_, err = a.client.CreateUser(ctx, nextcloud.CreateUserOption{
 			UserID:      username,
+			Password:    initPass,
 			DisplayName: username,
 			Email:       email,
 			Quota:       quota,

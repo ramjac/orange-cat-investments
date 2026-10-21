@@ -209,12 +209,13 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 }
 
 // CreateUser creates a new user account in Forgejo via admin API.
+// For production OCI applications, a non-empty Password is required.
 func (c *Client) CreateUser(ctx context.Context, opt CreateUserOption) (*User, error) {
 	if opt.Username == "" || opt.Email == "" {
 		return nil, errors.New("username and email are required to create a Forgejo user")
 	}
 	if opt.Password == "" {
-		opt.Password = fmt.Sprintf("TempPass!%d", time.Now().UnixNano())
+		return nil, errors.New("password is required to create a Forgejo user")
 	}
 
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/admin/users", opt)

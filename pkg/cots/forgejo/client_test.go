@@ -45,10 +45,25 @@ func TestForgejoClient_CreateUser(t *testing.T) {
 		Username: "elise.dev",
 		Email:    "elise@oci.local",
 		FullName: "Elise Dev",
+		Password: "SecretDevPass123!",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), user.ID)
 	assert.Equal(t, "elise.dev", user.UserName)
+}
+
+func TestForgejoClient_CreateUser_PasswordRequired(t *testing.T) {
+	client := NewClient(Config{
+		BaseURL: "http://dummy.local",
+		Token:   "secret-token",
+	})
+
+	_, err := client.CreateUser(context.Background(), CreateUserOption{
+		Username: "user1",
+		Email:    "user1@oci.local",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "password is required")
 }
 
 func TestForgejoClient_AddUserPublicKey(t *testing.T) {

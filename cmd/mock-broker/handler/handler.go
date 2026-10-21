@@ -51,6 +51,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Market Data API (Alpaca Data v2)
 	mux.HandleFunc("GET /v2/stocks/bars/latest", h.handleGetLatestBars)
+	mux.HandleFunc("GET /v2/stocks/quotes/latest", h.handleGetLatestQuotes)
 	mux.HandleFunc("GET /v2/stocks/{symbol}/quotes/latest", h.handleGetLatestQuote)
 	mux.HandleFunc("GET /v2/stocks/{symbol}/bars", h.handleGetBars)
 	mux.HandleFunc("GET /v2/stocks/snapshots", h.handleGetSnapshots)
@@ -299,6 +300,25 @@ func (h *Handler) handleGetLatestBars(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]any{"bars": bars})
+}
+
+func (h *Handler) handleGetLatestQuotes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	symbolsParam := r.URL.Query().Get("symbols")
+	symbols := strings.Split(symbolsParam, ",")
+
+	quotes := make(map[string]ledger.Quote)
+	for _, s := range symbols {
+		sym := strings.ToUpper(strings.TrimSpace(s))
+		if sym == "" {
+			continue
+		}
+		if quote, ok := h.engine.GetQuote(sym); ok {
+			quotes[sym] = quote
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]any{"quotes": quotes})
 }
 
 func (h *Handler) handleGetLatestQuote(w http.ResponseWriter, r *http.Request) {

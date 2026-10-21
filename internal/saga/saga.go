@@ -184,40 +184,67 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 		emp.Email = &req.Email
 	}
 
-	var cs *workforce.CareSchedule
-	if req.EmployeeType == "feline" {
-		dietary := req.DietaryPlan
-		if dietary == "" {
-			dietary = "Standard balanced feline diet"
-		}
-		feedingTimes := req.FeedingTimes
-		if len(feedingTimes) == 0 {
-			feedingTimes = []string{"08:00 AM", "05:00 PM"}
-		}
-		var caretakerPtr *string
-		if req.CaretakerID != "" {
-			caretakerPtr = &req.CaretakerID
-		} else if humanEmps, err := s.wfSvc.ListEmployees(ctx, "human", "active"); err == nil && len(humanEmps) > 0 {
-			id := humanEmps[0].EmployeeID
-			caretakerPtr = &id
-		}
-		cs = &workforce.CareSchedule{
-			DietaryPlan:          dietary,
-			FeedingTimes:         feedingTimes,
-			EmergencyMedicalHold: false,
-			CaretakerID:          caretakerPtr,
-		}
-	}
+	cs := s.buildCareSchedule(ctx, req)
 
 	created, err := s.wfSvc.OnboardEmployee(ctx, emp, cs)
 	if err != nil {
 		return nil, fmt.Errorf("onboarding saga failed to create employee: %w", err)
 	}
 
-	// IdP Provisioning: ZITADEL for customers, Forgejo for employees
 	idpID := fmt.Sprintf("idp-forgejo-%s", created.EmployeeID)
+	username, fullName, email := deriveUserCredentials(req)
 
-	// User handle generation for human staff IT provisioning
+	vcsAcc, ws, hwAssets := s.provisionITResources(ctx, req, created.EmployeeID, username, email, fullName)
+
+	taskNames := s.getChecklistTasks(ctx, req, created.EmployeeID)
+
+	storedCS, _ := s.wfSvc.GetCareSchedule(ctx, created.EmployeeID)
+
+	result := &OnboardingResult{
+		EmployeeID:     created.EmployeeID,
+		IdpIdentityID:  idpID,
+		Status:         created.Status,
+		ChecklistTasks: taskNames,
+		CareSchedule:   storedCS,
+		VCSAccount:     vcsAcc,
+		Workspace:      ws,
+		HardwareAssets: hwAssets,
+		Message:        "Employee onboarding saga completed successfully",
+	}
+
+	s.publishOnboardingEvent(created.EmployeeID, result)
+
+	return result, nil
+}
+
+func (s *OnboardingSaga) buildCareSchedule(ctx context.Context, req OnboardingRequest) *workforce.CareSchedule {
+	if req.EmployeeType != "feline" {
+		return nil
+	}
+	dietary := req.DietaryPlan
+	if dietary == "" {
+		dietary = "Standard balanced feline diet"
+	}
+	feedingTimes := req.FeedingTimes
+	if len(feedingTimes) == 0 {
+		feedingTimes = []string{"08:00 AM", "05:00 PM"}
+	}
+	var caretakerPtr *string
+	if req.CaretakerID != "" {
+		caretakerPtr = &req.CaretakerID
+	} else if humanEmps, err := s.wfSvc.ListEmployees(ctx, "human", "active"); err == nil && len(humanEmps) > 0 {
+		id := humanEmps[0].EmployeeID
+		caretakerPtr = &id
+	}
+	return &workforce.CareSchedule{
+		DietaryPlan:          dietary,
+		FeedingTimes:         feedingTimes,
+		EmergencyMedicalHold: false,
+		CaretakerID:          caretakerPtr,
+	}
+}
+
+func deriveUserCredentials(req OnboardingRequest) (string, string, string) {
 	username := strings.ToLower(req.FirstName)
 	if req.LastName != "" {
 		username = strings.ToLower(fmt.Sprintf("%s.%s", req.FirstName, req.LastName))
@@ -233,38 +260,48 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 	if email == "" {
 		email = fmt.Sprintf("%s@oci.local", username)
 	}
+	return username, fullName, email
+}
+
+func (s *OnboardingSaga) provisionITResources(ctx context.Context, req OnboardingRequest, employeeID, username, email, fullName string) (*VCSAccount, *Workspace, []AssetAllocation) {
+	if req.EmployeeType == "feline" {
+		return nil, nil, nil
+	}
 
 	var vcsAcc *VCSAccount
 	var ws *Workspace
 	var hwAssets []AssetAllocation
+	var err error
 
-	if req.EmployeeType != "feline" {
-		// 1. Provision VCS Account in Forgejo
-		if s.vcsClient != nil {
-			vcsAcc, err = s.vcsClient.ProvisionAccount(ctx, username, email, fullName, req.SSHKey)
-			if err != nil {
-				s.logger.Warn("VCS provisioning warning", "error", err)
-			}
-		}
-
-		// 2. Provision Storage Workspace in Nextcloud
-		if s.wsClient != nil {
-			ws, err = s.wsClient.ProvisionWorkspace(ctx, username, email, req.Department, req.StorageQuota)
-			if err != nil {
-				s.logger.Warn("Workspace provisioning warning", "error", err)
-			}
-		}
-
-		// 3. Allocate Initial Hardware in Snipe-IT
-		if s.hwClient != nil {
-			hwAssets, err = s.hwClient.AssignInitialHardware(ctx, created.EmployeeID, req.RoleTitle, req.Department)
-			if err != nil {
-				s.logger.Warn("Hardware asset allocation warning", "error", err)
-			}
+	// 1. Provision VCS Account in Forgejo
+	if s.vcsClient != nil {
+		vcsAcc, err = s.vcsClient.ProvisionAccount(ctx, username, email, fullName, req.SSHKey)
+		if err != nil {
+			s.logger.Warn("VCS provisioning warning", "error", err)
 		}
 	}
 
-	tasks, err := s.wfSvc.ListOnboardingChecklist(ctx, created.EmployeeID)
+	// 2. Provision Storage Workspace in Nextcloud
+	if s.wsClient != nil {
+		ws, err = s.wsClient.ProvisionWorkspace(ctx, username, email, req.Department, req.StorageQuota)
+		if err != nil {
+			s.logger.Warn("Workspace provisioning warning", "error", err)
+		}
+	}
+
+	// 3. Allocate Initial Hardware in Snipe-IT
+	if s.hwClient != nil {
+		hwAssets, err = s.hwClient.AssignInitialHardware(ctx, employeeID, req.RoleTitle, req.Department)
+		if err != nil {
+			s.logger.Warn("Hardware asset allocation warning", "error", err)
+		}
+	}
+
+	return vcsAcc, ws, hwAssets
+}
+
+func (s *OnboardingSaga) getChecklistTasks(ctx context.Context, req OnboardingRequest, employeeID string) []string {
+	tasks, err := s.wfSvc.ListOnboardingChecklist(ctx, employeeID)
 	if err != nil {
 		s.logger.Warn("Failed to list onboarding checklist tasks", "error", err)
 	}
@@ -288,35 +325,23 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 		}
 	}
 
-	storedCS, _ := s.wfSvc.GetCareSchedule(ctx, created.EmployeeID)
+	return taskNames
+}
 
-	result := &OnboardingResult{
-		EmployeeID:     created.EmployeeID,
-		IdpIdentityID:  idpID,
-		Status:         created.Status,
-		ChecklistTasks: taskNames,
-		CareSchedule:   storedCS,
-		VCSAccount:     vcsAcc,
-		Workspace:      ws,
-		HardwareAssets: hwAssets,
-		Message:        "Employee onboarding saga completed successfully",
+func (s *OnboardingSaga) publishOnboardingEvent(employeeID string, result *OnboardingResult) {
+	if s.publisher == nil {
+		return
 	}
-
-	// Publish Onboarding Started Event
-	if s.publisher != nil {
-		event := EventEnvelope[OnboardingResult]{
-			EventID:       fmt.Sprintf("evt-onboard-%d", time.Now().UnixNano()),
-			EventType:     "events.workforce.employee_onboarded.v1",
-			OccurredAt:    time.Now().UTC(),
-			CorrelationID: fmt.Sprintf("corr-%s", created.EmployeeID),
-			Payload:       *result,
-		}
-		data, _ := json.Marshal(event)
-		msg := message.NewMessage(event.EventID, data)
-		_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", msg)
+	event := EventEnvelope[OnboardingResult]{
+		EventID:       fmt.Sprintf("evt-onboard-%d", time.Now().UnixNano()),
+		EventType:     "events.workforce.employee_onboarded.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: fmt.Sprintf("corr-%s", employeeID),
+		Payload:       *result,
 	}
-
-	return result, nil
+	data, _ := json.Marshal(event)
+	msg := message.NewMessage(event.EventID, data)
+	_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", msg)
 }
 
 type OffboardingEngine struct {

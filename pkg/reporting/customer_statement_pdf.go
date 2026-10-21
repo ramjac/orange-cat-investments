@@ -58,6 +58,10 @@ func buildPDF(streamBytes []byte) []byte {
 
 // GenerateMonthlyStatementPDF generates an authentic PDF 1.4 statement for a customer portfolio.
 func GenerateMonthlyStatementPDF(stmt *CustomerMonthlyStatement) ([]byte, error) {
+	if stmt == nil {
+		return nil, fmt.Errorf("statement is nil")
+	}
+
 	var streamBuf bytes.Buffer
 	sb := &streamBuf
 
@@ -184,6 +188,10 @@ func GenerateMonthlyStatementPDF(stmt *CustomerMonthlyStatement) ([]byte, error)
 
 // GenerateForm1099BPDF generates IRS Form 1099-B tax document for a customer.
 func GenerateForm1099BPDF(stmt *Form1099BStatement) ([]byte, error) {
+	if stmt == nil {
+		return nil, fmt.Errorf("statement is nil")
+	}
+
 	var streamBuf bytes.Buffer
 	sb := &streamBuf
 
@@ -307,6 +315,10 @@ func GenerateForm1099BPDF(stmt *Form1099BStatement) ([]byte, error) {
 
 // GenerateGDPRCertificatePDF generates a cryptographic data erasure certificate under GDPR Article 17.
 func GenerateGDPRCertificatePDF(cert *GDPRDeletionCertificate) ([]byte, error) {
+	if cert == nil {
+		return nil, fmt.Errorf("certificate is nil")
+	}
+
 	var streamBuf bytes.Buffer
 	sb := &streamBuf
 

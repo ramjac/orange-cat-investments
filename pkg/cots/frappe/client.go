@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -493,7 +494,7 @@ type FinancialMetrics struct {
 	RunwayMonths      float64 `json:"runway_months"`
 }
 
-// GetFinancialMetrics retrieves financial P&L, burn, and cash reserves from ERPNext or computes from ledger data.
+// GetFinancialMetrics retrieves financial P&L, burn, and cash reserves from ERPNext.
 func (c *Client) GetFinancialMetrics(ctx context.Context, period string) (*FinancialMetrics, error) {
 	if period == "" {
 		period = time.Now().UTC().Format("2006-01")
@@ -505,45 +506,14 @@ func (c *Client) GetFinancialMetrics(ctx context.Context, period string) (*Finan
 		*FinancialMetrics
 	}
 	err := c.do(ctx, http.MethodGet, path, nil, &resp)
-	if err == nil {
-		if resp.Data != nil {
-			return resp.Data, nil
-		}
-		if resp.FinancialMetrics != nil && resp.FinancialMetrics.TotalRevenue > 0 {
-			return resp.FinancialMetrics, nil
-		}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get financial metrics from ERPNext: %w", err)
 	}
-
-	// Fallback computation based on default financial parameters & salary slips
-	// Ensures resilience in SMB environments where full ERPNext GL chart of accounts is syncing
-	slips, _ := c.GetSalarySlips(ctx, "")
-	payrollTotal := 0.0
-	for _, s := range slips {
-		payrollTotal += s.GrossPay
+	if resp.Data != nil {
+		return resp.Data, nil
 	}
-	if payrollTotal == 0 {
-		payrollTotal = 420000.00
+	if resp.FinancialMetrics != nil && resp.FinancialMetrics.TotalRevenue > 0 {
+		return resp.FinancialMetrics, nil
 	}
-
-	totalRev := 1250000.00
-	operatingExp := 340000.00
-	cashReserves := 9850000.00
-	burn := operatingExp + payrollTotal
-	netProfit := totalRev - burn
-	runway := 0.0
-	if burn > 0 {
-		runway = cashReserves / burn
-	}
-
-	return &FinancialMetrics{
-		Period:            period,
-		Currency:          "USD",
-		TotalRevenue:      totalRev,
-		OperatingExpenses: operatingExp,
-		PayrollExpenses:   payrollTotal,
-		NetProfit:         netProfit,
-		OperationalBurn:   burn,
-		CashReserves:      cashReserves,
-		RunwayMonths:      runway,
-	}, nil
+	return nil, errors.New("no financial metrics data returned from ERPNext")
 }
