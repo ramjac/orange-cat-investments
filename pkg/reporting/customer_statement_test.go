@@ -110,7 +110,7 @@ func TestGenerateGDPRCertificatePDF(t *testing.T) {
 		CertificateID:        "cert-gdpr-12345",
 		CustomerIDHash:       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		CustomerEmailHash:    "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
-		ErasureTimestamp:     time.Now().UTC(),
+		ErasureTimestamp:     time.Date(2026, 3, 15, 10, 30, 0, 0, time.UTC),
 		LegalBasis:           "GDPR Article 17 - Right to Erasure",
 		SupervisoryAuthority: "Orange Cat Investments Data Protection Office",
 		TablesScrubbed:       []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions"},
@@ -125,7 +125,24 @@ func TestGenerateGDPRCertificatePDF(t *testing.T) {
 	assert.NotEmpty(t, pdfBytes)
 
 	assert.True(t, bytes.HasPrefix(pdfBytes, []byte("%PDF-1.4")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("xref")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("%%EOF")))
 	assert.True(t, bytes.Contains(pdfBytes, []byte("CERTIFICATE OF PERMANENT DATA ERASURE")))
 	assert.True(t, bytes.Contains(pdfBytes, []byte("GDPR ARTICLE 17")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("cert-gdpr-12345")))
 	assert.True(t, bytes.Contains(pdfBytes, []byte("Orange Cat Investments Data Protection Office")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("GDPR Article 17 - Right to Erasure")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("e3b0c44298fc1c149afbf4c8...")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("ca978112ca1bbdcafac231b3...")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte(`3 Session\(s\)`)))
+	assert.True(t, bytes.Contains(pdfBytes, []byte(`7 Record\(s\)`)))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("core_invest.investment_portfolios, core_invest.customer_api_keys, core_invest.webhook_subscriptions")))
+	assert.True(t, bytes.Contains(pdfBytes, []byte("hmac-sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069")))
+}
+
+func TestGenerateGDPRCertificatePDF_Nil(t *testing.T) {
+	pdfBytes, err := GenerateGDPRCertificatePDF(nil)
+	assert.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.EqualError(t, err, "certificate data is nil")
 }

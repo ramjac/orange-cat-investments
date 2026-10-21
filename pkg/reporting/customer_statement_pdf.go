@@ -307,6 +307,10 @@ func GenerateForm1099BPDF(stmt *Form1099BStatement) ([]byte, error) {
 
 // GenerateGDPRCertificatePDF generates a cryptographic data erasure certificate under GDPR Article 17.
 func GenerateGDPRCertificatePDF(cert *GDPRDeletionCertificate) ([]byte, error) {
+	if cert == nil {
+		return nil, fmt.Errorf("certificate data is nil")
+	}
+
 	var streamBuf bytes.Buffer
 	sb := &streamBuf
 
