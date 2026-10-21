@@ -28,6 +28,11 @@ func TestLedgerStore_SeedAndAccounts(t *testing.T) {
 	if len(tokAccounts) != 2 {
 		t.Errorf("expected 2 accounts via token, got %d", len(tokAccounts))
 	}
+
+	byIDs := store.GetAccountsByIDs([]string{"acc_arthur_chase_chk", "acc_chloe_svcu_chk", "non_existent"})
+	if len(byIDs) != 2 {
+		t.Errorf("expected 2 accounts fetched by IDs, got %d", len(byIDs))
+	}
 }
 
 func TestLedgerStore_CreateTransferDebitSuccessAndSettlement(t *testing.T) {

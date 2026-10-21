@@ -187,15 +187,12 @@ func TestFrappeClient_GetFinancialMetrics(t *testing.T) {
 		t.Errorf("unexpected metrics: %+v", metrics)
 	}
 
-	// Test fallback when endpoint not found
-	fallbackClient := NewClient(Config{
+	// Test error when endpoint is unreachable
+	errorClient := NewClient(Config{
 		BaseURL: "http://invalid-endpoint.local",
 	})
-	fbMetrics, err := fallbackClient.GetFinancialMetrics(ctx, "2026-10")
-	if err != nil {
-		t.Fatalf("failed to compute fallback financial metrics: %v", err)
-	}
-	if fbMetrics.TotalRevenue <= 0 || fbMetrics.RunwayMonths <= 0 {
-		t.Errorf("unexpected fallback metrics: %+v", fbMetrics)
+	_, err = errorClient.GetFinancialMetrics(ctx, "2026-10")
+	if err == nil {
+		t.Fatalf("expected error from unreachable endpoint, got nil")
 	}
 }

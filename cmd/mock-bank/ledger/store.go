@@ -56,6 +56,21 @@ func (s *LedgerStore) GetAccount(accountID string) (*BankAccount, error) {
 	return &cp, nil
 }
 
+// GetAccountsByIDs retrieves bank accounts matching a slice of account IDs.
+func (s *LedgerStore) GetAccountsByIDs(accountIDs []string) []*BankAccount {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*BankAccount, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		if acc, ok := s.accounts[id]; ok {
+			cp := *acc
+			result = append(result, &cp)
+		}
+	}
+	return result
+}
+
 // GetAccountsByOwner retrieves all bank accounts owned by a given persona/customer ID.
 func (s *LedgerStore) GetAccountsByOwner(ownerID string) []*BankAccount {
 	s.mu.RLock()

@@ -7,6 +7,49 @@ import (
 	"github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
 )
 
+// GenerateHistoricalBars generates standalone historical mock data bars between start and end.
+func GenerateHistoricalBars(symbol string, start, end time.Time, timeframe string) []ledger.Bar {
+	var interval time.Duration
+	switch timeframe {
+	case "5Min":
+		interval = 5 * time.Minute
+	case "1Hour":
+		interval = time.Hour
+	case "1Day":
+		interval = 24 * time.Hour
+	default:
+		interval = time.Minute
+	}
+
+	if start.After(end) || interval <= 0 {
+		return []ledger.Bar{}
+	}
+
+	var bars []ledger.Bar
+	basePrice := 100.0
+	curr := start.Truncate(interval)
+	endTrunc := end.Truncate(interval)
+
+	for !curr.After(endTrunc) {
+		open := basePrice
+		high := open * 1.002
+		low := open * 0.998
+		closeP := (high + low) / 2.0
+		bars = append(bars, ledger.Bar{
+			Timestamp: curr,
+			Open:      open,
+			High:      high,
+			Low:       low,
+			Close:     closeP,
+			Volume:    50000,
+		})
+		basePrice = closeP
+		curr = curr.Add(interval)
+	}
+
+	return bars
+}
+
 // BarAggregator maintains real-time rolling OHLCV candlestick bars in a ring buffer.
 type BarAggregator struct {
 	mu         sync.RWMutex

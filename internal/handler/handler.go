@@ -1086,15 +1086,48 @@ func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, folder)
 }
 
-func (h *WorkforceHandler) listDocuments(w http.ResponseWriter, r *http.Request) {
-	dept := r.URL.Query().Get("department")
-	cat := r.URL.Query().Get("category")
-	q := r.URL.Query().Get("q")
-	if q == "" {
-		q = r.URL.Query().Get("query")
+const maxSearchQueryLength = 100
+
+func validateSearchParam(param, paramName string) (string, error) {
+	trimmed := strings.TrimSpace(param)
+	if len(trimmed) > maxSearchQueryLength {
+		return "", fmt.Errorf("%s parameter exceeds maximum length of %d characters", paramName, maxSearchQueryLength)
 	}
-	if q == "" {
-		q = r.URL.Query().Get("search")
+	for _, r := range trimmed {
+		if r < 32 || r == 127 {
+			return "", fmt.Errorf("%s parameter contains invalid control characters", paramName)
+		}
+	}
+	return trimmed, nil
+}
+
+func (h *WorkforceHandler) listDocuments(w http.ResponseWriter, r *http.Request) {
+	deptRaw := r.URL.Query().Get("department")
+	catRaw := r.URL.Query().Get("category")
+	qRaw := r.URL.Query().Get("q")
+	if qRaw == "" {
+		qRaw = r.URL.Query().Get("query")
+	}
+	if qRaw == "" {
+		qRaw = r.URL.Query().Get("search")
+	}
+
+	dept, err := validateSearchParam(deptRaw, "department")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	cat, err := validateSearchParam(catRaw, "category")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	q, err := validateSearchParam(qRaw, "q")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	docs, err := h.wfSvc.ListDocuments(r.Context(), dept, cat, q)

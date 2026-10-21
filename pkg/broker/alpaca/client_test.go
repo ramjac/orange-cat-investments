@@ -55,6 +55,15 @@ func TestAlpacaClient(t *testing.T) {
 		})
 	})
 
+	mux.HandleFunc("GET /v2/stocks/quotes/latest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"quotes": map[string]Quote{
+				"AAPL": {BidPrice: 224.40, AskPrice: 224.60},
+			},
+		})
+	})
+
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -88,4 +97,11 @@ func TestAlpacaClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, bars, "AAPL")
 	assert.Equal(t, 224.50, bars["AAPL"].Close)
+
+	// 4. GetLatestQuotes
+	quotes, err := client.GetLatestQuotes(ctx, []string{"AAPL"})
+	require.NoError(t, err)
+	assert.Contains(t, quotes, "AAPL")
+	assert.Equal(t, 224.40, quotes["AAPL"].BidPrice)
+	assert.Equal(t, 224.60, quotes["AAPL"].AskPrice)
 }

@@ -99,6 +99,50 @@ func TestStoreAccountAndOrders(t *testing.T) {
 	assert.Len(t, orders, 2)
 }
 
+func TestCreateOrderValidationAndLimit(t *testing.T) {
+	store := NewStore()
+
+	acc := &Account{
+		ID:   "test-acc-2",
+		Cash: 10000.0,
+	}
+	err := store.CreateAccount(acc)
+	require.NoError(t, err)
+
+	quote := Quote{
+		BidPrice:  100.0,
+		AskPrice:  101.0,
+		Timestamp: time.Now().UTC(),
+	}
+
+	// Invalid payload: empty symbol
+	_, err = store.CreateOrder("test-acc-2", CreateOrderRequest{Symbol: "", Qty: 1, Side: "buy"}, quote)
+	assert.ErrorIs(t, err, ErrInvalidOrderPayload)
+
+	// Invalid payload: qty <= 0
+	_, err = store.CreateOrder("test-acc-2", CreateOrderRequest{Symbol: "AAPL", Qty: 0, Side: "buy"}, quote)
+	assert.ErrorIs(t, err, ErrInvalidOrderPayload)
+
+	// Invalid payload: invalid side
+	_, err = store.CreateOrder("test-acc-2", CreateOrderRequest{Symbol: "AAPL", Qty: 1, Side: "hold"}, quote)
+	assert.ErrorContains(t, err, "side must be buy or sell")
+
+	// Limit order
+	limitPriceVal := FlexibleFloat64(95.0)
+	limitReq := CreateOrderRequest{
+		Symbol:     "AAPL",
+		Qty:        2.0,
+		Side:       "buy",
+		Type:       "limit",
+		LimitPrice: &limitPriceVal,
+	}
+	limitOrder, err := store.CreateOrder("test-acc-2", limitReq, quote)
+	require.NoError(t, err)
+	assert.Equal(t, "accepted", limitOrder.Status)
+	assert.NotNil(t, limitOrder.LimitPrice)
+	assert.Equal(t, 95.0, *limitOrder.LimitPrice)
+}
+
 func TestStoreSeedAccounts(t *testing.T) {
 	store := NewStore()
 	initialPrices := map[string]float64{

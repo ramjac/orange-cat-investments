@@ -199,6 +199,20 @@ func (c *Client) GetLatestBars(ctx context.Context, symbols []string) (map[strin
 	return resp.Bars, nil
 }
 
+// GetLatestQuotes returns latest quotes for given symbols.
+func (c *Client) GetLatestQuotes(ctx context.Context, symbols []string) (map[string]Quote, error) {
+	symbolsParam := strings.Join(symbols, ",")
+	url := fmt.Sprintf("%s/v2/stocks/quotes/latest?symbols=%s", c.dataURL, url.QueryEscape(symbolsParam))
+
+	var resp struct {
+		Quotes map[string]Quote `json:"quotes"`
+	}
+	if err := c.do(ctx, "GET", url, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Quotes, nil
+}
+
 // GetLatestQuote returns the latest quote for a symbol.
 func (c *Client) GetLatestQuote(ctx context.Context, symbol string) (*Quote, error) {
 	url := fmt.Sprintf("%s/v2/stocks/%s/quotes/latest", c.dataURL, strings.ToUpper(symbol))

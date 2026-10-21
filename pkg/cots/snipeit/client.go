@@ -211,7 +211,10 @@ func (c *Client) CreateAssetRecoveryTicket(ctx context.Context, employeeID, reas
 		return nil, errors.New("employee_id cannot be empty")
 	}
 
-	assets, _ := c.ListAssignedAssets(ctx, employeeID)
+	assets, err := c.ListAssignedAssets(ctx, employeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list assigned assets for recovery: %w", err)
+	}
 	ticketID := fmt.Sprintf("RECOVER-%s-%d", employeeID, time.Now().Unix())
 
 	ticket := &AssetRecoveryTicket{
