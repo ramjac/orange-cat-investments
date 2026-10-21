@@ -202,3 +202,10 @@ func TestGenerateExecutivePDF(t *testing.T) {
 	assert.Contains(t, pdfStr, "trailer")
 	assert.Contains(t, pdfStr, "startxref")
 }
+
+func TestGenerateExecutivePDF_NilReport(t *testing.T) {
+	pdfBytes, err := GenerateExecutivePDF(nil)
+	assert.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.EqualError(t, err, "report is nil")
+}
