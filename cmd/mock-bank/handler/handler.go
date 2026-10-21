@@ -168,11 +168,7 @@ func (h *Handler) handleGetBalances(w http.ResponseWriter, r *http.Request) {
 
 	if len(accounts) == 0 {
 		if len(req.AccountIDs) > 0 {
-			for _, id := range req.AccountIDs {
-				if acc, err := h.store.GetAccount(id); err == nil {
-					accounts = append(accounts, acc)
-				}
-			}
+			accounts = h.store.GetAccountsByIDs(req.AccountIDs)
 		} else {
 			// fallback default
 			accounts = h.store.GetAccountsByOwner("cust-longterm-arthur")
