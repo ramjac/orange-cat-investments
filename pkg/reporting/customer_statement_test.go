@@ -63,6 +63,64 @@ func TestGenerateMonthlyStatementPDF(t *testing.T) {
 	assert.True(t, bytes.Contains(pdfBytes, []byte("AAPL")))
 }
 
+func TestGenerateMonthlyStatementPDF_NilInput(t *testing.T) {
+	pdfBytes, err := GenerateMonthlyStatementPDF(nil)
+	assert.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.EqualError(t, err, "statement is nil")
+}
+
+func TestGenerateMonthlyStatementPDF_NegativeUnrealizedGainAndEscapedCharacters(t *testing.T) {
+	stmt := &CustomerMonthlyStatement{
+		StatementID:  "stmt-neg-001",
+		PortfolioID:  "port-(test)-001",
+		CustomerID:   "cust-test-001",
+		CustomerName: "Arthur (Art) \\Pendelton\\",
+		AccountName:  "OCI (Alpha) Growth Fund",
+		Period:       "March (2026)",
+		Holdings: []StatementHolding{
+			{
+				Symbol:            "TSLA",
+				Quantity:          50.0,
+				CostBasisUSD:      12000.00,
+				CurrentPriceUSD:   180.00,
+				MarketValueUSD:    9000.00,
+				UnrealizedGainUSD: -3000.00,
+				UnrealizedGainPct: -25.00,
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+
+	pdfBytes, err := GenerateMonthlyStatementPDF(stmt)
+	require.NoError(t, err)
+	assert.NotEmpty(t, pdfBytes)
+
+	pdfStr := string(pdfBytes)
+	// Check red color branch for negative unrealized gain
+	assert.Contains(t, pdfStr, "0.75 0.15 0.1 rg")
+	// Check escaped parentheses and backslashes
+	assert.Contains(t, pdfStr, "Arthur \\(Art\\) \\\\Pendelton\\\\")
+	assert.Contains(t, pdfStr, "port-\\(test\\)-001")
+}
+
+func TestGenerateMonthlyStatementPDF_EmptyHoldings(t *testing.T) {
+	stmt := &CustomerMonthlyStatement{
+		StatementID:  "stmt-empty-001",
+		PortfolioID:  "port-empty-001",
+		CustomerID:   "cust-empty-001",
+		CustomerName: "Empty Holder",
+		AccountName:  "OCI Cash Only Account",
+		Period:       "March 2026",
+		Holdings:     []StatementHolding{},
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	pdfBytes, err := GenerateMonthlyStatementPDF(stmt)
+	require.NoError(t, err)
+	assert.NotEmpty(t, pdfBytes)
+}
+
 func TestGenerateForm1099BPDF(t *testing.T) {
 	stmt := &Form1099BStatement{
 		StatementID:           "1099b-test-2025",
@@ -105,6 +163,55 @@ func TestGenerateForm1099BPDF(t *testing.T) {
 	assert.True(t, bytes.Contains(pdfBytes, []byte("NVDA")))
 }
 
+func TestGenerateForm1099BPDF_NilInput(t *testing.T) {
+	pdfBytes, err := GenerateForm1099BPDF(nil)
+	assert.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.EqualError(t, err, "statement is nil")
+}
+
+func TestGenerateForm1099BPDF_NegativeRealizedGainLoss(t *testing.T) {
+	stmt := &Form1099BStatement{
+		StatementID:           "1099b-loss-2025",
+		PortfolioID:           "port-test-loss",
+		CustomerID:            "cust-test-loss",
+		CustomerName:          "Chloe (Loss) Spark",
+		TaxYear:               2025,
+		PayerName:             "Orange Cat (Brokerage) LLC",
+		PayerTIN:              "12-3456789",
+		RecipientTIN:          "***-**-8842",
+		TotalGrossProceedsUSD: 10000.00,
+		TotalCostBasisUSD:     15000.00,
+		TotalRealizedGainUSD:  -5000.00,
+		ShortTermGainUSD:      -5000.00,
+		LongTermGainUSD:       0.00,
+		Transactions: []Form1099BTransaction{
+			{
+				Description:            "100 shs MEME",
+				Symbol:                 "MEME",
+				Quantity:               100.0,
+				DateAcquired:           "2025-01-10",
+				DateSold:               "2025-05-14",
+				GrossProceedsUSD:       10000.00,
+				CostBasisUSD:           15000.00,
+				WashSaleLossDisallowed: 0.00,
+				RealizedGainLossUSD:    -5000.00,
+				IsShortTerm:            true,
+			},
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+
+	pdfBytes, err := GenerateForm1099BPDF(stmt)
+	require.NoError(t, err)
+	assert.NotEmpty(t, pdfBytes)
+
+	pdfStr := string(pdfBytes)
+	// Check red color branch for negative realized gain/loss
+	assert.Contains(t, pdfStr, "0.7 0.1 0.1 rg")
+	assert.Contains(t, pdfStr, "Chloe \\(Loss\\) Spark")
+}
+
 func TestGenerateGDPRCertificatePDF(t *testing.T) {
 	cert := &GDPRDeletionCertificate{
 		CertificateID:        "cert-gdpr-12345",
@@ -128,4 +235,11 @@ func TestGenerateGDPRCertificatePDF(t *testing.T) {
 	assert.True(t, bytes.Contains(pdfBytes, []byte("CERTIFICATE OF PERMANENT DATA ERASURE")))
 	assert.True(t, bytes.Contains(pdfBytes, []byte("GDPR ARTICLE 17")))
 	assert.True(t, bytes.Contains(pdfBytes, []byte("Orange Cat Investments Data Protection Office")))
+}
+
+func TestGenerateGDPRCertificatePDF_NilInput(t *testing.T) {
+	pdfBytes, err := GenerateGDPRCertificatePDF(nil)
+	assert.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.EqualError(t, err, "certificate is nil")
 }

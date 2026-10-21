@@ -57,4 +57,13 @@ func TestAuthMiddleware(t *testing.T) {
 	handler.ServeHTTP(recBasic, reqBasic)
 	assert.Equal(t, http.StatusOK, recBasic.Code)
 	assert.Equal(t, "authenticated", recBasic.Body.String())
+
+	// 6. Empty expected credentials should not match fallback credentials
+	emptyAuthHandler := AuthMiddleware("", "", okHandler)
+	reqFallback := httptest.NewRequest("GET", "/v1/accounts", nil)
+	reqFallback.Header.Set("APCA-API-KEY-ID", "CK_OCI_TEST_KEY_01")
+	reqFallback.Header.Set("APCA-API-SECRET-KEY", "SK_OCI_TEST_SECRET_01")
+	recFallback := httptest.NewRecorder()
+	emptyAuthHandler.ServeHTTP(recFallback, reqFallback)
+	assert.Equal(t, http.StatusUnauthorized, recFallback.Code)
 }
