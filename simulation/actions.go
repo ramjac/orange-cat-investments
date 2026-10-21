@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+// RandomAction selects a random action from a persona's available actions based on their activity level.
+// Returns nil if no action is selected or if the persona has no actions.
+func RandomAction(p *Persona) *Action {
+	if p == nil || len(p.Actions) == 0 {
+		return nil
+	}
+	activityLevel := p.ActivityLevel
+	if activityLevel <= 0 {
+		activityLevel = 1.0
+	}
+	if rand.Float64() < activityLevel {
+		idx := rand.Intn(len(p.Actions))
+		return &p.Actions[idx]
+	}
+	return nil
+}
+
 func (r *Registry) registerAllDefaultPersonas() {
 	r.Register(r.createGarfieldPersona())
 	r.Register(r.createBarnebyPersona())
@@ -29,11 +46,12 @@ func (r *Registry) registerAllDefaultPersonas() {
 // 1. Garfield - Chief Observation Officer (COO)
 func (r *Registry) createGarfieldPersona() *Persona {
 	return &Persona{
-		ID:         "emp-feline-garfield",
-		Name:       "Garfield",
-		Type:       "feline",
-		RoleTitle:  "Chief Observation Officer (COO)",
-		Department: "Core Executive Observation Plane",
+		ID:            "emp-feline-garfield",
+		Name:          "Garfield",
+		Type:          "feline",
+		RoleTitle:     "Chief Observation Officer (COO)",
+		Department:    "Core Executive Observation Plane",
+		ActivityLevel: 0.85,
 		Actions: []Action{
 			r.createGarfieldMorningZoomiesAction(),
 			r.createGarfieldPerchInspectionAction(),
@@ -177,11 +195,12 @@ func (r *Registry) createGarfieldSleepInHallwayAction() Action {
 // 2. Barneby - Senior Alpha Perch Analyst
 func (r *Registry) createBarnebyPersona() *Persona {
 	return &Persona{
-		ID:         "emp-feline-barneby",
-		Name:       "Barneby",
-		Type:       "feline",
-		RoleTitle:  "Senior Alpha Perch Analyst",
-		Department: "Habitat Intelligence & Telemetry",
+		ID:            "emp-feline-barneby",
+		Name:          "Barneby",
+		Type:          "feline",
+		RoleTitle:     "Senior Alpha Perch Analyst",
+		Department:    "Habitat Intelligence & Telemetry",
+		ActivityLevel: 0.90,
 		Actions: []Action{
 			r.createBarnebySunbeamTrackingAction(),
 			r.createBarnebyCareScheduleReviewAction(),
@@ -321,11 +340,12 @@ func (r *Registry) createBarnebySlapWaterGlassAction() Action {
 // 3. Alice Vance - Head of Human & Feline Resources
 func (r *Registry) createAlicePersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-alice",
-		Name:       "Alice Vance",
-		Type:       "human",
-		RoleTitle:  "Head of Human & Feline Resources",
-		Department: "Workforce Operations",
+		ID:            "emp-human-alice",
+		Name:          "Alice Vance",
+		Type:          "human",
+		RoleTitle:     "Head of Human & Feline Resources",
+		Department:    "Workforce Operations",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createAliceWorkforceDirectoryAction(),
 			r.createAliceTriggerOnboardingSagaAction(),
@@ -690,11 +710,12 @@ func (r *Registry) createAliceOffboardEmployeeAction() Action {
 // 4. Bob Builder - Lead Facilities & Edge Telemetry Engineer
 func (r *Registry) createBobPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-bob",
-		Name:       "Bob Builder",
-		Type:       "human",
-		RoleTitle:  "Lead Facilities & Edge Telemetry Engineer",
-		Department: "Habitat Facilities & Infrastructure",
+		ID:            "emp-human-bob",
+		Name:          "Bob Builder",
+		Type:          "human",
+		RoleTitle:     "Lead Facilities & Edge Telemetry Engineer",
+		Department:    "Habitat Facilities & Infrastructure",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "bob_scan_edge_cameras",
@@ -858,11 +879,12 @@ func (r *Registry) createBobReviewCalendarAction() Action {
 // 5. Carol Danvers - Chief Investment Officer (CIO)
 func (r *Registry) createCarolPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-carol",
-		Name:       "Carol Danvers",
-		Type:       "human",
-		RoleTitle:  "Chief Investment Officer (CIO)",
-		Department: "Core Investment Management",
+		ID:            "emp-human-carol",
+		Name:          "Carol Danvers",
+		Type:          "human",
+		RoleTitle:     "Chief Investment Officer (CIO)",
+		Department:    "Core Investment Management",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "carol_query_brokerage_orders",
@@ -921,11 +943,12 @@ func (r *Registry) createCarolPersona() *Persona {
 // 6. David Quant - Feline Behavioral Data Scientist
 func (r *Registry) createDavidPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-david",
-		Name:       "David Quant",
-		Type:       "human",
-		RoleTitle:  "Feline Behavioral Data Scientist",
-		Department: "Quantitative Analytics & AI",
+		ID:            "emp-human-david",
+		Name:          "David Quant",
+		Type:          "human",
+		RoleTitle:     "Feline Behavioral Data Scientist",
+		Department:    "Quantitative Analytics & AI",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "david_register_stream",
@@ -1008,11 +1031,12 @@ func (r *Registry) createDavidPersona() *Persona {
 // 7. Dr. Elena Rostova - Chief Veterinary Officer & Habitat Care Specialist
 func (r *Registry) createElenaPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-elena",
-		Name:       "Dr. Elena Rostova",
-		Type:       "human",
-		RoleTitle:  "Chief Veterinary Officer & Habitat Care Specialist",
-		Department: "Feline Health & Habitat Welfare",
+		ID:            "emp-human-elena",
+		Name:          "Dr. Elena Rostova",
+		Type:          "human",
+		RoleTitle:     "Chief Veterinary Officer & Habitat Care Specialist",
+		Department:    "Feline Health & Habitat Welfare",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "elena_update_garfield_care_schedule",
@@ -1120,11 +1144,12 @@ func (r *Registry) createElenaPersona() *Persona {
 // 8. Frank Operations - Platform Security & K8s Infrastructure Lead
 func (r *Registry) createFrankPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-frank",
-		Name:       "Frank Operations",
-		Type:       "human",
-		RoleTitle:  "Platform Security & K8s Infrastructure Lead",
-		Department: "Systems Platform & DevSecOps",
+		ID:            "emp-human-frank",
+		Name:          "Frank Operations",
+		Type:          "human",
+		RoleTitle:     "Platform Security & K8s Infrastructure Lead",
+		Department:    "Systems Platform & DevSecOps",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "frank_monitor_it_tickets",
@@ -1245,11 +1270,12 @@ func (r *Registry) createFrankPersona() *Persona {
 // 9. Arthur Pendelton - Long-Term Value Investor (Customer)
 func (r *Registry) createArthurPersona() *Persona {
 	return &Persona{
-		ID:         "cust-longterm-arthur",
-		Name:       "Arthur Pendelton",
-		Type:       "customer",
-		RoleTitle:  "Long-Term Value Investor",
-		Department: "Retail Investor Community",
+		ID:            "cust-longterm-arthur",
+		Name:          "Arthur Pendelton",
+		Type:          "customer",
+		RoleTitle:     "Long-Term Value Investor",
+		Department:    "Retail Investor Community",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "arthur_review_performance_reports",
@@ -1609,11 +1635,12 @@ func (r *Registry) createArthurPersona() *Persona {
 // 10. Chloe Spark - Short-Term Momentum Trader (Customer)
 func (r *Registry) createChloePersona() *Persona {
 	return &Persona{
-		ID:         "cust-active-chloe",
-		Name:       "Chloe Spark",
-		Type:       "customer",
-		RoleTitle:  "Momentum Alpha Trader",
-		Department: "Retail Investor Community",
+		ID:            "cust-active-chloe",
+		Name:          "Chloe Spark",
+		Type:          "customer",
+		RoleTitle:     "Momentum Alpha Trader",
+		Department:    "Retail Investor Community",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "chloe_scan_activity_streams",
@@ -1852,11 +1879,12 @@ func (r *Registry) createChloePersona() *Persona {
 // 11. Rick Newhire - Junior Operations Associate
 func (r *Registry) createRickPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-rick",
-		Name:       "Rick Newhire",
-		Type:       "human",
-		RoleTitle:  "Junior Operations Associate",
-		Department: "Workforce Operations",
+		ID:            "emp-human-rick",
+		Name:          "Rick Newhire",
+		Type:          "human",
+		RoleTitle:     "Junior Operations Associate",
+		Department:    "Workforce Operations",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "rick_onboarding_checklist",
@@ -1987,11 +2015,12 @@ func (r *Registry) createRickPersona() *Persona {
 // 12. Elise Dev - Software Developer
 func (r *Registry) createElisePersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-elise",
-		Name:       "Elise Dev",
-		Type:       "human",
-		RoleTitle:  "Software Developer",
-		Department: "Engineering & Platform Development",
+		ID:            "emp-human-elise",
+		Name:          "Elise Dev",
+		Type:          "human",
+		RoleTitle:     "Software Developer",
+		Department:    "Engineering & Platform Development",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "elise_claim_kanban_card",
@@ -2256,11 +2285,12 @@ func (r *Registry) createElisePersona() *Persona {
 // 13. Marcus Lead - Principal Systems Architect & Senior Developer
 func (r *Registry) createMarcusPersona() *Persona {
 	return &Persona{
-		ID:         "emp-human-marcus",
-		Name:       "Marcus Lead",
-		Type:       "human",
-		RoleTitle:  "Principal Systems Architect & Senior Developer",
-		Department: "Engineering & Platform Development",
+		ID:            "emp-human-marcus",
+		Name:          "Marcus Lead",
+		Type:          "human",
+		RoleTitle:     "Principal Systems Architect & Senior Developer",
+		Department:    "Engineering & Platform Development",
+		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "senior_dev_author_adr",
@@ -2363,4 +2393,3 @@ func (r *Registry) createMarcusPersona() *Persona {
 		},
 	}
 }
-
