@@ -696,3 +696,73 @@ Complete the zero-trust security architecture to eliminate trust assumptions bet
   * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
   * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending on network perimeter security.
 
+### 7.12 COTS Application Lifecycle Management & Upstream Security Patching Runbooks
+Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and operational runbooks for IT systems administrators (`emp-human-frank`, Platform Security & K8s Infrastructure Lead) to safely apply upstream security patches, minor updates, and major version upgrades across all Commercial-Off-The-Shelf (COTS) business platforms in `oci-internal` and identity systems in `oci-core`:
+
+* **Standardized IT Maintenance & Pre-Flight Procedure:**
+  * **Automated Pre-Upgrade Snapshots:** Triggering on-demand database backups using the internal backup cronjobs (`postgres-internal-backup-cronjob` and `postgres-core-backup-cronjob`) before initiating any image tag changes.
+  * **Staging Verification Gate:** Verifying updated container images and database migration scripts in `oci-dev` before applying manifests to production (`oci-internal` and `oci-core`).
+  * **Maintenance Windows & Service Banners:** Setting temporary maintenance banners via Ingress annotations and notifying active users.
+
+* **Application-Specific Upgrade Runbooks:**
+  * **Forgejo (`k8s/oci-internal/forgejo.yaml`):**
+    * Procedure for bumping `codeberg.org/forgejo/forgejo` image tags.
+    * Database migration handling (verifying automatic schema upgrades against `postgres-internal`).
+    * Forgejo Actions Runner (`k8s/oci-internal/forgejo-runner.yaml`): Updating `act_runner` sidecars and Docker-in-Docker (`docker:dind`) daemon components.
+    * Validating Git SSH access (`:2222`), webhook deliveries, and OAuth2 provider endpoints for employee authentication.
+  * **Nextcloud (`k8s/oci-internal/nextcloud.yaml`):**
+    * Strict adherence to upstream upgrade path rules (forbidding multi-major version skipping; e.g., upgrading iteratively from 28 $\rightarrow$ 29 $\rightarrow$ 30).
+    * Post-upgrade database maintenance commands via `occ` (`occ db:add-missing-indices`, `occ db:add-missing-columns`, `occ maintenance:repair`).
+    * Cache and Redis/Valkey session store synchronization.
+    * App compatibility audit for Group Folders, WebDAV compliance vault, and Deck Kanban cards.
+  * **Snipe-IT (`k8s/oci-internal/snipe-it.yaml`):**
+    * Image tag updates and automated Laravel database migrations (`php artisan migrate --force`).
+    * Preserving encryption keys (`APP_KEY`) across container restarts.
+    * Hardware asset checkout integrity audit and QR code label generation checks.
+  * **ERPNext & Frappe HR (`k8s/oci-internal/erpnext-frappe.yaml`, `frappe-hr.yaml`):**
+    * Multi-app DocType synchronization via Frappe bench migrations.
+    * Static asset compilation, cache clearing, and background worker queue drain.
+    * Timesheet, payroll ledger, and cost center balance verification against PostgreSQL.
+  * **ZITADEL Customer Identity Provider (`k8s/oci-core/zitadel.yaml`):**
+    * Executing ZITADEL setup and step initialization jobs (`zitadel init` / `zitadel setup`) for schema migrations.
+    * Maintaining OIDC client configurations, session cookies, and public keys during zero-downtime rolling updates.
+
+* **Automated Post-Upgrade Smoke Testing & Rollback Runbooks:**
+  * Automated validation using the simulation driver:
+    ```bash
+    go run ./simulation/cmd/simulator -mode live -persona emp-human-frank
+    ```
+  * Single-command rollback SOPs restoring persistent volume snapshots and rolling back deployment revisions (`kubectl rollout undo deployment/<cots-app> -n oci-internal`).
+
+### 7.13 Automated PKI Trust Distribution, Dynamic CA Rotation, and Long-Running Cluster Resilience
+Based on lessons learned from multi-day continuous cluster execution and active mTLS debugging on the test Kubernetes environment, implement the following infrastructure and codebase enhancements to guarantee uninterrupted operations, zero-downtime certificate rollovers, and stateful application stability:
+
+* **Automated Cross-Namespace CA Trust Distribution (`trust-manager` & `Bundle` CRD):**
+  * **The Problem:** Microservices in `oci-core` (BLL orchestrators and Domain APIs) mount `configMap: name: oci-ca-bundle` to establish mTLS trust pools. However, cert-manager natively provisions TLS secrets only within the issuing namespace (`cert-manager`). Without automated distribution, `oci-ca-bundle` must be manually copied, leading to pod startup crashes (`configmap "oci-ca-bundle" not found`) or stale trust stores when the Root or Intermediate CA is renewed.
+  * **Solution:** Deploy cert-manager's `trust-manager` addon and apply the declarative [`k8s/ha/lan/tls/oci-ca-bundle.yaml`](file:///home/ramjac/orange-cat-investments/k8s/ha/lan/tls/oci-ca-bundle.yaml) manifest. `trust-manager` continuously syncs `secret/oci-lan-root-ca-key-pair` in namespace `cert-manager` to `ConfigMap/oci-ca-bundle` across all application namespaces (`oci-core`, `oci-internal`, `monitoring`), ensuring automated zero-touch propagation of rotated CA certificates.
+
+* **Zero-Downtime Dynamic CA Pool Hot-Swapping in Go Microservices (`pkg/mtls`):**
+  * **The Problem:** While [`pkg/mtls.DynamicCertReloader`](file:///home/ramjac/orange-cat-investments/pkg/mtls/mtls.go) detects modification time changes on leaf certificates (`tls.crt` / `tls.key`) and reloads them on the fly, `NewServerTLSConfig` and `NewClientTLSConfig` read `ca.crt` only once at startup into `x509.NewCertPool()`. If the CA certificate rotates on disk, running gRPC servers and clients reject newly issued leaf certificates with `x509: certificate signed by unknown authority` until the pods are manually restarted.
+  * **Solution:** Extend `pkg/mtls` with a `DynamicCAPoolReloader` that watches file modification timestamps on the mounted `ca.crt` bundle. Hot-swap the active `ClientCAs` and `RootCAs` pools under read-write mutex lock or via `tls.Config.VerifyConnection`, allowing running services to seamlessly accept new CA roots without connection drops or pod restarts.
+
+* **Decoupled mTLS Probing Architecture (Dual-Port Health & Metrics):**
+  * **The Problem:** Kubelet node agents do not possess client certificates signed by the internal `oci-lan-issuer`. When Kubernetes liveness and readiness probes use `httpGet` against mTLS-enforced gRPC ports (`50051`–`50054`), the server terminates the TLS handshake with `tls: client didn't provide a certificate`, resulting in probe timeouts and CrashLoopBackOff.
+  * **Solution:** Standardize on `tcpSocket` probes for mTLS transport verification, and architect a dual-listener pattern for Go domain microservices: expose an isolated, unauthenticated plaintext HTTP listener on port `:8080` strictly for `/healthz` and Prometheus `/metrics`, while keeping all business RPCs on ports `50051`–`50054` strictly enforced with mutual TLS (`ClientAuth: RequireAndVerifyClientCert`).
+
+* **Active Kubernetes Cert-Manager CA Reconciler in `cmd/worker`:**
+  * **The Problem:** The background worker's CA rotation loop ([`cmd/worker/main.go`](file:///home/ramjac/orange-cat-investments/cmd/worker/main.go)) currently utilizes an in-memory simulation ([`internal/service/pki/ca_rotation.go`](file:///home/ramjac/orange-cat-investments/internal/service/pki/ca_rotation.go)) that generates mock serial numbers rather than interfacing with real Kubernetes resources.
+  * **Solution:** Upgrade `CARotationManager` to interface directly with the Kubernetes `cert-manager.io/v1` API using `client-go`. The worker will actively inspect `Certificate` and `ClusterIssuer` expiration metrics, trigger automated reissuances 30 days prior to expiry, verify `trust-manager` bundle synchronization, and publish canonical `ops.ca_rotated.v1` notification envelopes to RabbitMQ.
+
+* **COTS Persistent Volume Architecture & Stateless Reset Prevention (Nextcloud):**
+  * **The Problem:** Deploying COTS applications (such as Nextcloud or Snipe-IT) without persistent storage for configuration files (e.g. `/var/www/html/config`) causes the container entrypoint to trigger initial setup on every pod restart. When combined with database users possessing `CREATEROLE` privileges, Nextcloud creates thousands of ephemeral PostgreSQL roles (`oc_admin1`..`oc_admin9999`), eventually corrupting table ownership and failing with `ERROR: permission denied for table oc_migrations`.
+  * **Solution:** Mandate PersistentVolumeClaims (`nextcloud-data-pvc`, `nextcloud-config-pvc`) backed by replicated storage (`microk8s-hostpath` or Longhorn distributed block storage). Enforce strictly unprivileged database users (`nextcloud_user` without `CREATEROLE` or superuser privileges) across all COTS manifests to ensure idempotent restarts.
+
+* **Identity & Session Store Resiliency (ZITADEL & Valkey):**
+  * **The Problem:** Transient CoreDNS UDP latency or Calico CNI hiccups can cause ZITADEL database initialization to fail on boot (`hostname resolving error: read udp ...: i/o timeout`). Additionally, running Valkey without append-only file (AOF) persistence risks flushing all active user session cookies (`__Host-*-session`) during node reboots.
+  * **Solution:** Configure exponential backoff and connection retries on ZITADEL PostgreSQL connection pools. Mount a dedicated PersistentVolumeClaim on Valkey (`/data`) with `appendonly yes` enabled in `valkey.conf`.
+
+* **Cluster Control Plane & Host Certificate Expiration Runbooks:**
+  * **The Problem:** Kubernetes control plane certificates (K3s / MicroK8s apiserver, kubelet, and etcd peer certificates) expire automatically after 365 days unless explicitly renewed.
+  * **Solution:** Document Standard Operating Procedures for infrastructure engineers (`emp-human-frank`) to execute annual certificate refreshes (`microk8s refresh-certs` or `k3s certificate rotate`), and configure Prometheus Blackbox Exporter alerts (`probe_ssl_earliest_cert_expiry`) to alert the team 30 days prior to control plane or ingress TLS certificate expiration.
+
+

@@ -1073,11 +1073,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	caCertPath := os.Getenv("CA_CERT_PATH")
+	if caCertPath == "" {
+		if _, err := os.Stat("/etc/oci/tls/ca.crt"); err == nil {
+			caCertPath = "/etc/oci/tls/ca.crt"
+		} else if _, err := os.Stat("k8s/ha/lan/tls/oci-lan-root-ca.crt"); err == nil {
+			caCertPath = "k8s/ha/lan/tls/oci-lan-root-ca.crt"
+		}
+	}
+	caKeyPath := os.Getenv("CA_KEY_PATH")
+	if caKeyPath == "" {
+		if _, err := os.Stat("/etc/oci/tls/ca.key"); err == nil {
+			caKeyPath = "/etc/oci/tls/ca.key"
+		} else if _, err := os.Stat("k8s/ha/lan/tls/oci-lan-root-ca.key"); err == nil {
+			caKeyPath = "k8s/ha/lan/tls/oci-lan-root-ca.key"
+		}
+	}
+
 	caManager := pki.NewCARotationManager(pki.CARotationConfig{
 		RootCAName:           "oci-root-ca",
 		IntermediateCAName:   "oci-intermediate-ca",
 		RenewalThresholdDays: 30,
 		IssuerNamespace:      "cert-manager",
+		CACertFile:           caCertPath,
+		CAKeyFile:            caKeyPath,
 	})
 
 	go func() {

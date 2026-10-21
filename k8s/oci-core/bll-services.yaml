@@ -37,7 +37,7 @@ spec:
             - name: BANK_API_BASE_URL
               value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
             - name: RABBITMQ_URL
-              value: "amqp://guest:guest@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: DEFAULT_FELINE_ID
               value: "" # Optional default employee override; dynamically queried from workforce API if unset
             - name: TLS_CERT_FILE
@@ -61,17 +61,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8085
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8085
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -152,7 +148,7 @@ spec:
             - name: OPS_API_URL
               value: "https://ops-api-service.oci-core.svc.cluster.local:50054"
             - name: RABBITMQ_URL
-              value: "amqp://guest:guest@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: TLS_CERT_FILE
               value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE
@@ -174,17 +170,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8086
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8086
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:

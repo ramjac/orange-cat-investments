@@ -1,0 +1,31 @@
+# ==============================================================================
+# cert-manager trust-manager Bundle & CA Trust Distribution
+# ==============================================================================
+# Distributes the Orange Cat Investments Intranet Root CA from the `cert-manager`
+# namespace into an automatically synchronized `oci-ca-bundle` ConfigMap across
+# target application namespaces (oci-core, oci-internal, etc.).
+# Requires cert-manager trust-manager: https://cert-manager.io/docs/trust/trust-manager/
+# ==============================================================================
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: oci-ca-bundle
+spec:
+  sources:
+    # Use the in-cluster Intranet Root CA key pair secret
+    - secret:
+        name: "oci-lan-root-ca-key-pair"
+        key: "tls.crt"
+  target:
+    # Automatically creates and updates ConfigMap 'oci-ca-bundle' containing 'ca.crt'
+    # in all namespaces matching the selector (or all namespaces by default)
+    configMap:
+      key: "ca.crt"
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - oci-core
+            - oci-internal
+            - default

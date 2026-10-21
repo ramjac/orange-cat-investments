@@ -38,7 +38,7 @@ spec:
             - name: BANK_API_BASE_URL
               value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
             - name: RABBITMQ_URL
-              value: "amqp://guest:guest@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: INTERNAL_SERVICE_KEY
               valueFrom:
                 secretKeyRef:
