@@ -1524,7 +1524,7 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tok, err := generateRandomToken(16)
+	tok, err := generateRandomToken(32)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate webhook secret"})

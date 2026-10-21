@@ -392,7 +392,7 @@ func TestCustomerBFF_Webhooks(t *testing.T) {
 	assert.Equal(t, "https://example.com/callback", created["target_url"])
 	secretStr, ok := created["secret"].(string)
 	assert.True(t, ok)
-	assert.True(t, len(secretStr) > 6)
+	assert.Equal(t, 70, len(secretStr), "webhook secret should be prefix 'whsec_' (6 chars) + 64 hex chars (32 bytes = 256 bits entropy)")
 	assert.True(t, secretStr[:6] == "whsec_")
 }
 
