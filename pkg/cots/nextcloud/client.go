@@ -125,12 +125,13 @@ func (c *Client) newRequest(ctx context.Context, method, path string, form url.V
 }
 
 // CreateUser provisions a new user with quota and group memberships.
+// For production OCI applications, a non-empty Password is required.
 func (c *Client) CreateUser(ctx context.Context, opt CreateUserOption) (*User, error) {
 	if opt.UserID == "" {
 		return nil, errors.New("userid cannot be empty")
 	}
 	if opt.Password == "" {
-		opt.Password = fmt.Sprintf("NextCloud!%d", time.Now().UnixNano())
+		return nil, errors.New("password cannot be empty")
 	}
 	if opt.Quota == "" {
 		opt.Quota = "25 GB"
@@ -314,7 +315,8 @@ func (c *Client) ListGroupFolders(ctx context.Context) ([]GroupFolder, error) {
 			}
 		}
 	}
-	return DefaultGroupFolders(), nil
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("nextcloud ListGroupFolders returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 // CreateGroupFolder configures a new departmental group folder in Nextcloud.
@@ -396,7 +398,8 @@ func (c *Client) ListDocuments(ctx context.Context, department, category, query 
 			return filterDocuments(list, department, category, query), nil
 		}
 	}
-	return filterDocuments(DefaultDocuments(), department, category, query), nil
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("nextcloud ListDocuments returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 // GetDocument fetches a specific intranet document by ID.
@@ -426,12 +429,8 @@ func (c *Client) GetDocument(ctx context.Context, id string) (*Document, error) 
 			return &doc, nil
 		}
 	}
-	for _, doc := range DefaultDocuments() {
-		if doc.DocumentID == id {
-			return &doc, nil
-		}
-	}
-	return nil, fmt.Errorf("document %s not found", id)
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("document %s not found in Nextcloud (status %d): %s", id, resp.StatusCode, string(bodyBytes))
 }
 
 // ListCalendarEvents returns scheduled shifts, maintenance windows, and company milestones.
@@ -477,7 +476,8 @@ func (c *Client) ListCalendarEvents(ctx context.Context, calendar, department st
 			return filterCalendarEvents(list, calendar, department), nil
 		}
 	}
-	return filterCalendarEvents(DefaultCalendarEvents(), calendar, department), nil
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("nextcloud ListCalendarEvents returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
 // CreateCalendarEvent schedules a new shift, maintenance, or milestone calendar event.

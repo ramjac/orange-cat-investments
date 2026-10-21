@@ -34,6 +34,7 @@ func TestNextcloudClient_CreateUser(t *testing.T) {
 
 	user, err := client.CreateUser(context.Background(), CreateUserOption{
 		UserID:      "rick.newhire",
+		Password:    "SecretDevPass123!",
 		DisplayName: "Rick Newhire",
 		Email:       "rick.newhire@oci.local",
 		Quota:       "50 GB",
@@ -42,6 +43,15 @@ func TestNextcloudClient_CreateUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rick.newhire", user.ID)
 	assert.Equal(t, "50 GB", user.Quota)
+}
+
+func TestNextcloudClient_CreateUser_PasswordRequired(t *testing.T) {
+	client := NewClient(Config{BaseURL: "http://dummy.local"})
+	_, err := client.CreateUser(context.Background(), CreateUserOption{
+		UserID: "test.user",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "password cannot be empty")
 }
 
 func TestNextcloudClient_DisableUser(t *testing.T) {

@@ -3,8 +3,6 @@ package forgejo
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -210,25 +208,14 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 	return req, nil
 }
 
-func generateSecurePassword() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate secure random password: %w", err)
-	}
-	return fmt.Sprintf("TempPass!%s", hex.EncodeToString(b)), nil
-}
-
 // CreateUser creates a new user account in Forgejo via admin API.
+// For production OCI applications, a non-empty Password is required.
 func (c *Client) CreateUser(ctx context.Context, opt CreateUserOption) (*User, error) {
 	if opt.Username == "" || opt.Email == "" {
 		return nil, errors.New("username and email are required to create a Forgejo user")
 	}
 	if opt.Password == "" {
-		pass, err := generateSecurePassword()
-		if err != nil {
-			return nil, err
-		}
-		opt.Password = pass
+		return nil, errors.New("password is required to create a Forgejo user")
 	}
 
 	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/admin/users", opt)
