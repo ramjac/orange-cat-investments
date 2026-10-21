@@ -51,6 +51,50 @@ func TestForgejoClient_CreateUser(t *testing.T) {
 	assert.Equal(t, "elise.dev", user.UserName)
 }
 
+func TestForgejoClient_CreateUser_DefaultPasswordGeneration(t *testing.T) {
+	var capturedPasswords []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var opt CreateUserOption
+		err := json.NewDecoder(r.Body).Decode(&opt)
+		require.NoError(t, err)
+
+		capturedPasswords = append(capturedPasswords, opt.Password)
+
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(User{
+			ID:       100,
+			UserName: opt.Username,
+			Email:    opt.Email,
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL: server.URL,
+		Token:   "secret-token",
+	})
+
+	// Call CreateUser twice without specifying a password
+	_, err1 := client.CreateUser(context.Background(), CreateUserOption{
+		Username: "user1",
+		Email:    "user1@oci.local",
+	})
+	require.NoError(t, err1)
+
+	_, err2 := client.CreateUser(context.Background(), CreateUserOption{
+		Username: "user2",
+		Email:    "user2@oci.local",
+	})
+	require.NoError(t, err2)
+
+	require.Len(t, capturedPasswords, 2)
+	assert.True(t, len(capturedPasswords[0]) >= 20, "generated password should be long enough")
+	assert.True(t, len(capturedPasswords[1]) >= 20, "generated password should be long enough")
+	assert.NotEqual(t, capturedPasswords[0], capturedPasswords[1], "generated passwords should be distinct and random")
+	assert.Contains(t, capturedPasswords[0], "TempPass!")
+}
+
 func TestForgejoClient_AddUserPublicKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v1/admin/users/elise.dev/keys", r.URL.Path)
