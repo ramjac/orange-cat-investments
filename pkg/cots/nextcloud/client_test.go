@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +43,32 @@ func TestNextcloudClient_CreateUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rick.newhire", user.ID)
 	assert.Equal(t, "50 GB", user.Quota)
+}
+
+func TestNextcloudClient_CreateUser_DefaultPassword(t *testing.T) {
+	var capturedPasswords []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseForm()
+		require.NoError(t, err)
+		capturedPasswords = append(capturedPasswords, r.FormValue("password"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ocs":{"meta":{"status":"ok","statuscode":100,"message":"OK"}}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{BaseURL: server.URL})
+
+	_, err1 := client.CreateUser(context.Background(), CreateUserOption{UserID: "user1"})
+	require.NoError(t, err1)
+
+	_, err2 := client.CreateUser(context.Background(), CreateUserOption{UserID: "user2"})
+	require.NoError(t, err2)
+
+	require.Len(t, capturedPasswords, 2)
+	assert.True(t, strings.HasPrefix(capturedPasswords[0], "NextCloud!"))
+	assert.True(t, strings.HasPrefix(capturedPasswords[1], "NextCloud!"))
+	assert.NotEqual(t, capturedPasswords[0], capturedPasswords[1], "generated passwords should be unique")
+	assert.Len(t, capturedPasswords[0], len("NextCloud!")+32, "password should contain prefix and 32 hex chars (16 bytes)")
 }
 
 func TestNextcloudClient_DisableUser(t *testing.T) {
