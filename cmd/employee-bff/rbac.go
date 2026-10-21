@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -55,7 +54,7 @@ func SessionAuthMiddleware(store *SessionStore) func(http.Handler) http.Handler 
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), employeeContextKey, sess)
+			ctx := WithEmployeeSession(r.Context(), sess)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
