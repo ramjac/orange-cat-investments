@@ -64,45 +64,82 @@ func TestGenerateMonthlyStatementPDF(t *testing.T) {
 }
 
 func TestGenerateForm1099BPDF(t *testing.T) {
-	stmt := &Form1099BStatement{
-		StatementID:           "1099b-test-2025",
-		PortfolioID:           "port-test-001",
-		CustomerID:            "cust-test-001",
-		CustomerName:          "Chloe Spark",
-		TaxYear:               2025,
-		PayerName:             "Orange Cat Investments LLC",
-		PayerTIN:              "12-3456789",
-		RecipientTIN:          "***-**-8842",
-		TotalGrossProceedsUSD: 75400.00,
-		TotalCostBasisUSD:     58200.00,
-		TotalRealizedGainUSD:  17200.00,
-		ShortTermGainUSD:      12400.00,
-		LongTermGainUSD:       4800.00,
-		Transactions: []Form1099BTransaction{
-			{
-				Description:            "50 shs NVDA",
-				Symbol:                 "NVDA",
-				Quantity:               50.0,
-				DateAcquired:           "2025-02-10",
-				DateSold:               "2025-08-14",
-				GrossProceedsUSD:       6940.00,
-				CostBasisUSD:           5500.00,
-				WashSaleLossDisallowed: 0.00,
-				RealizedGainLossUSD:    1440.00,
-				IsShortTerm:            true,
+	t.Run("Valid statement generation with positive and negative gains", func(t *testing.T) {
+		stmt := &Form1099BStatement{
+			StatementID:           "1099b-test-2025",
+			PortfolioID:           "port-test-001",
+			CustomerID:            "cust-test-001",
+			CustomerName:          "Chloe Spark",
+			TaxYear:               2025,
+			PayerName:             "Orange Cat Investments LLC",
+			PayerTIN:              "12-3456789",
+			RecipientTIN:          "***-**-8842",
+			TotalGrossProceedsUSD: 75400.00,
+			TotalCostBasisUSD:     58200.00,
+			TotalRealizedGainUSD:  17200.00,
+			ShortTermGainUSD:      12400.00,
+			LongTermGainUSD:       4800.00,
+			Transactions: []Form1099BTransaction{
+				{
+					Description:            "50 shs NVDA",
+					Symbol:                 "NVDA",
+					Quantity:               50.0,
+					DateAcquired:           "2025-02-10",
+					DateSold:               "2025-08-14",
+					GrossProceedsUSD:       6940.00,
+					CostBasisUSD:           5500.00,
+					WashSaleLossDisallowed: 0.00,
+					RealizedGainLossUSD:    1440.00,
+					IsShortTerm:            true,
+				},
+				{
+					Description:            "20 shs TSLA",
+					Symbol:                 "TSLA",
+					Quantity:               20.0,
+					DateAcquired:           "2025-01-15",
+					DateSold:               "2025-06-20",
+					GrossProceedsUSD:       3000.00,
+					CostBasisUSD:           3500.00,
+					WashSaleLossDisallowed: 100.00,
+					RealizedGainLossUSD:    -500.00,
+					IsShortTerm:            true,
+				},
 			},
-		},
-		CreatedAt: time.Now().UTC(),
-	}
+			CreatedAt: time.Now().UTC(),
+		}
 
-	pdfBytes, err := GenerateForm1099BPDF(stmt)
-	require.NoError(t, err)
-	assert.NotEmpty(t, pdfBytes)
+		pdfBytes, err := GenerateForm1099BPDF(stmt)
+		require.NoError(t, err)
+		assert.NotEmpty(t, pdfBytes)
 
-	assert.True(t, bytes.HasPrefix(pdfBytes, []byte("%PDF-1.4")))
-	assert.True(t, bytes.Contains(pdfBytes, []byte("FORM 1099-B")))
-	assert.True(t, bytes.Contains(pdfBytes, []byte("Orange Cat Investments LLC")))
-	assert.True(t, bytes.Contains(pdfBytes, []byte("NVDA")))
+		assert.True(t, bytes.HasPrefix(pdfBytes, []byte("%PDF-1.4")))
+		assert.True(t, bytes.Contains(pdfBytes, []byte("FORM 1099-B")))
+		assert.True(t, bytes.Contains(pdfBytes, []byte("Orange Cat Investments LLC")))
+		assert.True(t, bytes.Contains(pdfBytes, []byte("NVDA")))
+		assert.True(t, bytes.Contains(pdfBytes, []byte("TSLA")))
+		assert.True(t, bytes.Contains(pdfBytes, []byte("0.7 0.1 0.1 rg")), "Red color text stream for negative gain/loss should be included")
+	})
+
+	t.Run("Nil statement error check", func(t *testing.T) {
+		pdfBytes, err := GenerateForm1099BPDF(nil)
+		require.Error(t, err)
+		assert.Nil(t, pdfBytes)
+		assert.Equal(t, "statement is nil", err.Error())
+	})
+}
+
+func TestGenerateMonthlyStatementPDF_Nil(t *testing.T) {
+	pdfBytes, err := GenerateMonthlyStatementPDF(nil)
+	require.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.Equal(t, "statement is nil", err.Error())
+}
+
+func TestGenerateGDPRCertificatePDF_Nil(t *testing.T) {
+	pdfBytes, err := GenerateGDPRCertificatePDF(nil)
+	require.Error(t, err)
+	assert.Nil(t, pdfBytes)
+	assert.Equal(t, "certificate is nil", err.Error())
 }
 
 func TestGenerateGDPRCertificatePDF(t *testing.T) {
