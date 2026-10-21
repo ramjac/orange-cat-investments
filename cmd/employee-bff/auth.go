@@ -381,17 +381,3 @@ func (h *AuthHandler) HandleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(session)
 }
-
-// BasicAuthMiddleware enforces HTTP Basic Authentication against expected credentials.
-func BasicAuthMiddleware(expectedUser, expectedPass string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			user, pass, ok := r.BasicAuth()
-			if !ok || user != expectedUser || pass != expectedPass {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}

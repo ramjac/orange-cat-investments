@@ -8,75 +8,6 @@ import (
 	"testing"
 )
 
-func TestBasicAuthMiddleware(t *testing.T) {
-	expectedUser := "admin"
-	expectedPass := "secret123"
-
-	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"success"}`))
-	})
-
-	middleware := BasicAuthMiddleware(expectedUser, expectedPass)
-	protectedEndpoint := middleware(dummyHandler)
-
-	t.Run("Missing Authorization header returns 401 Unauthorized", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/protected", nil)
-		rec := httptest.NewRecorder()
-
-		protectedEndpoint.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected status 401 Unauthorized, got %d", rec.Code)
-		}
-
-		body := strings.TrimSpace(rec.Body.String())
-		if body != "Unauthorized" {
-			t.Errorf("expected body 'Unauthorized', got '%s'", body)
-		}
-	})
-
-	t.Run("Invalid BasicAuth credentials return 401 Unauthorized", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/protected", nil)
-		req.SetBasicAuth("admin", "wrongpassword")
-		rec := httptest.NewRecorder()
-
-		protectedEndpoint.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected status 401 Unauthorized, got %d", rec.Code)
-		}
-	})
-
-	t.Run("Wrong username returns 401 Unauthorized", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/protected", nil)
-		req.SetBasicAuth("wronguser", "secret123")
-		rec := httptest.NewRecorder()
-
-		protectedEndpoint.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected status 401 Unauthorized, got %d", rec.Code)
-		}
-	})
-
-	t.Run("Valid BasicAuth credentials pass through to handler", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/protected", nil)
-		req.SetBasicAuth("admin", "secret123")
-		rec := httptest.NewRecorder()
-
-		protectedEndpoint.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected status 200 OK, got %d", rec.Code)
-		}
-
-		if !strings.Contains(rec.Body.String(), "success") {
-			t.Errorf("expected success response body, got '%s'", rec.Body.String())
-		}
-	})
-}
-
 func TestAuthHandler_LoginAndSession(t *testing.T) {
 	store := NewSessionStore()
 	handler := NewAuthHandler(store, "", false)
@@ -145,6 +76,17 @@ func TestAuthHandler_LoginAndSession(t *testing.T) {
 		}
 		if retrieved.EmployeeID != "emp-test-02" {
 			t.Errorf("expected employee_id 'emp-test-02', got '%s'", retrieved.EmployeeID)
+		}
+	})
+
+	t.Run("HandleGetSession returns 401 when unauthenticated", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/employee/auth/session", nil)
+		rec := httptest.NewRecorder()
+
+		handler.HandleGetSession(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401 Unauthorized, got %d", rec.Code)
 		}
 	})
 
