@@ -749,4 +749,52 @@ Implement robust, low-overhead queue telemetry and automated alerting across Rab
   * **Stagnant Consumers & Worker Failures:** Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating dead, hung, or disconnected worker subscriptions).
   * **Erlang Process & Memory Watermarks:** Monitor `rabbitmq_process_resident_memory_bytes` against `rabbitmq_resident_memory_limit_bytes` and file descriptor limits to detect resource starvation before RabbitMQ connection flow control and alarms kick in.
 
+### 7.20 Research: Infrastructure Application Monitoring (Valkey, Meilisearch, RabbitMQ, & PostgreSQL)
+Research and evaluate comprehensive Prometheus telemetry, health probing, and alerting strategies for core stateful infrastructure backing Orange Cat Investments (`valkey`, `meilisearch`, `rabbitmq`, and dual `postgres-core`/`postgres-internal` databases). Because databases and persistence stores generally do not expose Prometheus metrics natively, Kubernetes architectures must evaluate the **Exporter Sidecar Pattern**, dedicated operators, or native internal plugin modules:
+
+* **Valkey (In-Memory Cache & Session Store):**
+  * **Redis Wire Compatibility:** Because Valkey maintains wire and command compatibility with Redis, the standard `oliver006/redis_exporter` works seamlessly without custom forks.
+  * **Setup:**
+    * If deployed via Helm chart, toggle `metrics.enabled=true` to automatically inject `redis_exporter` as a sidecar container listening on port `9121` alongside a `ServiceMonitor` / `PodMonitor`.
+    * In native manifests (`k8s/oci-core/valkey.yaml`), deploy `oliver006/redis_exporter:latest` as a sidecar container pointing to `redis://localhost:6379`.
+  * **Key Metrics & Alerts:**
+    * *Memory Saturation:* Compare `redis_memory_used_bytes` against `redis_memory_max_bytes` (alert above 85% to prevent sudden Linux OOMKilled pod evictions).
+    * *Key Evictions:* `increase(redis_evicted_keys_total[5m]) > 0` indicates Valkey is dropping keys under memory pressure, directly impacting active BFF sessions (`pkg/session/valkey`) and cached API query results (`pkg/cache/valkey`).
+    * *Cache Efficiency:* Calculate hit rate: `redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)` (alert when hit rate drops below baseline thresholds).
+    * *Connected Clients & Command Latency:* Monitor `redis_connected_clients` against connection caps and track slow operations via `redis_slowlog_length`.
+
+* **PostgreSQL (Dual-Instance RDBMS - `postgres-core` & `postgres-internal`):**
+  * **Setup:**
+    * *CloudNativePG Operator (Recommended):* Migrate from static StatefulSets/Deployments to the CloudNativePG (CNPG) Operator, which embeds a Prometheus exporter directly into its instance manager on port `9187` with automated failover, WAL archiving, and declarative `PodMonitor` CRDs.
+    * *Exporter Sidecar:* Alternatively, run `prometheus-community/postgres_exporter` as a sidecar in `k8s/oci-core/postgres.yaml` and `k8s/oci-internal/postgres.yaml` authenticated via a read-only monitoring database role.
+    * *Query Profiling Extension:* Ensure the `pg_stat_statements` extension is enabled in `postgresql.conf` and database bootstrap scripts to monitor slow queries, execution counts, and buffer hit cache ratios.
+  * **Key Metrics & Alerts:**
+    * *Connection Saturation:* Active connections (`pg_stat_activity_count`) approaching `pg_settings_max_connections` (alert at 80% to prevent rejecting connection requests from application pools in `pgxpool`).
+    * *Dead Tuples & Autovacuum Lag:* Monitor `pg_stat_user_tables_n_dead_tup` to detect autovacuum starvation, which leads to severe table bloat and degraded query performance over time.
+    * *Transaction ID Wraparound & Replication Lag:* Monitor `pg_database_age` against emergency vacuum limits, and track WAL replication lag (`pg_stat_replication_bytes_lag`) if read replicas are deployed.
+    * *Buffer Cache Hit Ratio:* Alert if `sum(blks_hit) / (sum(blks_hit) + sum(blks_read))` drops below 99%.
+
+* **Meilisearch (Full-Text Search Engine):**
+  * **Setup & Exposition:**
+    * Enable experimental native Prometheus telemetry via the `--experimental-prometheus-metrics` CLI flag or environment variable `MEILI_EXPERIMENTAL_PROMETHEUS_METRICS=true` on port `7700`.
+    * Alternatively, deploy a lightweight exporter sidecar (such as `meilisearch-exporter` or a custom Go daemon) querying Meilisearch's internal `/health`, `/stats`, and `/tasks` JSON APIs.
+  * **Key Metrics & Alerts:**
+    * *Task & Indexing Queue Backlog:* Monitor pending task count (`meilisearch_task_queue_depth` or pending tasks in `/tasks?statuses=enqueued,processing`) to detect asynchronous indexing lag when updating knowledge base documents, SOPs, or VHR health records.
+    * *LMDB Disk & Memory Saturation:* Monitor `meilisearch_database_size_bytes` against the persistent volume capacity (`meilisearch-data-pvc`), and track memory virtual mapping (LMDB memory map size) to prevent out-of-disk crashes during large document re-indexing jobs.
+    * *Search Latency & QPS:* Track P95 and P99 search request latencies and queries per second (QPS) across the Employee Portal Command+K search palette.
+    * *Index Document Counts & Updates:* Track document counts per index (`helpdesk`, `sop_docs`, `vhr_records`) to verify document synchronization consistency.
+
+* **RabbitMQ (Distributed Message Broker & Event Bus):**
+  * **Native Plugin Telemetry (No Exporter Sidecar Required):**
+    * Unlike databases requiring external sidecars, RabbitMQ ships with the first-class `rabbitmq_prometheus` plugin operating directly inside the Erlang runtime on port `15692`.
+    * Avoid third-party HTTP management API exporters (`/api/...`) which poll the web interface and cause severe CPU/memory overhead under heavy message loads.
+  * **Setup & Per-Object Cardinality Tuning:**
+    * Enable `rabbitmq_prometheus` in `enabled_plugins` and expose port `15692` in `k8s/oci-core/rabbitmq.yaml` (container port and `rabbitmq-service`).
+    * Set `prometheus.return_per_object_metrics = true` in `rabbitmq.conf` (or scrape `/metrics/per-object`) so every individual queue and DLQ gets its own `queue="<name>"` label in Prometheus (see [Section 7.19](#719-queue-depths-and-dead-letter-queues-in-rabbitmq-built-in-prometheus-telemetry)).
+  * **Key Metrics & Alerts:**
+    * *Dead-Letter Queue (DLQ) Backlog:* Immediate alert if `rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 0` (poison pills or worker deserialization failures).
+    * *Queue Depth & Backlog Spikes:* Monitor unacknowledged and ready message counts against worker consumption rates.
+    * *Stagnant Consumers:* Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating disconnected or dead subscriber routines).
+    * *Erlang VM & Node Alarms:* Monitor `rabbitmq_process_resident_memory_bytes` against memory watermark limits and track `rabbitmq_disk_free_alarm` and `rabbitmq_memory_alarm` boolean states.
+
 
