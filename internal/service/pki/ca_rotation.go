@@ -45,11 +45,12 @@ type CARotationConfig struct {
 
 // CAStatus contains the cryptographic status of the active CA certificate.
 type CAStatus struct {
-	CAName        string    `json:"ca_name"`
-	SerialNumber  string    `json:"serial_number"`
-	IssuedAt      time.Time `json:"issued_at"`
-	ExpiresAt     time.Time `json:"expires_at"`
-	NeedsRotation bool      `json:"needs_rotation"`
+	CAName            string    `json:"ca_name"`
+	SerialNumber      string    `json:"serial_number"`
+	IssuedAt          time.Time `json:"issued_at"`
+	ExpiresAt         time.Time `json:"expires_at"`
+	NeedsRotation     bool      `json:"needs_rotation"`
+	TrustBundleSynced bool      `json:"trust_bundle_synced"`
 }
 
 // RotationResult encapsulates the outcome of a CA rotation check and action.
@@ -59,6 +60,7 @@ type RotationResult struct {
 	NewSerialNumber           string    `json:"new_serial_number"`
 	ExpiresAt                 time.Time `json:"expires_at"`
 	ReissuedCertificatesCount int       `json:"reissued_certificates_count"`
+	TrustBundleSynced         bool      `json:"trust_bundle_synced"`
 	Status                    string    `json:"status"`
 }
 
@@ -233,6 +235,12 @@ func (m *caRotationManager) GetCAStatus(ctx context.Context) (*CAStatus, error) 
 	statusCopy := *m.currentStatus
 	statusCopy.NeedsRotation = daysRemaining <= m.config.RenewalThresholdDays || now.After(m.currentStatus.ExpiresAt)
 
+	if m.kubeClient != nil && m.kubeBaseURL != "" {
+		if synced, err := m.verifyTrustBundle(ctx); err == nil {
+			statusCopy.TrustBundleSynced = synced
+		}
+	}
+
 	return &statusCopy, nil
 }
 
@@ -250,6 +258,7 @@ func (m *caRotationManager) CheckAndRotateCA(ctx context.Context) (*RotationResu
 			IntermediateCAName: status.CAName,
 			NewSerialNumber:     status.SerialNumber,
 			ExpiresAt:           status.ExpiresAt,
+			TrustBundleSynced:   status.TrustBundleSynced,
 			Status:              "NO_ROTATION_NEEDED",
 		}, nil
 	}
@@ -294,9 +303,13 @@ func (m *caRotationManager) CheckAndRotateCA(ctx context.Context) (*RotationResu
 
 	// Update Kubernetes Secret if in-cluster client is available
 	reissuedCount := 12 // Default expected count of microservice certificates
+	bundleSynced := false
 	if m.kubeClient != nil && m.kubeBaseURL != "" {
 		if count, err := m.syncKubeSecret(ctx, newCertPEM, newKeyPEM); err == nil && count > 0 {
 			reissuedCount = count
+		}
+		if synced, err := m.verifyTrustBundle(ctx); err == nil {
+			bundleSynced = synced
 		}
 	}
 
@@ -313,8 +326,67 @@ func (m *caRotationManager) CheckAndRotateCA(ctx context.Context) (*RotationResu
 		NewSerialNumber:           serialStr,
 		ExpiresAt:                 newCert.NotAfter,
 		ReissuedCertificatesCount: reissuedCount,
+		TrustBundleSynced:         bundleSynced,
 		Status:                    "CA_ROTATED_SUCCESSFULLY",
 	}, nil
+}
+
+// verifyTrustBundle checks whether trust-manager has synchronized the oci-ca-bundle Bundle across target namespaces.
+func (m *caRotationManager) verifyTrustBundle(ctx context.Context) (bool, error) {
+	if m.kubeClient == nil || m.kubeBaseURL == "" {
+		return false, nil
+	}
+	url := fmt.Sprintf("%s/apis/trust.cert-manager.io/v1alpha1/bundles/oci-ca-bundle", m.kubeBaseURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+m.kubeToken)
+
+	resp, err := m.kubeClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var bundle struct {
+			Status struct {
+				Conditions []struct {
+					Type   string `json:"type"`
+					Status string `json:"status"`
+					Reason string `json:"reason"`
+				} `json:"conditions"`
+			} `json:"status"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&bundle); err == nil {
+			for _, cond := range bundle.Status.Conditions {
+				if cond.Type == "Synced" && cond.Status == "True" {
+					slog.Info("trust-manager bundle verified and synchronized across namespaces",
+						"bundle", "oci-ca-bundle",
+						"reason", cond.Reason,
+					)
+					return true, nil
+				}
+			}
+		}
+	}
+
+	// Fallback check: verify ConfigMap directly in target namespace (oci-core)
+	cmURL := fmt.Sprintf("%s/api/v1/namespaces/oci-core/configmaps/oci-ca-bundle", m.kubeBaseURL)
+	reqCM, err := http.NewRequestWithContext(ctx, http.MethodGet, cmURL, nil)
+	if err == nil {
+		reqCM.Header.Set("Authorization", "Bearer "+m.kubeToken)
+		if respCM, err := m.kubeClient.Do(reqCM); err == nil {
+			defer respCM.Body.Close()
+			if respCM.StatusCode == http.StatusOK {
+				slog.Info("target namespace ConfigMap oci-ca-bundle verified present", "namespace", "oci-core")
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func (m *caRotationManager) syncKubeSecret(ctx context.Context, certPEM, keyPEM []byte) (int, error) {

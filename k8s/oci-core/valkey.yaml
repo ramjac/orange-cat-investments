@@ -18,9 +18,18 @@ spec:
       containers:
         - name: valkey
           image: valkey/valkey:7.2-alpine
+          command:
+            - valkey-server
+            - "--appendonly"
+            - "yes"
+            - "--dir"
+            - "/data"
           ports:
             - containerPort: 6379
               name: redis
+          volumeMounts:
+            - name: valkey-data
+              mountPath: /data
           resources:
             requests:
               cpu: 100m
@@ -28,6 +37,22 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: valkey-data
+          persistentVolumeClaim:
+            claimName: valkey-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-data-pvc
+  namespace: oci-core
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
 ---
 apiVersion: v1
 kind: Service

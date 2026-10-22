@@ -127,9 +127,10 @@ func TestCARotationManager(t *testing.T) {
 		assert.Equal(t, res.NewSerialNumber, freshStatus.SerialNumber)
 	})
 
-	t.Run("Kubernetes API Secret and Certificate Sync", func(t *testing.T) {
+	t.Run("Kubernetes API Secret, Certificate and Trust Bundle Sync", func(t *testing.T) {
 		secretUpdated := false
 		certsQueried := false
+		bundleQueried := false
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
@@ -152,6 +153,14 @@ func TestCARotationManager(t *testing.T) {
 				return
 			}
 
+			if r.Method == http.MethodGet && r.URL.Path == "/apis/trust.cert-manager.io/v1alpha1/bundles/oci-ca-bundle" {
+				bundleQueried = true
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"status":{"conditions":[{"type":"Synced","status":"True","reason":"Synced"}]}}`))
+				return
+			}
+
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer server.Close()
@@ -170,7 +179,13 @@ func TestCARotationManager(t *testing.T) {
 		assert.Equal(t, "CA_ROTATED_SUCCESSFULLY", res.Status)
 		assert.True(t, secretUpdated, "expected Kubernetes Secret to be updated via PUT")
 		assert.True(t, certsQueried, "expected cert-manager Certificates to be queried via GET")
+		assert.True(t, bundleQueried, "expected trust-manager Bundle to be verified via GET")
+		assert.True(t, res.TrustBundleSynced)
 		assert.Equal(t, 3, res.ReissuedCertificatesCount)
+
+		status, err := manager.GetCAStatus(ctx)
+		require.NoError(t, err)
+		assert.True(t, status.TrustBundleSynced)
 	})
 
 	t.Run("Cryptographic X509 Certificate Chain Verification", func(t *testing.T) {

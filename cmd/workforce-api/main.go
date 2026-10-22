@@ -87,6 +87,8 @@ func main() {
 		logger.Info("Workforce Domain API configured with dynamic mTLS")
 	}
 
+	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "workforce-api")
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -109,6 +111,10 @@ func main() {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+
+	if healthServer != nil {
+		_ = healthServer.Shutdown(shutdownCtx)
+	}
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("failed graceful shutdown", "error", err)

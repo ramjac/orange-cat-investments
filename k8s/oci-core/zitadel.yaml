@@ -63,6 +63,25 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE
               value: disable
+            - name: ZITADEL_DATABASE_POSTGRES_MAXCONN
+              value: "20"
+            - name: ZITADEL_DATABASE_POSTGRES_MAXCONNLIFETIME
+              value: "5m"
+            - name: ZITADEL_DATABASE_POSTGRES_MAXCONNIDLETIME
+              value: "2m"
+          startupProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
           resources:
             requests:
               cpu: 250m
