@@ -1,11 +1,13 @@
 package mtls
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -231,7 +233,8 @@ func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, er
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{
+	var tlsConfig *tls.Config
+	tlsConfig = &tls.Config{
 		MinVersion:           tls.VersionTLS12,
 		GetClientCertificate: reloader.GetClientCertificate,
 		RootCAs:              initialPool,
@@ -255,9 +258,13 @@ func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, er
 			if _, err := cs.PeerCertificates[0].Verify(opts); err != nil {
 				return fmt.Errorf("mTLS peer certificate chain verification failed: %w", err)
 			}
-			if cs.ServerName != "" {
-				if err := cs.PeerCertificates[0].VerifyHostname(cs.ServerName); err != nil {
-					return fmt.Errorf("mTLS hostname verification failed for %s: %w", cs.ServerName, err)
+			expectedHost := cs.ServerName
+			if expectedHost == "" {
+				expectedHost = tlsConfig.ServerName
+			}
+			if expectedHost != "" {
+				if err := cs.PeerCertificates[0].VerifyHostname(expectedHost); err != nil {
+					return fmt.Errorf("mTLS hostname verification failed for %s: %w", expectedHost, err)
 				}
 			}
 			return nil
@@ -278,6 +285,27 @@ func NewDynamicHTTPClient(certFile, keyFile, serverCAFile string, timeout time.D
 		TLSClientConfig:       tlsConfig,
 		ResponseHeaderTimeout: timeout,
 		ForceAttemptHTTP2:     true,
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, _, err := net.SplitHostPort(addr)
+			if err != nil {
+				host = addr
+			}
+			cfg := tlsConfig.Clone()
+			if cfg.ServerName == "" {
+				cfg.ServerName = host
+			}
+			dialer := &net.Dialer{Timeout: timeout}
+			conn, err := dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			tlsConn := tls.Client(conn, cfg)
+			if err := tlsConn.HandshakeContext(ctx); err != nil {
+				_ = conn.Close()
+				return nil, err
+			}
+			return tlsConn, nil
+		},
 	}
 
 	return &http.Client{

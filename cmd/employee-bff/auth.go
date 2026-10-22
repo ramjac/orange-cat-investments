@@ -290,17 +290,29 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if c, err := r.Cookie("employee_session"); err == nil {
-		h.store.Delete(c.Value)
-	}
-	if c, err := r.Cookie("__Host-employee-session"); err == nil {
-		h.store.Delete(c.Value)
+
+	var token string
+	if c, err := r.Cookie("__Host-employee-session"); err == nil && c.Value != "" {
+		token = c.Value
+	} else if c, err := r.Cookie("employee_session"); err == nil && c.Value != "" {
+		token = c.Value
 	}
 
-	if r.URL.Query().Get("all") == "true" {
-		if sess := EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
-			h.store.PurgeEmployeeSessions(sess.EmployeeID)
+	var employeeID string
+	if sess := EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		employeeID = sess.EmployeeID
+	} else if token != "" {
+		if sess, ok := h.store.Get(token); ok && sess != nil {
+			employeeID = sess.EmployeeID
 		}
+	}
+
+	if token != "" {
+		h.store.Delete(token)
+	}
+
+	if r.URL.Query().Get("all") == "true" && employeeID != "" {
+		h.store.PurgeEmployeeSessions(employeeID)
 	}
 
 	http.SetCookie(w, &http.Cookie{

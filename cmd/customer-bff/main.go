@@ -907,21 +907,6 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		custID = r.URL.Query().Get("customer_id")
 	}
 
-	// 1. Query Cache-Aside with Conditional Validation
-	if custID != "" && b.cache != nil {
-		var cachedResp map[string]interface{}
-		if ok, _ := b.cache.Get(r.Context(), cachevalkey.KeyPortfolio(custID), &cachedResp); ok {
-			data, err := json.Marshal(cachedResp)
-			if err == nil {
-				if cachevalkey.HandleConditionalETag(w, r, data) {
-					return
-				}
-				_, _ = w.Write(data)
-				return
-			}
-		}
-	}
-
 	portfolioID := r.URL.Query().Get("portfolio_id")
 	if portfolioID == "" && b.broker != nil {
 		accs, err := b.broker.ListAccounts(r.Context())
@@ -939,6 +924,23 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 	}
 	if portfolioID == "" {
 		portfolioID = fmt.Sprintf("port-%s", custID)
+	}
+
+	cacheKey := cachevalkey.KeyPortfolioWithID(custID, portfolioID)
+
+	// 1. Query Cache-Aside with Conditional Validation
+	if custID != "" && b.cache != nil {
+		var cachedResp map[string]interface{}
+		if ok, _ := b.cache.Get(r.Context(), cacheKey, &cachedResp); ok {
+			data, err := json.Marshal(cachedResp)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				_, _ = w.Write(data)
+				return
+			}
+		}
 	}
 
 	if b.broker != nil {
@@ -983,7 +985,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 				},
 			}
 			if custID != "" && b.cache != nil {
-				_ = b.cache.Set(r.Context(), cachevalkey.KeyPortfolio(custID), resp, cachevalkey.TTLPortfolioValuation)
+				_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
 			}
 			data, err := json.Marshal(resp)
 			if err == nil {
@@ -1022,7 +1024,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 				"historical_performance": p.HistoricalPerf,
 			}
 			if custID != "" && b.cache != nil {
-				_ = b.cache.Set(r.Context(), cachevalkey.KeyPortfolio(custID), resp, cachevalkey.TTLPortfolioValuation)
+				_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
 			}
 			data, err := json.Marshal(resp)
 			if err == nil {
@@ -1053,7 +1055,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		"historical_performance": []map[string]interface{}{},
 	}
 	if custID != "" && b.cache != nil {
-		_ = b.cache.Set(r.Context(), cachevalkey.KeyPortfolio(custID), resp, cachevalkey.TTLPortfolioValuation)
+		_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
 	}
 	data, err := json.Marshal(resp)
 	if err == nil {
@@ -1186,9 +1188,12 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		Status:      "executed",
 	}
 
-	if b.cache != nil && session.CustomerID != "" {
-		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
-	}
+	defer func() {
+		if b.cache != nil && session.CustomerID != "" {
+			_ = b.cache.Delete(context.Background(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
+			_ = b.cache.DeletePrefix(context.Background(), "cache:portfolio:"+session.CustomerID)
+		}
+	}()
 
 	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), core_invest_svc.ExecuteBrokerageOrderOpts{
 		PortfolioID: req.PortfolioID,
@@ -1775,16 +1780,12 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if b.cache != nil {
-		var cachedStreams any
-		if ok, _ := b.cache.Get(r.Context(), cachevalkey.KeyHabitatTelemetry(), &cachedStreams); ok {
-			data, err := json.Marshal(cachedStreams)
-			if err == nil {
-				if cachevalkey.HandleConditionalETag(w, r, data) {
-					return
-				}
-				_, _ = w.Write(data)
+		if raw, ok, _ := b.cache.GetRaw(r.Context(), cachevalkey.KeyHabitatTelemetry()); ok {
+			if cachevalkey.HandleConditionalETag(w, r, raw) {
 				return
 			}
+			_, _ = w.Write(raw)
+			return
 		}
 	}
 
@@ -1793,11 +1794,11 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
 		return
 	}
-	if b.cache != nil {
-		_ = b.cache.Set(r.Context(), cachevalkey.KeyHabitatTelemetry(), streams, cachevalkey.TTLHabitatTelemetry)
-	}
 	data, err := json.Marshal(streams)
 	if err == nil {
+		if b.cache != nil {
+			_ = b.cache.SetRaw(r.Context(), cachevalkey.KeyHabitatTelemetry(), data, cachevalkey.TTLHabitatTelemetry)
+		}
 		if cachevalkey.HandleConditionalETag(w, r, data) {
 			return
 		}
@@ -2111,7 +2112,9 @@ func main() {
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL != "" {
 		watermillLogger := watermill.NewStdLogger(false, false)
-		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, amqp.GenerateQueueNameTopicName)
+		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
+			return "customer-bff.cache-invalidation." + topic
+		})
 		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
 		if err == nil {
 			listener := cachevalkey.NewInvalidationListener(custBFF.cache, amqpSub, logger)

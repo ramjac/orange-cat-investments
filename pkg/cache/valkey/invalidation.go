@@ -73,8 +73,17 @@ func (l *InvalidationListener) consumeTopic(ctx context.Context, topic string, m
 			if !ok {
 				return
 			}
-			l.handleMessage(ctx, topic, msg)
-			msg.Ack()
+			// Process message and guarantee Ack() to prevent queue clogging or dead-letter queue
+			// flooding for non-retryable invalidation or deserialization errors.
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						l.logger.Error("panic recovered in cache invalidation consumer", "topic", topic, "panic", r)
+					}
+					msg.Ack()
+				}()
+				l.handleMessage(ctx, topic, msg)
+			}()
 		}
 	}
 }
@@ -87,35 +96,53 @@ type genericPayload struct {
 func (l *InvalidationListener) handleMessage(ctx context.Context, topic string, msg *message.Message) {
 	var env envelope.EventEnvelope[json.RawMessage]
 	if err := json.Unmarshal(msg.Payload, &env); err != nil {
-		l.logger.Warn("invalidation listener received unparseable envelope", "error", err)
+		l.logger.Warn("invalidation listener received unparseable envelope", "topic", topic, "error", err)
 		return
 	}
 
 	var payload genericPayload
-	_ = json.Unmarshal(env.Payload, &payload)
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		l.logger.Warn("invalidation listener received unparseable inner payload", "topic", topic, "error", err)
+		return
+	}
 
 	switch topic {
 	case "events.investment.trade_executed.v1", "events.investment.order_placed.v1":
 		if payload.CustomerID != "" {
-			_ = l.cache.Delete(ctx, KeyPortfolio(payload.CustomerID), KeyOrders(payload.CustomerID))
-			l.logger.Info("evicted customer portfolio cache on trade event", "customer_id", payload.CustomerID)
+			if err := l.cache.Delete(ctx, KeyPortfolio(payload.CustomerID), KeyOrders(payload.CustomerID)); err != nil {
+				l.logger.Warn("failed to evict customer portfolio cache on trade event", "customer_id", payload.CustomerID, "error", err)
+			} else {
+				l.logger.Info("evicted customer portfolio cache on trade event", "customer_id", payload.CustomerID)
+			}
 		} else {
-			_ = l.cache.DeletePrefix(ctx, "cache:portfolio:")
-			l.logger.Info("evicted all portfolio caches on trade event")
+			if err := l.cache.DeletePrefix(ctx, "cache:portfolio:"); err != nil {
+				l.logger.Warn("failed to evict all portfolio caches on trade event", "error", err)
+			} else {
+				l.logger.Info("evicted all portfolio caches on trade event")
+			}
 		}
 
 	case "events.workforce.care_schedule_updated.v1":
 		if payload.FelineID != "" {
-			_ = l.cache.Delete(ctx, KeyCareSchedule(payload.FelineID))
-			l.logger.Info("evicted care schedule cache on workforce event", "feline_id", payload.FelineID)
+			if err := l.cache.Delete(ctx, KeyCareSchedule(payload.FelineID)); err != nil {
+				l.logger.Warn("failed to evict care schedule cache on workforce event", "feline_id", payload.FelineID, "error", err)
+			} else {
+				l.logger.Info("evicted care schedule cache on workforce event", "feline_id", payload.FelineID)
+			}
 		} else {
-			_ = l.cache.DeletePrefix(ctx, "cache:care_schedule:")
-			l.logger.Info("evicted all care schedule caches on workforce event")
+			if err := l.cache.DeletePrefix(ctx, "cache:care_schedule:"); err != nil {
+				l.logger.Warn("failed to evict all care schedule caches on workforce event", "error", err)
+			} else {
+				l.logger.Info("evicted all care schedule caches on workforce event")
+			}
 		}
 
 	case "events.workforce.incident_created.v1":
-		_ = l.cache.Delete(ctx, KeyActiveIncidents())
-		l.logger.Info("evicted active incident cache on incident created event")
+		if err := l.cache.Delete(ctx, KeyActiveIncidents()); err != nil {
+			l.logger.Warn("failed to evict active incident cache on incident created event", "error", err)
+		} else {
+			l.logger.Info("evicted active incident cache on incident created event")
+		}
 	}
 }
 

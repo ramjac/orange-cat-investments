@@ -64,6 +64,23 @@ func TestMemoryCustomerSessionStore(t *testing.T) {
 	store.Delete(sessOther.SessionID)
 	_, ok = store.Get(sessOther.SessionID)
 	assert.False(t, ok)
+
+	// 7. Test PruneStaleSessions
+	activeForPrune, err := store.Create("cust-prune", "Prune User", "prune@example.com")
+	require.NoError(t, err)
+	expiredForPrune := &CustomerSession{
+		SessionID:  "sess-prune-expired",
+		CustomerID: "cust-prune",
+		ExpiresAt:  time.Now().Add(-10 * time.Minute),
+	}
+	store.SetSession(expiredForPrune)
+
+	prunedCount := store.PruneStaleSessions("cust-prune")
+	assert.Equal(t, 1, prunedCount)
+	_, ok = store.Get(activeForPrune.SessionID)
+	assert.True(t, ok, "active session should remain after pruning stale sessions")
+	_, ok = store.Get("sess-prune-expired")
+	assert.False(t, ok)
 }
 
 func TestMemoryEmployeeSessionStore(t *testing.T) {
@@ -117,6 +134,23 @@ func TestMemoryEmployeeSessionStore(t *testing.T) {
 	// Other employee session must remain
 	_, ok = store.Get(sessOther.SessionID)
 	assert.True(t, ok)
+
+	// 6. Test PruneStaleSessions
+	activeEmp, err := store.Create("emp-prune", "emp-prune@example.com", "Prune Emp", "engineering", "Core")
+	require.NoError(t, err)
+	expiredEmp := &EmployeeSession{
+		SessionID:  "emp-prune-expired",
+		EmployeeID: "emp-prune",
+		ExpiresAt:  time.Now().Add(-10 * time.Minute),
+	}
+	store.SetSession(expiredEmp)
+
+	prunedEmp := store.PruneStaleSessions("emp-prune")
+	assert.Equal(t, 1, prunedEmp)
+	_, ok = store.Get(activeEmp.SessionID)
+	assert.True(t, ok)
+	_, ok = store.Get("emp-prune-expired")
+	assert.False(t, ok)
 }
 
 func TestStoreFallbackWhenNoValkey(t *testing.T) {

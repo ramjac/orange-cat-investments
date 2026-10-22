@@ -65,6 +65,32 @@ func NewRateLimiterWithAddr(addr, password string, db int, logger *slog.Logger) 
 	return NewRateLimiter(client, logger)
 }
 
+var slidingWindowLuaScript = redis.NewScript(`
+local key = KEYS[1]
+local windowStartNano = ARGV[1]
+local nowNano = ARGV[2]
+local member = ARGV[3]
+local limit = tonumber(ARGV[4])
+local expireSec = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', key, '0', windowStartNano)
+local count = redis.call('ZCARD', key)
+
+if count >= limit then
+    local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+    local oldestScore = '0'
+    if #oldest >= 2 then
+        oldestScore = tostring(oldest[2])
+    end
+    return {0, count, oldestScore}
+end
+
+redis.call('ZADD', key, nowNano, member)
+redis.call('EXPIRE', key, expireSec)
+
+return {1, count + 1, '0'}
+`)
+
 // Allow checks if the given key is allowed under limit within the specified window.
 // Returns (allowed bool, remaining int, retryAfter time.Duration, err error).
 func (rl *RateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, int, time.Duration, error) {
@@ -76,47 +102,55 @@ func (rl *RateLimiter) Allow(ctx context.Context, key string, limit int, window 
 	now := time.Now()
 	nowNano := now.UnixNano()
 	windowStartNano := now.Add(-window).UnixNano()
+	expireSec := int64((window + time.Second).Seconds())
+	if expireSec <= 0 {
+		expireSec = 1
+	}
 
-	pipe := rl.client.Pipeline()
-	// 1. Remove entries outside the sliding window
-	pipe.ZRemRangeByScore(ctx, redisKey, "0", strconv.FormatInt(windowStartNano, 10))
-	// 2. Count remaining entries in window
-	cardCmd := pipe.ZCard(ctx, redisKey)
-	// 3. Set expiration
-	pipe.Expire(ctx, redisKey, window+time.Second)
+	b := make([]byte, 4)
+	_, _ = crand.Read(b)
+	member := fmt.Sprintf("%d-%s", nowNano, hex.EncodeToString(b))
 
-	_, err := pipe.Exec(ctx)
+	// Execute pruning, counting, admission, and insertion atomically in Lua to prevent race conditions during bursts
+	res, err := slidingWindowLuaScript.Run(ctx, rl.client, []string{redisKey},
+		strconv.FormatInt(windowStartNano, 10),
+		strconv.FormatInt(nowNano, 10),
+		member,
+		strconv.Itoa(limit),
+		strconv.FormatInt(expireSec, 10),
+	).Slice()
+
 	if err != nil {
-		rl.logger.Warn("valkey rate limiter error, falling back to memory", "error", err)
+		rl.logger.Warn("valkey atomic rate limiter error, falling back to memory", "error", err)
 		return rl.allowMemory(key, limit, window)
 	}
 
-	currentCount := int(cardCmd.Val())
-	if currentCount >= limit {
-		// Calculate retryAfter
-		oldest := rl.client.ZRangeWithScores(ctx, redisKey, 0, 0).Val()
+	if len(res) < 3 {
+		return rl.allowMemory(key, limit, window)
+	}
+
+	allowedInt, _ := res[0].(int64)
+	countInt, _ := res[1].(int64)
+	oldestScoreStr, _ := res[2].(string)
+
+	if allowedInt == 0 {
 		retryAfter := window
-		if len(oldest) > 0 {
-			oldestTime := time.Unix(0, int64(oldest[0].Score))
-			retryAfter = time.Until(oldestTime.Add(window))
-			if retryAfter < 0 {
-				retryAfter = time.Second
+		if oldestScoreStr != "" && oldestScoreStr != "0" {
+			if oldestScoreNano, parseErr := strconv.ParseInt(oldestScoreStr, 10, 64); parseErr == nil && oldestScoreNano > 0 {
+				oldestTime := time.Unix(0, oldestScoreNano)
+				retryAfter = time.Until(oldestTime.Add(window))
+				if retryAfter < 0 {
+					retryAfter = time.Second
+				}
 			}
 		}
 		return false, 0, retryAfter, nil
 	}
 
-	// Add current request
-	b := make([]byte, 4)
-	_, _ = crand.Read(b)
-	member := fmt.Sprintf("%d-%s", nowNano, hex.EncodeToString(b))
-
-	addPipe := rl.client.Pipeline()
-	addPipe.ZAdd(ctx, redisKey, redis.Z{Score: float64(nowNano), Member: member})
-	addPipe.Expire(ctx, redisKey, window+time.Second)
-	_, _ = addPipe.Exec(ctx)
-
-	remaining := limit - (currentCount + 1)
+	remaining := limit - int(countInt)
+	if remaining < 0 {
+		remaining = 0
+	}
 	return true, remaining, 0, nil
 }
 

@@ -3,6 +3,7 @@ package valkey
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -74,9 +75,22 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 			numArgs, _ := strconv.Atoi(line[1:])
 			args := make([]string, 0, numArgs)
 			for i := 0; i < numArgs; i++ {
-				_, _ = reader.ReadString('\n') // read $<len>
-				argLine, _ := reader.ReadString('\n')
-				args = append(args, strings.TrimRight(argLine, "\r\n"))
+				lenLine, err := reader.ReadString('\n')
+				if err != nil {
+					break
+				}
+				lenLine = strings.TrimSpace(lenLine)
+				if len(lenLine) > 0 && lenLine[0] == '$' {
+					argLen, _ := strconv.Atoi(lenLine[1:])
+					if argLen >= 0 {
+						buf := make([]byte, argLen)
+						_, _ = io.ReadFull(reader, buf)
+						_, _ = reader.ReadString('\n') // read trailing \r\n
+						args = append(args, string(buf))
+						continue
+					}
+				}
+				args = append(args, "")
 			}
 
 			if len(args) == 0 {
@@ -210,4 +224,56 @@ func TestValkeyCustomerAndEmployeeSessionStore_WithMockValkey(t *testing.T) {
 	empStore.Delete(empSess.SessionID)
 	_, ok = empStore.Get(empSess.SessionID)
 	assert.False(t, ok)
+
+	// 3. Test Stale Token Pruning and Return Count Consistency (Customer)
+	ctx := t.Context()
+	activeSess, err := custStore.Create("cust-drift", "Alice Drift", "alice@example.com")
+	require.NoError(t, err)
+
+	// Simulate drift: inject an already-evicted token into the Redis index set
+	client.SAdd(ctx, customerUserIndexKey("cust-drift"), "stale-evicted-token-1")
+
+	// Verify PruneStaleSessions prunes the stale token while leaving the active session intact
+	pruned := custStore.PruneStaleSessions("cust-drift")
+	assert.Equal(t, 1, pruned)
+
+	members, err := client.SMembers(ctx, customerUserIndexKey("cust-drift")).Result()
+	require.NoError(t, err)
+	assert.Contains(t, members, activeSess.SessionID)
+	assert.NotContains(t, members, "stale-evicted-token-1")
+
+	// Inject another stale token to test PurgeCustomerSessions return count consistency
+	client.SAdd(ctx, customerUserIndexKey("cust-drift"), "stale-evicted-token-2")
+	// Purge should return 1 (only the active session), even though SMembers had 2 tokens
+	purgedCount := custStore.PurgeCustomerSessions("cust-drift")
+	assert.Equal(t, 1, purgedCount)
+
+	// 4. Test Expired Session Cleanup during Get()
+	expiredToken := "sess-expired-manual"
+	expiredData := `{"session_id":"sess-expired-manual","customer_id":"cust-exp","name":"Expired User","expires_at":"2020-01-01T00:00:00Z"}`
+	client.Set(ctx, customerSessionKey(expiredToken), expiredData, 0)
+	client.SAdd(ctx, customerUserIndexKey("cust-exp"), expiredToken)
+
+	gotExp, ok := custStore.Get(expiredToken)
+	assert.False(t, ok)
+	assert.Nil(t, gotExp)
+
+	// Key should be deleted and token pruned from set
+	val, err := client.Get(ctx, customerSessionKey(expiredToken)).Result()
+	assert.Empty(t, val)
+	expMembers, _ := client.SMembers(ctx, customerUserIndexKey("cust-exp")).Result()
+	assert.NotContains(t, expMembers, expiredToken)
+
+	// 5. Test Stale Token Pruning and Purge Count Consistency (Employee)
+	activeEmp, err := empStore.Create("emp-drift", "emp@example.com", "Bob Drift", "ENGINEERING", "Ops")
+	require.NoError(t, err)
+	assert.NotEmpty(t, activeEmp.SessionID)
+
+	client.SAdd(ctx, employeeUserIndexKey("emp-drift"), "stale-emp-token-1")
+	empPruned := empStore.PruneStaleSessions("emp-drift")
+	assert.Equal(t, 1, empPruned)
+
+	client.SAdd(ctx, employeeUserIndexKey("emp-drift"), "stale-emp-token-2")
+	empPurgedCount := empStore.PurgeEmployeeSessions("emp-drift")
+	assert.Equal(t, 1, empPurgedCount)
 }

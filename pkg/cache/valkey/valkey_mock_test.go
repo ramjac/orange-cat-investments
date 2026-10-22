@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -75,9 +76,22 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 			numArgs, _ := strconv.Atoi(line[1:])
 			args := make([]string, 0, numArgs)
 			for i := 0; i < numArgs; i++ {
-				_, _ = reader.ReadString('\n')
-				argLine, _ := reader.ReadString('\n')
-				args = append(args, strings.TrimRight(argLine, "\r\n"))
+				lenLine, err := reader.ReadString('\n')
+				if err != nil {
+					break
+				}
+				lenLine = strings.TrimSpace(lenLine)
+				if len(lenLine) > 0 && lenLine[0] == '$' {
+					argLen, _ := strconv.Atoi(lenLine[1:])
+					if argLen >= 0 {
+						buf := make([]byte, argLen)
+						_, _ = io.ReadFull(reader, buf)
+						_, _ = reader.ReadString('\n') // read trailing \r\n
+						args = append(args, string(buf))
+						continue
+					}
+				}
+				args = append(args, "")
 			}
 
 			if len(args) == 0 {
@@ -151,6 +165,43 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 				}
 			case "ZRANGE":
 				conn.Write([]byte("*0\r\n"))
+			case "EVALSHA":
+				conn.Write([]byte("-NOSCRIPT No matching script\r\n"))
+			case "EVAL":
+				if len(args) >= 8 {
+					key := args[3]
+					windowStart, _ := strconv.ParseFloat(args[4], 64)
+					nowNano, _ := strconv.ParseFloat(args[5], 64)
+					member := args[6]
+					limit, _ := strconv.Atoi(args[7])
+
+					if s.zsets[key] == nil {
+						s.zsets[key] = make(map[string]float64)
+					}
+					for m, score := range s.zsets[key] {
+						if score <= windowStart {
+							delete(s.zsets[key], m)
+						}
+					}
+					count := len(s.zsets[key])
+					if count >= limit {
+						var oldestScore float64
+						first := true
+						for _, score := range s.zsets[key] {
+							if first || score < oldestScore {
+								oldestScore = score
+								first = false
+							}
+						}
+						scoreStr := fmt.Sprintf("%.0f", oldestScore)
+						conn.Write([]byte(fmt.Sprintf("*3\r\n:0\r\n:%d\r\n$%d\r\n%s\r\n", count, len(scoreStr), scoreStr)))
+					} else {
+						s.zsets[key][member] = nowNano
+						conn.Write([]byte(fmt.Sprintf("*3\r\n:1\r\n:%d\r\n$1\r\n0\r\n", count+1)))
+					}
+				} else {
+					conn.Write([]byte("+OK\r\n"))
+				}
 			case "EXPIRE":
 				conn.Write([]byte(":1\r\n"))
 			default:

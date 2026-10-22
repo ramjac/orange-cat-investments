@@ -33,9 +33,9 @@ Infrastructure engineers must execute the annual certificate inspection and refr
    Inspect output for days remaining on `server.crt`, `ca.crt`, and `front-proxy-client.crt`.
 
 2. **Execute In-Place Certificate Refresh:**
-   MicroK8s provides a non-destructive renewal command that automatically backs up expired or expiring certificates to `/var/snap/microk8s/current/certs/backup/` before generating fresh 365-day certificates:
+   MicroK8s provides a certificate renewal command with `-e/--cert` to target specific expired or expiring certificates before generating fresh 365-day certificates (backed up to `/var/snap/microk8s/current/certs/backup/`):
    ```bash
-   ssh ramjac@thinker "microk8s refresh-certs -b"
+   ssh ramjac@thinker "microk8s refresh-certs -e server.crt && microk8s refresh-certs -e front-proxy-client.crt"
    ```
 
 3. **Restart MicroK8s Control Plane Services:**
@@ -150,7 +150,8 @@ If control plane certificates have already expired:
 2. Do **not** reinstall the cluster.
 3. On MicroK8s, force certificate renewal via root shell:
    ```bash
-   sudo microk8s refresh-certs -b
+   sudo microk8s refresh-certs -e server.crt
+   sudo microk8s refresh-certs -e front-proxy-client.crt
    sudo snap restart microk8s
    ```
 4. On K3s:

@@ -32,6 +32,13 @@ func KeyPortfolio(customerID string) string {
 	return "cache:portfolio:" + customerID
 }
 
+func KeyPortfolioWithID(customerID, portfolioID string) string {
+	if portfolioID == "" || portfolioID == "port-"+customerID {
+		return KeyPortfolio(customerID)
+	}
+	return "cache:portfolio:" + customerID + ":" + portfolioID
+}
+
 func KeyOrders(customerID string) string {
 	return "cache:orders:" + customerID
 }

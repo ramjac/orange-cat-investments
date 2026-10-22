@@ -63,7 +63,7 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE
               value: disable
-            - name: ZITADEL_DATABASE_POSTGRES_MAXCONN
+            - name: ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS
               value: "20"
             - name: ZITADEL_DATABASE_POSTGRES_MAXCONNLIFETIME
               value: "5m"

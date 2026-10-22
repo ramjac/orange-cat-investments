@@ -154,7 +154,9 @@ func main() {
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL != "" {
 		watermillLogger := watermill.NewStdLogger(false, false)
-		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, amqp.GenerateQueueNameTopicName)
+		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
+			return "employee-bff.cache-invalidation." + topic
+		})
 		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
 		if err == nil {
 			listener := cachevalkey.NewInvalidationListener(cache, amqpSub, logger)

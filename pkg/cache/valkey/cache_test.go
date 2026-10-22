@@ -233,4 +233,20 @@ func TestInvalidationListener(t *testing.T) {
 
 	ok, _ = cache.Get(ctx, KeyActiveIncidents(), &str)
 	assert.False(t, ok, "incident cache should be evicted")
+
+	// 4. Test error handling & acknowledgement policies for non-retryable invalidation messages
+	// Malformed envelope JSON
+	malformedMsg := message.NewMessage("bad-msg-1", []byte("not valid json"))
+	err = pubsub.Publish("events.investment.order_placed.v1", malformedMsg)
+	require.NoError(t, err)
+
+	// Malformed inner payload JSON
+	badPayloadEnv := envelope.NewEventEnvelope("evt-4", "events.investment.order_placed.v1", "ord-bad", "not-a-map")
+	badPayloadBytes, _ := json.Marshal(badPayloadEnv)
+	badPayloadMsg := message.NewMessage("bad-msg-2", badPayloadBytes)
+	err = pubsub.Publish("events.investment.order_placed.v1", badPayloadMsg)
+	require.NoError(t, err)
+
+	// Wait for processing to ensure listener continues functioning normally without queue clogging
+	time.Sleep(100 * time.Millisecond)
 }

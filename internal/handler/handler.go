@@ -232,6 +232,9 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 
 	if h.cache != nil && cs != nil {
 		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineID), cs, cachevalkey.TTLCareSchedule)
+		if cs.FelineID != "" && cs.FelineID != felineID {
+			_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(cs.FelineID), cs, cachevalkey.TTLCareSchedule)
+		}
 	}
 
 	data, err := json.Marshal(cs)
@@ -286,6 +289,9 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 
 	if h.cache != nil {
 		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
+		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
+			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
 	}
 
 	writeJSON(w, http.StatusOK, updated)
@@ -315,6 +321,9 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 
 	if h.cache != nil {
 		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
+		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
+			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
 	}
 
 	writeJSON(w, http.StatusOK, updated)

@@ -40,9 +40,10 @@ type EmployeeSession struct {
 type CustomerSessionStore interface {
 	Get(token string) (*CustomerSession, bool)
 	Create(customerID, name, email string) (*CustomerSession, error)
-	SetSession(session *CustomerSession)
+	SetSession(session *CustomerSession) error
 	Delete(token string)
 	PurgeCustomerSessions(customerID string) int
+	PruneStaleSessions(customerID string) int
 	Close() error
 }
 
@@ -50,9 +51,10 @@ type CustomerSessionStore interface {
 type EmployeeSessionStore interface {
 	Get(token string) (*EmployeeSession, bool)
 	Create(employeeID, email, name, role, department string) (*EmployeeSession, error)
-	SetSession(session *EmployeeSession)
+	SetSession(session *EmployeeSession) error
 	Delete(token string)
 	PurgeEmployeeSessions(employeeID string) int
+	PruneStaleSessions(employeeID string) int
 	Close() error
 }
 
@@ -93,15 +95,18 @@ func (s *memoryCustomerSessionStore) Create(customerID, name, email string) (*Cu
 		Name:       name,
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	s.SetSession(sess)
+	if err := s.SetSession(sess); err != nil {
+		return nil, err
+	}
 	return sess, nil
 }
 
-func (s *memoryCustomerSessionStore) SetSession(session *CustomerSession) {
+func (s *memoryCustomerSessionStore) SetSession(session *CustomerSession) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cpy := *session
 	s.sessions[session.SessionID] = &cpy
+	return nil
 }
 
 func (s *memoryCustomerSessionStore) Delete(token string) {
@@ -121,6 +126,20 @@ func (s *memoryCustomerSessionStore) PurgeCustomerSessions(customerID string) in
 		}
 	}
 	return purged
+}
+
+func (s *memoryCustomerSessionStore) PruneStaleSessions(customerID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pruned := 0
+	now := time.Now()
+	for token, sess := range s.sessions {
+		if sess.CustomerID == customerID && now.After(sess.ExpiresAt) {
+			delete(s.sessions, token)
+			pruned++
+		}
+	}
+	return pruned
 }
 
 func (s *memoryCustomerSessionStore) Close() error {
@@ -148,6 +167,13 @@ func NewValkeyCustomerSessionStore(client *redis.Client, logger *slog.Logger) Cu
 	}
 }
 
+func tokenFingerprint(token string) string {
+	if len(token) <= 8 {
+		return "..."
+	}
+	return token[:8] + "..."
+}
+
 func customerSessionKey(token string) string {
 	return "session:customer:" + token
 }
@@ -163,7 +189,7 @@ func (s *valkeyCustomerSessionStore) Get(token string) (*CustomerSession, bool) 
 	val, err := s.client.Get(ctx, customerSessionKey(token)).Result()
 	if err != nil {
 		if !errors.Is(err, redis.Nil) {
-			s.logger.Warn("valkey error fetching customer session", "token", token, "error", err)
+			s.logger.Warn("valkey error fetching customer session", "token_fp", tokenFingerprint(token), "error", err)
 		}
 		return nil, false
 	}
@@ -175,7 +201,12 @@ func (s *valkeyCustomerSessionStore) Get(token string) (*CustomerSession, bool) 
 	}
 
 	if time.Now().After(sess.ExpiresAt) {
-		s.Delete(token)
+		pipe := s.client.Pipeline()
+		pipe.Del(ctx, customerSessionKey(token))
+		if sess.CustomerID != "" {
+			pipe.SRem(ctx, customerUserIndexKey(sess.CustomerID), token)
+		}
+		_, _ = pipe.Exec(ctx)
 		return nil, false
 	}
 
@@ -196,23 +227,25 @@ func (s *valkeyCustomerSessionStore) Create(customerID, name, email string) (*Cu
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
 
-	s.SetSession(sess)
+	if err := s.SetSession(sess); err != nil {
+		return nil, fmt.Errorf("failed to persist customer session: %w", err)
+	}
 	return sess, nil
 }
 
-func (s *valkeyCustomerSessionStore) SetSession(session *CustomerSession) {
+func (s *valkeyCustomerSessionStore) SetSession(session *CustomerSession) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	data, err := json.Marshal(session)
 	if err != nil {
 		s.logger.Error("failed to serialize customer session", "error", err)
-		return
+		return fmt.Errorf("failed to serialize customer session: %w", err)
 	}
 
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
-		return
+		return fmt.Errorf("cannot persist customer session with non-positive TTL: %v", ttl)
 	}
 
 	pipe := s.client.Pipeline()
@@ -223,21 +256,30 @@ func (s *valkeyCustomerSessionStore) SetSession(session *CustomerSession) {
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		s.logger.Error("failed to persist customer session in valkey", "error", err)
+		return fmt.Errorf("failed to persist customer session in valkey: %w", err)
 	}
+	return nil
 }
 
 func (s *valkeyCustomerSessionStore) Delete(token string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	sess, ok := s.Get(token)
+	var customerID string
+	if val, err := s.client.Get(ctx, customerSessionKey(token)).Result(); err == nil {
+		var sess CustomerSession
+		if err := json.Unmarshal([]byte(val), &sess); err == nil {
+			customerID = sess.CustomerID
+		}
+	}
+
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, customerSessionKey(token))
-	if ok && sess.CustomerID != "" {
-		pipe.SRem(ctx, customerUserIndexKey(sess.CustomerID), token)
+	if customerID != "" {
+		pipe.SRem(ctx, customerUserIndexKey(customerID), token)
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		s.logger.Warn("failed to delete customer session from valkey", "token", token, "error", err)
+		s.logger.Warn("failed to delete customer session from valkey", "token_fp", tokenFingerprint(token), "error", err)
 	}
 }
 
@@ -247,19 +289,60 @@ func (s *valkeyCustomerSessionStore) PurgeCustomerSessions(customerID string) in
 
 	indexKey := customerUserIndexKey(customerID)
 	tokens, err := s.client.SMembers(ctx, indexKey).Result()
-	if err != nil || len(tokens) == 0 {
+	if err != nil {
+		// Preserve index key on lookup error to prevent orphaned unrevoked sessions (Comment 16)
+		s.logger.Error("failed to query customer session index for purge", "customer_id", customerID, "error", err)
+		return 0
+	}
+	if len(tokens) == 0 {
 		_ = s.client.Del(ctx, indexKey)
 		return 0
 	}
 
+	activeCount := 0
 	pipe := s.client.Pipeline()
 	for _, token := range tokens {
+		if sess, ok := s.Get(token); ok && sess != nil {
+			activeCount++
+		}
 		pipe.Del(ctx, customerSessionKey(token))
 	}
 	pipe.Del(ctx, indexKey)
-	_, _ = pipe.Exec(ctx)
+	if _, err := pipe.Exec(ctx); err != nil {
+		s.logger.Error("failed to execute purge pipeline for customer sessions", "customer_id", customerID, "error", err)
+		return 0
+	}
 
-	return len(tokens)
+	return activeCount
+}
+
+// PruneStaleSessions prunes expired or evicted session tokens from the customer index set.
+func (s *valkeyCustomerSessionStore) PruneStaleSessions(customerID string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	indexKey := customerUserIndexKey(customerID)
+	tokens, err := s.client.SMembers(ctx, indexKey).Result()
+	if err != nil || len(tokens) == 0 {
+		return 0
+	}
+
+	var staleTokens []string
+	for _, token := range tokens {
+		if _, ok := s.Get(token); !ok {
+			staleTokens = append(staleTokens, token)
+		}
+	}
+
+	if len(staleTokens) > 0 {
+		pipe := s.client.Pipeline()
+		for _, token := range staleTokens {
+			pipe.SRem(ctx, indexKey, token)
+		}
+		_, _ = pipe.Exec(ctx)
+	}
+
+	return len(staleTokens)
 }
 
 func (s *valkeyCustomerSessionStore) Close() error {
@@ -305,15 +388,18 @@ func (s *memoryEmployeeSessionStore) Create(employeeID, email, name, role, depar
 		Department: department,
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
-	s.SetSession(sess)
+	if err := s.SetSession(sess); err != nil {
+		return nil, err
+	}
 	return sess, nil
 }
 
-func (s *memoryEmployeeSessionStore) SetSession(session *EmployeeSession) {
+func (s *memoryEmployeeSessionStore) SetSession(session *EmployeeSession) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cpy := *session
 	s.sessions[session.SessionID] = &cpy
+	return nil
 }
 
 func (s *memoryEmployeeSessionStore) Delete(token string) {
@@ -333,6 +419,20 @@ func (s *memoryEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) in
 		}
 	}
 	return purged
+}
+
+func (s *memoryEmployeeSessionStore) PruneStaleSessions(employeeID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pruned := 0
+	now := time.Now()
+	for token, sess := range s.sessions {
+		if sess.EmployeeID == employeeID && now.After(sess.ExpiresAt) {
+			delete(s.sessions, token)
+			pruned++
+		}
+	}
+	return pruned
 }
 
 func (s *memoryEmployeeSessionStore) Close() error {
@@ -375,7 +475,7 @@ func (s *valkeyEmployeeSessionStore) Get(token string) (*EmployeeSession, bool) 
 	val, err := s.client.Get(ctx, employeeSessionKey(token)).Result()
 	if err != nil {
 		if !errors.Is(err, redis.Nil) {
-			s.logger.Warn("valkey error fetching employee session", "token", token, "error", err)
+			s.logger.Warn("valkey error fetching employee session", "token_fp", tokenFingerprint(token), "error", err)
 		}
 		return nil, false
 	}
@@ -387,7 +487,12 @@ func (s *valkeyEmployeeSessionStore) Get(token string) (*EmployeeSession, bool) 
 	}
 
 	if time.Now().After(sess.ExpiresAt) {
-		s.Delete(token)
+		pipe := s.client.Pipeline()
+		pipe.Del(ctx, employeeSessionKey(token))
+		if sess.EmployeeID != "" {
+			pipe.SRem(ctx, employeeUserIndexKey(sess.EmployeeID), token)
+		}
+		_, _ = pipe.Exec(ctx)
 		return nil, false
 	}
 
@@ -410,23 +515,25 @@ func (s *valkeyEmployeeSessionStore) Create(employeeID, email, name, role, depar
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	}
 
-	s.SetSession(sess)
+	if err := s.SetSession(sess); err != nil {
+		return nil, fmt.Errorf("failed to persist employee session: %w", err)
+	}
 	return sess, nil
 }
 
-func (s *valkeyEmployeeSessionStore) SetSession(session *EmployeeSession) {
+func (s *valkeyEmployeeSessionStore) SetSession(session *EmployeeSession) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	data, err := json.Marshal(session)
 	if err != nil {
 		s.logger.Error("failed to serialize employee session", "error", err)
-		return
+		return fmt.Errorf("failed to serialize employee session: %w", err)
 	}
 
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
-		return
+		return fmt.Errorf("cannot persist employee session with non-positive TTL: %v", ttl)
 	}
 
 	pipe := s.client.Pipeline()
@@ -437,21 +544,30 @@ func (s *valkeyEmployeeSessionStore) SetSession(session *EmployeeSession) {
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		s.logger.Error("failed to persist employee session in valkey", "error", err)
+		return fmt.Errorf("failed to persist employee session in valkey: %w", err)
 	}
+	return nil
 }
 
 func (s *valkeyEmployeeSessionStore) Delete(token string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	sess, ok := s.Get(token)
+	var employeeID string
+	if val, err := s.client.Get(ctx, employeeSessionKey(token)).Result(); err == nil {
+		var sess EmployeeSession
+		if err := json.Unmarshal([]byte(val), &sess); err == nil {
+			employeeID = sess.EmployeeID
+		}
+	}
+
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, employeeSessionKey(token))
-	if ok && sess.EmployeeID != "" {
-		pipe.SRem(ctx, employeeUserIndexKey(sess.EmployeeID), token)
+	if employeeID != "" {
+		pipe.SRem(ctx, employeeUserIndexKey(employeeID), token)
 	}
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
-		s.logger.Warn("failed to delete employee session from valkey", "token", token, "error", err)
+		s.logger.Warn("failed to delete employee session from valkey", "token_fp", tokenFingerprint(token), "error", err)
 	}
 }
 
@@ -461,19 +577,60 @@ func (s *valkeyEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) in
 
 	indexKey := employeeUserIndexKey(employeeID)
 	tokens, err := s.client.SMembers(ctx, indexKey).Result()
-	if err != nil || len(tokens) == 0 {
+	if err != nil {
+		// Preserve index key on lookup error to prevent orphaned unrevoked sessions (Comment 16)
+		s.logger.Error("failed to query employee session index for purge", "employee_id", employeeID, "error", err)
+		return 0
+	}
+	if len(tokens) == 0 {
 		_ = s.client.Del(ctx, indexKey)
 		return 0
 	}
 
+	activeCount := 0
 	pipe := s.client.Pipeline()
 	for _, token := range tokens {
+		if sess, ok := s.Get(token); ok && sess != nil {
+			activeCount++
+		}
 		pipe.Del(ctx, employeeSessionKey(token))
 	}
 	pipe.Del(ctx, indexKey)
-	_, _ = pipe.Exec(ctx)
+	if _, err := pipe.Exec(ctx); err != nil {
+		s.logger.Error("failed to execute purge pipeline for employee sessions", "employee_id", employeeID, "error", err)
+		return 0
+	}
 
-	return len(tokens)
+	return activeCount
+}
+
+// PruneStaleSessions prunes expired or evicted session tokens from the employee index set.
+func (s *valkeyEmployeeSessionStore) PruneStaleSessions(employeeID string) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	indexKey := employeeUserIndexKey(employeeID)
+	tokens, err := s.client.SMembers(ctx, indexKey).Result()
+	if err != nil || len(tokens) == 0 {
+		return 0
+	}
+
+	var staleTokens []string
+	for _, token := range tokens {
+		if _, ok := s.Get(token); !ok {
+			staleTokens = append(staleTokens, token)
+		}
+	}
+
+	if len(staleTokens) > 0 {
+		pipe := s.client.Pipeline()
+		for _, token := range staleTokens {
+			pipe.SRem(ctx, indexKey, token)
+		}
+		_, _ = pipe.Exec(ctx)
+	}
+
+	return len(staleTokens)
 }
 
 func (s *valkeyEmployeeSessionStore) Close() error {
