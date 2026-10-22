@@ -634,6 +634,8 @@ Make better use of our logging and monitoring infrastructure to surface issues a
   * Log-based alert rules in Loki/Promtail for sudden spikes in `ERROR` and `FATAL` log events.
 * **Alert Notifications & Escalation:**
   * Real-time pub/sub alert dispatching fanning out critical notifications to Pebble smartwatches, employee portal web banners, and push notification channels.
+* **Cluster & Infrastructure Blind Spots Catch-All:**
+  * Comprehensive self-hosted Kubernetes monitoring covering PVC disk saturation, `kube-state-metrics` OOMKills, K8s event log streaming to Loki, cert-manager expiration, backup age verification, and dead man's switch heartbeats (see [Section 7.21](#721-common-self-hosted-k8s-monitoring-blind-spots-infrastructure-catch-all)).
 
 ### 7.9 Fault Tolerance, Chaos Engineering & Negative API Testing
 Ensure that negative scenarios with external financial APIs and unexpected internal service degradation are gracefully handled with functioning alerting:
@@ -796,5 +798,43 @@ Research and evaluate comprehensive Prometheus telemetry, health probing, and al
     * *Queue Depth & Backlog Spikes:* Monitor unacknowledged and ready message counts against worker consumption rates.
     * *Stagnant Consumers:* Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating disconnected or dead subscriber routines).
     * *Erlang VM & Node Alarms:* Monitor `rabbitmq_process_resident_memory_bytes` against memory watermark limits and track `rabbitmq_disk_free_alarm` and `rabbitmq_memory_alarm` boolean states.
+
+### 7.21 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
+Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
+
+* **Persistent Volume (PVC) Disk Saturation (The #1 Silent Killer):**
+  * *The Vulnerability:* In managed cloud environments, managed database services and CSI drivers can automatically expand underlying block storage. In self-hosted Kubernetes, if a PersistentVolumeClaim backing PostgreSQL (`postgres-data-pvc`, `postgres-internal-data-pvc`), Nextcloud (`nextcloud-data-pvc`), RabbitMQ, Valkey, or Prometheus itself hits 100% capacity, write-ahead logs fail, databases crash, tables corrupt, and pods enter unrecoverable CrashLoopBackOff loops.
+  * *Implementation Plan:* Ensure Kubelet volume metrics (`kubelet_volume_stats_available_bytes` and `kubelet_volume_stats_capacity_bytes`) are scraped by Prometheus.
+  * *Alert Rules:* Configure alerts to trigger whenever any PVC drops below 15% free capacity, or if linear disk consumption predicts volume exhaustion within 24 hours (`predict_linear(kubelet_volume_stats_available_bytes[4h], 86400) < 0`).
+
+* **Kubernetes Object State & OOMKills (`kube-state-metrics`):**
+  * *The Vulnerability:* Standard CPU and memory graphs return to healthy, baseline levels immediately after a crashed pod restarts, masking memory leaks, thrashing restart loops, or image pull regressions.
+  * *Implementation Plan:* Deploy `kube-state-metrics` (standard within `kube-prometheus-stack`) to track and alert on Kubernetes control plane object state anomalies.
+  * *Key Alerts:*
+    * Pods stuck in `CrashLoopBackOff` or `ImagePullBackOff` for more than 5 minutes.
+    * Pods stuck in `Pending` (unschedulable due to resource requests, node affinity, or unbound PVCs).
+    * Container terminations caused by Out-Of-Memory evictions (`kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}`).
+
+* **Kubernetes API Event Shipping to Long-Term Logs:**
+  * *The Vulnerability:* By default, the Kubernetes API server purges cluster events (`kubectl get events`) after 60 minutes. If a pod fails to mount a volume, fails liveness probes, or is evicted by the node at 2:00 AM, all forensic evidence is deleted by morning.
+  * *Implementation Plan:* Configure Grafana Alloy (or Promtail) with the `loki.source.kubernetes_events` component to tail Kubernetes API events continuously and ship them to Grafana Loki alongside container stdout/stderr log streams, ensuring full historical auditability.
+
+* **Ingress & TLS Certificate Expiration (`cert-manager`):**
+  * *The Vulnerability:* Self-hosted stacks rely heavily on cert-manager with Let's Encrypt or private root CAs. A silent ACME DNS/HTTP-01 challenge failure or unhandled renewal webhook can cause production SSL certificates to expire unnoticed.
+  * *Implementation Plan:* Scrape cert-manager Prometheus metrics (`certmanager_certificate_expiration_timestamp_seconds` and `certmanager_certificate_ready_status`).
+  * *Alert Rule:* Configure Prometheus Alertmanager to fire a warning 14 days before certificate expiration, providing ample operational buffer to remediate challenge or renewal failures before customer browsers reject connections.
+
+* **Automated Backup Verification Metrics:**
+  * *The Vulnerability:* Running stateful apps (Postgres, Nextcloud, Forgejo) requires automated daily backups (via CloudNativePG Barman, Velero, or custom K8s backup CronJobs). Backups that silently fail due to storage exhaustion, network timeouts, or permission errors leave the cluster vulnerable to total data loss.
+  * *Implementation Plan:* Instrument and scrape backup controller metrics (e.g. backup completion timestamps, backup size, and exit status).
+  * *Alert Rule:* Alert immediately if the timestamp of the last successful backup is older than 26 hours (`time() - backup_last_successful_timestamp_seconds > 26 * 3600`), guaranteeing daily backup verification.
+
+* **"Watching the Watchers" (Dead Man's Switch / External Heartbeat Instructions):**
+  * *Operational Scope:* Instructions only (no implementation in repo).
+  * *The Problem:* If your self-hosted Kubernetes node loses electrical power, experiences hardware motherboard failure, or loses ISP internet connectivity, in-cluster Prometheus and Alertmanager instances are completely offline and physically incapable of firing webhook alerts or sending push notifications.
+  * *Setup Instructions:*
+    1. Utilize Prometheus Alertmanager's built-in `Watchdog` alert (a synthetic alert configured to always fire continuously with severity `none`).
+    2. In Alertmanager configuration, configure a dedicated route forwarding the `Watchdog` notification via an HTTP webhook every 5–10 minutes to a free external dead man's switch service (e.g. [Healthchecks.io](https://healthchecks.io), Better Stack, or Cronitor).
+    3. If the external heartbeat monitor stops receiving the expected ping within the configured grace period (e.g. 15 minutes), the external service immediately pages the on-call engineer via SMS, email, or mobile push notification, providing external out-of-band alerting for complete site, power, or internet failures.
 
 
