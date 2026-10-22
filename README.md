@@ -619,6 +619,13 @@ Make better use of our logging and monitoring infrastructure to surface issues a
     * *Current Status Assessment:* ERPNext shares the underlying Frappe Framework architecture with Frappe HR and similarly lacks a native `/metrics` endpoint on its web interface.
     * *Remediation Plan:* Deploy an ERPNext telemetry sidecar or scheduled probe querying ERPNext's REST API and diagnostic CLI (`bench doctor`).
     * *What to Track:* Background job execution latency, ledger submission queue depth, pending invoice/billing document backlogs, automated financial statement clearing errors, database connection pool utilization against `postgres-internal`, and email/webhook delivery queue depths.
+  * **ZITADEL Customer Identity Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* ZITADEL (Go-based OIDC Identity Provider) includes native OpenTelemetry and Prometheus telemetry capabilities, exposing Prometheus metrics by default on its debug router at `/debug/metrics`. However, in the current deployment (`k8s/oci-core/zitadel.yaml`), metrics exposition is not explicitly configured via environment variables, Prometheus pod scrape annotations (`prometheus.io/scrape: "true"`) are absent, and Prometheus (`k8s/monitoring/prometheus.yaml`) lacks an explicit scrape target or ServiceMonitor for ZITADEL.
+    * *Remediation Plan:*
+      * Enable explicit Prometheus telemetry in `k8s/oci-core/zitadel.yaml` by setting `ZITADEL_TELEMETRY_METRICS_TYPE: "prometheus"` and `ZITADEL_TELEMETRY_METRICS_EXPOSE: "true"`.
+      * Add Prometheus scrape annotations (`prometheus.io/scrape: "true"`, `prometheus.io/path: "/debug/metrics"`, `prometheus.io/port: "8080"`) or configure an authenticated/cluster-internal scrape job in `prometheus.yml` targeting `zitadel-service.oci-core.svc.cluster.local:8080`.
+      * Ensure Ingress manifests (`k8s/oci-core/ingress.yaml`) block public access to `/debug/*` paths so external users cannot access internal auth metrics.
+    * *What to Track:* OIDC login success vs. failure rates, brute-force/invalid credential spikes, token issuance and introspection latency (direct impact on Customer BFF session validation), active user sessions, database connection pool utilization against `postgres-core`, event store commit durations, and Go runtime goroutines/GC pauses.
 * **Probes & Healthchecks:**
   * Automated synthetic healthcheck monitors for internal websites, BFF proxies, and Domain APIs.
 * **Queue & Message Streaming Monitors:**
