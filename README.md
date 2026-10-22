@@ -600,14 +600,25 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.1 Monitoring, Observability & COTS Telemetry
+### 7.8 Monitoring, Observability & COTS Telemetry
 Make better use of our logging and monitoring infrastructure to surface issues and provide comprehensive cluster and application visibility:
 * **COTS & Infrastructure Monitoring:**
   * **Forgejo Native Prometheus Telemetry:** Ensure Forgejo's native Prometheus metrics endpoint (`/metrics` or `https://forgejo.oci.local/metrics`) is monitored by Prometheus: track HTTP request latency, active Git operations, SSH sessions, background queue length, database connection pool statistics, repository count, and runner job queue wait times.
   * **Nextcloud (Sidecar Exporter Pattern):** Nextcloud does not expose a native Prometheus endpoint by default; instead, its built-in serverinfo app exposes system telemetry as JSON/XML at `/ocs/v2.php/apps/serverinfo/api/v1/info?format=json`.
     * *Setup:* Generate a dedicated Nextcloud monitoring token (`occ config:app:set serverinfo token --value your-token`) and deploy `nextcloud-exporter` (such as `xperimental/nextcloud-exporter`) either as a sidecar container in your Nextcloud pod or as a tiny standalone Deployment.
     * *What to Track:* Active users, storage free space, database size, PHP-FPM active/max processes (critical when running the FPM image behind NGINX), and pending background cron jobs.
-  * **Other COTS Applications:** Telemetry and uptime probes for Snipe-IT, ERPNext, and Frappe HR.
+  * **Snipe-IT Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* Snipe-IT (PHP/Laravel) does not expose a native Prometheus `/metrics` endpoint out of the box. Upstream provides standard REST endpoints (`/api/v1/...`) and a basic health check, but no Prometheus-formatted metric exposition.
+    * *Remediation Plan:* Deploy a dedicated exporter sidecar container (e.g. `snipeit-exporter` or a custom lightweight Go/Python daemon) configured with a scoped read-only Snipe-IT API bearer token.
+    * *What to Track:* Hardware asset inventory breakdown by status label (Ready to Deploy, Deployed, Broken/Out for Repair, Archived), checkout-to-employee ratios, pending hardware audit overdue alerts, software license seat utilization and expiration dates, PHP-FPM active/idle worker pools, and API latency.
+  * **Frappe HR Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* Frappe HR / Frappe Framework runs on a Python WSGI/Gunicorn architecture with asynchronous background workers backed by Redis Queue (RQ). Out of the box, standard HTTP ports do not expose an unauthenticated Prometheus `/metrics` endpoint.
+    * *Remediation Plan:* Deploy `rq-exporter` against the internal Redis queue instance used by Frappe to track background job backlog (short, default, long queues), failed job counts, and queue wait latency. Install the `frappe-prometheus` extension app or deploy a lightweight exporter sidecar utilizing Frappe REST API tokens.
+    * *What to Track:* Pending leave requests, unapproved feline catnip break requests, pending payroll run approvals, attendance synchronization queue lag, and active employee headcount.
+  * **ERPNext Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* ERPNext shares the underlying Frappe Framework architecture with Frappe HR and similarly lacks a native `/metrics` endpoint on its web interface.
+    * *Remediation Plan:* Deploy an ERPNext telemetry sidecar or scheduled probe querying ERPNext's REST API and diagnostic CLI (`bench doctor`).
+    * *What to Track:* Background job execution latency, ledger submission queue depth, pending invoice/billing document backlogs, automated financial statement clearing errors, database connection pool utilization against `postgres-internal`, and email/webhook delivery queue depths.
 * **Probes & Healthchecks:**
   * Automated synthetic healthcheck monitors for internal websites, BFF proxies, and Domain APIs.
 * **Queue & Message Streaming Monitors:**
@@ -617,7 +628,7 @@ Make better use of our logging and monitoring infrastructure to surface issues a
 * **Alert Notifications & Escalation:**
   * Real-time pub/sub alert dispatching fanning out critical notifications to Pebble smartwatches, employee portal web banners, and push notification channels.
 
-### 7.2 Fault Tolerance, Chaos Engineering & Negative API Testing
+### 7.9 Fault Tolerance, Chaos Engineering & Negative API Testing
 Ensure that negative scenarios with external financial APIs and unexpected internal service degradation are gracefully handled with functioning alerting:
 * **External Error Injection:**
   * **Mock Bank API:** Add configurable error responses and latency injection toggled via management endpoints outside regular banking routes (`/sim/faults/bank`).
@@ -635,14 +646,14 @@ Ensure that negative scenarios with external financial APIs and unexpected inter
     * Inject deadletter messages into RabbitMQ queues and verify DLQ routing.
     * Inject malformed and schema-invalid messages into RabbitMQ queues to confirm safe parsing and poison-pill rejection.
 
-### 7.3 Zero Trust Workload Identity & Dynamic Secret Management
+### 7.11 Zero Trust Workload Identity & Dynamic Secret Management
 Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:
 * **Dynamic Secret Management & CSI Secrets Driver:**
   * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
 * **Workload Identity Service Mesh:**
   * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending exclusively on network perimeter security.
 
-### 7.4 COTS Application Lifecycle Management & Upstream Security Patching Runbooks
+### 7.12 COTS Application Lifecycle Management & Upstream Security Patching Runbooks
 Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and operational runbooks for IT systems administrators (`emp-human-frank`, Platform Security & K8s Infrastructure Lead) to safely apply upstream security patches, minor updates, and major version upgrades across all Commercial-Off-The-Shelf (COTS) business platforms in `oci-internal` and identity systems in `oci-core`:
 * **Standardized IT Maintenance & Pre-Flight Procedure:**
   * Automated pre-upgrade database snapshots via Kubernetes backup cronjobs (`postgres-internal-backup-cronjob` and `postgres-core-backup-cronjob`).
@@ -658,7 +669,7 @@ Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and op
   * Automated validation via simulation driver (`go run ./simulation/cmd/simulator -mode live -persona emp-human-frank`).
   * Single-command rollback SOPs restoring persistent volume snapshots and rolling back deployment revisions (`kubectl rollout undo deployment/<cots-app> -n oci-internal`).
 
-### 7.5 Fast Typo-Tolerant Full-Text Search via Meilisearch (Employee & Customer Portals)
+### 7.15 Fast Typo-Tolerant Full-Text Search via Meilisearch (Employee & Customer Portals)
 Integrate the in-cluster **Meilisearch** instance (`meilisearch-service.oci-core.svc.cluster.local:7700`) into the customer and employee web portals to deliver instantaneous, typo-tolerant full-text search as a working platform showcase:
 * **Employee Portal (Unified Enterprise & Clinical Search):**
   * Implement a global "Command+K" search palette in `web/employee-portal` allowing corporate staff, caretakers, and engineers to instantly search:
@@ -675,7 +686,7 @@ Integrate the in-cluster **Meilisearch** instance (`meilisearch-service.oci-core
   * Create lightweight change-data-capture (CDC) or event-driven indexers in Go (`cmd/worker` or dedicated service) subscribing to RabbitMQ domain events (`ticket_created`, `vhr_updated`, `asset_registered`, `trade_executed`) to continuously sync searchable document indices in Meilisearch.
   * Implement BFF proxy search endpoints (`/api/v1/employee/search`, `/api/v1/customer/search`) with role-based document filtering and tenant isolation.
 
-### 7.6 Pure gRPC Wire Transport & Complete BFF Read-Route Decoupling to BLL
+### 7.16 Pure gRPC Wire Transport & Complete BFF Read-Route Decoupling to BLL
 Finalize the microservices transition from transitional hybrid REST fallbacks to pure, decoupled gRPC wire transport:
 * **Complete BFF Decoupling from Direct Database Access:**
   * Migrate all remaining direct database repository lookups (`pgxpool`) in `cmd/customer-bff` and `cmd/employee-bff` (e.g. portfolio queries, care schedules, asset lists) to route exclusively through the Customer BLL (`cmd/customer-bll`) and Internal BLL (`cmd/internal-bll`).
@@ -683,5 +694,17 @@ Finalize the microservices transition from transitional hybrid REST fallbacks to
 * **Native gRPC Wire Transport over Mutual TLS:**
   * Transition inter-service communication between BLL services and Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) from REST/HTTP to pure gRPC over mTLS using the compiled Protobuf services in `pkg/gen/go/`.
   * Leverage gRPC streaming where appropriate (e.g., real-time habitat telemetry and live portfolio valuation recalculations).
+
+### 7.17 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus
+Deploy and configure **[Gatus](https://github.com/TwiN/gatus)**, an automated service health dashboard and status page, to provide real-time uptime monitoring and transparent system status across all OCI custom services and commercial COTS applications:
+* **Target Services & Health Probing Endpoints:**
+  * **OCI Customer & Public Planes:** Static Marketing Site (`https://oci.local`), Customer Web Portal (`https://customer.oci.local`), Customer BFF (`http://oci-customer-bff-service.oci-core.svc.cluster.local:8083/healthz`), Customer BLL (`http://customer-bll-service.oci-core.svc.cluster.local:8085/healthz`), and external simulation services (Mock Bank `:8088/healthz`, Mock Broker `:8089/healthz`).
+  * **OCI Employee & Internal Planes:** Employee Web Portal (`https://employee.oci.local`), Employee BFF (`http://oci-employee-bff-service.oci-core.svc.cluster.local:8081/healthz`), Internal BLL (`http://internal-bll-service.oci-core.svc.cluster.local:8086/healthz`), and Domain APIs (`:8080/healthz`).
+  * **COTS Enterprise Platforms:** Forgejo (`http://forgejo-service.oci-internal.svc.cluster.local:3000/api/v1/version`), Nextcloud (`http://nextcloud-service.oci-internal.svc.cluster.local:80/status.php`), Snipe-IT (`http://snipe-it-service.oci-internal.svc.cluster.local:80/healthz`), ERPNext/Frappe HR (`http://erpnext-service.oci-internal.svc.cluster.local:8000/api/method/ping`), and ZITADEL (`http://zitadel-service.oci-core.svc.cluster.local:8080/debug/healthz`).
+* **Dashboard Capabilities & Architecture:**
+  * Deploy Gatus as a lightweight, single-pod Deployment (`twinproduction/gatus:latest`) in namespace `monitoring` or `oci-core` backed by a declarative ConfigMap (`gatus-config`).
+  * Expose a unified, mobile-responsive status page at `https://status.oci.local` featuring uptime percentages (7-day / 30-day), hourly latency heatmaps, TLS certificate expiration tracking, and incident history.
+* **Alerting Integrations:**
+  * Configure Gatus alert endpoints to trigger automatic incident events into RabbitMQ or webhooks targeting `cmd/pebble-proxy` and the employee portal real-time SSE stream whenever a monitored endpoint fails consecutive health checks.
 
 
