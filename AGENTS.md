@@ -55,9 +55,12 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ├── docs/                  # Architecture Decision Records (`adr/`) and specifications
 ├── personas/              # Profile specifications for all 12 corporate & customer personas
 ├── proto/                 # Protobuf definitions (`oci/workforce/`, `oci/facilities/`, etc.)
-├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `gen/go`)
+├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `cache`, `session`, `gen/go`)
 │   ├── branding/          # Design token & white-label configuration loader
-│   └── envelope/          # Standard EventEnvelope[T] message wrapper
+│   ├── cache/             # Valkey distributed cache, conditional ETags, and sliding rate limiter
+│   ├── envelope/          # Standard EventEnvelope[T] message wrapper
+│   ├── mtls/              # Dynamic mTLS certificate and CA pool reloaders
+│   └── session/           # Valkey distributed session stores with memory fallback
 ├── scripts/               # SQL scripts (`init.sql`, modular schemas) & bootstrapping
 ├── cmd/                   # Go application entrypoints
 │   ├── customer-bff/      # Customer portal backend-for-frontend (:8083)
