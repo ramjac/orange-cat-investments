@@ -27,6 +27,10 @@ spec:
               value: "8083"
             - name: ENV
               value: "production"
+            - name: VALKEY_ADDR
+              value: "valkey-service.oci-core.svc.cluster.local:6379"
+            - name: RABBITMQ_URL
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: SEED_DEV_SESSIONS
               value: "false"
             - name: CUSTOMER_BLL_URL

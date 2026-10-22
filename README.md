@@ -765,49 +765,44 @@ Based on lessons learned from multi-day continuous cluster execution and active 
   * **The Problem:** Kubernetes control plane certificates (K3s / MicroK8s apiserver, kubelet, and etcd peer certificates) expire automatically after 365 days unless explicitly renewed.
   * **Solution (Implemented & Documented):** Authored comprehensive Standard Operating Procedures in [`docs/runbooks/control-plane-cert-rotation.md`](file:///home/ramjac/orange-cat-investments/docs/runbooks/control-plane-cert-rotation.md) for infrastructure engineers (`emp-human-frank`) to execute annual certificate refreshes (`microk8s refresh-certs -b` or `k3s certificate rotate`), and configured Prometheus Alertmanager rules in [`k8s/monitoring/prometheus.yaml`](file:///home/ramjac/orange-cat-investments/k8s/monitoring/prometheus.yaml) (`CertManagerCertExpiringSoon` and `BlackboxSSLCertExpiringSoon`) to alert the team 30 days prior to certificate expiration.
 
-### 7.14 Distributed Caching & Valkey Session Store for Customer and Employee Portals (BFF Layer)
-Orange Cat Investments leverages **Valkey 7.2** in namespace `oci-core` (`valkey-service.oci-core.svc.cluster.local:6379`) with append-only file (AOF) persistence and persistent volume backing (`valkey-data-pvc`). Currently, Backend-for-Frontend (BFF) applications ([`cmd/customer-bff`](file:///home/ramjac/orange-cat-investments/cmd/customer-bff/main.go) and [`cmd/employee-bff`](file:///home/ramjac/orange-cat-investments/cmd/employee-bff/auth.go)) maintain in-memory `sync.RWMutex` session maps and make un-cached synchronous downstream RPC calls for each client interaction. 
+### 7.14 Distributed Caching & Valkey Session Store for Customer and Employee Portals (BFF Layer) (Implemented & Verified)
+Orange Cat Investments leverages **Valkey 7.2** in namespace `oci-core` (`valkey-service.oci-core.svc.cluster.local:6379`) with append-only file (AOF) persistence and persistent volume backing (`valkey-data-pvc`).
 
-To enable seamless horizontal auto-scaling (HPA), eliminate redundant middle-tier load, and optimize client responsiveness for Vue 3 SPAs, implement the following distributed caching and session architecture:
-
-* **Distributed Valkey Session Store for BFF Multi-Pod Scaling:**
-  * **The Problem:** The current session store implementations in `customer-bff` and `employee-bff` hold active authenticated sessions (`CustomerSession`, `EmployeeSession`) in local Go memory. Scaling the BFF deployments to $>1$ replica requires session stickiness at the Ingress controller or results in random 401 Unauthorized errors when requests hit different pods. Furthermore, rolling updates flush active sessions unless clients re-authenticate.
+* **Distributed Valkey Session Store for BFF Multi-Pod Scaling (Implemented):**
   * **Architecture & Implementation:**
-    * Create a shared package `pkg/session/valkey` implementing the session storage interface backed by Valkey.
-    * Store serialized session state as JSON/msgpack under Redis key patterns:
-      - Customer sessions: `session:customer:{session_token}` with TTL matching the 24-hour cookie lifetime.
-      - Employee sessions: `session:employee:{session_token}` with TTL matching the Forgejo OAuth2 token validity.
-    * Store session indexes for user-level session invalidation (e.g., `user:sessions:{user_id} -> Set[session_token]`), enabling single-click "Logout from all devices" and automated session revocation upon security incidents.
-    * Maintain graceful fallback to local memory in offline unit tests when `VALKEY_ADDR` is not configured.
+    * Implemented shared package [`pkg/session/valkey`](file:///home/ramjac/orange-cat-investments/pkg/session/valkey/store.go) supporting both Valkey distributed storage (`redis.Client`) and seamless thread-safe in-memory fallback for local dev and offline tests.
+    * Customer sessions: `session:customer:{session_token}` with 24-hour TTL and user index `user:sessions:customer:{customer_id}`.
+    * Employee sessions: `session:employee:{session_token}` with 24-hour TTL and user index `user:sessions:employee:{employee_id}`.
+    * Multi-device session revocation: `PurgeCustomerSessions` and `PurgeEmployeeSessions` delete all active device tokens atomically upon account closure, GDPR erasure, or explicit multi-device logout (`/logout?all=true`).
 
-* **Cache-Aside & Read-Through Query Caching for High-Frequency Read Paths:**
-  * **Customer Portal Read Optimization:**
-    * **Portfolio Valuation & Asset Balances:** Cache aggregate portfolio snapshots (`cache:portfolio:{customer_id}`) with short TTLs (15s–30s). Subsequent dashboard navigations return instant cached responses.
-    * **Market Quotes & Ticker Streams:** Cache parsed market data quotes (`cache:quotes:{symbol}`) with 5s–10s TTL, serving multiple retail investors from Valkey rather than blasting the Brokerage/Sim API.
-    * **Habitat Environmental & Optical Telemetry:** Cache camera manifests and active sensor telemetry (`cache:habitat:telemetry`) with 5s TTL, absorbing stream player load.
-    * **ESG Transparency & Impact Metrics:** Cache quarterly impact stats and feline executive oversight records (`cache:esg:metrics`) with a 15-minute TTL.
-  * **Employee Portal Read Optimization:**
-    * **Feline Care Schedules & Dietary Plans:** Cache care schedule records (`cache:care_schedule:{feline_id}`) with 2-minute TTLs.
-    * **COTS Metadata Proxy Caching:** Cache read-heavy Snipe-IT asset inventories (`cache:cots:snipeit:assets`), Forgejo repository metadata (`cache:cots:forgejo:repos`), and Frappe HR leave policies with 60-second TTLs, protecting internal COTS applications from sudden staff navigation spikes.
+* **Cache-Aside & Read-Through Query Caching (Implemented):**
+  * Implemented [`pkg/cache/valkey`](file:///home/ramjac/orange-cat-investments/pkg/cache/valkey/cache.go) providing high-performance query caching with raw-byte caching (`GetRaw` / `SetRaw`) for zero-allocation conditional HTTP responses.
+  * Customer Portal:
+    * Portfolio Valuation & Balances: `cache:portfolio:{customer_id}` (30s TTL).
+    * Market Quotes: `cache:quotes:{symbol}` and `cache:quotes:TICKER_ALL` (5s TTL).
+    * Habitat Telemetry: `cache:habitat:telemetry` (5s TTL).
+    * ESG Welfare Metrics: `cache:esg:metrics` (15m TTL).
+  * Employee Portal:
+    * Feline Care Schedules: `cache:care_schedule:{feline_id}` (2m TTL).
+    * Nextcloud COTS metadata: `cache:cots:nextcloud:folders` (60s TTL).
 
-* **Event-Driven Cache Invalidation via RabbitMQ / Watermill Consumers:**
-  * **The Problem:** Static time-to-live (TTL) caches risk serving stale data after mutations (e.g., an investor completes a trade or a veterinarian updates a dietary plan, but the portal still displays the old balance or meal schedule until the TTL expires).
-  * **Architecture & Implementation:**
-    * Subscribe BFF background listeners (or dedicated worker event subscribers) to domain events:
-      - `events.investment.trade_executed.v1` $\rightarrow$ Evict `cache:portfolio:{customer_id}` and `cache:orders:{customer_id}`.
-      - `events.workforce.care_schedule_updated.v1` $\rightarrow$ Evict `cache:care_schedule:{feline_id}` and broadcast update across SSE stream.
-      - `events.workforce.incident_created.v1` $\rightarrow$ Evict active incident cache and push immediate alert payload.
-    * Employs proactive cache warming or eager invalidation (`DEL` / `UNLINK`), ensuring immediate data consistency across all connected web clients.
+* **Event-Driven Cache Invalidation (Implemented):**
+  * Implemented [`InvalidationListener`](file:///home/ramjac/orange-cat-investments/pkg/cache/valkey/invalidation.go) subscribing via Watermill / RabbitMQ to:
+    - `events.investment.trade_executed.v1` and `events.investment.order_placed.v1` $\rightarrow$ evicts `cache:portfolio:{customer_id}` and `cache:orders:{customer_id}`.
+    - `events.workforce.care_schedule_updated.v1` $\rightarrow$ evicts `cache:care_schedule:{feline_id}`.
+    - `events.workforce.incident_created.v1` $\rightarrow$ evicts `cache:ops:active_incidents`.
+  * Eager invalidation on mutation endpoints: trade order placement, recurring deposits, care schedule updates, and emergency medical holds immediately purge their respective cache keys.
 
-* **HTTP Conditional Validation (`ETag` & `304 Not Modified`) in BFF Proxies:**
-  * Implement standard HTTP `ETag` calculation based on cached response payload hashes.
-  * When Vue 3 SPAs send conditional request headers (`If-None-Match: "hash"`), the BFF performs a fast Valkey key existence or hash check and immediately returns `304 Not Modified` with an empty response body, saving mobile/workstation bandwidth and browser DOM re-renders.
+* **HTTP Conditional Validation (`ETag` & `304 Not Modified`) (Implemented):**
+  * Response payloads are hashed with SHA-256 (`ComputeETag` / `HandleConditionalETag`).
+  * Matching `If-None-Match` requests immediately return `304 Not Modified` with zero response body, optimizing bandwidth and DOM re-renders.
 
-* **Distributed Rate Limiting & Abuse Prevention:**
-  * Implement sliding-window rate limiting in Valkey using Redis sorted sets (`ZADD` / `ZREMRANGEBYSCORE` / `ZCARD`) or token bucket algorithms.
-  * Apply protective limits at the BFF ingress:
-    - Customer login & Plaid bank account linking: 5 attempts per 15 minutes per IP.
+* **Distributed Sliding-Window Rate Limiting (Implemented):**
+  * Implemented [`RateLimiter`](file:///home/ramjac/orange-cat-investments/pkg/cache/valkey/ratelimit.go) using Valkey sorted sets (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`, `EXPIRE`) with graceful in-memory sliding-window fallback.
+  * Middleware (`RateLimitMiddleware`) applied at BFF ingress:
+    - Customer login: 5 attempts per 15 minutes per IP (`Retry-After` header and 429 status on breach).
     - Trade order execution: 10 orders per second per customer account.
-    - Employee password resets and incident acknowledgment endpoints: strict throttling to prevent credential stuffing and brute-force abuse.
+    - Deposit operations: 5 per 15 minutes per IP.
+    - Pebble Watch acknowledgments: 10 per minute per client.
 
 

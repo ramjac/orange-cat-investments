@@ -3,15 +3,32 @@ package main
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 )
 
 // registerProtectedOpsRoutes registers all IT helpdesk, Pebble alert, and ticket operations
 // endpoints behind session authentication, role-based access control (RBAC), and CSRF protection.
-func registerProtectedOpsRoutes(mux *http.ServeMux, opsH *opshandler.Handler, sessionStore *SessionStore) {
+func registerProtectedOpsRoutes(mux *http.ServeMux, opsH *opshandler.Handler, sessionStore SessionStore, limiters ...*cachevalkey.RateLimiter) {
 	sessionAuth := SessionAuthMiddleware(sessionStore)
 	csrfProtect := CSRFProtectMiddleware
+
+	var rateLimiter *cachevalkey.RateLimiter
+	if len(limiters) > 0 && limiters[0] != nil {
+		rateLimiter = limiters[0]
+	}
+
+	pebbleAckLimiter := func(h http.Handler) http.Handler { return h }
+	if rateLimiter != nil {
+		pebbleAckLimiter = cachevalkey.RateLimitMiddleware(rateLimiter, func(r *http.Request) string {
+			if sess := EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+				return "pebble_ack:" + sess.EmployeeID
+			}
+			return "pebble_ack:" + cachevalkey.ClientIP(r)
+		}, 10, time.Minute)
+	}
 
 	// Role access definitions
 	opsRole := RequireRoleMiddleware("ops", "admin", "engineering", "facilities", "staff")
@@ -29,7 +46,7 @@ func registerProtectedOpsRoutes(mux *http.ServeMux, opsH *opshandler.Handler, se
 
 	// 1. Pebble Watch Endpoints
 	handleProtected("GET", "/api/v1/ops/pebble/alerts", sessionAuth(opsRole(http.HandlerFunc(opsH.GetPebbleAlerts))))
-	handleProtected("POST", "/api/v1/ops/pebble/ack", sessionAuth(csrfProtect(opsRole(http.HandlerFunc(opsH.SubmitPebbleAck)))))
+	handleProtected("POST", "/api/v1/ops/pebble/ack", sessionAuth(csrfProtect(opsRole(pebbleAckLimiter(http.HandlerFunc(opsH.SubmitPebbleAck))))))
 
 	// 2. IT Helpdesk Tickets
 	handleProtected("GET", "/api/v1/ops/tickets", sessionAuth(anyEmployeeRole(http.HandlerFunc(opsH.ListTickets))))

@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orange-cat-investments/oci/internal/handler"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
@@ -18,9 +20,11 @@ import (
 	"github.com/orange-cat-investments/oci/internal/saga"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -102,7 +106,14 @@ func main() {
 	wfHandler.EnableFelineWorkforce = enableFeline
 
 	mux := http.NewServeMux()
-	sessionStore := NewSessionStore()
+
+	valkeyAddr := os.Getenv("VALKEY_ADDR")
+	valkeyPass := os.Getenv("VALKEY_PASSWORD")
+
+	sessionStore := sessionvalkey.NewEmployeeSessionStore(valkeyAddr, valkeyPass, 0, logger)
+	cache := cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger)
+	rateLimiter := cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger)
+	wfHandler.SetCache(cache)
 
 	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
 
@@ -138,7 +149,22 @@ func main() {
 		opsSvc = ops_svc.NewService(opsRepo)
 	}
 	opsH := ops_handler.NewHandler(opsSvc)
-	registerProtectedOpsRoutes(mux, opsH, sessionStore)
+	registerProtectedOpsRoutes(mux, opsH, sessionStore, rateLimiter)
+
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL != "" {
+		watermillLogger := watermill.NewStdLogger(false, false)
+		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, amqp.GenerateQueueNameTopicName)
+		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
+		if err == nil {
+			listener := cachevalkey.NewInvalidationListener(cache, amqpSub, logger)
+			listener.Start(context.Background())
+			defer listener.Stop()
+			logger.Info("connected Employee BFF to RabbitMQ for event-driven cache invalidation")
+		} else {
+			logger.Warn("failed to initialize RabbitMQ subscriber for cache invalidation", "error", err)
+		}
+	}
 
 	// Incident Alert Real-Time SSE Stream & Broadcast Hub
 	incidentBroker := NewIncidentBroker(logger)

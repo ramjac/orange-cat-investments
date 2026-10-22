@@ -53,9 +53,8 @@ func TestSessionStore(t *testing.T) {
 		}
 
 		// Manually expire session
-		store.mu.Lock()
 		sess.ExpiresAt = time.Now().Add(-1 * time.Hour)
-		store.mu.Unlock()
+		store.SetSession(sess)
 
 		_, ok := store.Get(sess.SessionID)
 		if ok {
