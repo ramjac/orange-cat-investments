@@ -629,7 +629,7 @@ Make better use of our logging and monitoring infrastructure to surface issues a
 * **Probes & Healthchecks:**
   * Automated synthetic healthcheck monitors for internal websites, BFF proxies, and Domain APIs.
 * **Queue & Message Streaming Monitors:**
-  * Queue monitors for RabbitMQ deadletter queues (DLQ) and alert thresholds for excessive queue depth or stagnant consumers on regular queues.
+  * Queue depth and Dead-Letter Queue (DLQ) monitoring using RabbitMQ's built-in `rabbitmq_prometheus` plugin and `/metrics/per-object` endpoint (see [Section 7.19](#719-queue-depths-and-dead-letter-queues-in-rabbitmq-built-in-prometheus-telemetry)).
 * **Log Aggregation & Anomaly Alerts:**
   * Log-based alert rules in Loki/Promtail for sudden spikes in `ERROR` and `FATAL` log events.
 * **Alert Notifications & Escalation:**
@@ -731,5 +731,22 @@ Research and evaluate the integration of end-to-end distributed tracing, Applica
   * **Standardized OTLP Export:** Push traces, spans, and metrics over gRPC (port `4317`) and HTTP (port `4318`) using the OpenTelemetry Protocol (OTLP).
   * **In-Cluster Telemetry Agent (OTel Collector / Grafana Alloy):** Deploy an in-cluster OpenTelemetry Collector or Grafana Alloy agent in namespace `monitoring` to receive, batch, sample, and redact incoming spans and metrics.
   * **Storage & Correlation in Prometheus & Grafana Tempo:** Configure the collector to forward metrics to the in-cluster Prometheus instance (`monitoring/prometheus`) and distributed traces to Grafana Tempo, enabling seamless trace-to-metrics and trace-to-logs (Loki) correlation directly within Grafana dashboards.
+
+### 7.19 Queue Depths and Dead-Letter Queues in RabbitMQ (Built-in Prometheus Telemetry)
+Implement robust, low-overhead queue telemetry and automated alerting across RabbitMQ messaging infrastructure to monitor message delivery rates, queue backlog depths, and dead-letter queues (DLQ) without degrading broker throughput:
+* **First-Class Native `rabbitmq_prometheus` Plugin:**
+  * **Avoid Third-Party Exporters:** Avoid third-party RabbitMQ exporters—they poll the HTTP management API (`/api/...`), which causes CPU spikes, memory leaks, and struggles significantly under heavy message loads or failover conditions.
+  * **Built-in Telemetry:** RabbitMQ (3.8+) ships with a first-class, built-in `rabbitmq_prometheus` plugin that exposes metrics directly from the Erlang runtime and message core, providing fast, lightweight, and low-overhead Prometheus scraping.
+* **Plugin Setup & Port Exposition:**
+  * Enable the `rabbitmq_prometheus` plugin in the RabbitMQ configuration (via `/etc/rabbitmq/enabled_plugins` or the RabbitMQ Cluster Operator / ConfigMap).
+  * Expose dedicated Prometheus metrics port `15692` on the pod container and service (`k8s/oci-core/rabbitmq.yaml`).
+* **Crucial Configuration Tip (`/metrics/per-object`):**
+  * By default, RabbitMQ aggregates metrics across all queues on `/metrics` to protect large multi-tenant enterprise clusters from high metric cardinality.
+  * In a small-business sandbox stack, configure your Prometheus scrape target or ServiceMonitor to scrape `/metrics/per-object` (or set `prometheus.return_per_object_metrics = true` in `rabbitmq.conf`) so every individual queue and DLQ gets its own `queue="<name>"` label in Prometheus.
+* **Key Metrics to Track & Alert On:**
+  * **Dead-Letter Queue (DLQ) Backlog:** Trigger immediate alerts when `rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 0`, indicating unhandled serialization errors, poison-pill messages, or failing event handlers in Watermill consumers.
+  * **Queue Depth & Backlog Spikes:** Track `rabbitmq_queue_messages_ready` and `rabbitmq_queue_messages_unacknowledged` against worker consumption rates (`rabbitmq_queue_messages_delivered_total`).
+  * **Stagnant Consumers & Worker Failures:** Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating dead, hung, or disconnected worker subscriptions).
+  * **Erlang Process & Memory Watermarks:** Monitor `rabbitmq_process_resident_memory_bytes` against `rabbitmq_resident_memory_limit_bytes` and file descriptor limits to detect resource starvation before RabbitMQ connection flow control and alarms kick in.
 
 
