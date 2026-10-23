@@ -61,14 +61,9 @@ Verify that all certificates have more than 30 days remaining. If any certificat
 K3s provides the native `k3s certificate rotate` subcommand. When executed, previous certificates are automatically backed up to `/var/lib/rancher/k3s/server/tls-backup-<timestamp>/` before issuing fresh 365-day certificates.
 
 1. **Stop the K3s Service:**
-   - **Systemd (Debian, Ubuntu, RHEL):**
-     ```bash
-     ssh admin@k3s-control-plane-01 "sudo systemctl stop k3s"
-     ```
-   - **OpenRC (Alpine Linux):**
-     ```bash
-     ssh admin@k3s-control-plane-01 "sudo rc-service k3s stop"
-     ```
+   ```bash
+   ssh admin@k3s-control-plane-01 "sudo systemctl stop k3s"
+   ```
 
 2. **Rotate Control Plane Certificates:**
    Rotate all leaf and server certificates:
@@ -78,21 +73,16 @@ K3s provides the native `k3s certificate rotate` subcommand. When executed, prev
    *(Optional: To rotate a specific component only, use `--service <service>`, e.g., `sudo k3s certificate rotate --service kube-apiserver`)*.
 
 3. **Start the K3s Service:**
-   - **Systemd:**
-     ```bash
-     ssh admin@k3s-control-plane-01 "sudo systemctl start k3s"
-     ```
-   - **OpenRC:**
-     ```bash
-     ssh admin@k3s-control-plane-01 "sudo rc-service k3s start"
-     ```
+   ```bash
+   ssh admin@k3s-control-plane-01 "sudo systemctl start k3s"
+   ```
 
 4. **Multi-Node HA Considerations:**
    In an HA multi-server topology (e.g., 3-node embedded etcd cluster), rotate server nodes **one at a time**:
    1. Stop service and rotate node 1 (`k3s-master-01`), start service, and verify etcd quorum.
    2. Repeat for node 2 (`k3s-master-02`).
    3. Repeat for node 3 (`k3s-master-03`).
-   Worker / agent nodes (`k3s-agent`) automatically receive renewed client certificates upon reconnecting to the server. If an agent node loses connection, restart its agent service (`systemctl restart k3s-agent` or `rc-service k3s-agent restart`).
+   Worker / agent nodes (`k3s-agent`) automatically receive renewed client certificates upon reconnecting to the server. If an agent node loses connection, restart its agent service (`systemctl restart k3s-agent`).
 
 ---
 
