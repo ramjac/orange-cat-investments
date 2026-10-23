@@ -36,7 +36,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: erpnext-frappe-service
+                name: erpnext-service
                 port:
                   number: 8000
     - host: hr.oci.local

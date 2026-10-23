@@ -151,6 +151,18 @@ if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-
                 forgejo admin user create --admin --username "admin" --password "${ADMIN_PWD}" --email "admin@oci.local" 2>/dev/null || true
             echo "Starter admin account 'admin' provisioned in Forgejo."
         fi
+
+        # Auto-provision Forgejo Actions runner registration token if needed
+        if ! kubectl get secret forgejo-runner-secret -n oci-internal &>/dev/null; then
+            RUNNER_TOKEN=$(kubectl exec -n oci-internal deployment/forgejo -- forgejo actions generate-runner-token 2>/dev/null | tr -d '\r\n' || true)
+            if [[ -n "${RUNNER_TOKEN}" ]]; then
+                kubectl create secret generic forgejo-runner-secret \
+                    --namespace oci-internal \
+                    --from-literal=RUNNER_TOKEN="${RUNNER_TOKEN}" \
+                    --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+                echo "Forgejo runner registration token secret provisioned."
+            fi
+        fi
     fi
 fi
 
