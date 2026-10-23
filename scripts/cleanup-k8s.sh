@@ -22,7 +22,7 @@ echo "Connected context: $(kubectl config current-context)"
 
 echo ""
 echo "2. Identifying OCI-specific namespaces to remove..."
-OCI_NAMESPACES=("oci-core" "oci-internal" "external-sim" "postgres" "monitoring" "logging" "apps")
+OCI_NAMESPACES=("oci-core" "oci-internal" "oci-dev" "external-sim" "postgres" "monitoring" "logging" "apps")
 
 for ns in "${OCI_NAMESPACES[@]}"; do
     if kubectl get namespace "${ns}" &>/dev/null; then
@@ -37,9 +37,9 @@ done
 
 echo ""
 echo "3. Verifying all OCI persistent volume claims have been released..."
-if kubectl get pvc -A | grep -E "postgres|apps|logging|monitoring|oci-core|oci-internal|external-sim" &>/dev/null; then
+if kubectl get pvc -A | grep -E "postgres|apps|logging|monitoring|oci-core|oci-internal|oci-dev|external-sim" &>/dev/null; then
     echo "Warning: Lingering PVCs detected:"
-    kubectl get pvc -A | grep -E "postgres|apps|logging|monitoring|oci-core|oci-internal|external-sim" || true
+    kubectl get pvc -A | grep -E "postgres|apps|logging|monitoring|oci-core|oci-internal|oci-dev|external-sim" || true
 else
     echo "All OCI PVCs and bound storage successfully deleted."
 fi

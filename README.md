@@ -148,7 +148,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 ### 5.6 Platform Genericization & Small Business Blueprint (White-Labeling & Modularization)
 * **Modular Domain Decoupling & Optional Feline Extensions:** Feature flag toggles (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`) in Go servers and partitioned SQL scripts (`scripts/00-bootstrap.sql`, `01-workforce-core.sql`, `02-facilities-core.sql`, `03-ops-core.sql`, `04-oci-feline-investments.sql`).
 * **Centralized Brand Tokenization & UI White-Labeling:** Centralized design token manifest (`config/branding.yaml`), Go branding loader (`pkg/branding/config.go`), and CSS compilation tool (`scripts/generate-theme.js`).
-* **Turnkey Small Business Suite Fast-Path:** Standalone COTS-first SMB stack via `docker-compose.smb.yaml` and `./scripts/deploy-k8s.sh --profile small-business`.
+* **Turnkey Business COTS Suite Fast-Path:** Standalone COTS-first stack via `docker-compose.smb.yaml` and `./scripts/deploy-k8s.sh --profile business-only`.
 * **CLI Project Generator & New Custom Domain Scaffolding:** CLI generator script `scripts/init-business.sh` for bootstrapping custom white-labeled small business platforms.
 
 ### 5.7 Enterprise Multi-Tier Architecture & Microservices Decomposition
@@ -478,16 +478,18 @@ Orange Cat Investments is designed to run natively on **K3s**, the lightweight C
 
 Use `./scripts/deploy-k8s.sh` to deploy the desired deployment profile:
 
-* **Lightweight Small-Business Suite (`--profile small-business`):**
-  Deploys core infrastructure (PostgreSQL 16, Valkey 7.2, RabbitMQ 3.13, Meilisearch), proprietary OCI applications (Customer BFF, Employee BFF, Pebble Proxy, Worker, Zitadel Customer IdP, Domain APIs, BLLs), and internal employee identity via Forgejo:
+* **All-In-One Platform (`--profile all` or default):**
+  Deploys the full platform suite including core applications (`oci-core`), internal business applications & COTS (`oci-internal`), external simulation mocks (`external-sim`), cluster monitoring & logging (`monitoring`, `logging`), and development staging (`oci-dev`):
   ```bash
-  ./scripts/deploy-k8s.sh --profile small-business
+  ./scripts/deploy-k8s.sh
+  # or explicitly:
+  ./scripts/deploy-k8s.sh --profile all
   ```
 
-* **Complete Enterprise Suite (`--profile full`):**
-  Deploys the full production platform including commercial off-the-shelf business applications (Nextcloud, Snipe-IT, ERPNext, Frappe HR) and full observability (Prometheus, Grafana, Loki, Promtail):
+* **Business-Only COTS Suite (`--profile business-only`):**
+  Deploys strictly internal business applications (`oci-internal`: Nextcloud, Snipe-IT, ERPNext, Frappe HR, Forgejo, and internal PostgreSQL) without demo data or proprietary OCI applications, provisioning only the initial admin account:
   ```bash
-  ./scripts/deploy-k8s.sh --profile full
+  ./scripts/deploy-k8s.sh --profile business-only
   ```
 
 * **Development & Staging Simulation Suite (`--profile dev`):**
