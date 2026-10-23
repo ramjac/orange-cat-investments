@@ -152,6 +152,12 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * **Mock Mode (`simulation/mock_*.go`):** Fast, standalone local testing without external dependencies. Standalone in-memory HTTP servers (e.g., `MockForgejoServer` in `simulation/mock_forgejo.go`, or stateless mock broker/bank in `external-sim`) emulate the third-party or COTS API contracts.
    * **Live Mode:** The simulation client routes HTTP calls directly to the live internal COTS service (e.g., `http://forgejo-service.oci-internal.svc:3000` or `https://forgejo.oci.local`) or development endpoints in `oci-dev`. Simulations must NEVER target the production `oci-core` namespace.
 
+4. **Simulation Execution Location Standard (External Workstation vs. Test Server Host):**
+   * The platform simulation driver (`simulation/cmd/simulator`) must **NOT typically be run directly on the test server host** (`thelior1`).
+   * The simulator acts as an external client driving synthetic persona workflows; running it on the test server consumes target server CPU, RAM, and scheduler capacity with the test generator itself, which skews cluster telemetry and defeats the purpose of evaluating how the server handles external load.
+   * Simulations and load tests must be executed **externally** (from the developer workstation, client machines, or dedicated CI/CD runners) across the network, generating authentic ingress network traffic into the test server.
+   * Executing the simulator directly on the test server host is strictly restricted to rare network debugging tasks (e.g. diagnosing local host network interfaces, firewall rules, or container socket bindings).
+
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.
 2. **No Sensitive Payload Logging (CWE-532):** Background event workers and HTTP handlers must never log unredacted message payloads, secret keys, or credentials.
