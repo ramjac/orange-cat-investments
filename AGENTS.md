@@ -228,6 +228,6 @@ Before marking any task as complete or submitting code changes, agents must veri
 * **Local Private Server Notes (`local-server-notes.md`):**
   When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
   * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
-  * **Primary K3s Test Server (`thelior1`):** Hostname `thelior1`, running Alpine Linux v3.24, K3s v1.36.5, 16 GB RAM, dedicated SATA SSD storage at `/mnt/data/k3s`, and spinning disk at `/mnt/backup`. Kubeconfig is in `k3s-kube.config`.
+  * **Primary K3s Test Server (`thelior1`):** Hostname `thelior1`, running SUSE Linux Enterprise Micro / openSUSE MicroOS, K3s, 16 GB RAM, dedicated SATA SSD storage at `/mnt/data/k3s`, and spinning disk at `/mnt/backup`. Kubeconfig is in `k3s-kube.config`.
   * **Secondary / Legacy Test Server (`thinker`):** Hostname `thinker`, running Ubuntu 26.04 and MicroK8s v1.34.9.
   * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. K3s, MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.
