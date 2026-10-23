@@ -7,12 +7,12 @@ This runbook documents the procedures, execution guidelines, and host system tun
 ## 1. Architectural Principles & Rules
 
 1. **Strictly External Execution:**
-   * In accordance with [AGENTS.md](file:///home/ramjac/orange-cat-investments/AGENTS.md) Section 3, the simulation driver ([`simulation/cmd/simulator`](file:///home/ramjac/orange-cat-investments/simulation/cmd/simulator)) must **NEVER be run directly on the test server host** (`thelior1`).
+   * In accordance with [AGENTS.md](AGENTS.md) Section 3, the simulation driver ([`simulation/cmd/simulator`](simulation/cmd/simulator)) must **NEVER be run directly on the test server host** (`thinker`).
    * Running the load generator on the target server consumes host CPU, RAM, and scheduler capacity, invalidating cluster telemetry.
    * Tests must be dispatched from an external client workstation across the local network, generating authentic ingress network traffic into the cluster.
 
 2. **Zero-Configuration Dynamic Ingress Dialing (`OCI_INGRESS_IP`):**
-   * The Go simulation client implements a custom `net.Dialer` in [`simulation/client.go`](file:///home/ramjac/orange-cat-investments/simulation/client.go) that intercepts requests to `*.oci.local` and routes them directly to `OCI_INGRESS_IP:80` (Traefik Ingress).
+   * The Go simulation client implements a custom `net.Dialer` in [`simulation/client.go`](simulation/client.go) that intercepts requests to `*.oci.local` and routes them directly to `OCI_INGRESS_IP:80` (NGINX / MicroK8s Ingress).
    * **Do not edit `/etc/hosts` or configure local DNS resolvers.** Passing `OCI_INGRESS_IP` automatically handles ingress routing.
 
 3. **External Mock Service Resolution:**
@@ -20,15 +20,15 @@ This runbook documents the procedures, execution guidelines, and host system tun
 
 ---
 
-## 2. Host Operating System Tuning (SUSE Linux Enterprise Micro / openSUSE MicroOS)
+## 2. Host Operating System Tuning (Ubuntu Server & MicroK8s)
 
 During high-concurrency testing (e.g. 32+ workers sending ~500 req/sec), thousands of ephemeral TCP connections are established. Default Linux kernel network parameters can quickly saturate connection tracking tables (`nf_conntrack`), leading to dropped packets and ARP resolution failures ("no route to host").
 
-To ensure resilience, configure the following kernel sysctl settings on the K3s host:
+To ensure resilience, configure the following kernel sysctl settings on the Ubuntu Server host:
 
-### 2.1 Sysctl Network Tuning (`/etc/sysctl.d/99-k3s-loadtest.conf`)
+### 2.1 Sysctl Network Tuning (`/etc/sysctl.d/99-microk8s-loadtest.conf`)
 
-Create `/etc/sysctl.d/99-k3s-loadtest.conf` on the host:
+Create `/etc/sysctl.d/99-microk8s-loadtest.conf` on the host:
 
 ```ini
 # Prevent connection tracking table exhaustion
@@ -56,46 +56,35 @@ Apply immediately:
 sudo sysctl --system
 ```
 
-### 2.2 Systemd Service Persistence
-Unlike diskless/OpenRC systems, SUSE MicroOS uses standard systemd with transactional updates. Ensure services are enabled across reboots:
+### 2.2 MicroK8s Service Persistence
+Ensure MicroK8s snap services are enabled and running across reboots on Ubuntu Server:
 ```bash
-sudo systemctl enable --now sshd
-sudo systemctl enable --now k3s
-```
-
-### 2.3 K3s Dedicated Storage Configuration (`/etc/rancher/k3s/config.yaml`)
-Ensure persistent volumes land on the dedicated high-speed SATA SSD:
-```yaml
-default-local-storage-path: "/mnt/data/k3s"
-write-kubeconfig-mode: "0644"
-tls-san:
-  - "192.168.1.234"
-  - "thelior1"
+sudo systemctl enable --now snap.microk8s.daemon-containerd
 ```
 
 ---
 
 ## 3. Executing a Load Test
 
-The repository includes an automated concurrency runner: [`scripts/run-load-test.sh`](file:///home/ramjac/orange-cat-investments/scripts/run-load-test.sh).
+The repository includes an automated concurrency runner: [`scripts/run-load-test.sh`](../../scripts/run-load-test.sh).
 
 ### 3.1 Syntax
 ```bash
 ./scripts/run-load-test.sh [TARGET_HOST] [CONCURRENCY] [DURATION_SECONDS]
 ```
 
-* `TARGET_HOST`: IP or hostname of the K3s Ingress controller (default: `192.168.1.234`).
+* `TARGET_HOST`: IP or hostname of the Ingress controller (default: `192.168.1.246`).
 * `CONCURRENCY`: Number of parallel simulator worker instances (default: `32`).
 * `DURATION_SECONDS`: Total test execution time in seconds (default: `600`, 10 minutes).
 
 ### 3.2 Quick Baseline Run (5 Minutes, 16 Workers)
 ```bash
-./scripts/run-load-test.sh 192.168.1.234 16 300
+./scripts/run-load-test.sh 192.168.1.246 16 300
 ```
 
 ### 3.3 Heavy Stress Run (10 Minutes, 32 Workers)
 ```bash
-./scripts/run-load-test.sh 192.168.1.234 32 600
+./scripts/run-load-test.sh 192.168.1.246 32 600
 ```
 
 ---
@@ -104,7 +93,7 @@ The repository includes an automated concurrency runner: [`scripts/run-load-test
 
 While the load test runs in the background, monitor both the client workstation and the target server:
 
-### 4.1 On Target Server (`thelior1`)
+### 4.1 On Target Server (`thinker`)
 ```bash
 # Monitor CPU & thread distribution
 htop
@@ -112,7 +101,9 @@ htop
 # Monitor active network connections and socket states
 ss -s
 
-# Monitor K3s pod health and resource usage
+# Monitor MicroK8s pod health and resource usage
+microk8s kubectl top nodes
+microk8s kubectl top pods -A
 kubectl top nodes
 kubectl top pods -A
 ```

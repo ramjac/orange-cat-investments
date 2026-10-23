@@ -1,0 +1,6 @@
+---
+- name: Provision and Bootstrap MicroK8s Cluster on Ubuntu Server
+  hosts: microk8s_servers
+  become: true
+  roles:
+    - microk8s

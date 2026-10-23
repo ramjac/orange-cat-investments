@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Direct Kubernetes Deployment Script for Orange Cat Investments (OCI)
-# Targets any existing Kubernetes cluster (MicroK8s, K3s, Minikube, kind, or cloud K8s)
+# Targets any existing Kubernetes cluster (MicroK8s, Minikube, kind, or cloud K8s)
 # using standard kubectl without requiring host SSH or Ansible.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

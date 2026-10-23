@@ -49,30 +49,68 @@ Install **Ubuntu Server 24.04 / 26.04 LTS** or **Debian 12** on all 3 nodes:
 
 ---
 
-## 4. Automated Cluster Provisioning via Ansible
+## 4. Multi-Node Cluster Provisioning (MicroK8s on Ubuntu Server Standard)
+
+### Option A: Native MicroK8s HA Clustering (Recommended)
+
+MicroK8s on Ubuntu Server provides built-in high-availability clustering. When 3 or more nodes join, MicroK8s automatically transitions into an HA quorum cluster backed by distributed Raft consensus:
+
+1. **Install MicroK8s on all 3 Ubuntu Server nodes:**
+   ```bash
+   sudo snap install microk8s --classic --channel=1.34/stable
+   sudo usermod -a -G microk8s $USER
+   mkdir -p ~/.kube
+   sudo chown -f -R $USER ~/.kube
+   ```
+
+2. **Initialize Node 1 and add Node 2 & Node 3:**
+   On Node 1 (`oci-node1`), generate the join token:
+   ```bash
+   microk8s add-node
+   ```
+   This outputs a join command with connection string and token.
+   On Node 2 (`oci-node2`), run the join command:
+   ```bash
+   microk8s join 192.168.1.201:25000/<token>
+   ```
+   Repeat on Node 1 (`microk8s add-node`) and run the new join command on Node 3 (`oci-node3`).
+
+3. **Enable Core Addons across the HA Cluster:**
+   Once joined, enable core cluster capabilities from any node:
+   ```bash
+   microk8s enable dns ingress storage registry cert-manager metrics-server
+   ```
+
+4. **Export Cluster Kubeconfig:**
+   ```bash
+   microk8s config > ~/.kube/config
+   kubectl get nodes -o wide
+   ```
+
+### Option B: Automated Cluster Provisioning via Ansible
+
+For automated headless provisioning of all 3 Ubuntu Server nodes:
 
 ### Step 4.1: Prepare Inventory
 Copy the example inventory template and update IP addresses:
 ```bash
 cp ansible/inventory/ha-cluster.ini.example ansible/inventory/ha-cluster.ini
 ```
-Verify the contents in [`ansible/inventory/ha-cluster.ini`](file:///home/ramjac/orange-cat-investments/ansible/inventory/ha-cluster.ini):
+Verify the contents in [`ansible/inventory/ha-cluster.ini`](ansible/inventory/ha-cluster.ini):
 * Ensure `node1`, `node2`, and `node3` match your physical machine IPs.
-* Ensure `k3s_vip=192.168.1.250` is an unused IP on your local subnet.
-* Update `k3s_cluster_token` with a strong cryptographic passphrase.
+* Ensure `cluster_vip=192.168.1.250` is an unused IP on your local subnet.
 
 ### Step 4.2: Execute Ansible Provisioning Playbook
 Run the multi-node HA cluster setup:
 ```bash
-ansible-playbook -i ansible/inventory/ha-cluster.ini ansible/playbooks/k3s_ha_cluster.yml
+ansible-playbook -i ansible/inventory/ha-cluster.ini ansible/playbooks/microk8s_ha_cluster.yml
 ```
 
 **What the automation performs:**
 1. Installs Longhorn prerequisites (`open-iscsi`, `nfs-common`, `cryptsetup`) across all 3 nodes.
 2. Generates the `kube-vip` static pod manifest to bind virtual IP `192.168.1.250` via ARP.
-3. Initializes Node 1 with `--cluster-init` embedded etcd.
-4. Concurrently joins Node 2 and Node 3 to the embedded etcd quorum.
-5. Extracts the administrative `kubeconfig` to `~/.kube/config-oci-ha` pointed directly at `https://192.168.1.250:6443`.
+3. Initializes Node 1 and joins Node 2 and Node 3 into quorum.
+4. Extracts the administrative `kubeconfig` to `~/.kube/config-oci-ha` pointed directly at `https://192.168.1.250:6443`.
 
 ### Step 4.3: Verify Cluster Status
 Set your local environment to use the new cluster kubeconfig:
@@ -83,9 +121,9 @@ kubectl get nodes -o wide
 Expected output:
 ```text
 NAME         STATUS   ROLES                       AGE   VERSION        INTERNAL-IP
-oci-node1    Ready    control-plane,etcd,master   5m    v1.36.4+k3s1   192.168.1.201
-oci-node2    Ready    control-plane,etcd,master   3m    v1.36.4+k3s1   192.168.1.202
-oci-node3    Ready    control-plane,etcd,master   2m    v1.36.4+k3s1   192.168.1.203
+oci-node1    Ready    control-plane,master        5m    v1.34.9        192.168.1.201
+oci-node2    Ready    control-plane,master        3m    v1.34.9        192.168.1.202
+oci-node3    Ready    control-plane,master        2m    v1.34.9        192.168.1.203
 ```
 
 Check etcd quorum:

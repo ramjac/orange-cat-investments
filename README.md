@@ -51,7 +51,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ## 3. Core Technology Stack
 
-* **Orchestration & Hosting:** Kubernetes (K3s). Adheres strictly to [12-Factor App](https://12factor.net/) principles.
+* **Orchestration & Hosting:** Kubernetes (MicroK8s on Ubuntu Server). Adheres strictly to [12-Factor App](https://12factor.net/) principles.
 * **Infrastructure Provisioning:** Ansible for initial host setup and Kubernetes cluster bootstrapping (`ansible/`).
 * **Source Control & CI/CD:** [Forgejo](https://forgejo.org) for Git repository hosting, issue tracking, Kanban boards, CI/CD pipelines via Forgejo Actions, internal OAuth2 authentication, and package registry.
 * **Customer Identity Provider:** [ZITADEL](https://github.com/zitadel/zitadel) for customer OIDC/SSO authentication.
@@ -196,6 +196,8 @@ Developed and deployed to guarantee uninterrupted multi-day operations, zero-dow
   * Dedicated PersistentVolumeClaim on Valkey (`valkey-data-pvc` on `/data`) with `valkey-server --appendonly yes --dir /data` enabled. ZITADEL database connection limits and dedicated `startupProbe`/`livenessProbe` configured for DNS/CNI startup tolerance.
 * **Control Plane Certificate Expiration Runbooks & Alerts:**
   * Documented annual control plane cert rotation SOPs in [`docs/runbooks/control-plane-cert-rotation.md`](docs/runbooks/control-plane-cert-rotation.md) and Prometheus Alertmanager rules in [`k8s/monitoring/prometheus.yaml`](k8s/monitoring/prometheus.yaml) (`CertManagerCertExpiringSoon` and `BlackboxSSLCertExpiringSoon`).
+* **COTS Application Lifecycle Management & Upstream Patching Runbooks:**
+  * Documented pre-flight database snapshots, sequential Nextcloud upgrades, Forgejo OAuth2 validation, Snipe-IT key preservation, ERPNext/Frappe bench migrations, and single-command rollbacks in [`docs/runbooks/cots-patching-lifecycle.md`](docs/runbooks/cots-patching-lifecycle.md) and [`scripts/cots-maintenance.sh`](scripts/cots-maintenance.sh).
 
 ### 5.9 Distributed Caching, Valkey Session Management & Rate Limiting (BFF Layer)
 Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-service.oci-core.svc.cluster.local:6379`) backed by persistent storage (`valkey-data-pvc`) and AOF persistence:
@@ -255,7 +257,7 @@ Ensure your host machine has the following tools installed:
 | **Valkey / Redis** | 7.2+ (or Docker / Podman) | Session storage & cache |
 | **Node.js & npm** | Node 18+ / npm 9+ | Building the Vue 3 Employee Portal |
 | **Flutter SDK** *(Optional)* | 3.19+ | Running the Field Maintenance mobile app |
-| **K3s / Ansible** *(Optional)* | v1.28+ | Full Kubernetes cluster deployment |
+| **MicroK8s on Ubuntu Server / Ansible** *(Optional)* | v1.28+ | Full Kubernetes cluster deployment |
 
 ---
 
@@ -445,53 +447,45 @@ docker compose -f docker-compose.smb.yaml up -d
 
 ---
 
-### 6.4 Kubernetes Cluster Deployment (Self-Hosted K3s Standard)
+### 6.4 Kubernetes Cluster Deployment (Self-Hosted MicroK8s on Ubuntu Server Standard)
 
-Orange Cat Investments is designed to run natively on **K3s**, the lightweight CNCF-certified Kubernetes distribution, ideal for edge hardware, bare-metal mini PCs, or small-business server nodes.
+Orange Cat Investments is designed to run natively on **MicroK8s on Ubuntu Server**, providing a fast, lightweight, and robust Kubernetes foundation ideal for edge hardware, bare-metal mini PCs, or small-business server nodes.
 
-#### Step 1: K3s Host Setup & Workload Storage Allocation
+#### Step 1: Ubuntu Server & MicroK8s Host Setup
 
-1. **Install K3s on your Server Node:**
+1. **Install MicroK8s on Ubuntu Server:**
    ```bash
-   curl -sfL https://get.k3s.io | sh -
+   sudo snap install microk8s --classic --channel=1.34/stable
+   sudo usermod -a -G microk8s $USER
+   mkdir -p ~/.kube
+   sudo chown -f -R $USER ~/.kube
+   newgrp microk8s
    ```
 
-2. **Configure Dedicated Workload Storage (`/mnt/data`):**
-   Small-business nodes frequently pair a fast smaller OS disk with a larger secondary SATA/NVMe SSD (e.g. mounted at `/mnt/data`). To ensure persistent volume claims (PostgreSQL data, Valkey AOF, Nextcloud uploads) utilize the secondary drive instead of exhausting the root OS partition, configure K3s's built-in `local-path` provisioner:
+2. **Enable Core Cluster Addons:**
+   MicroK8s provides turn-key addons for DNS, storage, ingress, registry, and PKI:
    ```bash
-   sudo mkdir -p /etc/rancher/k3s /mnt/data/k3s
-   cat << 'EOF' | sudo tee /etc/rancher/k3s/config.yaml
-   default-local-storage-path: "/mnt/data/k3s"
-   EOF
-   sudo systemctl restart k3s # or: sudo rc-service k3s restart
+   microk8s enable dns storage ingress registry cert-manager metrics-server
    ```
 
 3. **Configure Workstation Kubeconfig:**
-   Copy the cluster configuration to your local development machine:
+   Export the cluster configuration to your local workstation:
    ```bash
-   scp user@<k3s-host>:/etc/rancher/k3s/k3s.yaml ./k3s-kube.config
-   sed -i 's/127.0.0.1/<k3s-host-ip>/g' ./k3s-kube.config
-   export KUBECONFIG="$(pwd)/k3s-kube.config"
+   microk8s config > thinker-kube.config # or ~/.kube/config
+   export KUBECONFIG="$(pwd)/thinker-kube.config"
    kubectl get nodes -o wide
    ```
 
-#### Step 2: Cluster Prerequisites (Cert-Manager & In-Cluster Registry)
+#### Step 2: Storage, Registry & Ingress Conventions
 
-1. **Install cert-manager (v1.17.1+):**
-   Inter-service communication is secured via dynamic mutual TLS (mTLS). Deploy the official cert-manager controller:
-   ```bash
-   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml
-   kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
-   ```
+1. **Storage Provisioner (`microk8s-hostpath`):**
+   MicroK8s defaults to the `microk8s-hostpath` StorageClass. On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), persistent volumes can be directed to the dedicated storage partition.
 
 2. **In-Cluster Container Registry (`localhost:32000`):**
-   OCI manifests reference `localhost:32000/<image>:<tag>` to keep deployments independent of external Docker Hub pull limits. Deploy the standard in-cluster registry on NodePort 32000:
-   ```bash
-   kubectl apply -f k8s/registry/registry.yaml
-   ```
+   MicroK8s provides a built-in container registry (`microk8s enable registry`) serving on port `:32000` / `localhost:32000`, matching all OCI container deployment manifests. Alternatively, the manifest in `k8s/registry/registry.yaml` can be applied.
 
-3. **Ingress & Routing (Traefik Standard):**
-   K3s provides Traefik out of the box listening on host ports `80` and `443`. All OCI Ingress manifests utilize standard Ingress rules that Traefik adopts automatically.
+3. **Ingress & Routing (NGINX Ingress Standard):**
+   MicroK8s includes the official NGINX Ingress controller (`microk8s enable ingress`) listening on host ports `80` and `443`. All OCI Ingress manifests utilize standard Ingress rules adopted by the controller.
 
 #### Step 3: Deploy Platform Workloads
 
@@ -545,15 +539,15 @@ wait
 
 ---
 
-### 6.5 Bare-Metal K3s Cluster Provisioning via Ansible
+### 6.5 Bare-Metal MicroK8s Cluster Provisioning via Ansible
 
-For users provisioning a fresh, unconfigured bare-metal server (e.g. mini PC, Intel NUC, or dedicated home lab node) from scratch:
+For users provisioning a fresh, unconfigured bare-metal Ubuntu Server (e.g. mini PC, Intel NUC, or dedicated home lab node) from scratch:
 
 1. **Configure Ansible Inventory:**
-   Edit `ansible/inventory/hosts.ini` with your home server's IP address and SSH user:
+   Edit `ansible/inventory/hosts.ini` with your Ubuntu Server's IP address and SSH user:
    ```ini
-   [k3s_servers]
-   192.168.1.100 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_ed25519
+   [microk8s_servers]
+   192.168.1.246 ansible_user=ramjac ansible_ssh_private_key_file=~/.ssh/id_ed25519
    ```
 
 2. **Run Infrastructure Deployment Script:**
@@ -746,7 +740,11 @@ Complete the zero-trust security architecture to eliminate trust assumptions bet
 * **Workload Identity Service Mesh:**
   * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending exclusively on network perimeter security.
 
-### 7.12 COTS Application Lifecycle Management & Upstream Security Patching Runbooks
+### 7.12 COTS Application Lifecycle Management & Upstream Security Patching Runbooks (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Comprehensive Standard Operating Procedures (SOPs) and runbooks are documented in [`docs/runbooks/cots-patching-lifecycle.md`](docs/runbooks/cots-patching-lifecycle.md), complemented by the maintenance helper automation CLI in [`scripts/cots-maintenance.sh`](scripts/cots-maintenance.sh).
+
 Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and operational runbooks for IT systems administrators (`emp-human-frank`, Platform Security & K8s Infrastructure Lead) to safely apply upstream security patches, minor updates, and major version upgrades across all Commercial-Off-The-Shelf (COTS) business platforms in `oci-internal` and identity systems in `oci-core`:
 * **Standardized IT Maintenance & Pre-Flight Procedure:**
   * Automated pre-upgrade database snapshots via Kubernetes backup cronjobs (`postgres-internal-backup-cronjob` and `postgres-core-backup-cronjob`).
@@ -938,10 +936,10 @@ Address critical Kubernetes infrastructure failure modes commonly overlooked whe
     3. If the external heartbeat monitor stops receiving the expected ping within the configured grace period (e.g. 15 minutes), the external service immediately pages the on-call engineer via SMS, email, or mobile push notification, providing external out-of-band alerting for complete site, power, or internet failures.
 
 ### 7.22 Automated In-Cluster Forgejo Runner CI/CD Pipeline & Test Cluster Promotion
-Refactor the test cluster verification and deployment workflow so that test clusters (e.g. `thelior1`) are tested as authentic, self-contained deployment targets rather than relying on manual image builds pushed from external developer workstations:
+Refactor the test cluster verification and deployment workflow so that test clusters (e.g. `thinker`) are tested as authentic, self-contained deployment targets rather than relying on manual image builds pushed from external developer workstations:
 
 * **The Problem:**
-  Building OCI microservices and frontend SPAs locally on a developer or agent workstation and pushing them to the test cluster's registry (`localhost:32000` / `thelior1:32000`) bypasses the cluster's internal deployment machinery. It exercises the workstation's local environment, Go compiler, and network rather than validating the deployed cluster's own self-hosted software supply chain.
+  Building OCI microservices and frontend SPAs locally on a developer or agent workstation and pushing them to the test cluster's registry (`localhost:32000` / `thinker:32000`) bypasses the cluster's internal deployment machinery. It exercises the workstation's local environment, Go compiler, and network rather than validating the deployed cluster's own self-hosted software supply chain.
 * **Architecture & Objectives:**
   * **In-Cluster Source Synchronization:** Automatically sync or bootstrap the `orange-cat-investments` repository into the in-cluster **Forgejo** instance (`http://forgejo-service.oci-internal.svc:3000`) during platform deployment.
   * **In-Cluster Container Builds via Forgejo Actions:** Utilize the deployed in-cluster runner ([`k8s/oci-internal/forgejo-runner.yaml`](k8s/oci-internal/forgejo-runner.yaml)) running `gitea/act_runner` with Docker-in-Docker (DinD). When code changes land on Forgejo, [`.forgejo/workflows/ci.yaml`](.forgejo/workflows/ci.yaml) executes inside the cluster node.

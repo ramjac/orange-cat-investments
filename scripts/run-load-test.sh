@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_HOST="${1:-"192.168.1.234"}"
+TARGET_HOST="${1:-"192.168.1.246"}"
 CONCURRENCY="${2:-32}"
 DURATION_SECONDS="${3:-600}"
 
@@ -21,7 +21,7 @@ fi
 echo "================================================================================"
 echo "  Orange Cat Investments (OCI) - External Cluster Load Test"
 echo "================================================================================"
-echo "Target Cluster Ingress : ${TARGET_HOST}:80 (Traefik)"
+echo "Target Cluster Ingress : ${TARGET_HOST}:80 (NGINX / MicroK8s)"
 echo "Concurrency Workers    : ${CONCURRENCY} parallel instances"
 echo "Duration               : ${DURATION_SECONDS} seconds ($(( DURATION_SECONDS / 60 )) minutes)"
 echo "Mode                   : Live ingress traffic against oci-dev & external-sim"

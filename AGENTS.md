@@ -9,7 +9,7 @@ Welcome! This repository hosts the software application platform for **Orange Ca
 OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)** and microservices architecture principles.
 
 ### Key Operational Planes & Tech Stack:
-* **Orchestration & Infrastructure:** K3s Kubernetes, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
+* **Orchestration & Infrastructure:** MicroK8s on Ubuntu Server, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
 * **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`). Supports partitioned modular schemas (`01-workforce-core.sql`, `02-facilities-core.sql`, etc.) for white-labeled SMB deployments.
 * **Enterprise Multi-Tier Architecture & Custom Services:**
   * **Tier 1: Client Applications:**
@@ -153,7 +153,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * **Live Mode:** The simulation client routes HTTP calls directly to the live internal COTS service (e.g., `http://forgejo-service.oci-internal.svc:3000` or `https://forgejo.oci.local`) or development endpoints in `oci-dev`. Simulations must NEVER target the production `oci-core` namespace.
 
 4. **Simulation Execution Location Standard (External Workstation vs. Test Server Host):**
-   * The platform simulation driver (`simulation/cmd/simulator`) must **NOT typically be run directly on the test server host** (`thelior1`).
+   * The platform simulation driver (`simulation/cmd/simulator`) must **NOT typically be run directly on the test server host** (e.g. `thinker`).
    * The simulator acts as an external client driving synthetic persona workflows; running it on the test server consumes target server CPU, RAM, and scheduler capacity with the test generator itself, which skews cluster telemetry and defeats the purpose of evaluating how the server handles external load.
    * Simulations and load tests must be executed **externally** (from the developer workstation, client machines, or dedicated CI/CD runners) across the network, generating authentic ingress network traffic into the test server.
    * Executing the simulator directly on the test server host is strictly restricted to rare network debugging tasks (e.g. diagnosing local host network interfaces, firewall rules, or container socket bindings).
@@ -170,11 +170,11 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
 4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
 5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
-6. **Ingress & Cluster Engine Conventions (K3s Reference Standard):**
-   * **K3s as Primary Reference:** Orange Cat Investments uses **K3s** as the primary Kubernetes reference engine. In K3s, **Traefik** is the standard ingress controller.
-   * **Ingress Class Defaults:** Manifests must not hardcode proprietary ingress classes like `ingressClassName: public` or node LAN IPs. Omit `spec.ingressClassName` (or specify `traefik`) so that the cluster's default IngressClass automatically adopts routes.
-   * **In-Cluster Container Registry (`:32000`):** On K3s, container images are hosted via the in-cluster registry defined in `k8s/registry/registry.yaml` (NodePort 32000), preserving the `localhost:32000/<image>:<tag>` convention.
-   * **Dedicated Workload Storage:** On hosts with attached secondary drives (e.g. SATA SSD mounted at `/mnt/data`), configure K3s Rancher `local-path` provisioner via `/etc/rancher/k3s/config.yaml` (`default-local-storage-path: "/mnt/data/k3s"`) so all PVCs land on dedicated persistent storage.
+6. **Ingress & Cluster Engine Conventions (MicroK8s on Ubuntu Server Reference Standard):**
+   * **MicroK8s on Ubuntu Server as Primary Reference:** Orange Cat Investments uses **MicroK8s on Ubuntu Server** as the primary Kubernetes reference engine. In MicroK8s, the built-in NGINX Ingress controller (`microk8s enable ingress`) is the standard ingress controller.
+   * **Ingress Class Defaults:** Manifests should use standard IngressClass `public` (or default to the cluster ingress controller) so that the cluster's ingress controller automatically adopts routes.
+   * **In-Cluster Container Registry (`:32000`):** In MicroK8s, container images are hosted via the built-in container registry addon (`microk8s enable registry`) or `k8s/registry/registry.yaml` on NodePort 32000, preserving the `localhost:32000/<image>:<tag>` convention.
+   * **Dedicated Workload Storage:** Workloads default to MicroK8s hostpath storage (`microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass). On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), configure the storage path so all PVCs land on dedicated persistent storage.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
@@ -228,6 +228,5 @@ Before marking any task as complete or submitting code changes, agents must veri
 * **Local Private Server Notes (`local-server-notes.md`):**
   When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
   * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
-  * **Primary K3s Test Server (`thelior1`):** Hostname `thelior1`, running SUSE Linux Enterprise Micro / openSUSE MicroOS, K3s, 16 GB RAM, dedicated SATA SSD storage at `/mnt/data/k3s`, and spinning disk at `/mnt/backup`. Kubeconfig is in `k3s-kube.config`.
-  * **Secondary / Legacy Test Server (`thinker`):** Hostname `thinker`, running Ubuntu 26.04 and MicroK8s v1.34.9.
-  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. K3s, MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.
+  * **Primary MicroK8s Test Server (`thinker`):** Hostname `thinker`, running Ubuntu Server (Ubuntu 26.04 / 24.04 LTS), MicroK8s v1.34+, 16 GB RAM, control plane at `https://192.168.1.246:16443`. Kubeconfig is in `thinker-kube.config` or `microk8s-kube.config`.
+  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.

@@ -1,5 +1,5 @@
 # ==============================================================================
-# In-Cluster Container Registry for Self-Hosted K3s Clusters
+# In-Cluster Container Registry for Self-Hosted MicroK8s / Kubernetes Clusters
 # ==============================================================================
 # Exposes a local Docker/OCI container registry on NodePort 32000 across all cluster
 # nodes, matching the `localhost:32000` image reference standard across manifests.

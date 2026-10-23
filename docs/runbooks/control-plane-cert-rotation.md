@@ -10,11 +10,11 @@
 Kubernetes control planes generate internal TLS certificates during initial cluster bootstrapping for:
 - API server (`kube-apiserver`)
 - Kubelet node agents and client credentials
-- etcd peer and client communication (embedded etcd or external datastore)
+- Datastore peer and client communication (Dqlite / Raft / etcd)
 - Aggregation layer front-proxy client
 - Controller-manager and scheduler client certificates
 
-In K3s, control plane certificates are stored under `/var/lib/rancher/k3s/server/tls` and are valid for **365 days (1 year)** by default. While K3s will automatically rotate certificates upon restart if they are within 90 days of expiration, infrastructure engineers must execute scheduled annual audits and managed rotations to prevent uncoordinated restarts, certificate drift, or split-brain conditions across HA control planes.
+In **MicroK8s on Ubuntu Server**, control plane certificates are stored under `/var/snap/microk8s/current/certs` and are valid for **365 days (1 year)** by default. Infrastructure engineers must execute scheduled annual audits and managed rotations to prevent uncoordinated expiration, certificate drift, or communication failures across cluster nodes.
 
 If control plane certificates expire:
 - Inter-node communication fails.
@@ -27,77 +27,59 @@ If control plane certificates expire:
 
 ---
 
-## 2. Annual Control Plane Certificate Renewal SOP (K3s Standard)
+## 2. Annual Control Plane Certificate Renewal SOP (MicroK8s Standard)
 
 Infrastructure engineers must execute the annual certificate inspection and refresh cycle at least 30 days prior to expiration.
 
 ### 2.1 Inspect Certificate Expiration
 
-Log into the K3s control plane node via SSH and check the expiration status of all control plane certificates:
+Log into the Ubuntu Server MicroK8s control plane node via SSH and check the expiration status of all control plane certificates:
 
 ```bash
-ssh admin@k3s-control-plane-01 "sudo k3s certificate check"
+ssh ramjac@thinker "microk8s refresh-certs --check"
 ```
 
-The output enumerates all managed TLS certificates, their validity windows, and days remaining:
-```text
-CERTIFICATE                           EXPIRES
-/var/lib/rancher/k3s/server/tls/client-admin.crt                  Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/client-auth-proxy.crt            Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/client-controller.crt            Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/client-kube-apiserver.crt        Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/client-kube-proxy.crt            Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/client-k3s-controller.crt        Jan 15, 2027 10:00 UTC (358 days)
-/var/lib/rancher/k3s/server/tls/server-ca.crt                    Jan 12, 2036 10:00 UTC (3645 days)
-/var/lib/rancher/k3s/server/tls/serving-kube-apiserver.crt       Jan 15, 2027 10:00 UTC (358 days)
-```
-
-Verify that all certificates have more than 30 days remaining. If any certificate is approaching expiration, proceed to the rotation steps below.
+The output enumerates all managed TLS certificates, their file paths under `/var/snap/microk8s/current/certs`, and remaining validity. Verify that all certificates have more than 30 days remaining. If any certificate is approaching expiration, proceed to the rotation steps below.
 
 ---
 
 ### 2.2 Execute Managed Certificate Rotation
 
-K3s provides the native `k3s certificate rotate` subcommand. When executed, previous certificates are automatically backed up to `/var/lib/rancher/k3s/server/tls-backup-<timestamp>/` before issuing fresh 365-day certificates.
+MicroK8s provides the native `microk8s refresh-certs` tool. When executed, previous certificates are automatically backed up to `/var/snap/microk8s/current/certs/backup/` before issuing fresh certificates.
 
-1. **Stop the K3s Service:**
+1. **Rotate Control Plane Certificates:**
+   Rotate expiring certificates (e.g. `server.crt` and `front-proxy-client.crt`):
    ```bash
-   ssh admin@k3s-control-plane-01 "sudo systemctl stop k3s"
+   ssh ramjac@thinker "sudo microk8s refresh-certs -e server.crt && sudo microk8s refresh-certs -e front-proxy-client.crt"
+   ```
+   *(Or refresh all certificates: `ssh ramjac@thinker "sudo microk8s refresh-certs"`)*.
+
+2. **Restart MicroK8s Services:**
+   Restart the services to reload the renewed certificates:
+   ```bash
+   ssh ramjac@thinker "sudo microk8s stop && sudo microk8s start"
    ```
 
-2. **Rotate Control Plane Certificates:**
-   Rotate all leaf and server certificates:
-   ```bash
-   ssh admin@k3s-control-plane-01 "sudo k3s certificate rotate"
-   ```
-   *(Optional: To rotate a specific component only, use `--service <service>`, e.g., `sudo k3s certificate rotate --service kube-apiserver`)*.
-
-3. **Start the K3s Service:**
-   ```bash
-   ssh admin@k3s-control-plane-01 "sudo systemctl start k3s"
-   ```
-
-4. **Multi-Node HA Considerations:**
-   In an HA multi-server topology (e.g., 3-node embedded etcd cluster), rotate server nodes **one at a time**:
-   1. Stop service and rotate node 1 (`k3s-master-01`), start service, and verify etcd quorum.
-   2. Repeat for node 2 (`k3s-master-02`).
-   3. Repeat for node 3 (`k3s-master-03`).
-   Worker / agent nodes (`k3s-agent`) automatically receive renewed client certificates upon reconnecting to the server. If an agent node loses connection, restart its agent service (`systemctl restart k3s-agent`).
+3. **Multi-Node HA Considerations:**
+   In an HA multi-node cluster, refresh certificates across nodes sequentially:
+   1. Refresh certificates and restart services on node 1 (`thinker`).
+   2. Verify cluster status: `microk8s status`.
+   3. Repeat for secondary nodes.
 
 ---
 
 ### 2.3 Update Client Kubeconfig & Verify Cluster Health
 
-Rotating the control plane certificates regenerates the client admin certificate in `/etc/rancher/k3s/k3s.yaml`. Workstations and CI/CD runners must update their `kubeconfig`:
+Rotating the control plane certificates regenerates client administrative credentials. Workstations and CI/CD runners must update their `kubeconfig`:
 
 1. **Export Refreshed Kubeconfig:**
    ```bash
-   ssh admin@k3s-control-plane-01 "sudo cat /etc/rancher/k3s/k3s.yaml" > ~/.kube/config
+   ssh ramjac@thinker "microk8s config" > thinker-kube.config
    ```
-   *(Ensure the `server:` URL points to the control plane IP or DNS VIP rather than `127.0.0.1`)*.
 
 2. **Verify Cluster Health & Pod Status:**
    ```bash
+   export KUBECONFIG="$(pwd)/thinker-kube.config"
    kubectl get nodes -o wide
    kubectl get pods -A
    ```
@@ -120,35 +102,32 @@ OCI enforces zero-static certificates and dynamic trust bundle propagation acros
                              +-------------------------+-------------------------+
                              |                                                   |
                              v                                                   v
-                +--------------------------+                        +--------------------------+
-                | oci-core Namespace       |                        | oci-internal Namespace   |
-                | ConfigMap: oci-ca-bundle |                        | ConfigMap: oci-ca-bundle |
-                +--------------------------+                        +--------------------------+
+           +-----------------------------------+               +-----------------------------------+
+           | Namespace: oci-core               |               | Namespace: oci-internal           |
+           | ConfigMap: oci-ca-bundle          |               | ConfigMap: oci-ca-bundle          |
+           |   (ca.crt)                        |               |   (ca.crt)                        |
+           +-----------------------------------+               +-----------------------------------+
                              |                                                   |
-                             v                                                   v
-                +--------------------------+                        +--------------------------+
-                | Go Microservices         |                        | Nextcloud & COTS         |
-                | pkg/mtls                 |                        | Internal CA trust store  |
-                | DynamicCAPoolReloader    |                        |                          |
-                +--------------------------+                        +--------------------------+
+                             +-------------------------+-------------------------+
+                                                       |
+                                                       v
+                                     +-----------------------------------+
+                                     | Go Microservices (pkg/mtls)       |
+                                     | DynamicCAPoolReloader             |
+                                     | - Hot-reloads ca.crt via inotify  |
+                                     | - Zero pod restarts on rotation   |
+                                     +-----------------------------------+
 ```
 
-1. **trust-manager Bundle Synchronization:**
-   The declarative manifest [`k8s/ha/lan/tls/oci-ca-bundle.yaml`](../../k8s/ha/lan/tls/oci-ca-bundle.yaml) synchronizes `secret/oci-lan-root-ca-key-pair` in namespace `cert-manager` to `ConfigMap/oci-ca-bundle` across target namespaces (`oci-core`, `oci-internal`).
-   Verify sync status with:
-   ```bash
-   kubectl get bundle oci-ca-bundle
-   ```
-
-2. **Zero-Downtime Hot-Swapping (`pkg/mtls`):**
-   Go microservices utilize [`pkg/mtls.DynamicCAPoolReloader`](../../pkg/mtls/mtls.go) which watches the mounted `ca.crt` file. When the CA rotates on disk, running gRPC and HTTP servers hot-swap the active `ClientCAs` and `RootCAs` pools on every handshake, requiring **zero pod restarts**.
-
-3. **Automated Background Reconciler (`cmd/worker`):**
+1. **Automated Intermediate CA Rotation:**
    The Go background worker runs [`CARotationManager`](../../internal/service/pki/ca_rotation.go) on an hourly ticker. When the intermediate CA approaches 30 days before expiration:
    - Issues a fresh ECDSA P-256 certificate and key pair.
    - Synchronizes `secret/oci-intermediate-ca-key-pair` via the Kubernetes API.
    - Verifies `trust-manager` bundle propagation.
-   - Publishes an `ops.ca_rotated.v1` event envelope across RabbitMQ.
+   - Emits an `ops.ca_rotated.v1` domain event.
+
+2. **Dynamic In-Cluster Hot-Reloading (`pkg/mtls`):**
+   Go gRPC services mount `ConfigMap/oci-ca-bundle` to `/etc/ssl/certs/oci`. The [`DynamicCAPoolReloader`](../../pkg/mtls/mtls.go) detects filesystem timestamp updates on `ca.crt` and dynamically reloads the server and client certificate verification pools in memory without dropping in-flight connections or restarting pods.
 
 ---
 
@@ -170,26 +149,25 @@ If control plane certificates have expired prior to manual rotation:
    ```text
    Unable to connect to the server: x509: certificate has expired or is not yet valid
    ```
-2. **Do not reinstall the cluster.** K3s retains all underlying state, persistent volume data, and SQLite/etcd database transactions.
-3. Access the control plane host via SSH or out-of-band console:
+2. **Do not reinstall the cluster.** MicroK8s retains all underlying state, persistent volume data, and database transactions.
+3. Access the control plane host via SSH or console:
    ```bash
-   ssh admin@k3s-control-plane-01
+   ssh ramjac@thinker
    ```
-4. Stop the K3s daemon:
-   - Systemd: `sudo systemctl stop k3s`
-   - OpenRC: `sudo rc-service k3s stop`
-5. Force certificate renewal via root shell:
+4. Force certificate renewal via root shell:
    ```bash
-   sudo k3s certificate rotate
+   sudo microk8s refresh-certs
    ```
-6. Start the K3s service:
-   - Systemd: `sudo systemctl start k3s`
-   - OpenRC: `sudo rc-service k3s start`
-7. Update the workstation kubeconfig with the renewed client certificate:
+5. Restart the MicroK8s services:
    ```bash
-   sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config
+   sudo microk8s stop && sudo microk8s start
    ```
-8. Confirm cluster connectivity is restored:
+6. Update the workstation kubeconfig with the renewed client certificate:
    ```bash
-   kubectl get nodes
+   microk8s config > thinker-kube.config
    ```
+7. Confirm cluster connectivity is restored:
+   ```bash
+   microk8s kubectl get nodes
+   ```
+
