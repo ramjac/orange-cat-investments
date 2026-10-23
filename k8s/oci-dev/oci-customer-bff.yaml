@@ -5,6 +5,7 @@ metadata:
   namespace: oci-dev
   labels:
     app: oci-customer-bff-dev
+    tier: bff
 spec:
   replicas: 1
   selector:
@@ -14,11 +15,12 @@ spec:
     metadata:
       labels:
         app: oci-customer-bff-dev
+        tier: bff
     spec:
       containers:
         - name: oci-customer-bff-dev
-          image: localhost:32000/oci-customer-bff:dev-latest
-          imagePullPolicy: Always
+          image: localhost:32000/oci-customer-bff:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8083
               name: http
@@ -27,10 +29,16 @@ spec:
               value: "8083"
             - name: ENV
               value: "development"
+            - name: VALKEY_ADDR
+              value: "valkey-service.oci-dev.svc.cluster.local:6379"
+            - name: RABBITMQ_URL
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: SEED_DEV_SESSIONS
               value: "true"
             - name: ENABLE_DEV_MOCK_AUTH
               value: "true"
+            - name: CUSTOMER_BLL_URL
+              value: "http://customer-bll-service.oci-dev.svc.cluster.local:8085"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -67,6 +75,7 @@ metadata:
   namespace: oci-dev
   labels:
     app: oci-customer-bff-dev
+    tier: bff
 spec:
   ports:
     - port: 8083

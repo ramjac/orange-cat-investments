@@ -1,0 +1,244 @@
+# Customer Business Logic Layer (Customer BLL) API - Development
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-bll
+  namespace: oci-dev
+  labels:
+    app: customer-bll
+    tier: bll
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: customer-bll
+  template:
+    metadata:
+      labels:
+        app: customer-bll
+        tier: bll
+    spec:
+      containers:
+        - name: customer-bll
+          image: localhost:32000/customer-bll:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8085
+              name: http
+          env:
+            - name: PORT
+              value: "8085"
+            - name: WORKFORCE_API_URL
+              value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
+            - name: CORE_INVEST_API_URL
+              value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+            - name: BROKER_API_BASE_URL
+              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
+            - name: BANK_API_BASE_URL
+              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+            - name: RABBITMQ_URL
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
+            - name: DEFAULT_FELINE_ID
+              value: ""
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: customer-bll-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: customer-bll-tls
+  namespace: oci-dev
+spec:
+  secretName: customer-bll-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: customer-bll-service.oci-dev.svc.cluster.local
+  dnsNames:
+    - customer-bll-service
+    - customer-bll-service.oci-dev.svc
+    - customer-bll-service.oci-dev.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-bll-service
+  namespace: oci-dev
+  labels:
+    app: customer-bll
+    tier: bll
+spec:
+  ports:
+    - port: 8085
+      targetPort: 8085
+      name: http
+  selector:
+    app: customer-bll
+---
+# Internal Business Logic Layer (Internal BLL) API - Development
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-bll
+  namespace: oci-dev
+  labels:
+    app: internal-bll
+    tier: bll
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: internal-bll
+  template:
+    metadata:
+      labels:
+        app: internal-bll
+        tier: bll
+    spec:
+      containers:
+        - name: internal-bll
+          image: localhost:32000/internal-bll:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8086
+              name: http
+          env:
+            - name: PORT
+              value: "8086"
+            - name: WORKFORCE_API_URL
+              value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
+            - name: FACILITIES_API_URL
+              value: "https://facilities-api-service.oci-dev.svc.cluster.local:50052"
+            - name: OPS_API_URL
+              value: "https://ops-api-service.oci-dev.svc.cluster.local:50054"
+            - name: RABBITMQ_URL
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8086
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: internal-bll-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: internal-bll-tls
+  namespace: oci-dev
+spec:
+  secretName: internal-bll-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: internal-bll-service.oci-dev.svc.cluster.local
+  dnsNames:
+    - internal-bll-service
+    - internal-bll-service.oci-dev.svc
+    - internal-bll-service.oci-dev.svc.cluster.local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-bll-service
+  namespace: oci-dev
+  labels:
+    app: internal-bll
+    tier: bll
+spec:
+  ports:
+    - port: 8086
+      targetPort: 8086
+      name: http
+  selector:
+    app: internal-bll
+---
+# NetworkPolicy: Restrict Ingress to BLL services to BFF pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bll-services-network-policy
+  namespace: oci-dev
+spec:
+  podSelector:
+    matchLabels:
+      tier: bll
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bff
+      ports:
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086

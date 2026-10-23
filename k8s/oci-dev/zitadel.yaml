@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zitadel
+  namespace: oci-dev
+  labels:
+    app: zitadel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zitadel
+  template:
+    metadata:
+      labels:
+        app: zitadel
+    spec:
+      containers:
+        - name: zitadel
+          image: ghcr.io/zitadel/zitadel:v2.48.0
+          args:
+            - start-from-init
+            - --masterkey
+            - "$(ZITADEL_MASTERKEY)"
+            - --tlsMode
+            - disabled
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: ZITADEL_MASTERKEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: ZITADEL_MASTERKEY
+            - name: ZITADEL_DATABASE_POSTGRES_HOST
+              value: postgres-dev-service.oci-dev.svc.cluster.local
+            - name: ZITADEL_DATABASE_POSTGRES_PORT
+              value: "5432"
+            - name: ZITADEL_DATABASE_POSTGRES_DATABASE
+              value: oci_dev
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_USER
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE
+              value: disable
+            - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_USER
+            - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE
+              value: disable
+            - name: ZITADEL_DATABASE_POSTGRES_MAXOPENCONNS
+              value: "20"
+            - name: ZITADEL_DATABASE_POSTGRES_MAXCONNLIFETIME
+              value: "5m"
+            - name: ZITADEL_DATABASE_POSTGRES_MAXCONNIDLETIME
+              value: "2m"
+          startupProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /debug/healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zitadel-service
+  namespace: oci-dev
+  labels:
+    app: zitadel
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: zitadel

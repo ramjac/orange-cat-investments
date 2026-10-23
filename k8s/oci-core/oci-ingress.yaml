@@ -12,13 +12,27 @@ spec:
     - host: api.oci.local
       http:
         paths:
+          - path: /api/v1/customer/
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-service
+                port:
+                  number: 8083
+          - path: /customer/
+            pathType: Prefix
+            backend:
+              service:
+                name: oci-customer-bff-service
+                port:
+                  number: 8083
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: oci-server-service
+                name: oci-employee-bff-service
                 port:
-                  number: 8080
+                  number: 8081
     - host: customer-bff.oci.local
       http:
         paths:

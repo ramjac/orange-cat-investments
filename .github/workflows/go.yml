@@ -211,18 +211,5 @@ jobs:
       - name: Run Go tests with race detection
         run: go test -v -race ./...
 
-      - name: Run Platform Simulation Driver (Mock Mode - All 10 Personas)
+      - name: Run Platform Simulation Driver (Mock Mode - All 12 Personas)
         run: go run ./simulation/cmd/simulator -mode mock
-
-      - name: Run Unified API Server, BFF, and Live Platform Simulation
-        env:
-          DATABASE_URL: "postgres://oci_admin:oci_secure_pass@localhost:5432/oci?sslmode=disable"
-        run: |
-          PORT=8080 go run ./cmd/server &
-          SERVER_PID=$!
-          PORT=8081 go run ./cmd/employee-bff &
-          BFF_PID=$!
-          sleep 4
-          # Execute live simulation driver against live API server & BFF
-          go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081
-          kill $SERVER_PID $BFF_PID

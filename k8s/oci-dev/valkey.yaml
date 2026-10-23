@@ -1,26 +1,37 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: valkey-dev
+  name: valkey
   namespace: oci-dev
   labels:
-    app: valkey-dev
+    app: valkey
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
-      app: valkey-dev
+      app: valkey
   template:
     metadata:
       labels:
-        app: valkey-dev
+        app: valkey
     spec:
       containers:
-        - name: valkey-dev
+        - name: valkey
           image: valkey/valkey:7.2-alpine
+          command:
+            - valkey-server
+            - "--appendonly"
+            - "yes"
+            - "--dir"
+            - "/data"
           ports:
             - containerPort: 6379
               name: redis
+          volumeMounts:
+            - name: valkey-data
+              mountPath: /data
           resources:
             requests:
               cpu: 50m
@@ -28,18 +39,34 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+      volumes:
+        - name: valkey-data
+          persistentVolumeClaim:
+            claimName: valkey-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: valkey-data-pvc
+  namespace: oci-dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: valkey-dev-service
+  name: valkey-service
   namespace: oci-dev
   labels:
-    app: valkey-dev
+    app: valkey
 spec:
   ports:
     - port: 6379
       targetPort: 6379
       name: redis
   selector:
-    app: valkey-dev
+    app: valkey

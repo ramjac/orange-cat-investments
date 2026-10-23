@@ -449,9 +449,6 @@ spec:
         - podSelector:
             matchLabels:
               app: oci-worker
-        - podSelector:
-            matchLabels:
-              app: oci-server
       ports:
         - protocol: TCP
           port: 50051

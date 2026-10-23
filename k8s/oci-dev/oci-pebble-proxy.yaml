@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: oci-pebble-proxy-dev
-          image: localhost:32000/oci-pebble-proxy:dev-latest
-          imagePullPolicy: Always
+          image: localhost:32000/oci-pebble-proxy:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8082
               name: http

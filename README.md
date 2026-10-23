@@ -71,7 +71,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ### Kubernetes Namespace Architecture
 The cluster workload topology is structured into dedicated namespaces for isolation and operational clarity:
-* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**), core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`), and dedicated proprietary database **`postgres-core`** (`workforce`, `facilities`, `core_invest`, `ops`).
+* **`oci-core`:** Collocates all custom OCI applications (BFFs, BLLs, Domain APIs, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**), core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`), and dedicated proprietary database **`postgres-core`** (`workforce`, `facilities`, `core_invest`, `ops`).
 * **`oci-internal`:** Isolates off-the-shelf commercial and open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, backed by their own isolated internal database **`postgres-internal`** (`nextcloud`, `forgejo`, `snipeit`, `erpnext`, `frappe_hr`).
 * **`external-sim`:** Dedicated namespace hosting simulated 3rd-party SaaS / financial APIs (`mock-broker` on `:8089`, `mock-bank` on `:8088`), maintaining complete air-gap isolation from production persistence.
 * **`monitoring` & `logging`:** Cluster observability stacks (Prometheus, Grafana, Loki, Promtail).
@@ -347,7 +347,7 @@ Hosts all 4 domains (`core-invest`, `facilities`, `ops`, `workforce`):
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
 export PORT="8080"
-go run ./cmd/server
+go run ./cmd/workforce-api
 ```
 
 **2. Background Event Worker (Watermill & CA Rotation)**
@@ -479,7 +479,7 @@ Orange Cat Investments is designed to run natively on **K3s**, the lightweight C
 Use `./scripts/deploy-k8s.sh` to deploy the desired deployment profile:
 
 * **Lightweight Small-Business Suite (`--profile small-business`):**
-  Deploys core infrastructure (PostgreSQL 16, Valkey 7.2, RabbitMQ 3.13, Meilisearch), proprietary OCI applications (`oci-server`, Customer BFF, Employee BFF, Pebble Proxy, Worker, Zitadel Customer IdP), and internal employee identity via Forgejo:
+  Deploys core infrastructure (PostgreSQL 16, Valkey 7.2, RabbitMQ 3.13, Meilisearch), proprietary OCI applications (Customer BFF, Employee BFF, Pebble Proxy, Worker, Zitadel Customer IdP, Domain APIs, BLLs), and internal employee identity via Forgejo:
   ```bash
   ./scripts/deploy-k8s.sh --profile small-business
   ```
@@ -503,7 +503,7 @@ To interact with deployed cluster services from your local workstation:
 
 ```bash
 # 1. Port-forward core API and BFF services:
-kubectl port-forward -n oci-core svc/oci-server-service 8080:8080 &
+kubectl port-forward -n oci-core svc/workforce-api-service 50051:50051 &
 kubectl port-forward -n oci-core svc/oci-employee-bff-service 8081:8081 &
 kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
 kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
@@ -904,7 +904,7 @@ Refactor the test cluster verification and deployment workflow so that test clus
 * **Architecture & Objectives:**
   * **In-Cluster Source Synchronization:** Automatically sync or bootstrap the `orange-cat-investments` repository into the in-cluster **Forgejo** instance (`http://forgejo-service.oci-internal.svc:3000`) during platform deployment.
   * **In-Cluster Container Builds via Forgejo Actions:** Utilize the deployed in-cluster runner ([`k8s/oci-internal/forgejo-runner.yaml`](k8s/oci-internal/forgejo-runner.yaml)) running `gitea/act_runner` with Docker-in-Docker (DinD). When code changes land on Forgejo, [`.forgejo/workflows/ci.yaml`](.forgejo/workflows/ci.yaml) executes inside the cluster node.
-  * **Direct Push to In-Cluster Registry (`localhost:32000`):** The runner builds the multi-stage container images (`oci-server`, `customer-bff`, `employee-bff`, `oci-worker`, `oci-pebble-proxy`, `oci-marketing`, portals) and pushes directly to `localhost:32000` over the in-cluster network.
+  * **Direct Push to In-Cluster Registry (`localhost:32000`):** The runner builds the multi-stage container images (Domain APIs, BLLs, BFFs, `oci-worker`, `oci-pebble-proxy`, `oci-marketing`, portals) and pushes directly to `localhost:32000` over the in-cluster network.
   * **Gated Promotion to Staging (`oci-dev`) & Production (`oci-core`):** Once unit tests and builds succeed inside the cluster runner, the workflow triggers Kubernetes rolling updates in `oci-dev` and subsequent promotion to `oci-core`.
   * **Automated End-to-End Simulation Verification:** The runner triggers an automated post-deployment simulation run (`simulation/cmd/simulator -mode live`) to verify that all 12 personas function correctly on the freshly deployed cluster without requiring external CLI intervention.
 

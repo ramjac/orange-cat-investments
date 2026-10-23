@@ -34,7 +34,7 @@ We establish the **Self-Hosted GitOps Continuous Delivery & Gated Promotion Pipe
 
 ### 3.1 Secure Multi-Stage Container Packaging
 All custom microservices and client portals are packaged via optimized multi-stage Dockerfiles:
-1. **Go Backend Services (`cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, `cmd/pebble-proxy`, `cmd/worker`):**
+1. **Go Backend Services (`cmd/*-api`, `cmd/*-bll`, `cmd/*-bff`, `cmd/pebble-proxy`, `cmd/worker`):**
    * **Build Stage:** `golang:1.25-alpine`, compiling statically linked, stripped binaries (`CGO_ENABLED=0`, `-ldflags="-w -s"`).
    * **Runtime Stage:** Minimal `alpine:3.20` runtime with CA certificates, zoneinfo data, non-root user (`oci`), and zero dev tools.
 2. **Frontend Web Portals (`web/customer-portal`, `web/employee-portal`):**

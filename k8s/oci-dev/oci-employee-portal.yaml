@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: oci-employee-portal-dev
-          image: localhost:32000/oci-employee-portal:dev-latest
-          imagePullPolicy: Always
+          image: localhost:32000/oci-employee-portal:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5173
               name: http
