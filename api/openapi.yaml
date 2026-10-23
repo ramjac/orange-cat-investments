@@ -2215,6 +2215,82 @@ paths:
         '404':
           $ref: '#/components/responses/404NotFound'
 
+  /customer/search:
+    get:
+      summary: Typo-Tolerant Full-Text Search across Investment Catalog, ESG Welfare, and Tax Documents (Meilisearch)
+      operationId: searchCustomerCatalog
+      tags:
+        - Customer Search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search hits returned from Meilisearch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hits:
+                    type: array
+                    items:
+                      type: object
+                  query:
+                    type: string
+                  totalHits:
+                    type: integer
+                  processingTimeMs:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /employee/search:
+    get:
+      summary: Global Command+K Typo-Tolerant Full-Text Search across Enterprise Knowledge (Meilisearch)
+      operationId: searchEmployeeKnowledge
+      tags:
+        - Employee Search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search hits returned from Meilisearch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hits:
+                    type: array
+                    items:
+                      type: object
+                  query:
+                    type: string
+                  totalHits:
+                    type: integer
+                  processingTimeMs:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
   /ops/pebble/alerts:
     get:
       summary: Get Pebble Companion Watch Alert Payloads

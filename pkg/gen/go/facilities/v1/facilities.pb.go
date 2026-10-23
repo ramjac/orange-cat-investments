@@ -142,6 +142,21 @@ type IngestTelemetryResponse struct {
 	Status      string `json:"status"`
 }
 
+type StreamTelemetryRequest struct {
+	ZoneID      string `json:"zone_id"`
+	SampleCount int32  `json:"sample_count"`
+}
+
+type TelemetrySample struct {
+	TelemetryID         string  `json:"telemetry_id"`
+	ZoneID              string  `json:"zone_id"`
+	TemperatureC        float64 `json:"temperature_c"`
+	RelativeHumidityPct float64 `json:"relative_humidity_pct"`
+	LightIntensityLux   float64 `json:"light_intensity_lux"`
+	NoiseLevelDB        float64 `json:"noise_level_db"`
+	Timestamp           string  `json:"timestamp"`
+}
+
 type FacilitiesServiceClient interface {
 	GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error)
 	ListAssets(ctx context.Context, in *ListAssetsRequest) (*ListAssetsResponse, error)
@@ -152,6 +167,7 @@ type FacilitiesServiceClient interface {
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
+	StreamEnvironmentalTelemetry(ctx context.Context, in *StreamTelemetryRequest) (FacilitiesService_StreamEnvironmentalTelemetryClient, error)
 }
 
 type FacilitiesServiceServer interface {
@@ -164,4 +180,14 @@ type FacilitiesServiceServer interface {
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
+	StreamEnvironmentalTelemetry(*StreamTelemetryRequest, FacilitiesService_StreamEnvironmentalTelemetryServer) error
+}
+
+type FacilitiesService_StreamEnvironmentalTelemetryClient interface {
+	Recv() (*TelemetrySample, error)
+}
+
+type FacilitiesService_StreamEnvironmentalTelemetryServer interface {
+	Send(*TelemetrySample) error
+	Context() context.Context
 }

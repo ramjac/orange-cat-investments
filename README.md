@@ -217,6 +217,25 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
   * [`RateLimiter`](pkg/cache/valkey/ratelimit.go) using Valkey sorted sets (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`) with in-memory fallback and standard `X-RateLimit-*` and `Retry-After` headers.
   * Applied to login (5 req/15min), orders (10 req/s), deposits (5 req/15min), and Pebble Watch acknowledgments (10 req/min).
 
+### 5.10 Pure gRPC Wire Transport & Decoupled BFF Layer (Section 7.16 Completed)
+* **Pure gRPC Wire Transport:** Transitioned inter-service communication to pure gRPC over dynamic mTLS with standard Protobuf RPCs (`pkg/grpcutil`). Domain APIs (`workforce-api` :50051, `facilities-api` :50052, `core-invest-api` :50053, `ops-api` :50054) serve compiled Protobuf stubs, standard gRPC health checks (`grpc.health.v1`), and streaming RPCs (`StreamPortfolioValuation`, `StreamEnvironmentalTelemetry`), completely removing HTTP fallback and `h2c` multiplexing.
+* **Zero Direct Database Dependencies in BFFs:** Completely eliminated `pgxpool` and direct SQL repository access from `cmd/customer-bff` and `cmd/employee-bff`. BFFs function strictly as presentation and session proxies delegating all domain logic and data fetching to Customer BLL and Internal BLL.
+
+### 5.11 Fast Typo-Tolerant Full-Text Search via Meilisearch (Section 7.15 Completed)
+* **Meilisearch Client Engine:** Implemented [`pkg/search/meilisearch`](pkg/search/meilisearch/client.go) providing resilient search, index provisioning, document indexing, and in-memory fallback for local development.
+* **Real-Time CDC Event Ingestion:** Background worker (`cmd/worker`) subscribes to domain events (`incident_created`, etc.) and automatically indexes searchable entities into Meilisearch.
+* **Employee Command+K Search Palette:** Global `⌘K` / `Ctrl+K` modal in `web/employee-portal` searching across Clinical VHRs, IT tickets, SOPs, and hardware assets.
+* **Customer Catalog Search:** Instant search bar in `web/customer-portal` searching funds, tickers, ESG feline welfare transparency, and tax statements.
+
+### 5.12 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus (Section 7.17 Completed)
+* **Unified Status Page (`status.oci.local`):** Declarative deployment of Gatus (`k8s/monitoring/gatus.yaml`) monitoring uptime percentages, response latencies, and TLS certificate expiration across Customer Planes, Employee Planes, Domain APIs, and COTS enterprise applications.
+* **Automated Webhook Incident Fanout:** Configured custom webhook alert dispatcher triggering workplace incident broadcast alerts to Employee BFF and Pebble watch companion apps upon consecutive health probe failures.
+* **Portal Integration:** Integrated real-time status indicators and status page links directly in the headers of both the Customer Portal and Employee Portal.
+
+### 5.13 COTS & Message Queue Prometheus Telemetry (Sections 7.8 & 7.19 Completed)
+* **RabbitMQ Built-in Prometheus Telemetry (`rabbitmq_prometheus`):** Enabled native Prometheus plugin with `prometheus.return_per_object_metrics = true` exposing per-object queue telemetry on port `15692`. Configured Prometheus scraping and Alertmanager rules for Dead-Letter Queue (DLQ) backlogs, queue spikes, stagnant consumers, and memory limits in `k8s/monitoring/prometheus.yaml`.
+* **COTS Application Telemetry:** Enabled native Prometheus metrics in Forgejo (`/metrics`), deployed `nextcloud-exporter` sidecar on port `9205` in `k8s/oci-internal/nextcloud.yaml`, and instrumented ZITADEL customer identity Prometheus metrics on `/debug/metrics` with public Ingress route protection.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -661,7 +680,11 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.8 Monitoring, Observability & COTS Telemetry
+### 7.8 Monitoring, Observability & COTS Telemetry (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Integrated Forgejo native Prometheus metrics, Nextcloud sidecar exporter (`nextcloud-exporter:9205`), ZITADEL Prometheus debug metrics (`/debug/metrics`) with public ingress blocking, and comprehensive scrape jobs and alert rules in Prometheus.
+
 Make better use of our logging and monitoring infrastructure to surface issues and provide comprehensive cluster and application visibility:
 * **COTS & Infrastructure Monitoring:**
   * **Forgejo Native Prometheus Telemetry:** Ensure Forgejo's native Prometheus metrics endpoint (`/metrics` or `https://forgejo.oci.local/metrics`) is monitored by Prometheus: track HTTP request latency, active Git operations, SSH sessions, background queue length, database connection pool statistics, repository count, and runner job queue wait times.
@@ -739,7 +762,11 @@ Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and op
   * Automated validation via simulation driver (`go run ./simulation/cmd/simulator -mode live -persona emp-human-frank`).
   * Single-command rollback SOPs restoring persistent volume snapshots and rolling back deployment revisions (`kubectl rollout undo deployment/<cots-app> -n oci-internal`).
 
-### 7.15 Fast Typo-Tolerant Full-Text Search via Meilisearch (Employee & Customer Portals)
+### 7.15 Fast Typo-Tolerant Full-Text Search via Meilisearch (Employee & Customer Portals) (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Full-text search engine client package (`pkg/search/meilisearch`), event-driven worker indexing pipeline in `cmd/worker`, BFF proxy endpoints (`/api/v1/customer/search`, `/api/v1/employee/search`), Command+K palette in Employee Portal, and instant search in Customer Portal are implemented and verified.
+
 Integrate the in-cluster **Meilisearch** instance (`meilisearch-service.oci-core.svc.cluster.local:7700`) into the customer and employee web portals to deliver instantaneous, typo-tolerant full-text search as a working platform showcase:
 * **Employee Portal (Unified Enterprise & Clinical Search):**
   * Implement a global "Command+K" search palette in `web/employee-portal` allowing corporate staff, caretakers, and engineers to instantly search:
@@ -756,7 +783,11 @@ Integrate the in-cluster **Meilisearch** instance (`meilisearch-service.oci-core
   * Create lightweight change-data-capture (CDC) or event-driven indexers in Go (`cmd/worker` or dedicated service) subscribing to RabbitMQ domain events (`ticket_created`, `vhr_updated`, `asset_registered`, `trade_executed`) to continuously sync searchable document indices in Meilisearch.
   * Implement BFF proxy search endpoints (`/api/v1/employee/search`, `/api/v1/customer/search`) with role-based document filtering and tenant isolation.
 
-### 7.16 Pure gRPC Wire Transport & Complete BFF Read-Route Decoupling to BLL
+### 7.16 Pure gRPC Wire Transport & Complete BFF Read-Route Decoupling to BLL (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Pure gRPC wire transport across Domain APIs with streaming valuation and environmental telemetry, standard gRPC health checking (`grpc.health.v1`), BLL and worker gRPC stubs, and complete removal of PostgreSQL `pgxpool` dependencies from Customer BFF and Employee BFF are implemented and verified.
+
 Finalize the microservices transition from transitional hybrid REST fallbacks to pure, decoupled gRPC wire transport:
 * **Complete BFF Decoupling from Direct Database Access:**
   * Migrate all remaining direct database repository lookups (`pgxpool`) in `cmd/customer-bff` and `cmd/employee-bff` (e.g. portfolio queries, care schedules, asset lists) to route exclusively through the Customer BLL (`cmd/customer-bll`) and Internal BLL (`cmd/internal-bll`).
@@ -765,7 +796,11 @@ Finalize the microservices transition from transitional hybrid REST fallbacks to
   * Transition inter-service communication between BLL services and Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) from REST/HTTP to pure gRPC over mTLS using the compiled Protobuf services in `pkg/gen/go/`.
   * Leverage gRPC streaming where appropriate (e.g., real-time habitat telemetry and live portfolio valuation recalculations).
 
-### 7.17 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus
+### 7.17 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Automated service health dashboard and status page (`twinproduction/gatus:latest`) deployed in `k8s/monitoring/gatus.yaml`, probing Customer, Employee, and COTS services at `status.oci.local` with webhook incident alerting.
+
 Deploy and configure **[Gatus](https://github.com/TwiN/gatus)**, an automated service health dashboard and status page, to provide real-time uptime monitoring and transparent system status across all OCI custom services and commercial COTS applications:
 * **Target Services & Health Probing Endpoints:**
   * **OCI Customer & Public Planes:** Static Marketing Site (`https://oci.local`), Customer Web Portal (`https://customer.oci.local`), Customer BFF (`http://oci-customer-bff-service.oci-core.svc.cluster.local:8083/healthz`), Customer BLL (`http://customer-bll-service.oci-core.svc.cluster.local:8085/healthz`), and external simulation services (Mock Bank `:8088/healthz`, Mock Broker `:8089/healthz`).
@@ -795,7 +830,11 @@ Research and evaluate the integration of end-to-end distributed tracing, Applica
   * **In-Cluster Telemetry Agent (OTel Collector / Grafana Alloy):** Deploy an in-cluster OpenTelemetry Collector or Grafana Alloy agent in namespace `monitoring` to receive, batch, sample, and redact incoming spans and metrics.
   * **Storage & Correlation in Prometheus & Grafana Tempo:** Configure the collector to forward metrics to the in-cluster Prometheus instance (`monitoring/prometheus`) and distributed traces to Grafana Tempo, enabling seamless trace-to-metrics and trace-to-logs (Loki) correlation directly within Grafana dashboards.
 
-### 7.19 Queue Depths and Dead-Letter Queues in RabbitMQ (Built-in Prometheus Telemetry)
+### 7.19 Queue Depths and Dead-Letter Queues in RabbitMQ (Built-in Prometheus Telemetry) (Completed)
+
+> [!NOTE]
+> **Status: Completed** — First-class native `rabbitmq_prometheus` plugin enabled on port `15692` with `prometheus.return_per_object_metrics = true`, Prometheus scraping at `/metrics/per-object`, and Alertmanager rules for DLQ backlogs and stagnant consumers are implemented and verified.
+
 Implement robust, low-overhead queue telemetry and automated alerting across RabbitMQ messaging infrastructure to monitor message delivery rates, queue backlog depths, and dead-letter queues (DLQ) without degrading broker throughput:
 * **First-Class Native `rabbitmq_prometheus` Plugin:**
   * **Avoid Third-Party Exporters:** Avoid third-party RabbitMQ exporters—they poll the HTTP management API (`/api/...`), which causes CPU spikes, memory leaks, and struggles significantly under heavy message loads or failover conditions.

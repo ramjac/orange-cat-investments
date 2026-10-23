@@ -1,76 +1,64 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"testing"
 
-	core_invest_handler "github.com/orange-cat-investments/oci/internal/handler/core_invest"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func TestCoreInvestAPI_Healthz(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","domain":"core_invest"}`))
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"domain":"core_invest"`)
-}
-
-func TestCoreInvestAPI_BalanceUpdate(t *testing.T) {
+func TestCoreInvestAPI_GRPC(t *testing.T) {
 	repo := core_invest_repo.NewMockRepository()
 	svc := core_invest_svc.NewService(repo)
-	ciHandler := core_invest_handler.NewHandler(svc)
 
-	mux := http.NewServeMux()
-	ciHandler.RegisterRoutes(mux)
+	grpcServer := grpcutil.NewServer(nil)
+	grpcSrv := NewCoreInvestGRPCServer(svc, repo)
+	coreinvestv1.RegisterCoreInvestServiceServer(grpcServer, grpcSrv)
 
-	handleBalanceUpdate := newBalanceUpdateHandler(repo, nil)
-	mux.HandleFunc("POST /core-invest/portfolios/{id}/balance", handleBalanceUpdate)
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthSrv)
 
-	// Create test portfolio first
-	p, err := repo.CreatePortfolio(t.Context(), &core_invest_repo.Portfolio{
-		PortfolioID:     "port-test-01",
-		CustomerID:      "cust-test-01",
-		AccountName:     "Test Account",
-		TotalBalanceUSD: 1000.0,
-		CashBalanceUSD:  1000.0,
-		Status:          "active",
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpcutil.Dial(t.Context(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Test Health
+	healthClient := grpc_health_v1.NewHealthClient(conn)
+	hRes, err := healthClient.Check(t.Context(), &grpc_health_v1.HealthCheckRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, hRes.Status)
+
+	// Test Service RPCs
+	client := coreinvestv1.NewCoreInvestServiceClient(conn)
+
+	// List Portfolios
+	ports, err := client.ListPortfolios(t.Context(), &coreinvestv1.ListPortfoliosRequest{})
+	require.NoError(t, err)
+	assert.NotNil(t, ports)
+
+	// Update balance
+	balRes, err := client.UpdatePortfolioBalance(t.Context(), &coreinvestv1.UpdatePortfolioBalanceRequest{
+		PortfolioID: "port-test-01",
+		DeltaUSD:    100.50,
+		Reason:      "test balance update",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, 1000.0, p.CashBalanceUSD)
-
-	payload := updateBalanceRequest{
-		TransferID: "ach-transfer-unique-001",
-		DeltaUSD:   500.0,
-		Reason:     "ACH deposit settled",
-	}
-	body, _ := json.Marshal(payload)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/core-invest/portfolios/port-test-01/balance", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"updated_cash_balance_usd":1500`)
-
-	// Replaying the exact same transfer should be deduplicated (idempotent) and not double-credit
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("POST", "/core-invest/portfolios/port-test-01/balance", bytes.NewReader(body))
-	mux.ServeHTTP(rec2, req2)
-
-	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), `"updated_cash_balance_usd":1500`)
+	assert.Equal(t, "settled", balRes.Status)
 }

@@ -22,7 +22,6 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
-	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
@@ -34,6 +33,7 @@ import (
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
@@ -110,6 +110,7 @@ type CustomerBFF struct {
 	broker         *alpaca.Client
 	bank           *plaid.Client
 	customerBLLURL string
+	searchClient   *meilisearch.Client
 	vhrCache       vhrCache
 	felineCache    felineCache
 }
@@ -121,6 +122,20 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 	valkeyAddr := os.Getenv("VALKEY_ADDR")
 	valkeyPass := os.Getenv("VALKEY_PASSWORD")
 
+	meiliURL := os.Getenv("MEILISEARCH_URL")
+	if meiliURL == "" {
+		meiliURL = "http://localhost:7700"
+	}
+	meiliKey := os.Getenv("MEILI_MASTER_KEY")
+	sClient := meilisearch.NewClient(meiliURL, meiliKey)
+	_ = sClient.EnsureIndex(context.Background(), "customer_catalog", "id")
+	_ = sClient.IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
+		{"id": "fund-zoomie", "category": "fund", "symbol": "ZOOM", "title": "OCI Feline Behavioral Alpha Fund", "description": "Dynamic quantitative weighting based on active feline zoomie intervals."},
+		{"id": "fund-catnip", "category": "fund", "symbol": "NIP", "title": "Organic Catnip Agriculture ESG Fund", "description": "Sustainable feline agricultural infrastructure and cat grass ventures."},
+		{"id": "esg-welfare-2026", "category": "transparency", "title": "2026 Feline Workplace Welfare & Habitat Transparency", "description": "OSHA-compliant scratch post maintenance and continuous perch monitoring."},
+		{"id": "stmt-tax-1099b", "category": "statement", "title": "Form 1099-B Proceeds From Broker and Barter Exchange", "description": "Annual consolidated tax statement for realized capital gains and DCA distributions."},
+	})
+
 	return &CustomerBFF{
 		ciSvc:          ciSvc,
 		wfSvc:          wfSvc,
@@ -130,6 +145,7 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		rateLimiter:    cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
 		logger:         logger,
 		customerBLLURL: os.Getenv("CUSTOMER_BLL_URL"),
+		searchClient:   sClient,
 		vhrCache: vhrCache{
 			ttl: 30 * time.Second,
 		},
@@ -354,6 +370,7 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTicketComments)))
 	mux.Handle("GET /api/v1/customer/statements", b.sessionAuth(http.HandlerFunc(b.handleListStatements)))
 	mux.Handle("GET /api/v1/customer/statements/{id}/download", b.sessionAuth(http.HandlerFunc(b.handleDownloadStatement)))
+	mux.Handle("GET /api/v1/customer/search", b.sessionAuth(http.HandlerFunc(b.handleSearch)))
 
 	// Protected state-changing endpoints (Session Auth + Double-Submit CSRF)
 	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(orderLimiter(http.HandlerFunc(b.handleCreateOrder)))))
@@ -1776,6 +1793,27 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	category := r.URL.Query().Get("category")
+	filter := ""
+	if category != "" {
+		filter = fmt.Sprintf("category = '%s'", category)
+	}
+
+	result, err := b.searchClient.Search(r.Context(), "customer_catalog", q, meilisearch.SearchOptions{
+		Filter: filter,
+		Limit:  20,
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
 func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -2014,27 +2052,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Customer BFF API Server...")
 
-	dbURL := os.Getenv("DATABASE_URL")
-	var pool *pgxpool.Pool
-	if dbURL != "" {
-		var err error
-		pool, err = pgxpool.New(context.Background(), dbURL)
-		if err != nil {
-			logger.Warn("failed to connect to database pool, falling back to mock persistence", "error", err)
-		} else {
-			defer pool.Close()
-			logger.Info("connected to PostgreSQL database pool successfully")
-		}
-	} else {
-		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
-	}
-
-	var ciRepo core_invest_repo.Repository
-	if pool != nil {
-		ciRepo = core_invest_repo.NewRepository(pool)
-	} else {
-		ciRepo = core_invest_repo.NewMockRepository()
-	}
+	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
+	// Customer BFF functions strictly as a presentation proxy delegating business lookups to Customer BLL.
+	ciRepo := core_invest_repo.NewMockRepository()
 
 	var ciSvc core_invest_svc.Service
 	brokerURL := os.Getenv("BROKER_API_BASE_URL")
@@ -2071,7 +2091,7 @@ func main() {
 		ciSvc = core_invest_svc.NewService(ciRepo)
 	}
 
-	wfRepo := workforce_repo.NewRepository(pool)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfSvc := workforce_svc.NewService(wfRepo)
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
 	if brokerClient != nil {
@@ -2081,12 +2101,7 @@ func main() {
 		custBFF.SetBankClient(bankClient)
 	}
 
-	var opsRepo ops_repo.Repository
-	if pool != nil {
-		opsRepo = ops_repo.NewRepository(pool)
-	} else {
-		opsRepo = ops_repo.NewMockRepository()
-	}
+	opsRepo := ops_repo.NewMockRepository()
 
 	var issueTracker ops_svc.IssueTrackerClient
 	issueTrackerURL := os.Getenv("FORGEJO_URL")

@@ -58,7 +58,9 @@ func TestIncidentBroker_SSEStreamAndBroadcast(t *testing.T) {
 	_, _ = reader.ReadString('\n')
 
 	// Verify client is registered
-	assert.Equal(t, 1, broker.ClientCount())
+	assert.Eventually(t, func() bool {
+		return broker.ClientCount() == 1
+	}, 1*time.Second, 10*time.Millisecond)
 
 	// 2. Broadcast incident payload
 	incidentData := map[string]interface{}{

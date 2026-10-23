@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: nextcloud
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9205"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: nextcloud
@@ -47,6 +51,28 @@ spec:
             limits:
               cpu: "1"
               memory: 2Gi
+        - name: nextcloud-exporter
+          image: xperimental/nextcloud-exporter:latest
+          ports:
+            - containerPort: 9205
+              name: metrics
+          env:
+            - name: NEXTCLOUD_URL
+              value: "http://localhost:80"
+            - name: NEXTCLOUD_USERNAME
+              value: "admin"
+            - name: NEXTCLOUD_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: NEXTCLOUD_ADMIN_PASSWORD
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       volumes:
         - name: nextcloud-data
           persistentVolumeClaim:
@@ -76,5 +102,8 @@ spec:
     - port: 80
       targetPort: 80
       name: http
+    - port: 9205
+      targetPort: 9205
+      name: metrics
   selector:
     app: nextcloud

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,7 +14,6 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orange-cat-investments/oci/internal/handler"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
@@ -24,6 +25,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
@@ -32,34 +34,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Employee BFF API Server...")
 
-	dbURL := os.Getenv("DATABASE_URL")
-	var pool *pgxpool.Pool
-	if dbURL != "" {
-		var err error
-		pool, err = pgxpool.New(context.Background(), dbURL)
-		if err != nil {
-			logger.Warn("failed to connect to database pool", "error", err)
-			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
-				logger.Error("database connection required in production mode, exiting")
-				os.Exit(1)
-			}
-		} else {
-			defer pool.Close()
-			logger.Info("connected to PostgreSQL database pool successfully")
-		}
-	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
-		logger.Error("DATABASE_URL must be specified in production mode, exiting")
-		os.Exit(1)
-	} else {
-		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
-	}
-
-	var repo workforce.Repository
-	if pool != nil {
-		repo = workforce.NewRepository(pool)
-	} else {
-		repo = workforce.NewMockRepository()
-	}
+	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
+	// Employee BFF acts as presentation/session proxy delegating business orchestration to Internal BLL.
+	repo := workforce.NewMockRepository()
 
 	var hrClient wfService.HRClient
 	hrURL := os.Getenv("HR_SYSTEM_URL")
@@ -126,12 +103,7 @@ func main() {
 	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
 
-	var opsRepo ops_repo.Repository
-	if pool != nil {
-		opsRepo = ops_repo.NewRepository(pool)
-	} else {
-		opsRepo = ops_repo.NewMockRepository()
-	}
+	opsRepo := ops_repo.NewMockRepository()
 
 	var issueTracker ops_svc.IssueTrackerClient
 	if issueTrackerURL != "" {
@@ -177,6 +149,45 @@ func main() {
 	mux.Handle("GET /employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
 	mux.Handle("POST /api/v1/employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
 	mux.Handle("POST /employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
+
+	// Command+K Typo-Tolerant Search API via Meilisearch
+	meiliURL := os.Getenv("MEILISEARCH_URL")
+	if meiliURL == "" {
+		meiliURL = "http://localhost:7700"
+	}
+	meiliKey := os.Getenv("MEILI_MASTER_KEY")
+	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
+	_ = meiliClient.EnsureIndex(context.Background(), "employee_knowledge", "id")
+	_ = meiliClient.IndexDocuments(context.Background(), "employee_knowledge", []map[string]interface{}{
+		{"id": "sop-laser-01", "category": "sop", "title": "SOP-014: Laser Pointer Telemetry & Biometrics", "snippet": "Standard clinical operating procedure for automated optical tracking and zoomie measurement."},
+		{"id": "sop-nip-02", "category": "sop", "title": "SOP-089: Catnip Dispensary Quality Assurance", "snippet": "Guidelines for testing organic potency, THC-free feline compliance, and batch seals."},
+		{"id": "vhr-garfield", "category": "vhr", "title": "VHR: Garfield Clinical Notes (Feline Alpha)", "snippet": "Dr. Sarah Chen: Weight 14.2 kg. Prescribed 15-minute scheduled cardboard box play sessions."},
+		{"id": "vhr-chloe", "category": "vhr", "title": "VHR: Chloe Biometric & Activity Log", "snippet": "Active zoomies observed in Perch Zone Bravo. Resting heart rate nominal at 135 bpm."},
+		{"id": "ticket-it-101", "category": "ticket", "title": "Switch Port Error on Edge Switch Habitat Alpha", "snippet": "High packet error rate on port ge-0/0/4 connected to high-speed feline camera 1."},
+		{"id": "asset-cam-4k", "category": "asset", "title": "Edge 4K Habitat Camera (Firmware v2.1)", "snippet": "Sony IMX sensor edge vision node with real-time pose estimation inference."},
+	})
+
+	searchHandler := func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		category := r.URL.Query().Get("category")
+		filter := ""
+		if category != "" {
+			filter = fmt.Sprintf("category = '%s'", category)
+		}
+		res, err := meiliClient.Search(r.Context(), "employee_knowledge", q, meilisearch.SearchOptions{
+			Filter: filter,
+			Limit:  25,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+	}
+
+	mux.Handle("GET /api/v1/employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
+	mux.Handle("GET /employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

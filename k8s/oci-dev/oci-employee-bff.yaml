@@ -31,15 +31,10 @@ spec:
               value: "development"
             - name: VALKEY_ADDR
               value: "valkey-service.oci-dev.svc.cluster.local:6379"
-            - name: RABBITMQ_URL
-              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: ENABLE_DEV_MOCK_AUTH
               value: "true"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: DATABASE_URL
+            - name: INTERNAL_BLL_URL
+              value: "http://internal-bll-service.oci-dev.svc.cluster.local:8086"
             - name: ENABLE_FELINE_WORKFORCE
               value: "true"
           resources:

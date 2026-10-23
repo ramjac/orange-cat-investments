@@ -31,19 +31,8 @@ spec:
               value: "development"
             - name: VALKEY_ADDR
               value: "valkey-service.oci-dev.svc.cluster.local:6379"
-            - name: RABBITMQ_URL
-              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
-            - name: SEED_DEV_SESSIONS
-              value: "true"
-            - name: ENABLE_DEV_MOCK_AUTH
-              value: "true"
             - name: CUSTOMER_BLL_URL
               value: "http://customer-bll-service.oci-dev.svc.cluster.local:8085"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: DATABASE_URL
             - name: BROKER_API_BASE_URL
               value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
             - name: BANK_API_BASE_URL
