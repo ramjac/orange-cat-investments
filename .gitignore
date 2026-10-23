@@ -55,6 +55,8 @@ build/
 
 # Local server / environment notes (private host details)
 local-server-notes.md
+*kube.config
+k3s-kube.config
 
 # TLS Private Keys
 *.key

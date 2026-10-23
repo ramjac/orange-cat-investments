@@ -78,9 +78,7 @@ spec:
             - dockerd
             - --host=tcp://0.0.0.0:2375
             - --host=unix:///var/run/docker.sock
-            - --insecure-registry=192.168.1.246:32000
             - --insecure-registry=localhost:32000
-            - --insecure-registry=10.152.183.40:5000
           securityContext:
             privileged: true
           env:

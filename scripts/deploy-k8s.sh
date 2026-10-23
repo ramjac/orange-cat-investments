@@ -70,7 +70,7 @@ if kubectl get crd certificates.cert-manager.io &>/dev/null; then
         echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
     fi
 else
-    echo "WARNING: cert-manager CRDs not detected. If running on MicroK8s, run 'microk8s enable cert-manager'."
+    echo "WARNING: cert-manager CRDs not detected. Please install cert-manager (e.g., 'kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml' or 'microk8s enable cert-manager')."
 fi
 
 echo ""
