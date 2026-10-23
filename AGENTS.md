@@ -166,6 +166,11 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
 4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
 5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
+6. **Ingress & Cluster Engine Conventions (K3s Reference Standard):**
+   * **K3s as Primary Reference:** Orange Cat Investments uses **K3s** as the primary Kubernetes reference engine. In K3s, **Traefik** is the standard ingress controller.
+   * **Ingress Class Defaults:** Manifests must not hardcode proprietary ingress classes like `ingressClassName: public` or node LAN IPs. Omit `spec.ingressClassName` (or specify `traefik`) so that the cluster's default IngressClass automatically adopts routes.
+   * **In-Cluster Container Registry (`:32000`):** On K3s, container images are hosted via the in-cluster registry defined in `k8s/registry/registry.yaml` (NodePort 32000), preserving the `localhost:32000/<image>:<tag>` convention.
+   * **Dedicated Workload Storage:** On hosts with attached secondary drives (e.g. SATA SSD mounted at `/mnt/data`), configure K3s Rancher `local-path` provisioner via `/etc/rancher/k3s/config.yaml` (`default-local-storage-path: "/mnt/data/k3s"`) so all PVCs land on dedicated persistent storage.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
@@ -219,4 +224,6 @@ Before marking any task as complete or submitting code changes, agents must veri
 * **Local Private Server Notes (`local-server-notes.md`):**
   When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
   * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
-  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, K3s, Docker), and local execution parameters before executing commands or tests against local infrastructure.
+  * **Primary K3s Test Server (`thelior1`):** Hostname `thelior1`, running Alpine Linux v3.24, K3s v1.36.5, 16 GB RAM, dedicated SATA SSD storage at `/mnt/data/k3s`, and spinning disk at `/mnt/backup`. Kubeconfig is in `k3s-kube.config`.
+  * **Secondary / Legacy Test Server (`thinker`):** Hostname `thinker`, running Ubuntu 26.04 and MicroK8s v1.34.9.
+  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. K3s, MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.

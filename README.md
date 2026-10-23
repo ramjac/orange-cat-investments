@@ -426,38 +426,97 @@ docker compose -f docker-compose.smb.yaml up -d
 
 ---
 
-### 6.4 Kubernetes Cluster Deployment (MicroK8s, K3s, Minikube, kind)
+### 6.4 Kubernetes Cluster Deployment (Self-Hosted K3s Standard)
 
-If you have an existing Kubernetes cluster or local node (such as MicroK8s, Minikube, kind, or an existing K3s installation) configured in your local `~/.kube/config`:
+Orange Cat Investments is designed to run natively on **K3s**, the lightweight CNCF-certified Kubernetes distribution, ideal for edge hardware, bare-metal mini PCs, or small-business server nodes.
 
-> [!NOTE]
-> **Cluster Prerequisites (Cert-Manager & Intranet PKI):**
-> Orange Cat Investments enforces dynamic mutual TLS (mTLS) for inter-service communication via `cert-manager`. Before running `deploy-k8s.sh`, ensure `cert-manager` is active:
-> * **MicroK8s:** Run `microk8s enable cert-manager`
-> * **K3s / Standard K8s:** Install cert-manager via Helm or the official manifest:
->   `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
-> * **Intranet Root CA:** Ensure the intranet Root CA secret (`oci-lan-root-ca-key-pair`) and ClusterIssuer (`k8s/ha/lan/tls/intranet-cluster-issuer.yaml`) are provisioned for `oci-lan-issuer`.
+#### Step 1: K3s Host Setup & Workload Storage Allocation
+
+1. **Install K3s on your Server Node:**
+   ```bash
+   curl -sfL https://get.k3s.io | sh -
+   ```
+
+2. **Configure Dedicated Workload Storage (`/mnt/data`):**
+   Small-business nodes frequently pair a fast smaller OS disk with a larger secondary SATA/NVMe SSD (e.g. mounted at `/mnt/data`). To ensure persistent volume claims (PostgreSQL data, Valkey AOF, Nextcloud uploads) utilize the secondary drive instead of exhausting the root OS partition, configure K3s's built-in `local-path` provisioner:
+   ```bash
+   sudo mkdir -p /etc/rancher/k3s /mnt/data/k3s
+   cat << 'EOF' | sudo tee /etc/rancher/k3s/config.yaml
+   default-local-storage-path: "/mnt/data/k3s"
+   EOF
+   sudo systemctl restart k3s # or: sudo rc-service k3s restart
+   ```
+
+3. **Configure Workstation Kubeconfig:**
+   Copy the cluster configuration to your local development machine:
+   ```bash
+   scp user@<k3s-host>:/etc/rancher/k3s/k3s.yaml ./k3s-kube.config
+   sed -i 's/127.0.0.1/<k3s-host-ip>/g' ./k3s-kube.config
+   export KUBECONFIG="$(pwd)/k3s-kube.config"
+   kubectl get nodes -o wide
+   ```
+
+#### Step 2: Cluster Prerequisites (Cert-Manager & In-Cluster Registry)
+
+1. **Install cert-manager (v1.17.1+):**
+   Inter-service communication is secured via dynamic mutual TLS (mTLS). Deploy the official cert-manager controller:
+   ```bash
+   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml
+   kubectl rollout status deployment/cert-manager -n cert-manager --timeout=120s
+   ```
+
+2. **In-Cluster Container Registry (`localhost:32000`):**
+   OCI manifests reference `localhost:32000/<image>:<tag>` to keep deployments independent of external Docker Hub pull limits. Deploy the standard in-cluster registry on NodePort 32000:
+   ```bash
+   kubectl apply -f k8s/registry/registry.yaml
+   ```
+
+3. **Ingress & Routing (Traefik Standard):**
+   K3s provides Traefik out of the box listening on host ports `80` and `443`. All OCI Ingress manifests utilize standard Ingress rules that Traefik adopts automatically.
+
+#### Step 3: Deploy Platform Workloads
+
+Use `./scripts/deploy-k8s.sh` to deploy the desired deployment profile:
+
+* **Lightweight Small-Business Suite (`--profile small-business`):**
+  Deploys core infrastructure (PostgreSQL 16, Valkey 7.2, RabbitMQ 3.13, Meilisearch), proprietary OCI applications (`oci-server`, Customer BFF, Employee BFF, Pebble Proxy, Worker, Zitadel Customer IdP), and internal employee identity via Forgejo:
+  ```bash
+  ./scripts/deploy-k8s.sh --profile small-business
+  ```
+
+* **Complete Enterprise Suite (`--profile full`):**
+  Deploys the full production platform including commercial off-the-shelf business applications (Nextcloud, Snipe-IT, ERPNext, Frappe HR) and full observability (Prometheus, Grafana, Loki, Promtail):
+  ```bash
+  ./scripts/deploy-k8s.sh --profile full
+  ```
+
+* **Development & Staging Simulation Suite (`--profile dev`):**
+  Deploys an isolated staging environment (`oci-dev`) alongside external financial mocks (`external-sim`) and populates development personas:
+  ```bash
+  ./scripts/deploy-k8s.sh --profile dev
+  ./scripts/seed-dev.sh
+  ```
+
+#### Step 4: Accessing Cluster Services & Running Simulations
+
+To interact with deployed cluster services from your local workstation:
 
 ```bash
-chmod +x scripts/deploy-k8s.sh
-./scripts/deploy-k8s.sh
-```
+# 1. Port-forward core API and BFF services:
+kubectl port-forward -n oci-core svc/oci-server-service 8080:8080 &
+kubectl port-forward -n oci-core svc/oci-employee-bff-service 8081:8081 &
+kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
+kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
 
-This single command:
-* Checks `kubectl` connectivity to your cluster.
-* Applies all namespaces (`oci-core`, `oci-internal`, `external-sim`, `monitoring`, `logging`).
-* Deploys custom OCI applications, customer Zitadel IdP, core infrastructure, and dedicated `postgres-core` database in `oci-core`.
-* Deploys off-the-shelf business applications (Forgejo, Nextcloud, Snipe-IT, ERPNext, Frappe HR) and dedicated `postgres-internal` database in `oci-internal`.
-* Deploys external simulation mocks (Mock Broker, Mock Bank) in `external-sim`.
-* Deploys Prometheus, Grafana, Loki, and Promtail monitoring stacks.
-* Waits for core database and queuing workloads to become healthy.
+# 2. Run the 12-persona platform simulation driver against the live cluster:
+go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
 
-To connect your local workstation to the cluster services for testing:
-```bash
-# Forward PostgreSQL Core, Valkey, and RabbitMQ
-kubectl port-forward -n oci-core svc/postgres-core-service 5432:5432 &
-kubectl port-forward -n oci-core svc/valkey-service 6379:6379 &
-kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &
+# 3. Execute concurrent load testing (e.g. 10 parallel simulation runs):
+go build -o /tmp/simulator ./simulation/cmd/simulator
+for i in {1..10}; do
+  /tmp/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
+done
+wait
 ```
 
 > **Clean Reset:** To tear down all OCI workloads and reset the cluster back to a clean state at any time, run `./scripts/cleanup-k8s.sh` (see [Section 6.8](#68-cluster-cleanup--environment-reset)).

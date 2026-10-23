@@ -94,7 +94,6 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  ingressClassName: public
   rules:
     - host: bank-api.sim.oci.local
       http:

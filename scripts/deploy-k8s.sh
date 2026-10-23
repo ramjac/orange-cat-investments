@@ -68,9 +68,24 @@ if kubectl get crd certificates.cert-manager.io &>/dev/null; then
             --dry-run=client -o yaml | kubectl apply -f -
         kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/intranet-cluster-issuer.yaml"
         echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
+
+        # Ensure fallback oci-ca-bundle ConfigMap exists in core application namespaces
+        for ns in oci-core oci-internal oci-dev default; do
+            kubectl create configmap oci-ca-bundle \
+                --namespace "${ns}" \
+                --from-file=ca.crt="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" \
+                --dry-run=client -o yaml | kubectl apply -f - &>/dev/null || true
+        done
     fi
 else
     echo "WARNING: cert-manager CRDs not detected. Please install cert-manager (e.g., 'kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml' or 'microk8s enable cert-manager')."
+fi
+
+echo ""
+echo "Checking local container registry (:32000)..."
+if ! kubectl get svc -n kube-system container-registry &>/dev/null && ! kubectl get svc -n container-registry registry &>/dev/null; then
+    echo "Deploying in-cluster container registry on NodePort 32000..."
+    kubectl apply -f "${REPO_ROOT}/k8s/registry/registry.yaml"
 fi
 
 echo ""
