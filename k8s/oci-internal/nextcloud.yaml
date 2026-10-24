@@ -57,7 +57,7 @@ spec:
             - containerPort: 9205
               name: metrics
           env:
-            - name: NEXTCLOUD_URL
+            - name: NEXTCLOUD_SERVER
               value: "http://localhost:80"
             - name: NEXTCLOUD_USERNAME
               value: "admin"

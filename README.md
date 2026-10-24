@@ -947,5 +947,22 @@ Refactor the test cluster verification and deployment workflow so that test clus
   * **Gated Promotion to Staging (`oci-dev`) & Production (`oci-core`):** Once unit tests and builds succeed inside the cluster runner, the workflow triggers Kubernetes rolling updates in `oci-dev` and subsequent promotion to `oci-core`.
   * **Automated End-to-End Simulation Verification:** The runner triggers an automated post-deployment simulation run (`simulation/cmd/simulator -mode live`) to verify that all 12 personas function correctly on the freshly deployed cluster without requiring external CLI intervention.
 
+### 7.23 Stateful Persona Session Management & Cookie/CSRF Persistence in Platform Simulation
+Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/client.go`, `simulation/driver.go`) to manage authentic stateful sessions, persisting session cookies and double-submit CSRF tokens across consecutive actions executed by the same persona:
+
+* **The Problem:**
+  The current simulation HTTP client (`simulation.Client`) is stateless. It executes requests using a bare `http.Client` without an HTTP cookie jar (`net/http/cookiejar`) or persistent authentication context. While mock mode (`-mode mock`) sidesteps authentication by mounting unauthenticated mock handlers, live cluster validation (`-mode live`) targets production and staging BFFs (`oci-customer-bff` and `oci-employee-bff`) that strictly enforce session authentication (`__Host-customer-session`, `__Host-employee-session`) stored in Valkey and double-submit CSRF verification (`X-CSRF-Token`). As a result, authentic persona workflows calling protected BFF endpoints fail with `401 Unauthorized` or `403 Forbidden` in live environments. Furthermore, stateless execution cannot test real-world user lifecycles (e.g. login $\rightarrow$ authenticated operations $\rightarrow$ session revocation / logout), multi-step trading sessions, or session expiration.
+* **Architecture & Objectives:**
+  * **Per-Persona Cookie Jar & Session Scope:** Equip the simulation client with per-persona `http.CookieJar` instances (`net/http/cookiejar.New(nil)`). When executing a persona's action list during a simulation iteration, all HTTP requests dispatched by that persona reuse the persona's cookie jar, automatically preserving session cookies (`__Host-customer-session`, `__Host-employee-session`, `customer_session`, `employee_session`) and CSRF cookies across calls.
+  * **Automated Persona Authentication Handshake:** Introduce an automated pre-action authentication hook in `simulation.Driver`:
+    * *Customer Personas (Arthur Pendelton, Chloe Spark):* Prior to running daily customer actions, perform an authentication handshake against `POST /api/v1/customer/auth/login` (or ZITADEL OIDC flow in live mode), populating the cookie jar and extracting the active CSRF token.
+    * *Employee & Staff Personas (Bob Builder, Alice Vance, Dr. Elena Rostova, Frank Operations, etc.):* Authenticate via `POST /api/v1/employee/auth/login` (in development mode) or Forgejo OAuth2 handshake (`/api/v1/employee/auth/forgejo/login`), establishing an authentic session in Valkey.
+  * **Transparent Double-Submit CSRF Header Injection:** Automatically extract the active CSRF token from the persona's cookie jar and populate the `X-CSRF-Token` header on state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) to BFF endpoints, eliminating boilerplate in individual action definitions.
+  * **Stateful Lifecycle & Security Testing:**
+    * Enable personas to execute realistic multi-step journeys: login $\rightarrow$ browse directory / portfolio $\rightarrow$ submit timesheet / order $\rightarrow$ view paystub / statement $\rightarrow$ explicit logout.
+    * Enable negative security testing: verify that session invalidation during offboarding (e.g. Alice triggering employee offboarding) immediately invalidates the persona's session in Valkey, causing subsequent calls with the cached cookie to correctly fail with `401 Unauthorized`.
+  * **Mock & Live Mode Parity:** Ensure both `-mode mock` and `-mode live` adhere to the same session management model, guaranteeing seamless transition between offline test runner execution and live cluster verification.
+
+
 
 
