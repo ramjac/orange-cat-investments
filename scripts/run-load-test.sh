@@ -42,7 +42,7 @@ for i in $(seq 1 "${CONCURRENCY}"); do
         worker_id="$i"
         worker_log="${LOG_DIR}/worker_${worker_id}.log"
         iter=0
-        while [ $(date +%s) -lt "${END_EPOCH}" ]; do
+        while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do
             iter=$(( iter + 1 ))
             OCI_INGRESS_IP="${TARGET_HOST}" "${SIMULATOR_BIN}" \
                 -mode live \
