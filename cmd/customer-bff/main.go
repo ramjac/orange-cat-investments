@@ -20,7 +20,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
@@ -29,84 +30,20 @@ import (
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
-type CustomerSession struct {
-	SessionID  string    `json:"session_id"`
-	CustomerID string    `json:"customer_id"`
-	Email      string    `json:"email"`
-	Name       string    `json:"name"`
-	ExpiresAt  time.Time `json:"expires_at"`
-}
+type CustomerSession = sessionvalkey.CustomerSession
+type SessionStore = sessionvalkey.CustomerSessionStore
 
-type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*CustomerSession
-}
-
-func NewSessionStore() *SessionStore {
-	return &SessionStore{
-		sessions: make(map[string]*CustomerSession),
-	}
-}
-
-// SetSession adds or updates a session in the store. Used for session management and testing.
-func (s *SessionStore) SetSession(session *CustomerSession) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[session.SessionID] = session
-}
-
-func (s *SessionStore) Get(token string) (*CustomerSession, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	sess, ok := s.sessions[token]
-	if !ok || time.Now().After(sess.ExpiresAt) {
-		return nil, false
-	}
-	return sess, true
-}
-
-func (s *SessionStore) Create(customerID, name, email string) (*CustomerSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	b := make([]byte, 16)
-	if _, err := crand.Read(b); err != nil {
-		return nil, fmt.Errorf("failed to generate random session token: %w", err)
-	}
-	token := "sess-" + hex.EncodeToString(b)
-	sess := &CustomerSession{
-		SessionID:  token,
-		CustomerID: customerID,
-		Email:      email,
-		Name:       name,
-		ExpiresAt:  time.Now().Add(24 * time.Hour),
-	}
-	s.sessions[token] = sess
-	return sess, nil
-}
-
-func (s *SessionStore) Delete(token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, token)
-}
-
-// PurgeCustomerSessions invalidates and purges all active sessions for a customer.
-func (s *SessionStore) PurgeCustomerSessions(customerID string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	purged := 0
-	for token, sess := range s.sessions {
-		if sess.CustomerID == customerID {
-			delete(s.sessions, token)
-			purged++
-		}
-	}
-	return purged
+// NewSessionStore returns an in-memory session store for local dev and unit testing.
+func NewSessionStore() SessionStore {
+	return sessionvalkey.NewMemoryCustomerSessionStore()
 }
 
 type contextKey string
@@ -166,23 +103,49 @@ type CustomerBFF struct {
 	ciSvc          core_invest_svc.Service
 	wfSvc          workforce_svc.Service
 	opsSvc         ops_svc.Service
-	sessions       *SessionStore
+	sessions       SessionStore
+	cache          cachevalkey.Cache
+	rateLimiter    *cachevalkey.RateLimiter
 	logger         *slog.Logger
 	broker         *alpaca.Client
 	bank           *plaid.Client
 	customerBLLURL string
+	searchClient   *meilisearch.Client
 	vhrCache       vhrCache
 	felineCache    felineCache
 }
 
 func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, logger *slog.Logger) *CustomerBFF {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	valkeyAddr := os.Getenv("VALKEY_ADDR")
+	valkeyPass := os.Getenv("VALKEY_PASSWORD")
+
+	meiliURL := os.Getenv("MEILISEARCH_URL")
+	if meiliURL == "" {
+		meiliURL = "http://localhost:7700"
+	}
+	meiliKey := os.Getenv("MEILI_MASTER_KEY")
+	sClient := meilisearch.NewClient(meiliURL, meiliKey)
+	_ = sClient.EnsureIndex(context.Background(), "customer_catalog", "id")
+	_ = sClient.IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
+		{"id": "fund-zoomie", "category": "fund", "symbol": "ZOOM", "title": "OCI Feline Behavioral Alpha Fund", "description": "Dynamic quantitative weighting based on active feline zoomie intervals."},
+		{"id": "fund-catnip", "category": "fund", "symbol": "NIP", "title": "Organic Catnip Agriculture ESG Fund", "description": "Sustainable feline agricultural infrastructure and cat grass ventures."},
+		{"id": "esg-welfare-2026", "category": "transparency", "title": "2026 Feline Workplace Welfare & Habitat Transparency", "description": "OSHA-compliant scratch post maintenance and continuous perch monitoring."},
+		{"id": "stmt-tax-1099b", "category": "statement", "title": "Form 1099-B Proceeds From Broker and Barter Exchange", "description": "Annual consolidated tax statement for realized capital gains and DCA distributions."},
+	})
+
 	return &CustomerBFF{
 		ciSvc:          ciSvc,
 		wfSvc:          wfSvc,
 		opsSvc:         ops_svc.NewService(ops_repo.NewMockRepository()),
-		sessions:       NewSessionStore(),
+		sessions:       sessionvalkey.NewCustomerSessionStore(valkeyAddr, valkeyPass, 0, logger),
+		cache:          cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger),
+		rateLimiter:    cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
 		logger:         logger,
 		customerBLLURL: os.Getenv("CUSTOMER_BLL_URL"),
+		searchClient:   sClient,
 		vhrCache: vhrCache{
 			ttl: 30 * time.Second,
 		},
@@ -190,6 +153,18 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 			ttl: 30 * time.Second,
 		},
 	}
+}
+
+func (b *CustomerBFF) SetSessionStore(store SessionStore) {
+	b.sessions = store
+}
+
+func (b *CustomerBFF) SetCache(c cachevalkey.Cache) {
+	b.cache = c
+}
+
+func (b *CustomerBFF) SetRateLimiter(rl *cachevalkey.RateLimiter) {
+	b.rateLimiter = rl
 }
 
 func (b *CustomerBFF) SetCustomerBLLURL(url string) {
@@ -347,10 +322,32 @@ func (b *CustomerBFF) csrfProtect(next http.Handler) http.Handler {
 }
 
 func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
+	// Sliding-window rate limiting middleware wrappers
+	loginLimiter := func(h http.Handler) http.Handler { return h }
+	orderLimiter := func(h http.Handler) http.Handler { return h }
+	depositLimiter := func(h http.Handler) http.Handler { return h }
+
+	if b.rateLimiter != nil {
+		loginLimiter = cachevalkey.RateLimitMiddleware(b.rateLimiter, func(r *http.Request) string {
+			return "customer_login:" + cachevalkey.ClientIP(r)
+		}, 5, 15*time.Minute)
+
+		orderLimiter = cachevalkey.RateLimitMiddleware(b.rateLimiter, func(r *http.Request) string {
+			if sess := CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+				return "customer_orders:" + sess.CustomerID
+			}
+			return "customer_orders:" + cachevalkey.ClientIP(r)
+		}, 10, time.Second)
+
+		depositLimiter = cachevalkey.RateLimitMiddleware(b.rateLimiter, func(r *http.Request) string {
+			return "customer_deposits:" + cachevalkey.ClientIP(r)
+		}, 5, 15*time.Minute)
+	}
+
 	// Public routes
 	mux.HandleFunc("GET /healthz", b.handleHealthCheck)
 	mux.HandleFunc("GET /api/v1/customer/csrf", b.handleGetCSRFToken)
-	mux.HandleFunc("POST /api/v1/customer/auth/login", b.handleLogin)
+	mux.Handle("POST /api/v1/customer/auth/login", loginLimiter(http.HandlerFunc(b.handleLogin)))
 	mux.HandleFunc("POST /api/v1/customer/auth/logout", b.handleLogout)
 	mux.HandleFunc("POST /api/v1/customer/auth/register", b.handleRegister)
 	mux.HandleFunc("GET /api/v1/customer/privacy/gdpr-certificate/{id}", b.handleGetGDPRCertificate)
@@ -373,10 +370,11 @@ func (b *CustomerBFF) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/customer/support/tickets/{id}/comments", b.sessionAuth(http.HandlerFunc(b.handleListCustomerTicketComments)))
 	mux.Handle("GET /api/v1/customer/statements", b.sessionAuth(http.HandlerFunc(b.handleListStatements)))
 	mux.Handle("GET /api/v1/customer/statements/{id}/download", b.sessionAuth(http.HandlerFunc(b.handleDownloadStatement)))
+	mux.Handle("GET /api/v1/customer/search", b.sessionAuth(http.HandlerFunc(b.handleSearch)))
 
 	// Protected state-changing endpoints (Session Auth + Double-Submit CSRF)
-	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateOrder))))
-	mux.Handle("POST /api/v1/customer/deposits", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateDeposit))))
+	mux.Handle("POST /api/v1/customer/trading/orders", b.sessionAuth(b.csrfProtect(orderLimiter(http.HandlerFunc(b.handleCreateOrder)))))
+	mux.Handle("POST /api/v1/customer/deposits", b.sessionAuth(b.csrfProtect(depositLimiter(http.HandlerFunc(b.handleCreateDeposit)))))
 	mux.Handle("POST /api/v1/customer/api-keys", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateAPIKey))))
 	mux.Handle("DELETE /api/v1/customer/api-keys/{id}", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleRevokeAPIKey))))
 	mux.Handle("POST /api/v1/customer/webhooks", b.sessionAuth(b.csrfProtect(http.HandlerFunc(b.handleCreateWebhook))))
@@ -625,6 +623,13 @@ func (b *CustomerBFF) handleCloseAccount(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if b.sessions != nil {
+		b.sessions.PurgeCustomerSessions(session.CustomerID)
+	}
+	if b.cache != nil {
+		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
+	}
+
 	_ = json.NewEncoder(w).Encode(res)
 }
 
@@ -652,6 +657,9 @@ func (b *CustomerBFF) handleGDPRErasure(w http.ResponseWriter, r *http.Request) 
 
 	purgedCount := b.sessions.PurgeCustomerSessions(session.CustomerID)
 	cert.SessionsPurgedCount = purgedCount
+	if b.cache != nil {
+		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
+	}
 
 	// Invalidate session cookies
 	http.SetCookie(w, &http.Cookie{
@@ -935,6 +943,23 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		portfolioID = fmt.Sprintf("port-%s", custID)
 	}
 
+	cacheKey := cachevalkey.KeyPortfolioWithID(custID, portfolioID)
+
+	// 1. Query Cache-Aside with Conditional Validation
+	if custID != "" && b.cache != nil {
+		var cachedResp map[string]interface{}
+		if ok, _ := b.cache.Get(r.Context(), cacheKey, &cachedResp); ok {
+			data, err := json.Marshal(cachedResp)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+
 	if b.broker != nil {
 		acc, accErr := b.broker.GetAccount(r.Context(), portfolioID)
 		positions, posErr := b.broker.ListPositions(r.Context(), portfolioID)
@@ -976,6 +1001,17 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 					{"date": "2026-04-01", "valuation": acc.PortfolioValue},
 				},
 			}
+			if custID != "" && b.cache != nil {
+				_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
+			}
+			data, err := json.Marshal(resp)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				_, _ = w.Write(data)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
@@ -1004,6 +1040,17 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 				"holdings":               p.Holdings,
 				"historical_performance": p.HistoricalPerf,
 			}
+			if custID != "" && b.cache != nil {
+				_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
+			}
+			data, err := json.Marshal(resp)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				_, _ = w.Write(data)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
@@ -1023,6 +1070,17 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		"status":                 "active",
 		"holdings":               []map[string]interface{}{},
 		"historical_performance": []map[string]interface{}{},
+	}
+	if custID != "" && b.cache != nil {
+		_ = b.cache.Set(r.Context(), cacheKey, resp, cachevalkey.TTLPortfolioValuation)
+	}
+	data, err := json.Marshal(resp)
+	if err == nil {
+		if cachevalkey.HandleConditionalETag(w, r, data) {
+			return
+		}
+		_, _ = w.Write(data)
+		return
 	}
 	_ = json.NewEncoder(w).Encode(resp)
 }
@@ -1128,6 +1186,9 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		defer bllResp.Body.Close()
+		if bllResp.StatusCode < 300 && b.cache != nil && session.CustomerID != "" {
+			_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(bllResp.StatusCode)
 		_, _ = io.Copy(w, bllResp.Body)
@@ -1143,6 +1204,13 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		Price:       req.Price,
 		Status:      "executed",
 	}
+
+	defer func() {
+		if b.cache != nil && session.CustomerID != "" {
+			_ = b.cache.Delete(context.Background(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
+			_ = b.cache.DeletePrefix(context.Background(), "cache:portfolio:"+session.CustomerID)
+		}
+	}()
 
 	created, err := b.ciSvc.ExecuteBrokerageOrder(r.Context(), core_invest_svc.ExecuteBrokerageOrderOpts{
 		PortfolioID: req.PortfolioID,
@@ -1164,6 +1232,14 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 
 func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if b.cache != nil {
+		var cachedTicker []map[string]interface{}
+		if ok, _ := b.cache.Get(r.Context(), cachevalkey.KeyQuotes("TICKER_ALL"), &cachedTicker); ok && len(cachedTicker) > 0 {
+			_ = json.NewEncoder(w).Encode(cachedTicker)
+			return
+		}
+	}
 
 	if b.broker == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -1198,6 +1274,15 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 				"change_pct": changePct,
 				"volume":     bar.Volume,
 			})
+		}
+	}
+
+	if b.cache != nil && len(tickerData) > 0 {
+		_ = b.cache.Set(r.Context(), cachevalkey.KeyQuotes("TICKER_ALL"), tickerData, cachevalkey.TTLMarketQuotes)
+		for _, item := range tickerData {
+			if sym, ok := item["symbol"].(string); ok {
+				_ = b.cache.Set(r.Context(), cachevalkey.KeyQuotes(sym), item, cachevalkey.TTLMarketQuotes)
+			}
 		}
 	}
 
@@ -1371,9 +1456,16 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		if b.cache != nil && session.CustomerID != "" {
+			_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID))
+		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(dep)
 		return
+	}
+
+	if b.cache != nil && session.CustomerID != "" {
+		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID))
 	}
 
 	created := map[string]interface{}{
@@ -1658,6 +1750,20 @@ func calculateAdherencePct(vhrRecordsCount, felineCount int) float64 {
 func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	if b.cache != nil {
+		var cachedResp map[string]interface{}
+		if ok, _ := b.cache.Get(r.Context(), cachevalkey.KeyESGMetrics(), &cachedResp); ok {
+			data, err := json.Marshal(cachedResp)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+
 	felinesList, vhrRecordsCount := b.buildFelineExecutives(r.Context())
 	incidentsCnt := b.getWorkplaceIncidentsCount(r.Context())
 	welfareScore := calculateWelfareScore(incidentsCnt)
@@ -1673,14 +1779,68 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 		"medical_holds_issued_ytd": 0,
 		"feline_executives":        felinesList,
 	}
+	if b.cache != nil {
+		_ = b.cache.Set(r.Context(), cachevalkey.KeyESGMetrics(), resp, cachevalkey.TTLESGMetrics)
+	}
+	data, err := json.Marshal(resp)
+	if err == nil {
+		if cachevalkey.HandleConditionalETag(w, r, data) {
+			return
+		}
+		_, _ = w.Write(data)
+		return
+	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	category := r.URL.Query().Get("category")
+	filter := ""
+	if category != "" {
+		filter = fmt.Sprintf("category = '%s'", category)
+	}
+
+	result, err := b.searchClient.Search(r.Context(), "customer_catalog", q, meilisearch.SearchOptions{
+		Filter: filter,
+		Limit:  20,
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	if b.cache != nil {
+		if raw, ok, _ := b.cache.GetRaw(r.Context(), cachevalkey.KeyHabitatTelemetry()); ok {
+			if cachevalkey.HandleConditionalETag(w, r, raw) {
+				return
+			}
+			_, _ = w.Write(raw)
+			return
+		}
+	}
+
 	streams, err := b.ciSvc.ListCameraStreams(r.Context(), 10, 0)
 	if err != nil || len(streams) == 0 {
 		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
+		return
+	}
+	data, err := json.Marshal(streams)
+	if err == nil {
+		if b.cache != nil {
+			_ = b.cache.SetRaw(r.Context(), cachevalkey.KeyHabitatTelemetry(), data, cachevalkey.TTLHabitatTelemetry)
+		}
+		if cachevalkey.HandleConditionalETag(w, r, data) {
+			return
+		}
+		_, _ = w.Write(data)
 		return
 	}
 	_ = json.NewEncoder(w).Encode(streams)
@@ -1892,27 +2052,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Customer BFF API Server...")
 
-	dbURL := os.Getenv("DATABASE_URL")
-	var pool *pgxpool.Pool
-	if dbURL != "" {
-		var err error
-		pool, err = pgxpool.New(context.Background(), dbURL)
-		if err != nil {
-			logger.Warn("failed to connect to database pool, falling back to mock persistence", "error", err)
-		} else {
-			defer pool.Close()
-			logger.Info("connected to PostgreSQL database pool successfully")
-		}
-	} else {
-		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
-	}
-
-	var ciRepo core_invest_repo.Repository
-	if pool != nil {
-		ciRepo = core_invest_repo.NewRepository(pool)
-	} else {
-		ciRepo = core_invest_repo.NewMockRepository()
-	}
+	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
+	// Customer BFF functions strictly as a presentation proxy delegating business lookups to Customer BLL.
+	ciRepo := core_invest_repo.NewMockRepository()
 
 	var ciSvc core_invest_svc.Service
 	brokerURL := os.Getenv("BROKER_API_BASE_URL")
@@ -1949,7 +2091,7 @@ func main() {
 		ciSvc = core_invest_svc.NewService(ciRepo)
 	}
 
-	wfRepo := workforce_repo.NewRepository(pool)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfSvc := workforce_svc.NewService(wfRepo)
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
 	if brokerClient != nil {
@@ -1959,12 +2101,7 @@ func main() {
 		custBFF.SetBankClient(bankClient)
 	}
 
-	var opsRepo ops_repo.Repository
-	if pool != nil {
-		opsRepo = ops_repo.NewRepository(pool)
-	} else {
-		opsRepo = ops_repo.NewMockRepository()
-	}
+	opsRepo := ops_repo.NewMockRepository()
 
 	var issueTracker ops_svc.IssueTrackerClient
 	issueTrackerURL := os.Getenv("FORGEJO_URL")
@@ -1986,6 +2123,23 @@ func main() {
 		opsSvc = ops_svc.NewService(opsRepo)
 	}
 	custBFF.SetOpsService(opsSvc)
+
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL != "" {
+		watermillLogger := watermill.NewStdLogger(false, false)
+		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
+			return "customer-bff.cache-invalidation." + topic
+		})
+		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
+		if err == nil {
+			listener := cachevalkey.NewInvalidationListener(custBFF.cache, amqpSub, logger)
+			listener.Start(context.Background())
+			defer listener.Stop()
+			logger.Info("connected Customer BFF to RabbitMQ for event-driven cache invalidation")
+		} else {
+			logger.Warn("failed to initialize RabbitMQ subscriber for cache invalidation", "error", err)
+		}
+	}
 
 	mux := http.NewServeMux()
 	custBFF.RegisterRoutes(mux)

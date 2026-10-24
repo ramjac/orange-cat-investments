@@ -1,0 +1,90 @@
+# Scheduled Batch Jobs for Orange Cat Investments (OCI) - Development
+# 1. Recurring ACH Deposit Batch Processor
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: recurring-ach-processor
+  namespace: oci-dev
+  labels:
+    app: recurring-ach-processor
+    tier: batch
+spec:
+  schedule: "0 0 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: recurring-ach-processor
+            tier: batch
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: processor
+              image: localhost:32000/oci-worker:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/local/bin/oci-worker"]
+              env:
+                - name: ENABLE_CORE_INVEST
+                  value: "true"
+                - name: CORE_INVEST_API_URL
+                  value: "http://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+                - name: BANK_API_BASE_URL
+                  value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+                - name: BATCH_MODE
+                  value: "ach-recurring"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+---
+# 2. Automated End-of-Month Statement & Tax Batch Generator
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eom-statement-generator
+  namespace: oci-dev
+  labels:
+    app: eom-statement-generator
+    tier: batch
+spec:
+  schedule: "0 1 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: eom-statement-generator
+            tier: batch
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: generator
+              image: localhost:32000/oci-worker:latest
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/local/bin/oci-worker"]
+              env:
+                - name: ENABLE_CORE_INVEST
+                  value: "true"
+                - name: CORE_INVEST_API_URL
+                  value: "http://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+                - name: NEXTCLOUD_URL
+                  value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+                - name: BATCH_MODE
+                  value: "eom-statements"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi

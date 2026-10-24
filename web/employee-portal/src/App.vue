@@ -8,7 +8,15 @@
           <p>Employee Portal — Operations, Care & Quantitative Workbench</p>
         </div>
       </div>
+      <div class="search-palette-trigger" @click="showSearchModal = true">
+        <span class="search-icon">🔍</span>
+        <span class="search-prompt">Search clinical records, SOPs, tickets...</span>
+        <kbd class="search-shortcut">⌘K</kbd>
+      </div>
       <div class="user-profile">
+        <a href="https://status.oci.local" target="_blank" style="text-decoration: none; color: #4ade80; font-size: 0.8rem; font-weight: bold; margin-right: 0.5rem;" title="System Uptime Status (Gatus)">
+          🟢 Status
+        </a>
         <div class="avatar">{{ currentTab === 'care' || currentTab === 'vhr' ? 'ER' : (currentTab === 'helpdesk' ? 'FO' : (currentTab === 'leave' || currentTab === 'review' || currentTab === 'timesheets' || currentTab === 'payroll' || currentTab === 'lifecycle' || currentTab === 'docs' ? 'AV' : 'DQ')) }}</div>
         <div class="user-info">
           <h4>{{ currentTab === 'care' || currentTab === 'vhr' ? 'Dr. Elena Rostova' : (currentTab === 'helpdesk' ? 'Frank Operations' : (currentTab === 'leave' || currentTab === 'review' || currentTab === 'timesheets' || currentTab === 'payroll' || currentTab === 'lifecycle' || currentTab === 'docs' ? 'Alice Vance' : 'David Quant')) }}</h4>
@@ -16,6 +24,49 @@
         </div>
       </div>
     </header>
+
+    <!-- Command+K Search Modal Palette (Meilisearch) -->
+    <div v-if="showSearchModal" class="modal-overlay" @click.self="showSearchModal = false">
+      <div class="command-palette-modal" role="dialog" aria-modal="true">
+        <div class="command-palette-header">
+          <span class="search-icon">🔍</span>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search VHR notes, IT tickets, SOPs, assets..."
+            @input="performSearch"
+            @keydown.esc="showSearchModal = false"
+            autofocus
+          />
+          <button class="modal-close-btn" @click="showSearchModal = false">✕</button>
+        </div>
+        <div class="command-palette-filters">
+          <button :class="['filter-chip', { active: searchFilter === '' }]" @click="setSearchFilter('')">All</button>
+          <button :class="['filter-chip', { active: searchFilter === 'vhr' }]" @click="setSearchFilter('vhr')">Clinical VHR</button>
+          <button :class="['filter-chip', { active: searchFilter === 'sop' }]" @click="setSearchFilter('sop')">SOPs / Docs</button>
+          <button :class="['filter-chip', { active: searchFilter === 'ticket' }]" @click="setSearchFilter('ticket')">IT Helpdesk</button>
+          <button :class="['filter-chip', { active: searchFilter === 'asset' }]" @click="setSearchFilter('asset')">Hardware Assets</button>
+        </div>
+        <div class="command-palette-results">
+          <div v-if="searchResults.length === 0" class="search-empty">
+            <span v-if="searchQuery">No matching documents found.</span>
+            <span v-else>Type a query or press Esc to close.</span>
+          </div>
+          <div
+            v-for="item in searchResults"
+            :key="item.id"
+            class="search-result-item"
+            @click="selectSearchResult(item)"
+          >
+            <div class="result-badge" :class="item.category">{{ (item.category || 'DOC').toUpperCase() }}</div>
+            <div class="result-details">
+              <h5>{{ item.title }}</h5>
+              <p>{{ item.snippet || item.content }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Real-Time Pub/Sub Workplace Incident Alert Banner -->
     <div v-if="activeEmergencyAlert" class="emergency-alert-banner" :class="activeEmergencyAlert.severity" role="alert" aria-live="assertive">
@@ -2489,6 +2540,49 @@ import { ref, computed, onMounted } from 'vue';
 
 const currentTab = ref('care');
 
+const showSearchModal = ref(false);
+const searchQuery = ref('');
+const searchFilter = ref('');
+const searchResults = ref([]);
+const isSearching = ref(false);
+
+const performSearch = async () => {
+  try {
+    isSearching.value = true;
+    let url = `/api/v1/employee/search?q=${encodeURIComponent(searchQuery.value)}`;
+    if (searchFilter.value) {
+      url += `&category=${encodeURIComponent(searchFilter.value)}`;
+    }
+    const resp = await fetch(url, { credentials: 'same-origin' });
+    if (resp.ok) {
+      const data = await resp.json();
+      searchResults.value = data.hits || [];
+    }
+  } catch (err) {
+    console.error('search error:', err);
+  } finally {
+    isSearching.value = false;
+  }
+};
+
+const setSearchFilter = (category) => {
+  searchFilter.value = category;
+  performSearch();
+};
+
+const selectSearchResult = (item) => {
+  showSearchModal.value = false;
+  if (item.category === 'vhr' || item.category === 'care') {
+    currentTab.value = 'vhr';
+  } else if (item.category === 'ticket') {
+    currentTab.value = 'helpdesk';
+  } else if (item.category === 'sop' || item.category === 'docs') {
+    currentTab.value = 'docs';
+  } else if (item.category === 'asset') {
+    currentTab.value = 'helpdesk';
+  }
+};
+
 const felineRoster = ref([
   { id: 'emp-feline-garfield', name: 'Garfield', title: 'Chief Observation Officer', avatar: '🐱' },
   { id: 'emp-feline-barneby', name: 'Barneby', title: 'Senior Alpha Perch Analyst', avatar: '🐈‍⬛' }
@@ -4705,6 +4799,15 @@ onMounted(() => {
   fetchHelpdeskTickets();
   fetchExecutiveReports();
   initIncidentSSE();
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      showSearchModal.value = !showSearchModal.value;
+      if (showSearchModal.value) {
+        performSearch();
+      }
+    }
+  });
 });
 </script>
 
@@ -4714,6 +4817,28 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .brand { display: flex; align-items: center; gap: 0.75rem; }
 .brand-title h1 { margin: 0; color: var(--secondary-color, #ea580c); font-size: 1.5rem; }
 .brand-title p { margin: 0; color: #94a3b8; font-size: 0.85rem; }
+.search-palette-trigger { display: flex; align-items: center; gap: 0.5rem; background: var(--card-color, #1e293b); border: 1px solid #334155; padding: 0.5rem 1rem; border-radius: 9999px; cursor: pointer; transition: border-color 0.2s; }
+.search-palette-trigger:hover { border-color: var(--secondary-color, #ea580c); }
+.search-prompt { font-size: 0.85rem; color: #94a3b8; }
+.search-shortcut { background: #0f172a; border: 1px solid #475569; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; color: #cbd5e1; }
+.command-palette-modal { background: var(--card-color, #1e293b); border: 1px solid #475569; border-radius: 0.75rem; width: 620px; max-width: 95vw; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.command-palette-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid #334155; }
+.command-palette-header input { flex: 1; background: transparent; border: none; color: #f8fafc; font-size: 1.1rem; outline: none; }
+.command-palette-filters { display: flex; gap: 0.5rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid #334155; background: #0f172a; overflow-x: auto; }
+.filter-chip { background: transparent; border: 1px solid #334155; color: #94a3b8; border-radius: 9999px; padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; }
+.filter-chip.active { background: var(--secondary-color, #ea580c); color: white; border-color: var(--secondary-color, #ea580c); }
+.command-palette-results { max-height: 380px; overflow-y: auto; padding: 0.5rem; }
+.search-result-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer; transition: background 0.15s; }
+.search-result-item:hover { background: #334155; }
+.result-badge { font-size: 0.65rem; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #475569; color: white; }
+.result-badge.vhr { background: #059669; }
+.result-badge.sop { background: #2563eb; }
+.result-badge.ticket { background: #d97706; }
+.result-badge.asset { background: #7c3aed; }
+.result-details h5 { margin: 0 0 0.25rem 0; font-size: 0.95rem; color: #f8fafc; }
+.result-details p { margin: 0; font-size: 0.8rem; color: #94a3b8; line-height: 1.3; }
+.search-empty { padding: 2rem; text-align: center; color: #64748b; font-size: 0.9rem; }
+
 .user-profile { display: flex; align-items: center; gap: 0.75rem; background: var(--card-color, #1e293b); padding: 0.5rem 1rem; border-radius: 9999px; }
 .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--secondary-color, #ea580c); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 .user-info h4 { margin: 0; font-size: 0.85rem; }

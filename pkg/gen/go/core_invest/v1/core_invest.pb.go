@@ -153,6 +153,53 @@ type ListRecurringDepositsResponse struct {
 	Deposits []*RecurringDeposit `json:"deposits"`
 }
 
+type AdvanceRecurringDepositRequest struct {
+	DepositID    string `json:"deposit_id"`
+	NextChargeAt string `json:"next_charge_at"`
+}
+
+type AdvanceRecurringDepositResponse struct {
+	Status string `json:"status"`
+}
+
+type ListPortfoliosRequest struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type ListPortfoliosResponse struct {
+	Portfolios []*Portfolio `json:"portfolios"`
+}
+
+type GenerateStatementRequest struct {
+	PortfolioID   string `json:"portfolio_id"`
+	Year          int32  `json:"year"`
+	StatementType string `json:"statement_type"`
+}
+
+type GenerateStatementResponse struct {
+	StatementID   string `json:"statement_id"`
+	PortfolioID   string `json:"portfolio_id"`
+	Year          int32  `json:"year"`
+	StatementType string `json:"statement_type"`
+	Period        string `json:"period"`
+	Status        string `json:"status"`
+}
+
+type StreamPortfolioValuationRequest struct {
+	PortfolioID string `json:"portfolio_id"`
+	UpdateCount int32  `json:"update_count"`
+}
+
+type PortfolioValuationEvent struct {
+	PortfolioID        string  `json:"portfolio_id"`
+	TotalBalanceUSD    float64 `json:"total_balance_usd"`
+	CashBalanceUSD     float64 `json:"cash_balance_usd"`
+	InvestedBalanceUSD float64 `json:"invested_balance_usd"`
+	ChangePct          float64 `json:"change_pct"`
+	Timestamp          string  `json:"timestamp"`
+}
+
 type CoreInvestServiceClient interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest) (*ListHoldingsResponse, error)
@@ -163,6 +210,10 @@ type CoreInvestServiceClient interface {
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
 	ListRecurringDeposits(ctx context.Context, in *ListRecurringDepositsRequest) (*ListRecurringDepositsResponse, error)
+	AdvanceRecurringDeposit(ctx context.Context, in *AdvanceRecurringDepositRequest) (*AdvanceRecurringDepositResponse, error)
+	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)
+	StreamPortfolioValuation(ctx context.Context, in *StreamPortfolioValuationRequest) (CoreInvestService_StreamPortfolioValuationClient, error)
 }
 
 type CoreInvestServiceServer interface {
@@ -175,4 +226,17 @@ type CoreInvestServiceServer interface {
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
 	ListRecurringDeposits(ctx context.Context, in *ListRecurringDepositsRequest) (*ListRecurringDepositsResponse, error)
+	AdvanceRecurringDeposit(ctx context.Context, in *AdvanceRecurringDepositRequest) (*AdvanceRecurringDepositResponse, error)
+	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)
+	StreamPortfolioValuation(*StreamPortfolioValuationRequest, CoreInvestService_StreamPortfolioValuationServer) error
+}
+
+type CoreInvestService_StreamPortfolioValuationClient interface {
+	Recv() (*PortfolioValuationEvent, error)
+}
+
+type CoreInvestService_StreamPortfolioValuationServer interface {
+	Send(*PortfolioValuationEvent) error
+	Context() context.Context
 }

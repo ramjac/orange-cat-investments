@@ -9,6 +9,9 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    rule_files:
+      - /etc/prometheus/alert_rules.yml
+
     scrape_configs:
       - job_name: 'prometheus'
         static_configs:
@@ -17,6 +20,109 @@ data:
       - job_name: 'kubernetes-pods'
         kubernetes_sd_configs:
           - role: pod
+
+      - job_name: 'rabbitmq'
+        metrics_path: '/metrics/per-object'
+        static_configs:
+          - targets: ['rabbitmq-service.oci-core.svc.cluster.local:15692']
+
+      - job_name: 'forgejo'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['forgejo-service.oci-internal.svc.cluster.local:3000']
+
+      - job_name: 'zitadel'
+        metrics_path: '/debug/metrics'
+        static_configs:
+          - targets: ['zitadel-service.oci-core.svc.cluster.local:8080']
+
+      - job_name: 'nextcloud'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['nextcloud-service.oci-internal.svc.cluster.local:9205']
+
+  alert_rules.yml: |
+    groups:
+      - name: rabbitmq_queue_alerts
+        rules:
+          - alert: RabbitMQDeadLetterQueueNotEmpty
+            expr: rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 0
+            for: 1m
+            labels:
+              severity: critical
+              tier: messaging
+            annotations:
+              summary: "RabbitMQ Dead-Letter Queue {{ $labels.queue }} contains unhandled messages"
+              description: "DLQ backlog detected on queue {{ $labels.queue }}. Check consumer workers for poison pills or deserialization failures."
+          - alert: RabbitMQQueueBacklogSpike
+            expr: rabbitmq_queue_messages_ready > 100
+            for: 3m
+            labels:
+              severity: warning
+              tier: messaging
+            annotations:
+              summary: "RabbitMQ Queue {{ $labels.queue }} backlog depth exceeds safe threshold"
+              description: "Queue {{ $labels.queue }} has {{ $value }} ready messages pending worker processing."
+          - alert: RabbitMQStagnantConsumers
+            expr: rabbitmq_queue_consumers == 0 and rabbitmq_queue_messages_ready > 0
+            for: 2m
+            labels:
+              severity: critical
+              tier: messaging
+            annotations:
+              summary: "RabbitMQ Queue {{ $labels.queue }} has zero active consumers with pending messages"
+              description: "Worker consumers have disconnected or crashed while messages await consumption."
+          - alert: RabbitMQMemoryAlarmActive
+            expr: rabbitmq_memory_alarm == 1 or (rabbitmq_process_resident_memory_bytes / rabbitmq_resident_memory_limit_bytes) > 0.85
+            for: 1m
+            labels:
+              severity: critical
+              tier: messaging
+            annotations:
+              summary: "RabbitMQ node memory saturation alarm active"
+              description: "RabbitMQ memory usage exceeds watermark or alarm is active."
+
+      - name: cots_telemetry_alerts
+        rules:
+          - alert: ForgejoHighLatency
+            expr: rate(forgejo_http_request_duration_seconds_sum[5m]) / rate(forgejo_http_request_duration_seconds_count[5m]) > 2
+            for: 3m
+            labels:
+              severity: warning
+              tier: cots
+            annotations:
+              summary: "Forgejo HTTP request latency elevated"
+              description: "Forgejo Git and API response latency is exceeding 2 seconds."
+          - alert: ZitadelAuthFailureSpike
+            expr: rate(zitadel_login_failures_total[5m]) > 5
+            for: 2m
+            labels:
+              severity: warning
+              tier: identity
+            annotations:
+              summary: "ZITADEL authentication failure rate elevated"
+              description: "Potential credential stuffing or customer login failures detected in ZITADEL."
+
+      - name: tls_and_pki_alerts
+        rules:
+          - alert: CertManagerCertExpiringSoon
+            expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < (30 * 24 * 3600)
+            for: 1h
+            labels:
+              severity: warning
+              tier: pki
+            annotations:
+              summary: "cert-manager certificate {{ $labels.name }} expires in less than 30 days"
+              description: "Certificate {{ $labels.name }} in namespace {{ $labels.namespace }} has less than 30 days before expiration. Verify CARotationManager and cert-manager renewal."
+          - alert: BlackboxSSLCertExpiringSoon
+            expr: (probe_ssl_earliest_cert_expiry - time()) < (30 * 24 * 3600)
+            for: 1h
+            labels:
+              severity: critical
+              tier: control-plane
+            annotations:
+              summary: "Control plane or Ingress TLS certificate expiring in less than 30 days"
+              description: "Target {{ $labels.instance }} SSL/TLS certificate expires in less than 30 days. Execute annual control plane cert rotation SOP."
 ---
 apiVersion: apps/v1
 kind: Deployment

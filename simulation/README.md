@@ -140,8 +140,8 @@ go run ./simulation/cmd/simulator -mode mock
 go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
-### 4. Drive Live Local / K3s OCI Stack
-Spin up the OCI backend services (e.g. `go run ./cmd/server` and `go run ./cmd/employee-bff`) or target staging directly via unified URL:
+### 4. Drive Live Local / MicroK8s OCI Stack
+Spin up the OCI backend services (e.g. `go run ./cmd/workforce-api` and `go run ./cmd/employee-bff`) or target staging directly via unified URL:
 ```bash
 # Target Kubernetes oci-dev staging environment with smart URL routing
 go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local

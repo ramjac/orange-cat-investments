@@ -82,6 +82,10 @@ func (b *IncidentBroker) HandleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
+	clientChan := make(chan []byte, 16)
+	b.AddClient(clientChan)
+	defer b.RemoveClient(clientChan)
+
 	// Send initial connected handshake event
 	if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\"}\n\n"); err != nil {
 		return
@@ -89,10 +93,6 @@ func (b *IncidentBroker) HandleStream(w http.ResponseWriter, r *http.Request) {
 	if err := rc.Flush(); err != nil {
 		return
 	}
-
-	clientChan := make(chan []byte, 16)
-	b.AddClient(clientChan)
-	defer b.RemoveClient(clientChan)
 
 	ctx := r.Context()
 	for {

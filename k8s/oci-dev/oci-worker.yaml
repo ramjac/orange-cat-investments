@@ -17,28 +17,50 @@ spec:
     spec:
       containers:
         - name: oci-worker-dev
-          image: localhost:32000/oci-worker:dev-latest
-          imagePullPolicy: Always
+          image: localhost:32000/oci-worker:latest
+          imagePullPolicy: IfNotPresent
           env:
+            - name: ENABLE_CORE_INVEST
+              value: "true"
+            - name: ENABLE_FELINE_WORKFORCE
+              value: "true"
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: oci-dev-secrets
                   key: DATABASE_URL
+            - name: EMPLOYEE_BFF_URL
+              value: "http://oci-employee-bff-dev-service.oci-dev.svc.cluster.local:8081"
+            - name: PEBBLE_PROXY_URL
+              value: "http://oci-pebble-proxy-dev-service.oci-dev.svc.cluster.local:8082"
+            - name: CORE_INVEST_API_URL
+              value: "http://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+            - name: BANK_API_BASE_URL
+              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
             - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: RABBITMQ_URL
-            - name: VALKEY_ADDR
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: VALKEY_ADDR
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
+            - name: CA_CERT_PATH
+              value: "/etc/oci/tls/ca.crt"
+            - name: CA_KEY_PATH
+              value: "/etc/oci/tls/ca.key"
+          volumeMounts:
+            - name: ca-key-pair
+              mountPath: /etc/oci/tls
+              readOnly: true
           resources:
             requests:
               cpu: 50m
               memory: 64Mi
             limits:
-              cpu: 200m
+              cpu: 250m
               memory: 256Mi
+      volumes:
+        - name: ca-key-pair
+          secret:
+            secretName: oci-lan-root-ca-key-pair
+            optional: true
+            items:
+              - key: tls.crt
+                path: ca.crt
+              - key: tls.key
+                path: ca.key

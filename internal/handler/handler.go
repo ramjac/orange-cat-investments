@@ -12,6 +12,7 @@ import (
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 )
 
 type WorkforceHandler struct {
@@ -19,6 +20,11 @@ type WorkforceHandler struct {
 	onboardingSaga        *saga.OnboardingSaga
 	offboardingEng        *saga.OffboardingEngine
 	EnableFelineWorkforce bool
+	cache                 cachevalkey.Cache
+}
+
+func (h *WorkforceHandler) SetCache(c cachevalkey.Cache) {
+	h.cache = c
 }
 
 func NewWorkforceHandler(
@@ -203,9 +209,41 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if h.cache != nil {
+		var cached workforce.CareSchedule
+		if ok, _ := h.cache.Get(r.Context(), cachevalkey.KeyCareSchedule(felineID), &cached); ok {
+			data, err := json.Marshal(cached)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+
 	cs, err := h.wfSvc.GetCareSchedule(r.Context(), felineID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if h.cache != nil && cs != nil {
+		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineID), cs, cachevalkey.TTLCareSchedule)
+		if cs.FelineID != "" && cs.FelineID != felineID {
+			_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(cs.FelineID), cs, cachevalkey.TTLCareSchedule)
+		}
+	}
+
+	data, err := json.Marshal(cs)
+	if err == nil {
+		if cachevalkey.HandleConditionalETag(w, r, data) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
 		return
 	}
 
@@ -249,6 +287,13 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if h.cache != nil {
+		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
+		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
+			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
+	}
+
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -272,6 +317,13 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if h.cache != nil {
+		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
+		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
+			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
 	}
 
 	writeJSON(w, http.StatusOK, updated)
@@ -1053,15 +1105,40 @@ func (h *WorkforceHandler) handleGetEmployeeLifecycle(w http.ResponseWriter, r *
 }
 
 func (h *WorkforceHandler) listGroupFolders(w http.ResponseWriter, r *http.Request) {
+	cacheKey := "cache:cots:nextcloud:folders"
+	if h.cache != nil {
+		if raw, ok, _ := h.cache.GetRaw(r.Context(), cacheKey); ok {
+			if cachevalkey.HandleConditionalETag(w, r, raw) {
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(raw)
+			return
+		}
+	}
+
 	folders, err := h.wfSvc.ListGroupFolders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"folders": folders,
 		"total":   len(folders),
-	})
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	if h.cache != nil {
+		_ = h.cache.SetRaw(r.Context(), cacheKey, data, cachevalkey.TTLCOTSMetadata)
+	}
+	if cachevalkey.HandleConditionalETag(w, r, data) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Request) {
@@ -1082,6 +1159,9 @@ func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.cache != nil {
+		_ = h.cache.Delete(r.Context(), "cache:cots:nextcloud:folders")
 	}
 	writeJSON(w, http.StatusCreated, folder)
 }

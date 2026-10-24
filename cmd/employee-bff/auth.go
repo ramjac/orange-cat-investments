@@ -8,72 +8,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
+
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 )
 
-type EmployeeSession struct {
-	SessionID   string    `json:"session_id"`
-	EmployeeID  string    `json:"employee_id"`
-	Email       string    `json:"email"`
-	Name        string    `json:"name"`
-	Role        string    `json:"role"` // "hr", "facilities", "veterinary", "investment", "ops", "engineering", "staff"
-	Department  string    `json:"department"`
-	Permissions []string  `json:"permissions,omitempty"`
-	ExpiresAt   time.Time `json:"expires_at"`
-}
+type EmployeeSession = sessionvalkey.EmployeeSession
+type SessionStore = sessionvalkey.EmployeeSessionStore
 
-type SessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*EmployeeSession
-}
-
-func NewSessionStore() *SessionStore {
-	return &SessionStore{
-		sessions: make(map[string]*EmployeeSession),
-	}
-}
-
-func (s *SessionStore) Create(employeeID, email, name, role, department string) (*EmployeeSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	b := make([]byte, 24)
-	if _, err := crand.Read(b); err != nil {
-		return nil, fmt.Errorf("failed to generate random session token: %w", err)
-	}
-	token := "emp-sess-" + hex.EncodeToString(b)
-	sess := &EmployeeSession{
-		SessionID:  token,
-		EmployeeID: employeeID,
-		Email:      email,
-		Name:       name,
-		Role:       strings.ToLower(strings.TrimSpace(role)),
-		Department: department,
-		ExpiresAt:  time.Now().Add(24 * time.Hour),
-	}
-	s.sessions[token] = sess
-	return sess, nil
-}
-
-func (s *SessionStore) Get(token string) (*EmployeeSession, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	sess, ok := s.sessions[token]
-	if !ok {
-		return nil, false
-	}
-	if time.Now().After(sess.ExpiresAt) {
-		return nil, false
-	}
-	return sess, true
-}
-
-func (s *SessionStore) Delete(token string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.sessions, token)
+func NewSessionStore() SessionStore {
+	return sessionvalkey.NewMemoryEmployeeSessionStore()
 }
 
 type contextKey string
@@ -120,13 +64,13 @@ func setCSRFCookie(w http.ResponseWriter, token string) {
 }
 
 type AuthHandler struct {
-	store      *SessionStore
+	store      SessionStore
 	forgejoURL string
 	httpClient *http.Client
 	isProd     bool
 }
 
-func NewAuthHandler(store *SessionStore, forgejoURL string, isProd bool) *AuthHandler {
+func NewAuthHandler(store SessionStore, forgejoURL string, isProd bool) *AuthHandler {
 	return &AuthHandler{
 		store:      store,
 		forgejoURL: strings.TrimRight(forgejoURL, "/"),
@@ -346,11 +290,29 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	if c, err := r.Cookie("employee_session"); err == nil {
-		h.store.Delete(c.Value)
+
+	var token string
+	if c, err := r.Cookie("__Host-employee-session"); err == nil && c.Value != "" {
+		token = c.Value
+	} else if c, err := r.Cookie("employee_session"); err == nil && c.Value != "" {
+		token = c.Value
 	}
-	if c, err := r.Cookie("__Host-employee-session"); err == nil {
-		h.store.Delete(c.Value)
+
+	var employeeID string
+	if sess := EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		employeeID = sess.EmployeeID
+	} else if token != "" {
+		if sess, ok := h.store.Get(token); ok && sess != nil {
+			employeeID = sess.EmployeeID
+		}
+	}
+
+	if token != "" {
+		h.store.Delete(token)
+	}
+
+	if r.URL.Query().Get("all") == "true" && employeeID != "" {
+		h.store.PurgeEmployeeSessions(employeeID)
 	}
 
 	http.SetCookie(w, &http.Cookie{

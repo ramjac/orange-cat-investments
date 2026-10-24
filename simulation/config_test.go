@@ -101,7 +101,7 @@ func TestConfigValidateTarget(t *testing.T) {
 	// Live mode targeting oci-core internal cluster service must be blocked
 	prodK8sCfg := &Config{
 		Mode:           "live",
-		ServerURL:      "http://oci-server-service.oci-core.svc.cluster.local:8080",
+		ServerURL:      "http://workforce-api-service.oci-core.svc.cluster.local:50051",
 		EmployeeBFFURL: "http://oci-employee-bff-service.oci-core.svc.cluster.local:8081",
 	}
 	err = prodK8sCfg.ValidateTarget()

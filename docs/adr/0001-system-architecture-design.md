@@ -9,7 +9,7 @@
 
 ## 1. Context and Problem Statement
 
-Orange Cat Investments (OCI) requires a production-grade, self-hosted application platform operating on Kubernetes (K3s). The platform spans external revenue-generating operations (ingesting feline behavioral data, executing investment strategies, and serving investors) and internal business operations (managing physical habitational hardware, tracking feline and human workforce members, and automating IT/maintenance workflows).
+Orange Cat Investments (OCI) requires a production-grade, self-hosted application platform operating on Kubernetes (MicroK8s on Ubuntu Server). The platform spans external revenue-generating operations (ingesting feline behavioral data, executing investment strategies, and serving investors) and internal business operations (managing physical habitational hardware, tracking feline and human workforce members, and automating IT/maintenance workflows).
 
 To ensure high maintainability, strict security boundaries, clean domain isolation, and modular scalability, the architecture must define:
 1. Domain boundary decomposition and database storage mapping.

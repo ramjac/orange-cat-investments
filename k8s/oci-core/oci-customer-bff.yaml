@@ -27,15 +27,12 @@ spec:
               value: "8083"
             - name: ENV
               value: "production"
+            - name: VALKEY_ADDR
+              value: "valkey-service.oci-core.svc.cluster.local:6379"
             - name: SEED_DEV_SESSIONS
               value: "false"
             - name: CUSTOMER_BLL_URL
-              value: "http://customer-bll-service.oci-core.svc.cluster.local:8084"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: DATABASE_URL
+              value: "http://customer-bll-service.oci-core.svc.cluster.local:8085"
             - name: ALPACA_BASE_URL
               value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
             - name: ALPACA_DATA_URL

@@ -9,7 +9,7 @@ Welcome! This repository hosts the software application platform for **Orange Ca
 OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)** and microservices architecture principles.
 
 ### Key Operational Planes & Tech Stack:
-* **Orchestration & Infrastructure:** K3s Kubernetes, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
+* **Orchestration & Infrastructure:** MicroK8s on Ubuntu Server, Ansible, Cert-Manager, Trust-Manager, Valkey, RabbitMQ.
 * **Database Layer:** PostgreSQL 16 using schema isolation (`workforce`, `facilities`, `core_invest`, `ops`). Supports partitioned modular schemas (`01-workforce-core.sql`, `02-facilities-core.sql`, etc.) for white-labeled SMB deployments.
 * **Enterprise Multi-Tier Architecture & Custom Services:**
   * **Tier 1: Client Applications:**
@@ -29,7 +29,6 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
     * **Facilities Domain API (`cmd/facilities-api` :50052):** Owns `facilities` schema.
     * **Core Invest Domain API (`cmd/core-invest-api` :50053):** Owns `core_invest` schema.
     * **Ops Domain API (`cmd/ops-api` :50054):** Owns `ops` schema.
-    * *(Note: Currently hosted in unified server `cmd/server` during active microservice decomposition).*
     * *Invariants: Domain APIs NEVER call each other. Authorized callers are strictly BLL APIs and authorized background/batch jobs.*
   * **Tier 5: Event Bus, Async Workers & Batch Schedulers:**
     * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, async ACH bank transfer settlements, and automated cert-manager CA rotation tickers.
@@ -39,7 +38,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
   * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all 12 personas across corporate staff, feline executives, and retail investors in mock or live execution modes.
 
 ### Kubernetes Namespace Architecture:
-* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**) and core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`, and dedicated database **`postgres-core`**).
+* **`oci-core`:** Collocates all custom OCI applications (BFFs, BLLs, Domain APIs, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**) and core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`, and dedicated database **`postgres-core`**).
 * **`oci-internal`:** Dedicated namespace isolating off-the-shelf commercial/open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, powered by their own dedicated internal database (**`postgres-internal`**).
 * **`external-sim`:** Dedicated namespace hosting simulated external 3rd-party SaaS / financial APIs (`mock-broker`, `mock-bank`) completely isolated from production systems.
 * **`monitoring` & `logging`:** Cluster observability and telemetry stacks (Prometheus, Grafana, Loki, Promtail).
@@ -55,20 +54,22 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ├── docs/                  # Architecture Decision Records (`adr/`) and specifications
 ├── personas/              # Profile specifications for all 12 corporate & customer personas
 ├── proto/                 # Protobuf definitions (`oci/workforce/`, `oci/facilities/`, etc.)
-├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `gen/go`)
+├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `cache`, `session`, `gen/go`)
 │   ├── branding/          # Design token & white-label configuration loader
-│   └── envelope/          # Standard EventEnvelope[T] message wrapper
+│   ├── cache/             # Valkey distributed cache, conditional ETags, and sliding rate limiter
+│   ├── envelope/          # Standard EventEnvelope[T] message wrapper
+│   ├── mtls/              # Dynamic mTLS certificate and CA pool reloaders
+│   └── session/           # Valkey distributed session stores with memory fallback
 ├── scripts/               # SQL scripts (`init.sql`, modular schemas) & bootstrapping
 ├── cmd/                   # Go application entrypoints
 │   ├── customer-bff/      # Customer portal backend-for-frontend (:8083)
 │   ├── employee-bff/      # Employee portal backend-for-frontend (:8081)
-│   ├── customer-bll/      # Customer Business Logic Layer API (planned/target)
-│   ├── internal-bll/      # Internal Business Logic Layer API (planned/target)
-│   ├── workforce-api/     # Workforce Domain gRPC API (:50051, planned/target)
-│   ├── facilities-api/    # Facilities Domain gRPC API (:50052, planned/target)
-│   ├── core-invest-api/   # Core Invest Domain gRPC API (:50053, planned/target)
-│   ├── ops-api/           # Ops Domain gRPC API (:50054, planned/target)
-│   ├── server/            # Unified API server hosting all 4 domains (active refactoring)
+│   ├── customer-bll/      # Customer Business Logic Layer API (:8085)
+│   ├── internal-bll/      # Internal Business Logic Layer API (:8086)
+│   ├── workforce-api/     # Workforce Domain gRPC API (:50051)
+│   ├── facilities-api/    # Facilities Domain gRPC API (:50052)
+│   ├── core-invest-api/   # Core Invest Domain gRPC API (:50053)
+│   ├── ops-api/           # Ops Domain gRPC API (:50054)
 │   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy (:8082)
 │   ├── portal-server/     # Static SPA file server container with /healthz
 │   ├── worker/            # Background worker (Watermill, OTA, CA rotation, ACH queue)
@@ -106,7 +107,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ### Domain Boundary & Dual Identity Rules
 
 1. **Strict Prohibition on Hardcoded Data in Core Apps (`oci-core`):**
-   * **Forbidden in Production Apps:** NEVER hardcode domain entity IDs, customer names, customer IDs, employee names, employee IDs, portfolio IDs, bank account numbers, or persona names in code deployed to `oci-core` applications (`cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, `cmd/pebble-proxy`, `cmd/worker`, `internal/...`, `pkg/...`).
+   * **Forbidden in Production Apps:** NEVER hardcode domain entity IDs, customer names, customer IDs, employee names, employee IDs, portfolio IDs, bank account numbers, or persona names in code deployed to `oci-core` applications (`cmd/*-bll`, `cmd/*-api`, `cmd/*-bff`, `cmd/pebble-proxy`, `cmd/worker`, `internal/...`, `pkg/...`).
    * **Dynamic Context Extraction:** All IDs, portfolio references, account identifiers, and customer/employee metadata must be dynamically extracted from HTTP request parameters, JSON payloads, authenticated session context (e.g., `CustomerFromContext` or `EmployeeFromContext`), database repositories (`pgxpool`), or external client lookups.
    * **Allowed Hardcoding Zones:** Hardcoding of test personas, seed accounts, or fixture entities is permitted ONLY in:
      - Database seed scripts (`scripts/init.sql`, `scripts/0*-*.sql`) for populating initial demo environments.
@@ -130,7 +131,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * **Driver Package Encapsulation:** It is fine, appropriate, and expected that dedicated driver/adapter client packages (e.g., `pkg/broker/alpaca/client.go` or `pkg/bank/plaid/client.go`) have vendor product names throughout their internal implementation, comments, and package/type definitions.
    * **Domain-Centric Consumption:** Beyond those specialized driver packages, vendor product names must NOT spread further across the codebase. Consuming application entrypoints (`cmd/...`), services (`internal/service/...`), handlers (`internal/handler/...`), and repositories must use generic, domain-centric variable and field names. For example, use `broker` or `brokerClient` (instead of `alpaca` or `alpacaClient`), and `bank` or `bankClient` (instead of `plaid` or `plaidClient`).
 7. **Separation of Simulation Code and Production Applications:**
-   * Production applications (`cmd/server`, `cmd/*-bff`, `internal/handler/...`, `internal/service/...`) must NEVER contain synthetic endpoints, mock routes, or proxy helpers designed to facilitate simulations or tests.
+   * Production applications (`cmd/*-api`, `cmd/*-bll`, `cmd/*-bff`, `internal/handler/...`, `internal/service/...`) must NEVER contain synthetic endpoints, mock routes, or proxy helpers designed to facilitate simulations or tests.
    * All persona workflow simulations must reside strictly within `simulation/` and interact directly with the appropriate native system APIs (see detailed standard below).
 
 ### Simulation vs. Production Application Boundary (Employee & Persona Workflows)
@@ -144,12 +145,18 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * The simulation client should directly target the native APIs of the relevant platform using the persona's credentials:
      - **Developer Persona (e.g., Elise, Marcus):** Interacts directly with Forgejo's REST APIs (`/api/v1/repos/{owner}/{repo}/...` for issues/Kanban, branch creation, file commits via contents API, pull requests, reviews, and merges).
      - **Corporate/Executive Persona:** Interacts directly with Nextcloud (WebDAV/OCS APIs), ERPNext, or Snipe-IT native APIs.
-     - **End-User/Caretaker Persona:** Interacts with legitimate OCI endpoints on `oci-server` or the BFFs (`customer-bff`, `employee-bff`) as an authentic user would.
+     - **End-User/Caretaker Persona:** Interacts with legitimate OCI endpoints on the BFFs (`customer-bff`, `employee-bff`) as an authentic user would.
    * **Purpose of Simulation:** The objective is to verify that the persona has sufficient permissions and that the underlying infrastructure (e.g., Forgejo, Nextcloud, K8s runners) correctly supports the complete end-to-end workflow (e.g., from Kanban card to feature branch to code review and merge), without requiring OCI production services to act as an intermediary.
 
 3. **Dual-Mode Simulation Architecture (`-mode mock` vs `-mode live`):**
    * **Mock Mode (`simulation/mock_*.go`):** Fast, standalone local testing without external dependencies. Standalone in-memory HTTP servers (e.g., `MockForgejoServer` in `simulation/mock_forgejo.go`, or stateless mock broker/bank in `external-sim`) emulate the third-party or COTS API contracts.
    * **Live Mode:** The simulation client routes HTTP calls directly to the live internal COTS service (e.g., `http://forgejo-service.oci-internal.svc:3000` or `https://forgejo.oci.local`) or development endpoints in `oci-dev`. Simulations must NEVER target the production `oci-core` namespace.
+
+4. **Simulation Execution Location Standard (External Workstation vs. Test Server Host):**
+   * The platform simulation driver (`simulation/cmd/simulator`) must **NOT typically be run directly on the test server host** (e.g. `thinker`).
+   * The simulator acts as an external client driving synthetic persona workflows; running it on the test server consumes target server CPU, RAM, and scheduler capacity with the test generator itself, which skews cluster telemetry and defeats the purpose of evaluating how the server handles external load.
+   * Simulations and load tests must be executed **externally** (from the developer workstation, client machines, or dedicated CI/CD runners) across the network, generating authentic ingress network traffic into the test server.
+   * Executing the simulator directly on the test server host is strictly restricted to rare network debugging tasks (e.g. diagnosing local host network interfaces, firewall rules, or container socket bindings).
 
 ### Security Invariants
 1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.
@@ -158,11 +165,16 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 4. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
 
 ### Kubernetes Namespace & Database Isolation Standards
-1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (`oci-server`, BFFs, web portals, worker, pebble-proxy), customer identity provider (ZITADEL), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
+1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (BFFs, BLLs, Domain APIs, web portals, worker, pebble-proxy), customer identity provider (ZITADEL), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
 2. **COTS Isolation (`oci-internal`):** Commercial and open-source off-the-shelf business platforms (Nextcloud, Forgejo, ERPNext, Frappe HR, Snipe-IT) must be deployed exclusively in `oci-internal` and connect to their dedicated `postgres-internal-service` database. They must connect to shared core resources (like Valkey) via full cluster FQDNs (`valkey-service.oci-core.svc.cluster.local:6379`).
 3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
 4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
 5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
+6. **Ingress & Cluster Engine Conventions (MicroK8s on Ubuntu Server Reference Standard):**
+   * **MicroK8s on Ubuntu Server as Primary Reference:** Orange Cat Investments uses **MicroK8s on Ubuntu Server** as the primary Kubernetes reference engine. In MicroK8s, the built-in NGINX Ingress controller (`microk8s enable ingress`) is the standard ingress controller.
+   * **Ingress Class Defaults:** Manifests should use standard IngressClass `public` (or default to the cluster ingress controller) so that the cluster's ingress controller automatically adopts routes.
+   * **In-Cluster Container Registry (`:32000`):** In MicroK8s, container images are hosted via the built-in container registry addon (`microk8s enable registry`) or `k8s/registry/registry.yaml` on NodePort 32000, preserving the `localhost:32000/<image>:<tag>` convention.
+   * **Dedicated Workload Storage:** Workloads default to MicroK8s hostpath storage (`microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass). On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), configure the storage path so all PVCs land on dedicated persistent storage.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
@@ -216,4 +228,5 @@ Before marking any task as complete or submitting code changes, agents must veri
 * **Local Private Server Notes (`local-server-notes.md`):**
   When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
   * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
-  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, K3s, Docker), and local execution parameters before executing commands or tests against local infrastructure.
+  * **Primary MicroK8s Test Server (`thinker`):** Hostname `thinker`, running Ubuntu Server (Ubuntu 26.04 / 24.04 LTS), MicroK8s v1.34+, 16 GB RAM, control plane at `https://192.168.1.246:16443`. Kubeconfig is in `thinker-kube.config` or `microk8s-kube.config`.
+  * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.

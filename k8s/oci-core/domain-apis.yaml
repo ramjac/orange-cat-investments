@@ -56,17 +56,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50051
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50051
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -166,17 +162,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50052
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50052
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -278,17 +270,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50053
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50053
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -388,17 +376,13 @@ spec:
               cpu: 250m
               memory: 256Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50054
-              scheme: HTTPS
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 50054
-              scheme: HTTPS
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -465,9 +449,6 @@ spec:
         - podSelector:
             matchLabels:
               app: oci-worker
-        - podSelector:
-            matchLabels:
-              app: oci-server
       ports:
         - protocol: TCP
           port: 50051

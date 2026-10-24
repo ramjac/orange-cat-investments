@@ -59,7 +59,7 @@ func TestOpsPgxRepository(t *testing.T) {
 	t.Run("CreateITTicket", func(t *testing.T) {
 		body := "Disk space low"
 		ticket := &ITTicket{
-			ForgejoRepo:    "infra/k3s-cluster",
+			ForgejoRepo:    "infra/microk8s-cluster",
 			Title:          "Disk Space Warning",
 			Body:           &body,
 			AuthorUsername: "emp-human-frank",
@@ -229,7 +229,7 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 
 		body := "Disk space low"
 		_, err = pgxRepo.CreateITTicket(ctx, &ITTicket{
-			ForgejoRepo:    "infra/k3s-cluster",
+			ForgejoRepo:    "infra/microk8s-cluster",
 			Title:          "Disk Space Warning",
 			Body:           &body,
 			AuthorUsername: "emp-human-frank",

@@ -1,0 +1,230 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatus-config
+  namespace: monitoring
+data:
+  config.yaml: |
+    ui:
+      title: "Orange Cat Investments - System Status"
+      description: "Automated real-time service health & uptime monitor"
+      header: "Orange Cat Investments Status"
+    alerting:
+      custom:
+        url: "http://oci-employee-bff-service.oci-core.svc.cluster.local:8081/api/v1/employee/incidents/broadcast"
+        method: "POST"
+        headers:
+          Content-Type: "application/json"
+        body: |
+          {
+            "incident_id": "gatus-[ALERT_TRIGGER_TIME]",
+            "title": "Automated Uptime Alert: [ENDPOINT_NAME] Degradation",
+            "category": "infrastructure_alert",
+            "severity": "critical",
+            "room_zone": "Cluster Core Services",
+            "description": "Endpoint [ENDPOINT_NAME] failed health check ([ENDPOINT_URL])."
+          }
+        default-alert:
+          enabled: true
+          failure-threshold: 3
+          success-threshold: 2
+          send-on-resolved: true
+    endpoints:
+      # OCI Customer & Public Planes
+      - name: static-marketing-site
+        group: customer-public
+        url: "https://oci.local"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: customer-portal-spa
+        group: customer-public
+        url: "https://customer.oci.local"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: customer-bff-health
+        group: customer-public
+        url: "http://oci-customer-bff-service.oci-core.svc.cluster.local:8083/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: customer-bll-health
+        group: customer-public
+        url: "http://customer-bll-service.oci-core.svc.cluster.local:8085/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: mock-bank-service
+        group: customer-public
+        url: "http://mock-bank-service.external-sim.svc.cluster.local:8088/healthz"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: mock-broker-service
+        group: customer-public
+        url: "http://mock-broker-service.external-sim.svc.cluster.local:8089/healthz"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+
+      # OCI Employee & Internal Planes
+      - name: employee-portal-spa
+        group: employee-internal
+        url: "https://employee.oci.local"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: employee-bff-health
+        group: employee-internal
+        url: "http://oci-employee-bff-service.oci-core.svc.cluster.local:8081/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: internal-bll-health
+        group: employee-internal
+        url: "http://internal-bll-service.oci-core.svc.cluster.local:8086/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: workforce-api-health
+        group: employee-internal
+        url: "http://workforce-api-service.oci-core.svc.cluster.local:8080/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: facilities-api-health
+        group: employee-internal
+        url: "http://facilities-api-service.oci-core.svc.cluster.local:8080/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: core-invest-api-health
+        group: employee-internal
+        url: "http://core-invest-api-service.oci-core.svc.cluster.local:8080/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+      - name: ops-api-health
+        group: employee-internal
+        url: "http://ops-api-service.oci-core.svc.cluster.local:8080/healthz"
+        interval: 15s
+        conditions:
+          - "[STATUS] == 200"
+
+      # COTS Enterprise Platforms
+      - name: forgejo-code-review
+        group: cots-enterprise
+        url: "http://forgejo-service.oci-internal.svc.cluster.local:3000/api/v1/version"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: nextcloud-workspace
+        group: cots-enterprise
+        url: "http://nextcloud-service.oci-internal.svc.cluster.local:80/status.php"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: snipe-it-inventory
+        group: cots-enterprise
+        url: "http://snipe-it-service.oci-internal.svc.cluster.local:80/healthz"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: erpnext-frappe-hr
+        group: cots-enterprise
+        url: "http://erpnext-service.oci-internal.svc.cluster.local:8000/api/method/ping"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+      - name: zitadel-customer-identity
+        group: cots-enterprise
+        url: "http://zitadel-service.oci-core.svc.cluster.local:8080/debug/healthz"
+        interval: 30s
+        conditions:
+          - "[STATUS] == 200"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gatus
+  namespace: monitoring
+  labels:
+    app: gatus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gatus
+  template:
+    metadata:
+      labels:
+        app: gatus
+    spec:
+      containers:
+        - name: gatus
+          image: twinproduction/gatus:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      volumes:
+        - name: config-volume
+          configMap:
+            name: gatus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatus-service
+  namespace: monitoring
+  labels:
+    app: gatus
+spec:
+  selector:
+    app: gatus
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gatus-ingress
+  namespace: monitoring
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+    - host: status.oci.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gatus-service
+                port:
+                  number: 80

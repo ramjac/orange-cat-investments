@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -24,6 +25,9 @@ import (
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 )
 
 var deliveredIncidentBFF sync.Map
@@ -227,6 +231,23 @@ func HandleACHTransferRequested(logger *slog.Logger, coreInvestURL, bankURL stri
 		if req.TransferType == "withdrawal" {
 			delta = -req.AmountUSD
 		}
+		if strings.Contains(coreInvestURL, "50053") {
+			target := grpcutil.CleanTarget(coreInvestURL)
+			if conn, err := grpcutil.Dial(context.Background(), target, nil); err == nil {
+				ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
+				_, err := ciClient.UpdatePortfolioBalance(context.Background(), &coreinvestv1.UpdatePortfolioBalanceRequest{
+					PortfolioID: req.PortfolioID,
+					DeltaUSD:    delta,
+					Reason:      fmt.Sprintf("ACH settlement for transfer %s", req.TransferID),
+				})
+				_ = conn.Close()
+				if err != nil {
+					return nil, fmt.Errorf("core-invest balance update gRPC error for transfer %s: %w", req.TransferID, err)
+				}
+				goto BalanceUpdated
+			}
+		}
+
 		balBody, _ := json.Marshal(map[string]interface{}{
 			"delta_usd":   delta,
 			"reason":      fmt.Sprintf("ACH settlement for transfer %s", req.TransferID),
@@ -246,6 +267,8 @@ func HandleACHTransferRequested(logger *slog.Logger, coreInvestURL, bankURL stri
 			return nil, fmt.Errorf("core-invest balance update rejected transfer %s with HTTP %d", req.TransferID, resp.StatusCode)
 		}
 	}
+
+BalanceUpdated:
 
 	settled := EventEnvelope[ACHSettledPayload]{
 		EventID:       watermill.NewUUID(),
@@ -426,6 +449,22 @@ func handleIncidentAlert(logger *slog.Logger, employeeBFFURL, pebbleProxyURL str
 	if len(deliveryErrors) > 0 {
 		return fmt.Errorf("incident alert fanout failures (%d): %v", len(deliveryErrors), deliveryErrors)
 	}
+
+	// Index workplace safety incident in Meilisearch employee knowledge index
+	meiliURL := os.Getenv("MEILISEARCH_URL")
+	if meiliURL == "" {
+		meiliURL = "http://localhost:7700"
+	}
+	meiliKey := os.Getenv("MEILI_MASTER_KEY")
+	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
+	_ = meiliClient.IndexDocuments(context.Background(), "employee_knowledge", []map[string]interface{}{
+		{
+			"id":       incidentID,
+			"category": "incident",
+			"title":    payload.Title,
+			"snippet":  fmt.Sprintf("Severity: %s | Zone: %s | %s", payload.Severity, payload.RoomZone, payload.Description),
+		},
+	})
 
 	return nil
 }
@@ -740,6 +779,71 @@ func runACHRecurringBatch(ctx context.Context, coreInvestURL string, ps message.
 	if coreInvestURL == "" {
 		return errors.New("CORE_INVEST_API_URL not configured")
 	}
+
+	if strings.Contains(coreInvestURL, "50053") {
+		target := grpcutil.CleanTarget(coreInvestURL)
+		if conn, err := grpcutil.Dial(ctx, target, nil); err == nil {
+			ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
+			res, err := ciClient.ListRecurringDeposits(ctx, &coreinvestv1.ListRecurringDepositsRequest{})
+			if err == nil {
+				defer conn.Close()
+				now := time.Now().UTC()
+				dispatchedCount := 0
+				for _, dep := range res.Deposits {
+					if dep.Status != "active" {
+						continue
+					}
+					nextChargeTime, _ := time.Parse(time.RFC3339, dep.NextChargeAt)
+					if !nextChargeTime.IsZero() && nextChargeTime.After(now) {
+						continue
+					}
+					nextCharge := now.AddDate(0, 1, 0)
+					switch dep.Frequency {
+					case "weekly":
+						nextCharge = now.AddDate(0, 0, 7)
+					case "biweekly", "bi_weekly":
+						nextCharge = now.AddDate(0, 0, 14)
+					case "monthly":
+						nextCharge = now.AddDate(0, 1, 0)
+					}
+					_, _ = ciClient.AdvanceRecurringDeposit(ctx, &coreinvestv1.AdvanceRecurringDepositRequest{
+						DepositID:    dep.DepositID,
+						NextChargeAt: nextCharge.Format(time.RFC3339),
+					})
+					transferID := fmt.Sprintf("ach-rec-%s-%s", dep.DepositID, now.Format("2006010215"))
+					payload := ACHTransferRequestedPayload{
+						TransferID:   transferID,
+						CustomerID:   dep.CustomerID,
+						PortfolioID:  dep.PortfolioID,
+						BankAccount:  dep.BankAccount,
+						AmountUSD:    dep.AmountUSD,
+						TransferType: "deposit",
+					}
+					event := EventEnvelope[ACHTransferRequestedPayload]{
+						EventID:       watermill.NewUUID(),
+						EventType:     "events.banking.ach_transfer_requested.v1",
+						OccurredAt:    now,
+						CorrelationID: "cron-recurring-ach-" + dep.DepositID,
+						Payload:       payload,
+					}
+					data, _ := json.Marshal(event)
+					msg := message.NewMessage(event.EventID, data)
+					if ps != nil {
+						if err := ps.Publish("events.banking.ach_transfer_requested.v1", msg); err != nil {
+							logger.Error("failed to publish recurring transfer event", "error", err, "deposit_id", dep.DepositID)
+							continue
+						}
+					}
+					dispatchedCount++
+					logger.Info("recurring ACH deposit transfer dispatched (gRPC)", "deposit_id", dep.DepositID, "amount_usd", dep.AmountUSD, "next_charge_at", nextCharge)
+				}
+				logger.Info("completed ACH recurring deposit batch cycle via gRPC", "dispatched_transfers", dispatchedCount)
+				return nil
+			}
+			_ = conn.Close()
+		}
+	}
+
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -861,14 +965,61 @@ func runEOMStatementBatch(ctx context.Context, coreInvestURL string, ps message.
 	if coreInvestURL == "" {
 		return errors.New("CORE_INVEST_API_URL not configured")
 	}
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
-	}
 
 	targetDate := now.AddDate(0, -1, 0)
 	period := targetDate.Format("2006-01")
 	targetYear := targetDate.Year()
 	logger.Info("executing automated End-of-Month statement & tax batch generator", "period", period, "year", targetYear)
+
+	if strings.Contains(coreInvestURL, "50053") {
+		target := grpcutil.CleanTarget(coreInvestURL)
+		if conn, err := grpcutil.Dial(ctx, target, nil); err == nil {
+			ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
+			ports, err := ciClient.ListPortfolios(ctx, &coreinvestv1.ListPortfoliosRequest{})
+			if err == nil {
+				defer conn.Close()
+				successCount := 0
+				for _, p := range ports.Portfolios {
+					_, err := ciClient.GenerateStatement(ctx, &coreinvestv1.GenerateStatementRequest{
+						PortfolioID: p.PortfolioID,
+						Year:        int32(targetYear),
+					})
+					if err == nil {
+						successCount++
+					}
+				}
+				event := EventEnvelope[StatementGeneratedPayload]{
+					EventID:       watermill.NewUUID(),
+					EventType:     "events.reporting.statements_generated.v1",
+					OccurredAt:    now.UTC(),
+					CorrelationID: "batch-eom-stmt-" + period,
+					Payload: StatementGeneratedPayload{
+						Period:          period,
+						TotalPortfolios: successCount,
+						GeneratedAt:     now.UTC(),
+						Status:          "completed",
+					},
+				}
+				data, _ := json.Marshal(event)
+				msg := message.NewMessage(event.EventID, data)
+				if ps != nil {
+					if err := ps.Publish("events.reporting.statements_generated.v1", msg); err != nil {
+						logger.Error("failed to publish statements_generated event", "error", err)
+					}
+				}
+				logger.Info("published events.reporting.statements_generated.v1 (gRPC)",
+					"period", period,
+					"total_portfolios", successCount,
+				)
+				return nil
+			}
+			_ = conn.Close()
+		}
+	}
+
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
 
 	// Enumerate portfolios from core-invest-api (Thread 40)
 	req, err := http.NewRequestWithContext(ctx, "GET", coreInvestURL+"/api/v1/core-invest/portfolios", nil)
@@ -1073,11 +1224,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	caCertPath := os.Getenv("CA_CERT_PATH")
+	if caCertPath == "" {
+		if _, err := os.Stat("/etc/oci/tls/ca.crt"); err == nil {
+			caCertPath = "/etc/oci/tls/ca.crt"
+		} else if _, err := os.Stat("k8s/ha/lan/tls/oci-lan-root-ca.crt"); err == nil {
+			caCertPath = "k8s/ha/lan/tls/oci-lan-root-ca.crt"
+		}
+	}
+	caKeyPath := os.Getenv("CA_KEY_PATH")
+	if caKeyPath == "" {
+		if _, err := os.Stat("/etc/oci/tls/ca.key"); err == nil {
+			caKeyPath = "/etc/oci/tls/ca.key"
+		} else if _, err := os.Stat("k8s/ha/lan/tls/oci-lan-root-ca.key"); err == nil {
+			caKeyPath = "k8s/ha/lan/tls/oci-lan-root-ca.key"
+		}
+	}
+
 	caManager := pki.NewCARotationManager(pki.CARotationConfig{
 		RootCAName:           "oci-root-ca",
 		IntermediateCAName:   "oci-intermediate-ca",
 		RenewalThresholdDays: 30,
 		IssuerNamespace:      "cert-manager",
+		CACertFile:           caCertPath,
+		CAKeyFile:            caKeyPath,
 	})
 
 	go func() {

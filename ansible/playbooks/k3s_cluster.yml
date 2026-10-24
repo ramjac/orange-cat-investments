@@ -1,6 +1,0 @@
----
-- name: Provision and Bootstrap K3s Cluster
-  hosts: k3s_servers
-  become: true
-  roles:
-    - k3s

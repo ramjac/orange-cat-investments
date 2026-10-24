@@ -55,6 +55,9 @@ build/
 
 # Local server / environment notes (private host details)
 local-server-notes.md
+*kube.config
+microk8s-kube.config
+thinker-kube.config
 
 # TLS Private Keys
 *.key

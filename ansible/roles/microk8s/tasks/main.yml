@@ -1,0 +1,71 @@
+---
+- name: Ensure Ubuntu/Debian base dependencies are installed
+  ansible.builtin.apt:
+    name:
+      - snapd
+      - curl
+      - ca-certificates
+      - iptables
+    state: present
+    update_cache: true
+  ignore_errors: true
+
+- name: Install MicroK8s via snap
+  ansible.builtin.command:
+    cmd: "snap install microk8s --classic --channel={{ microk8s_channel }}"
+  args:
+    creates: /snap/bin/microk8s
+
+- name: Add deployment user to microk8s group
+  ansible.builtin.user:
+    name: "{{ microk8s_user }}"
+    groups: microk8s
+    append: true
+  when: microk8s_user is defined and microk8s_user != 'root'
+  ignore_errors: true
+
+- name: Create user .kube directory
+  ansible.builtin.file:
+    path: "/home/{{ microk8s_user }}/.kube"
+    state: directory
+    owner: "{{ microk8s_user }}"
+    group: "{{ microk8s_user }}"
+    mode: '0700'
+  when: microk8s_user is defined and microk8s_user != 'root'
+  ignore_errors: true
+
+- name: Wait for MicroK8s to be ready
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s status --wait-ready"
+  changed_when: false
+
+- name: Enable configured MicroK8s addons
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s enable {{ item }}"
+  loop: "{{ microk8s_addons }}"
+  register: enable_addon
+  changed_when: "'already enabled' not in enable_addon.stdout"
+  ignore_errors: true
+
+- name: Configure kubectl alias for convenient shell usage
+  ansible.builtin.command:
+    cmd: "snap alias microk8s.kubectl kubectl"
+  args:
+    creates: /snap/bin/kubectl
+  ignore_errors: true
+
+- name: Export MicroK8s kubeconfig to user .kube/config
+  ansible.builtin.shell:
+    cmd: "/snap/bin/microk8s config > /home/{{ microk8s_user }}/.kube/config && chown {{ microk8s_user }}:{{ microk8s_user }} /home/{{ microk8s_user }}/.kube/config && chmod 600 /home/{{ microk8s_user }}/.kube/config"
+  when: export_kubeconfig_to_user and microk8s_user is defined and microk8s_user != 'root'
+  ignore_errors: true
+
+- name: Verify MicroK8s node status
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s kubectl get nodes"
+  register: microk8s_nodes
+  changed_when: false
+
+- name: Display MicroK8s node status
+  ansible.builtin.debug:
+    var: microk8s_nodes.stdout_lines

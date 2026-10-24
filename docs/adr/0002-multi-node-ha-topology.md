@@ -32,9 +32,9 @@ We require a resilient, enterprise-grade architecture capable of running on 2 to
 ## 3. Considered Options
 
 ### 3.1 Kubernetes Clustering Engine
-* **Option A: MicroK8s Clustering (Dqlite):** Simple to add nodes, but Dqlite has historically shown higher edge-case fragility during abrupt power loss compared to Raft-backed etcd.
+* **Option A: MicroK8s Clustering on Ubuntu Server (Selected):** Native snap installation on Ubuntu Server, straightforward 1-command node joins (`microk8s add-node`), automatic High-Availability clustering with Raft datastore quorum when 3 or more nodes are joined, built-in production addons (`dns`, `ingress`, `storage`, `registry`, `cert-manager`), and rock-solid Ubuntu Server LTS stability.
 * **Option B: Full Kubernetes (kubeadm):** Requires dedicated master nodes separate from worker nodes, ballooning hardware requirements to 5+ nodes for true HA.
-* **Option C: K3s with Embedded etcd (Selected):** Lightweight, certified Kubernetes distribution. Embedded etcd eliminates external etcd management overhead while supporting 3-node hyperconverged control-plane/worker topologies.
+* **Option C: Other Lightweight Distributions:** Evaluated alternatives require separate CNI, manual ingress tailoring, and non-Ubuntu host management compared to Ubuntu Server's first-class MicroK8s snap ecosystem.
 
 ### 3.2 Distributed Replicated Storage Engine
 * **Option A: Rook-Ceph:** Highly mature and enterprise-tested, but memory and CPU footprint (Ceph OSDs, MONs, MGRs) requires 4GB+ RAM per node solely for storage overhead.
@@ -56,7 +56,7 @@ We require a resilient, enterprise-grade architecture capable of running on 2 to
 ## 4. Decision Outcome
 
 We adopt the **3-Node Hyperconverged Resilient Topology**:
-1. **Control Plane & Clustering:** 3 physical nodes running K3s with embedded etcd (`--cluster-init`). All 3 nodes act as schedulable control-plane servers.
+1. **Control Plane & Clustering:** 3 physical nodes running Ubuntu Server with MicroK8s HA clustering (`microk8s add-node`). All 3 nodes act as schedulable control-plane and worker servers.
 2. **Control Plane & Ingress VIP:** `kube-vip` manages virtual IP `192.168.1.250` across the nodes.
 3. **Storage Tier:** Longhorn v1.7+ deployed across all 3 nodes, providing StorageClass `longhorn` (3 replicas) for PostgreSQL and Nextcloud volumes.
 4. **Intranet PKI & DNS:** Internal Root CA (`oci-lan-root-ca`) managed via cert-manager `ClusterIssuer`, paired with split-horizon DNS (Pi-hole / router) resolving `*.oci.local` to the VIP.

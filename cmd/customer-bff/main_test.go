@@ -1132,6 +1132,25 @@ func TestCustomerBFF_GDPRErasure_And_Certificate(t *testing.T) {
 	assert.True(t, bytes.HasPrefix(downRec.Body.Bytes(), []byte("%PDF-1.4")))
 }
 
+func TestCustomerBFF_Search(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	// Search for Alpha fund with valid Arthur session
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/search?q=Alpha", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var res map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &res)
+	require.NoError(t, err)
+	hits, ok := res["hits"].([]interface{})
+	require.True(t, ok)
+	assert.NotEmpty(t, hits)
+}
+
+
 
 
 

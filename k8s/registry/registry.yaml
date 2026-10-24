@@ -1,0 +1,53 @@
+# ==============================================================================
+# In-Cluster Container Registry for Self-Hosted MicroK8s / Kubernetes Clusters
+# ==============================================================================
+# Exposes a local Docker/OCI container registry on NodePort 32000 across all cluster
+# nodes, matching the `localhost:32000` image reference standard across manifests.
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: container-registry
+  namespace: kube-system
+  labels:
+    app: container-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: container-registry
+  template:
+    metadata:
+      labels:
+        app: container-registry
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+              name: registry
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: container-registry
+  namespace: kube-system
+  labels:
+    app: container-registry
+spec:
+  type: NodePort
+  selector:
+    app: container-registry
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 32000

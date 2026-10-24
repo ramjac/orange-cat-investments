@@ -17,6 +17,12 @@ service CoreInvestService {
 
   rpc CreateRecurringDeposit (CreateRecurringDepositRequest) returns (CreateRecurringDepositResponse);
   rpc ListRecurringDeposits (ListRecurringDepositsRequest) returns (ListRecurringDepositsResponse);
+  rpc AdvanceRecurringDeposit (AdvanceRecurringDepositRequest) returns (AdvanceRecurringDepositResponse);
+
+  rpc ListPortfolios (ListPortfoliosRequest) returns (ListPortfoliosResponse);
+  rpc GenerateStatement (GenerateStatementRequest) returns (GenerateStatementResponse);
+
+  rpc StreamPortfolioValuation (StreamPortfolioValuationRequest) returns (stream PortfolioValuationEvent);
 }
 
 message Portfolio {
@@ -163,4 +169,51 @@ message ListRecurringDepositsRequest {
 
 message ListRecurringDepositsResponse {
   repeated RecurringDeposit deposits = 1;
+}
+
+message AdvanceRecurringDepositRequest {
+  string deposit_id = 1;
+  string next_charge_at = 2;
+}
+
+message AdvanceRecurringDepositResponse {
+  string status = 1;
+}
+
+message ListPortfoliosRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListPortfoliosResponse {
+  repeated Portfolio portfolios = 1;
+}
+
+message GenerateStatementRequest {
+  string portfolio_id = 1;
+  int32 year = 2;
+  string statement_type = 3;
+}
+
+message GenerateStatementResponse {
+  string statement_id = 1;
+  string portfolio_id = 2;
+  int32 year = 3;
+  string statement_type = 4;
+  string period = 5;
+  string status = 6;
+}
+
+message StreamPortfolioValuationRequest {
+  string portfolio_id = 1;
+  int32 update_count = 2;
+}
+
+message PortfolioValuationEvent {
+  string portfolio_id = 1;
+  double total_balance_usd = 2;
+  double cash_balance_usd = 3;
+  double invested_balance_usd = 4;
+  double change_pct = 5;
+  string timestamp = 6;
 }

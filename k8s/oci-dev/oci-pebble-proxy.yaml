@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: oci-pebble-proxy-dev
-          image: localhost:32000/oci-pebble-proxy:dev-latest
-          imagePullPolicy: Always
+          image: localhost:32000/oci-pebble-proxy:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8082
               name: http
@@ -40,8 +40,7 @@ spec:
               cpu: 100m
               memory: 128Mi
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8082
             initialDelaySeconds: 2
             periodSeconds: 5

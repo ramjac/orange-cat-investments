@@ -2,25 +2,27 @@ package main
 
 import (
 	"context"
-	"errors"
+	"crypto/tls"
 	"log/slog"
-	"net/http"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
-	"github.com/orange-cat-investments/oci/pkg/versioning"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	logger.Info("starting OCI Ops Domain API microservice...")
+	logger.Info("starting OCI Ops Domain API microservice (pure gRPC)...")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -53,52 +55,45 @@ func main() {
 	}
 
 	svc := ops_svc.NewService(repo)
-	opsHandler := ops_handler.NewHandler(svc)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","domain":"ops"}`))
-	})
-	opsHandler.RegisterRoutes(mux)
-
-	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
-
-	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      versionedHandler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
+	var tlsConfig *tls.Config
 	certFile := os.Getenv("TLS_CERT_FILE")
 	keyFile := os.Getenv("TLS_KEY_FILE")
 	clientCA := os.Getenv("CLIENT_CA_FILE")
 	if certFile != "" && keyFile != "" {
-		tlsConfig, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
+		var err error
+		tlsConfig, err = mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
 		if err != nil {
 			logger.Error("failed to configure mTLS", "error", err)
 			os.Exit(1)
 		}
-		server.TLSConfig = tlsConfig
 		logger.Info("Ops Domain API configured with dynamic mTLS")
 	}
+
+	grpcServer := grpcutil.NewServer(tlsConfig)
+	grpcSrv := NewOpsGRPCServer(svc)
+	opsv1.RegisterOpsServiceServer(grpcServer, grpcSrv)
+
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	healthSrv.SetServingStatus("oci.ops.v1.OpsService", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthSrv)
+
+	lis, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		logger.Error("failed to listen on gRPC port", "port", port, "error", err)
+		os.Exit(1)
+	}
+
+	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "ops-api")
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("Ops Domain API listening", "port", port)
-		var err error
-		if server.TLSConfig != nil {
-			err = server.ListenAndServeTLS("", "")
-		} else {
-			err = server.ListenAndServe()
-		}
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("Ops Domain API HTTP server error", "error", err)
-			os.Exit(1)
+		logger.Info("Ops Domain API listening (pure gRPC)", "port", port)
+		if err := grpcServer.Serve(lis); err != nil {
+			logger.Error("Ops Domain API gRPC server error", "error", err)
 		}
 	}()
 
@@ -108,9 +103,10 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("failed graceful shutdown", "error", err)
+	if healthServer != nil {
+		_ = healthServer.Shutdown(shutdownCtx)
 	}
 
+	grpcServer.GracefulStop()
 	logger.Info("Ops Domain API stopped gracefully")
 }

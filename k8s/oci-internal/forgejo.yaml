@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: forgejo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: forgejo
@@ -24,10 +28,18 @@ spec:
             - containerPort: 2222
               name: ssh
           env:
+            - name: FORGEJO__metrics__ENABLED
+              value: "true"
+            - name: FORGEJO__metrics__ENABLED_ISSUE_BY_REPOSITORY
+              value: "true"
             - name: FORGEJO__server__DOMAIN
               value: forgejo.oci.local
             - name: FORGEJO__server__HTTP_PORT
               value: "3000"
+            - name: FORGEJO__server__ROOT_URL
+              value: http://forgejo.oci.local/
+            - name: FORGEJO__security__INSTALL_LOCK
+              value: "true"
             - name: FORGEJO__database__DB_TYPE
               value: postgres
             - name: FORGEJO__database__HOST

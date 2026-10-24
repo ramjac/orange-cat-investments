@@ -51,7 +51,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ## 3. Core Technology Stack
 
-* **Orchestration & Hosting:** Kubernetes (K3s). Adheres strictly to [12-Factor App](https://12factor.net/) principles.
+* **Orchestration & Hosting:** Kubernetes (MicroK8s on Ubuntu Server). Adheres strictly to [12-Factor App](https://12factor.net/) principles.
 * **Infrastructure Provisioning:** Ansible for initial host setup and Kubernetes cluster bootstrapping (`ansible/`).
 * **Source Control & CI/CD:** [Forgejo](https://forgejo.org) for Git repository hosting, issue tracking, Kanban boards, CI/CD pipelines via Forgejo Actions, internal OAuth2 authentication, and package registry.
 * **Customer Identity Provider:** [ZITADEL](https://github.com/zitadel/zitadel) for customer OIDC/SSO authentication.
@@ -71,7 +71,7 @@ The application architecture follows Domain-Driven Design (DDD) principles with 
 
 ### Kubernetes Namespace Architecture
 The cluster workload topology is structured into dedicated namespaces for isolation and operational clarity:
-* **`oci-core`:** Collocates all custom OCI applications (`oci-server`, `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**), core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`), and dedicated proprietary database **`postgres-core`** (`workforce`, `facilities`, `core_invest`, `ops`).
+* **`oci-core`:** Collocates all custom OCI applications (BFFs, BLLs, Domain APIs, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**), core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`), and dedicated proprietary database **`postgres-core`** (`workforce`, `facilities`, `core_invest`, `ops`).
 * **`oci-internal`:** Isolates off-the-shelf commercial and open-source internal business applications (COTS): Nextcloud, Forgejo, ERPNext/Frappe HR, and Snipe-IT, backed by their own isolated internal database **`postgres-internal`** (`nextcloud`, `forgejo`, `snipeit`, `erpnext`, `frappe_hr`).
 * **`external-sim`:** Dedicated namespace hosting simulated 3rd-party SaaS / financial APIs (`mock-broker` on `:8089`, `mock-bank` on `:8088`), maintaining complete air-gap isolation from production persistence.
 * **`monitoring` & `logging`:** Cluster observability stacks (Prometheus, Grafana, Loki, Promtail).
@@ -148,8 +148,95 @@ All core functional domains, distributed sagas, client surfaces, and background 
 ### 5.6 Platform Genericization & Small Business Blueprint (White-Labeling & Modularization)
 * **Modular Domain Decoupling & Optional Feline Extensions:** Feature flag toggles (`ENABLE_CORE_INVEST`, `ENABLE_FELINE_WORKFORCE`, `ENABLE_PEBBLE_GATEWAY`) in Go servers and partitioned SQL scripts (`scripts/00-bootstrap.sql`, `01-workforce-core.sql`, `02-facilities-core.sql`, `03-ops-core.sql`, `04-oci-feline-investments.sql`).
 * **Centralized Brand Tokenization & UI White-Labeling:** Centralized design token manifest (`config/branding.yaml`), Go branding loader (`pkg/branding/config.go`), and CSS compilation tool (`scripts/generate-theme.js`).
-* **Turnkey Small Business Suite Fast-Path:** Standalone COTS-first SMB stack via `docker-compose.smb.yaml` and `./scripts/deploy-k8s.sh --profile small-business`.
+* **Turnkey Business COTS Suite Fast-Path:** Standalone COTS-first stack via `docker-compose.smb.yaml` and `./scripts/deploy-k8s.sh --profile business-only`.
 * **CLI Project Generator & New Custom Domain Scaffolding:** CLI generator script `scripts/init-business.sh` for bootstrapping custom white-labeled small business platforms.
+
+### 5.7 Enterprise Multi-Tier Architecture & Microservices Decomposition
+Orange Cat Investments implements all architectural tiers across an enterprise-grade multi-tier system with strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
+
+* **Client Applications:**
+  * **Customer Web Portal (`web/customer-portal`):** Vue 3 SPA for retail investors and customers with ZITADEL OIDC auth, portfolio analytics, WebRTC stream player with AI overlays, trading terminal, and ESG dashboard.
+  * **Employee Web Portal (`web/employee-portal`):** Vue 3 SPA for corporate staff with Forgejo OAuth2 auth, COTS application launcher, interactive Care Schedule editor, Emergency Medical Hold, VHR charting, leave requests, and performance review cycles.
+  * **Static Marketing Website (`web/marketing`):** Fast Hugo static marketing site compiled into a lightweight `cmd/portal-server` container (`oci-marketing:latest`) bound to `https://oci.local`.
+  * **Field Maintenance Mobile App (`mobile/flutter_app`):** Flutter mobile app with offline SQLite sync engine, QR code scanning, and firmware rollout tracking.
+  * **Pebble Watch Companion App (`embedded/pebble`):** On-call alert response watch app in RePebble Alloy JavaScript.
+* **Backend-for-Frontend (BFF) Layer:**
+  * **Customer BFF (`cmd/customer-bff` :8083):** Manages ZITADEL OIDC sessions (`__Host-customer-session`), double-submit CSRF tokens, SSE price ticker streaming, and presentation aggregation. *Invariant: Never connects directly to Domain APIs or DB schemas.*
+  * **Employee BFF (`cmd/employee-bff` :8081):** Manages Forgejo OAuth2 sessions (`__Host-employee-session`), CSRF tokens, COTS integrations, and internal presentation models. *Invariant: Never connects directly to Domain APIs or DB schemas.*
+* **Business Logic Layer (BLL):**
+  * **Customer BLL (`cmd/customer-bll` :8085):** Middle-tier orchestrator for customer business rules, trade order execution, Plaid bank linking, broker adapter coordination, and async event publishing.
+  * **Internal BLL (`cmd/internal-bll` :8086):** Middle-tier orchestrator for corporate sagas (`OnboardingSaga`, `OffboardingEngine`), veterinary care directives, executive BI reporting, and incident event publishing.
+* **Domain APIs (Isolated PostgreSQL Schemas):**
+  * **Workforce Domain API (`cmd/workforce-api` :50051):** Owns PostgreSQL `workforce` schema.
+  * **Facilities Domain API (`cmd/facilities-api` :50052):** Owns PostgreSQL `facilities` schema.
+  * **Core Invest Domain API (`cmd/core-invest-api` :50053):** Owns PostgreSQL `core_invest` schema.
+  * **Ops Domain API (`cmd/ops-api` :50054):** Owns PostgreSQL `ops` schema.
+  * *Invariants:* Domain APIs never call each other. Direct cross-domain database queries and inter-domain API calls are strictly forbidden. Ingress is restricted via Kubernetes NetworkPolicies strictly to authorized BLL and worker pods.
+* **Async Workers & Batch Schedulers:**
+  * **Go Background Worker (`cmd/worker`):** Event subscriber (Watermill / RabbitMQ) for observation triggers, backtesting jobs, edge device OTA firmware rollout pipelines, async ACH bank transfer settlements, and automated cert-manager CA rotation.
+  * **Scheduled Batch Schedulers:** Cron runners for daily recurring ACH DCA deposits (00:00 UTC) and automated end-of-month PDF statements (1st of month at 01:00 UTC).
+  * **Wearable Gateway Proxy (`cmd/pebble-proxy` :8082):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations and pub/sub real-time incident alerting.
+* **Pub/Sub Real-Time Alerting Pipeline:**
+  * Safety incidents (`events.workforce.incident_created.v1`) fan out asynchronously from RabbitMQ to web portal banners via Server-Sent Events (SSE) and Pebble smartwatch alerts, guaranteeing emergency responsiveness without synchronous coupling.
+
+### 5.8 Zero-Downtime PKI Infrastructure & Long-Running Cluster Resilience
+Developed and deployed to guarantee uninterrupted multi-day operations, zero-downtime certificate rollovers, and stateful application stability:
+
+* **Automated Cross-Namespace CA Trust Distribution (`trust-manager` & `Bundle` CRD):**
+  * Uses cert-manager's `trust-manager` addon and [`k8s/ha/lan/tls/oci-ca-bundle.yaml`](k8s/ha/lan/tls/oci-ca-bundle.yaml) to continuously sync `secret/oci-lan-root-ca-key-pair` in namespace `cert-manager` to `ConfigMap/oci-ca-bundle` across all application namespaces (`oci-core`, `oci-internal`, `monitoring`).
+* **Zero-Downtime Dynamic CA Pool Hot-Swapping (`pkg/mtls`):**
+  * [`pkg/mtls.DynamicCAPoolReloader`](pkg/mtls/mtls.go) watches file modification timestamps on mounted `ca.crt` bundles and hot-swaps active `ClientCAs` and `RootCAs` pools dynamically under RWMutex lock via `tls.Config.GetConfigForClient` and `tls.Config.VerifyConnection`, accepting new CA roots without connection drops or pod restarts.
+* **Decoupled mTLS Probing Architecture:**
+  * Plaintext HTTP `/healthz` and `/livez` listener on port `:8080` via `mtls.StartHealthListener`, keeping business RPCs on ports `50051`–`50054` strictly enforced with mutual TLS (`ClientAuth: RequireAndVerifyClientCert`), resolving Kubelet probe handshake errors.
+* **Active Kubernetes Cert-Manager CA Reconciler in `cmd/worker`:**
+  * [`internal/service/pki/ca_rotation.go`](internal/service/pki/ca_rotation.go) interfaces directly with Kubernetes API using standard library crypto and in-cluster credentials to inspect expiration metrics, trigger automated reissuances 30 days prior to expiry, verify `trust-manager` bundle synchronization, and emit `ops.ca_rotated.v1` events.
+* **COTS Persistent Volume Architecture & Idempotency (Nextcloud):**
+  * Mandated PVCs (`nextcloud-data-pvc`) mounted directly to `/var/www/html` to persist configuration and data. Enforced unprivileged database users (`nextcloud_user` without `CREATEROLE` or superuser privileges) across COTS manifests to prevent role explosion and table ownership corruption across pod restarts.
+* **Identity & Session Store Resiliency (ZITADEL & Valkey):**
+  * Dedicated PersistentVolumeClaim on Valkey (`valkey-data-pvc` on `/data`) with `valkey-server --appendonly yes --dir /data` enabled. ZITADEL database connection limits and dedicated `startupProbe`/`livenessProbe` configured for DNS/CNI startup tolerance.
+* **Control Plane Certificate Expiration Runbooks & Alerts:**
+  * Documented annual control plane cert rotation SOPs in [`docs/runbooks/control-plane-cert-rotation.md`](docs/runbooks/control-plane-cert-rotation.md) and Prometheus Alertmanager rules in [`k8s/monitoring/prometheus.yaml`](k8s/monitoring/prometheus.yaml) (`CertManagerCertExpiringSoon` and `BlackboxSSLCertExpiringSoon`).
+* **COTS Application Lifecycle Management & Upstream Patching Runbooks:**
+  * Documented pre-flight database snapshots, sequential Nextcloud upgrades, Forgejo OAuth2 validation, Snipe-IT key preservation, ERPNext/Frappe bench migrations, and single-command rollbacks in [`docs/runbooks/cots-patching-lifecycle.md`](docs/runbooks/cots-patching-lifecycle.md) and [`scripts/cots-maintenance.sh`](scripts/cots-maintenance.sh).
+
+### 5.9 Distributed Caching, Valkey Session Management & Rate Limiting (BFF Layer)
+Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-service.oci-core.svc.cluster.local:6379`) backed by persistent storage (`valkey-data-pvc`) and AOF persistence:
+
+* **Distributed Valkey Session Store for BFF Multi-Pod Scaling:**
+  * Implemented in [`pkg/session/valkey`](pkg/session/valkey/store.go) supporting both Valkey distributed storage and thread-safe in-memory fallback for local dev and offline tests.
+  * Customer sessions (`session:customer:{token}`) and Employee sessions (`session:employee:{token}`) with 24-hour TTL.
+  * Multi-device session revocation via Redis Sets (`user:sessions:customer:{id}`, `user:sessions:employee:{id}`) enabling atomic bulk purges on logout, account closure, or GDPR erasure.
+* **Cache-Aside & Read-Through Query Caching:**
+  * Implemented in [`pkg/cache/valkey`](pkg/cache/valkey/cache.go) with raw-byte caching (`GetRaw` / `SetRaw`) for zero-allocation conditional HTTP responses.
+  * Customer Portal: Portfolio Valuation (`cache:portfolio:{customer_id}`, 30s TTL), Quotes (`cache:quotes:{symbol}`, 5s TTL), Habitat Telemetry (5s TTL), ESG Welfare Metrics (15m TTL).
+  * Employee Portal: Feline Care Schedules (`cache:care_schedule:{feline_id}`, 2m TTL), Nextcloud metadata (`cache:cots:nextcloud:folders`, 60s TTL).
+* **Event-Driven & Eager Cache Invalidation:**
+  * [`InvalidationListener`](pkg/cache/valkey/invalidation.go) subscribing via Watermill / RabbitMQ to `trade_executed`, `order_placed`, `care_schedule_updated`, and `incident_created` events.
+  * Synchronous eager invalidation across mutation paths (orders, deposits, care schedule updates, medical hold toggles, GDPR erasures).
+* **HTTP Conditional Validation (`ETag` & `304 Not Modified`):**
+  * Payloads are hashed with SHA-256 (`ComputeETag` / `HandleConditionalETag`). Matching `If-None-Match` requests return `304 Not Modified` with zero response body.
+* **Distributed Sliding-Window Rate Limiting:**
+  * [`RateLimiter`](pkg/cache/valkey/ratelimit.go) using Valkey sorted sets (`ZREMRANGEBYSCORE`, `ZCARD`, `ZADD`) with in-memory fallback and standard `X-RateLimit-*` and `Retry-After` headers.
+  * Applied to login (5 req/15min), orders (10 req/s), deposits (5 req/15min), and Pebble Watch acknowledgments (10 req/min).
+
+### 5.10 Pure gRPC Wire Transport & Decoupled BFF Layer (Section 7.16 Completed)
+* **Pure gRPC Wire Transport:** Transitioned inter-service communication to pure gRPC over dynamic mTLS with standard Protobuf RPCs (`pkg/grpcutil`). Domain APIs (`workforce-api` :50051, `facilities-api` :50052, `core-invest-api` :50053, `ops-api` :50054) serve compiled Protobuf stubs, standard gRPC health checks (`grpc.health.v1`), and streaming RPCs (`StreamPortfolioValuation`, `StreamEnvironmentalTelemetry`), completely removing HTTP fallback and `h2c` multiplexing.
+* **Zero Direct Database Dependencies in BFFs:** Completely eliminated `pgxpool` and direct SQL repository access from `cmd/customer-bff` and `cmd/employee-bff`. BFFs function strictly as presentation and session proxies delegating all domain logic and data fetching to Customer BLL and Internal BLL.
+
+### 5.11 Fast Typo-Tolerant Full-Text Search via Meilisearch (Section 7.15 Completed)
+* **Meilisearch Client Engine:** Implemented [`pkg/search/meilisearch`](pkg/search/meilisearch/client.go) providing resilient search, index provisioning, document indexing, and in-memory fallback for local development.
+* **Real-Time CDC Event Ingestion:** Background worker (`cmd/worker`) subscribes to domain events (`incident_created`, etc.) and automatically indexes searchable entities into Meilisearch.
+* **Employee Command+K Search Palette:** Global `⌘K` / `Ctrl+K` modal in `web/employee-portal` searching across Clinical VHRs, IT tickets, SOPs, and hardware assets.
+* **Customer Catalog Search:** Instant search bar in `web/customer-portal` searching funds, tickers, ESG feline welfare transparency, and tax statements.
+
+### 5.12 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus (Section 7.17 Completed)
+* **Unified Status Page (`status.oci.local`):** Declarative deployment of Gatus (`k8s/monitoring/gatus.yaml`) monitoring uptime percentages, response latencies, and TLS certificate expiration across Customer Planes, Employee Planes, Domain APIs, and COTS enterprise applications.
+* **Automated Webhook Incident Fanout:** Configured custom webhook alert dispatcher triggering workplace incident broadcast alerts to Employee BFF and Pebble watch companion apps upon consecutive health probe failures.
+* **Portal Integration:** Integrated real-time status indicators and status page links directly in the headers of both the Customer Portal and Employee Portal.
+
+### 5.13 COTS & Message Queue Prometheus Telemetry (Sections 7.8 & 7.19 Completed)
+* **RabbitMQ Built-in Prometheus Telemetry (`rabbitmq_prometheus`):** Enabled native Prometheus plugin with `prometheus.return_per_object_metrics = true` exposing per-object queue telemetry on port `15692`. Configured Prometheus scraping and Alertmanager rules for Dead-Letter Queue (DLQ) backlogs, queue spikes, stagnant consumers, and memory limits in `k8s/monitoring/prometheus.yaml`.
+* **COTS Application Telemetry:** Enabled native Prometheus metrics in Forgejo (`/metrics`), deployed `nextcloud-exporter` sidecar on port `9205` in `k8s/oci-internal/nextcloud.yaml`, and instrumented ZITADEL customer identity Prometheus metrics on `/debug/metrics` with public Ingress route protection.
 
 ---
 
@@ -170,7 +257,7 @@ Ensure your host machine has the following tools installed:
 | **Valkey / Redis** | 7.2+ (or Docker / Podman) | Session storage & cache |
 | **Node.js & npm** | Node 18+ / npm 9+ | Building the Vue 3 Employee Portal |
 | **Flutter SDK** *(Optional)* | 3.19+ | Running the Field Maintenance mobile app |
-| **K3s / Ansible** *(Optional)* | v1.28+ | Full Kubernetes cluster deployment |
+| **MicroK8s on Ubuntu Server / Ansible** *(Optional)* | v1.28+ | Full Kubernetes cluster deployment |
 
 ---
 
@@ -281,7 +368,7 @@ Hosts all 4 domains (`core-invest`, `facilities`, `ops`, `workforce`):
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
 export PORT="8080"
-go run ./cmd/server
+go run ./cmd/workforce-api
 ```
 
 **2. Background Event Worker (Watermill & CA Rotation)**
@@ -360,38 +447,91 @@ docker compose -f docker-compose.smb.yaml up -d
 
 ---
 
-### 6.4 Kubernetes Cluster Deployment (MicroK8s, K3s, Minikube, kind)
+### 6.4 Kubernetes Cluster Deployment (Self-Hosted MicroK8s on Ubuntu Server Standard)
 
-If you have an existing Kubernetes cluster or local node (such as MicroK8s, Minikube, kind, or an existing K3s installation) configured in your local `~/.kube/config`:
+Orange Cat Investments is designed to run natively on **MicroK8s on Ubuntu Server**, providing a fast, lightweight, and robust Kubernetes foundation ideal for edge hardware, bare-metal mini PCs, or small-business server nodes.
 
-> [!NOTE]
-> **Cluster Prerequisites (Cert-Manager & Intranet PKI):**
-> Orange Cat Investments enforces dynamic mutual TLS (mTLS) for inter-service communication via `cert-manager`. Before running `deploy-k8s.sh`, ensure `cert-manager` is active:
-> * **MicroK8s:** Run `microk8s enable cert-manager`
-> * **K3s / Standard K8s:** Install cert-manager via Helm or the official manifest:
->   `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
-> * **Intranet Root CA:** Ensure the intranet Root CA secret (`oci-lan-root-ca-key-pair`) and ClusterIssuer (`k8s/ha/lan/tls/intranet-cluster-issuer.yaml`) are provisioned for `oci-lan-issuer`.
+#### Step 1: Ubuntu Server & MicroK8s Host Setup
+
+1. **Install MicroK8s on Ubuntu Server:**
+   ```bash
+   sudo snap install microk8s --classic --channel=1.34/stable
+   sudo usermod -a -G microk8s $USER
+   mkdir -p ~/.kube
+   sudo chown -f -R $USER ~/.kube
+   newgrp microk8s
+   ```
+
+2. **Enable Core Cluster Addons:**
+   MicroK8s provides turn-key addons for DNS, storage, ingress, registry, and PKI:
+   ```bash
+   microk8s enable dns storage ingress registry cert-manager metrics-server
+   ```
+
+3. **Configure Workstation Kubeconfig:**
+   Export the cluster configuration to your local workstation:
+   ```bash
+   microk8s config > thinker-kube.config # or ~/.kube/config
+   export KUBECONFIG="$(pwd)/thinker-kube.config"
+   kubectl get nodes -o wide
+   ```
+
+#### Step 2: Storage, Registry & Ingress Conventions
+
+1. **Storage Provisioner (`microk8s-hostpath`):**
+   MicroK8s defaults to the `microk8s-hostpath` StorageClass. On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), persistent volumes can be directed to the dedicated storage partition.
+
+2. **In-Cluster Container Registry (`localhost:32000`):**
+   MicroK8s provides a built-in container registry (`microk8s enable registry`) serving on port `:32000` / `localhost:32000`, matching all OCI container deployment manifests. Alternatively, the manifest in `k8s/registry/registry.yaml` can be applied.
+
+3. **Ingress & Routing (NGINX Ingress Standard):**
+   MicroK8s includes the official NGINX Ingress controller (`microk8s enable ingress`) listening on host ports `80` and `443`. All OCI Ingress manifests utilize standard Ingress rules adopted by the controller.
+
+#### Step 3: Deploy Platform Workloads
+
+Use `./scripts/deploy-k8s.sh` to deploy the desired deployment profile:
+
+* **All-In-One Platform (`--profile all` or default):**
+  Deploys the full platform suite including core applications (`oci-core`), internal business applications & COTS (`oci-internal`), external simulation mocks (`external-sim`), cluster monitoring & logging (`monitoring`, `logging`), and development staging (`oci-dev`):
+  ```bash
+  ./scripts/deploy-k8s.sh
+  # or explicitly:
+  ./scripts/deploy-k8s.sh --profile all
+  ```
+
+* **Business-Only COTS Suite (`--profile business-only`):**
+  Deploys strictly internal business applications (`oci-internal`: Nextcloud, Snipe-IT, ERPNext, Frappe HR, Forgejo, and internal PostgreSQL) without demo data or proprietary OCI applications, provisioning only the initial admin account:
+  ```bash
+  ./scripts/deploy-k8s.sh --profile business-only
+  ```
+
+* **Development & Staging Simulation Suite (`--profile dev`):**
+  Deploys an isolated staging environment (`oci-dev`) alongside external financial mocks (`external-sim`) and populates development personas:
+  ```bash
+  ./scripts/deploy-k8s.sh --profile dev
+  ./scripts/seed-dev.sh
+  ```
+
+#### Step 4: Accessing Cluster Services & Running Simulations
+
+To interact with deployed cluster services from your local workstation:
 
 ```bash
-chmod +x scripts/deploy-k8s.sh
-./scripts/deploy-k8s.sh
-```
+# 1. Port-forward core API and BFF services:
+kubectl port-forward -n oci-core svc/workforce-api-service 50051:50051 &
+kubectl port-forward -n oci-core svc/oci-employee-bff-service 8081:8081 &
+kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
+kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
 
-This single command:
-* Checks `kubectl` connectivity to your cluster.
-* Applies all namespaces (`oci-core`, `oci-internal`, `external-sim`, `monitoring`, `logging`).
-* Deploys custom OCI applications, customer Zitadel IdP, core infrastructure, and dedicated `postgres-core` database in `oci-core`.
-* Deploys off-the-shelf business applications (Forgejo, Nextcloud, Snipe-IT, ERPNext, Frappe HR) and dedicated `postgres-internal` database in `oci-internal`.
-* Deploys external simulation mocks (Mock Broker, Mock Bank) in `external-sim`.
-* Deploys Prometheus, Grafana, Loki, and Promtail monitoring stacks.
-* Waits for core database and queuing workloads to become healthy.
+# 2. Run the 12-persona platform simulation driver against the live cluster:
+go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
 
-To connect your local workstation to the cluster services for testing:
-```bash
-# Forward PostgreSQL Core, Valkey, and RabbitMQ
-kubectl port-forward -n oci-core svc/postgres-core-service 5432:5432 &
-kubectl port-forward -n oci-core svc/valkey-service 6379:6379 &
-kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &
+# 3. Execute concurrent load testing (e.g. 10 parallel simulation runs):
+go build -o /tmp/simulator ./simulation/cmd/simulator
+for i in {1..10}; do
+  /tmp/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
+done
+wait
 ```
 
 > **Clean Reset:** To tear down all OCI workloads and reset the cluster back to a clean state at any time, run `./scripts/cleanup-k8s.sh` (see [Section 6.8](#68-cluster-cleanup--environment-reset)).
@@ -399,15 +539,15 @@ kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &
 
 ---
 
-### 6.5 Bare-Metal K3s Cluster Provisioning via Ansible
+### 6.5 Bare-Metal MicroK8s Cluster Provisioning via Ansible
 
-For users provisioning a fresh, unconfigured bare-metal server (e.g. mini PC, Intel NUC, or dedicated home lab node) from scratch:
+For users provisioning a fresh, unconfigured bare-metal Ubuntu Server (e.g. mini PC, Intel NUC, or dedicated home lab node) from scratch:
 
 1. **Configure Ansible Inventory:**
-   Edit `ansible/inventory/hosts.ini` with your home server's IP address and SSH user:
+   Edit `ansible/inventory/hosts.ini` with your Ubuntu Server's IP address and SSH user:
    ```ini
-   [k3s_servers]
-   192.168.1.100 ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/id_ed25519
+   [microk8s_servers]
+   192.168.1.246 ansible_user=ramjac ansible_ssh_private_key_file=~/.ssh/id_ed25519
    ```
 
 2. **Run Infrastructure Deployment Script:**
@@ -534,165 +674,295 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 The following roadmap outlines planned technical debt remediation, scope streamlining, and architectural enhancements to evolve Orange Cat Investments into an authentic, production-grade self-hosted small-to-medium business (SMB) platform:
 
-### 7.7 Enterprise Multi-Tier Application Architecture (Implemented)
-Orange Cat Investments implements all architectural patterns across an enterprise-grade multi-tier system. The platform intentionally demonstrates an enterprise-grade microservices architecture designed to scale well beyond a single small business, featuring strict tier isolation: Frontends $\rightarrow$ Backend-for-Frontend (BFF) $\rightarrow$ Business Logic Layer (BLL) $\rightarrow$ Domain APIs (gRPC over isolated SQL databases) $\rightarrow$ Async Workers & Batch Schedulers.
+### 7.8 Monitoring, Observability & COTS Telemetry (Completed)
 
-* **Custom Application Types & Monorepo Mapping:**
-  * **Internal Web Portal (`web/employee-portal` + `cmd/employee-bff`):**
-    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Employee BFF (`:8081`).
-    * *COTS Application Directory / Launcher:* Base launchpad page with 1-click status cards linking directly to internal COTS platforms (Nextcloud, Forgejo, ERPNext/Frappe HR, Snipe-IT, and Grafana).
-    * *Intranet & Workplace Policies:* Internal HR knowledge base with WebDAV document reader linking directly to policy documents, standard operating procedures (SOPs), and clinical protocols in Nextcloud departmental group folders.
-    * *Engineering Architecture & Handbook:* Internal engineering documentation viewer with developer expectations, GitOps workflow, and direct markdown rendering of Architecture Decision Records (ADRs `0001`, `0002`, `0003`).
-    * *Built-Out Internal Functionality:*
-      * *Veterinary Care Schedules & Medical Holds:* Feline executive care editor (dietary protocols, feeding times, special medical directives, perch zones) and one-click Emergency Medical Trading Hold toggle halting algorithmic trading triggers.
-      * *Electronic Veterinary Health Records (VHR):* Clinical examination records, dental scoring (1–5 scale), biometric weight progression charts, vaccination histories, and prescription tracking.
-      * *IT Helpdesk & Issue Tracker:* Bi-directional synchronization with Forgejo issue tracker (`oci-internal/helpdesk`), priority triage, discussion threads, and on-call escalation.
-      * *IT Onboarding & Lifecycle Sagas:* Distributed sagas (`OnboardingSaga` & `OffboardingEngine`) automating user accounts across Forgejo (Git repos & SSH keys), Nextcloud (storage quotas & group folders), and Snipe-IT (hardware asset checkouts).
-      * *Timesheets & Attendance Tracking:* Clock-in/clock-out tracking with activity categorization, meal deduction calculations, and automated provisioning to Frappe HR DocTypes / ERPNext cost centers.
-      * *Compensation & Payroll:* Salary/hourly compensation records, catnip allowances, direct deposit bank routing, and immutable paystub history with tax withholding summaries.
-      * *Executive Reports & Business Intelligence:* Monthly P&L dashboards, operational burn rates, cash reserves, total AUM trends, and automated monthly management report generator depositing PDF/CSV packages into Nextcloud WebDAV compliance vault.
-      * *Leave Requests & Catnip Breaks:* Paid time off, medical leave, and feline sabbatical requests with manager approval state machines and calendar integration.
-      * *Performance Review Cycles & Assessments:* Dual-evaluation cycles for human staff and feline executives (rating whisker symmetry, nap discipline, zoomie precision, and alpha contribution).
-      * *Workplace Incidents & Hazard Logs:* Safety hazard reporting (e.g. knocked water glasses, wire chew incidents), status tracking, and mitigation logs.
-      * *Dynamic Quantitative Backtesting Workbench:* Quantitative historical alpha backtesting engine with customizable feline observation multipliers, Sharpe ratio, and drawdown metrics.
-    * *Architectural Invariants:*
-      * This application **NEVER directly connects to Domain APIs or database schemas**.
-      * Exclusively consumes the Internal Business Logic Layer (`cmd/internal-bll`) and COTS REST/OAuth2/WebDAV APIs.
-      * Manages browser authentication sessions via opaque HTTP-only cookies (`__Host-employee-session`) and validates double-submit CSRF tokens.
+> [!NOTE]
+> **Status: Completed** — Integrated Forgejo native Prometheus metrics, Nextcloud sidecar exporter (`nextcloud-exporter:9205`), ZITADEL Prometheus debug metrics (`/debug/metrics`) with public ingress blocking, and comprehensive scrape jobs and alert rules in Prometheus.
 
-  * **Customer Web Portal (`web/customer-portal` + `cmd/customer-bff`):**
-    * *Architecture:* Vue 3 Single Page Application (SPA) backed by Go Customer BFF (`:8083`).
-    * *Account Summary Landing Page:* Real-time portfolio valuation, cash balance, YTD return metrics, asset allocation breakdowns, and historical valuation growth charts.
-    * *Orange Observation & Investment Insights:* Live low-latency (<500ms) WebRTC habitat video stream player with real-time AI vision overlays (activity classification & confidence scores), plus the live Zoomie Index score banner.
-    * *Bank Account Linking:* Plaid client integration (`pkg/bank/plaid`) with mock bank verification for ACH account linking.
-    * *Funds Transfers & Capital Deposits:* Automated Dollar-Cost Averaging (DCA) deposit scheduler (weekly, bi-weekly, monthly) and transfer status tracking.
-    * *Investment Order Management:* Active trading terminal supporting 1-click "Zoomie Pounce" instant executions, market orders, bracket orders (stop-loss + take-profit), and trailing stop orders.
-    * *Performance Summaries & Regulatory Statements:* Statements & Tax Forms hub rendering IRS Form 1099-B capital gains tax returns and monthly portfolio statements generated via pure Go PDF 1.4 engine (`pkg/reporting`).
-    * *Built-Out Customer Functionality:*
-      * *Live Market Ticker Stream:* Server-Sent Events (SSE) pushing real-time market price updates and percentage changes.
-      * *Developer API Keys & Webhooks:* Self-service HMAC API key generation for customer quant trading bots and custom webhook endpoint subscriptions.
-      * *Feline Welfare & ESG Transparency Dashboard:* Public-facing welfare metrics (overall welfare score, veterinary adherence, perch comfort rating, individual feline executive vitals).
-      * *Customer Support Desk:* Ticket submission with category routing (Trading, Banking, Habitat, UI Bug, General), synchronized with a dedicated Forgejo repository (`oci-internal/customer-support`) and bi-directional message thread.
-      * *Account Settings, Liquidation & GDPR Privacy:* Self-service GDPR "Right to be Forgotten" pipeline that anonymizes customer PII across databases and sessions, automatically issuing an immutable, cryptographically verifiable PDF GDPR Erasure Certificate.
-    * *Architectural Invariants:*
-      * This application **NEVER directly connects to Domain APIs, scheduled jobs, or async queue consumers**.
-      * Exclusively consumes the Customer Business Logic Layer (`cmd/customer-bll`).
-      * Manages customer browser authentication sessions via ZITADEL OIDC, issuing opaque HTTP-only cookies (`__Host-customer-session`) and enforcing CSRF protection.
+Make better use of our logging and monitoring infrastructure to surface issues and provide comprehensive cluster and application visibility:
+* **COTS & Infrastructure Monitoring:**
+  * **Forgejo Native Prometheus Telemetry:** Ensure Forgejo's native Prometheus metrics endpoint (`/metrics` or `https://forgejo.oci.local/metrics`) is monitored by Prometheus: track HTTP request latency, active Git operations, SSH sessions, background queue length, database connection pool statistics, repository count, and runner job queue wait times.
+  * **Nextcloud (Sidecar Exporter Pattern):** Nextcloud does not expose a native Prometheus endpoint by default; instead, its built-in serverinfo app exposes system telemetry as JSON/XML at `/ocs/v2.php/apps/serverinfo/api/v1/info?format=json`.
+    * *Setup:* Generate a dedicated Nextcloud monitoring token (`occ config:app:set serverinfo token --value your-token`) and deploy `nextcloud-exporter` (such as `xperimental/nextcloud-exporter`) either as a sidecar container in your Nextcloud pod or as a tiny standalone Deployment.
+    * *What to Track:* Active users, storage free space, database size, PHP-FPM active/max processes (critical when running the FPM image behind NGINX), and pending background cron jobs.
+  * **Snipe-IT Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* Snipe-IT (PHP/Laravel) does not expose a native Prometheus `/metrics` endpoint out of the box. Upstream provides standard REST endpoints (`/api/v1/...`) and a basic health check, but no Prometheus-formatted metric exposition.
+    * *Remediation Plan:* Deploy a dedicated exporter sidecar container (e.g. `snipeit-exporter` or a custom lightweight Go/Python daemon) configured with a scoped read-only Snipe-IT API bearer token.
+    * *What to Track:* Hardware asset inventory breakdown by status label (Ready to Deploy, Deployed, Broken/Out for Repair, Archived), checkout-to-employee ratios, pending hardware audit overdue alerts, software license seat utilization and expiration dates, PHP-FPM active/idle worker pools, and API latency.
+  * **Frappe HR Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* Frappe HR / Frappe Framework runs on a Python WSGI/Gunicorn architecture with asynchronous background workers backed by Redis Queue (RQ). Out of the box, standard HTTP ports do not expose an unauthenticated Prometheus `/metrics` endpoint.
+    * *Remediation Plan:* Deploy `rq-exporter` against the internal Redis queue instance used by Frappe to track background job backlog (short, default, long queues), failed job counts, and queue wait latency. Install the `frappe-prometheus` extension app or deploy a lightweight exporter sidecar utilizing Frappe REST API tokens.
+    * *What to Track:* Pending leave requests, unapproved feline catnip break requests, pending payroll run approvals, attendance synchronization queue lag, and active employee headcount.
+  * **ERPNext Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* ERPNext shares the underlying Frappe Framework architecture with Frappe HR and similarly lacks a native `/metrics` endpoint on its web interface.
+    * *Remediation Plan:* Deploy an ERPNext telemetry sidecar or scheduled probe querying ERPNext's REST API and diagnostic CLI (`bench doctor`).
+    * *What to Track:* Background job execution latency, ledger submission queue depth, pending invoice/billing document backlogs, automated financial statement clearing errors, database connection pool utilization against `postgres-internal`, and email/webhook delivery queue depths.
+  * **ZITADEL Customer Identity Prometheus Monitoring Gap Analysis & Plan:**
+    * *Current Status Assessment:* ZITADEL (Go-based OIDC Identity Provider) includes native OpenTelemetry and Prometheus telemetry capabilities, exposing Prometheus metrics by default on its debug router at `/debug/metrics`. However, in the current deployment (`k8s/oci-core/zitadel.yaml`), metrics exposition is not explicitly configured via environment variables, Prometheus pod scrape annotations (`prometheus.io/scrape: "true"`) are absent, and Prometheus (`k8s/monitoring/prometheus.yaml`) lacks an explicit scrape target or ServiceMonitor for ZITADEL.
+    * *Remediation Plan:*
+      * Enable explicit Prometheus telemetry in `k8s/oci-core/zitadel.yaml` by setting `ZITADEL_TELEMETRY_METRICS_TYPE: "prometheus"` and `ZITADEL_TELEMETRY_METRICS_EXPOSE: "true"`.
+      * Add Prometheus scrape annotations (`prometheus.io/scrape: "true"`, `prometheus.io/path: "/debug/metrics"`, `prometheus.io/port: "8080"`) or configure an authenticated/cluster-internal scrape job in `prometheus.yml` targeting `zitadel-service.oci-core.svc.cluster.local:8080`.
+      * Ensure Ingress manifests (`k8s/oci-core/ingress.yaml`) block public access to `/debug/*` paths so external users cannot access internal auth metrics.
+    * *What to Track:* OIDC login success vs. failure rates, brute-force/invalid credential spikes, token issuance and introspection latency (direct impact on Customer BFF session validation), active user sessions, database connection pool utilization against `postgres-core`, event store commit durations, and Go runtime goroutines/GC pauses.
+* **Probes & Healthchecks:**
+  * Automated synthetic healthcheck monitors for internal websites, BFF proxies, and Domain APIs.
+* **Queue & Message Streaming Monitors:**
+  * Queue depth and Dead-Letter Queue (DLQ) monitoring using RabbitMQ's built-in `rabbitmq_prometheus` plugin and `/metrics/per-object` endpoint (see [Section 7.19](#719-queue-depths-and-dead-letter-queues-in-rabbitmq-built-in-prometheus-telemetry)).
+* **Log Aggregation & Anomaly Alerts:**
+  * Log-based alert rules in Loki/Promtail for sudden spikes in `ERROR` and `FATAL` log events.
+* **Alert Notifications & Escalation:**
+  * Real-time pub/sub alert dispatching fanning out critical notifications to Pebble smartwatches, employee portal web banners, and push notification channels.
+* **Cluster & Infrastructure Blind Spots Catch-All:**
+  * Comprehensive self-hosted Kubernetes monitoring covering PVC disk saturation, `kube-state-metrics` OOMKills, K8s event log streaming to Loki, cert-manager expiration, backup age verification, and dead man's switch heartbeats (see [Section 7.21](#721-common-self-hosted-k8s-monitoring-blind-spots-infrastructure-catch-all)).
 
-  * **Static Public Website (`web/marketing`):**
-    * *Architecture:* Fast, lightweight static website generated using Hugo and served via a hardened web container.
-    * *Content & Scope:* Single-page public marketing website highlighting OCI's feline behavioral observation alpha model, investment tier comparisons (Observer vs. Momentum Alpha), live Zoomie Index snapshot badge, and clear calls-to-action (CTA) to register via the Customer Web Portal. Consumes design tokens and branding guidelines from `config/branding.yaml`.
-    * *Implementation & Delivery:*
-      1. Complete Hugo site structure in `web/marketing/` (layouts, static assets, content, design tokens).
-      2. Automated build script (`scripts/build-marketing.sh`): Compiles HTML/CSS/JS into `public/`.
-      3. Multi-stage Docker build packaging static assets into a lean `cmd/portal-server` container (`oci-marketing:latest`).
-      4. Kubernetes deployment & Ingress in `k8s/oci-core/marketing.yaml` binding to `https://oci.local` and `https://www.oci.local`.
+### 7.9 Fault Tolerance, Chaos Engineering & Negative API Testing
+Ensure that negative scenarios with external financial APIs and unexpected internal service degradation are gracefully handled with functioning alerting:
+* **External Error Injection:**
+  * **Mock Bank API:** Add configurable error responses and latency injection toggled via management endpoints outside regular banking routes (`/sim/faults/bank`).
+  * **Mock Broker API:** Add configurable rejected orders, order cancellations, and simulated execution halts toggled via management endpoints (`/sim/faults/broker`).
+* **Chaos Engineering & Resilience Verification:**
+  * Create automated test scripts to intentionally induce failure modes and verify cluster recovery and alerting:
+    * Stop PostgreSQL for `oci-internal` (verify COTS graceful failure and alerting).
+    * Stop PostgreSQL for `oci-core` (verify core app resilience and reconnect backoff).
+    * Break network policies between BLL and Domain APIs (verify circuit breaking).
+    * Break network policies between BFFs and BLLs (verify fallback responses).
+    * Terminate individual Domain APIs (`workforce`, `facilities`, `core_invest`, `ops`) and verify pod self-healing.
+    * Terminate BLL APIs (`customer-bll`, `internal-bll`) and verify BFF degradation.
+    * Terminate BFF APIs (`customer-bff`, `employee-bff`).
+    * Simulate external Bank and Broker API outages.
+    * Inject deadletter messages into RabbitMQ queues and verify DLQ routing.
+    * Inject malformed and schema-invalid messages into RabbitMQ queues to confirm safe parsing and poison-pill rejection.
 
-  * **Domain APIs (Workforce, Facilities, Core Invest, Ops):**
-    * *Architecture:* Standalone, single-responsibility microservices running on top of isolated PostgreSQL database schemas. (Currently exposing HTTP/REST microservice endpoints aligned with the Protobuf contract models, with native gRPC wire transport planned as a future milestone).
-    * *Primary Concern:* Data correctness, transaction boundaries, schema invariants, and performant querying.
-    * *Architectural Invariants:*
-      * **Domain APIs do not call each other.** Cross-domain database joins and direct cross-domain API calls are strictly forbidden.
-      * The only authorized clients of Domain APIs are **Business Logic Layer (BLL) APIs** and authorized background worker/batch jobs.
-      * Zero public ingress: Domain APIs are completely unexposed to external traffic and protected by Kubernetes NetworkPolicies.
-    * *Implementation & Delivery:*
-      1. *Protobuf Contract Definitions:* Strict Protobuf 3 specs defined in `proto/oci/`:
-         * `proto/oci/workforce/v1/workforce.proto` (Employees, Care Schedules, Reviews, VHR, Incidents)
-         * `proto/oci/facilities/v1/facilities.proto` (Hardware Assets, Maintenance Logs, Firmware Releases, OTA Jobs)
-         * `proto/oci/core_invest/v1/core_invest.proto` (Portfolios, Holdings, Orders, Observations, Deposits)
-         * `proto/oci/ops/v1/ops.proto` (IT Tickets, Alert Subscriptions, Audit Logs)
-      2. *Code Generation:* Generated Go data structures and contract interfaces in `pkg/gen/go/` matching Protobuf schemas.
-      3. *Microservice Separation:* 4 dedicated service binaries created in `cmd/`:
-         * `cmd/workforce-api` (Port 50051, isolated connection to PostgreSQL `workforce` schema)
-         * `cmd/facilities-api` (Port 50052, isolated connection to PostgreSQL `facilities` schema)
-         * `cmd/core-invest-api` (Port 50053, isolated connection to PostgreSQL `core_invest` schema)
-         * `cmd/ops-api` (Port 50054, isolated connection to PostgreSQL `ops` schema)
-      4. *Security & Dynamic mTLS:* Inter-service mutual TLS enforced via `pkg/mtls` dynamic certificate reloaders (`crypto/tls` callbacks `GetCertificate` & `GetClientCertificate`) for zero static certs.
-      5. *Kubernetes Manifests:* Individual K8s Deployments, Services, and `NetworkPolicy` manifests in `k8s/oci-core/domain-apis.yaml` restricting ingress exclusively to authorized BLL, batch, and worker pods.
-
-  * **Business Logic Layer APIs (Customer BLL & Internal BLL):**
-    * *Architecture:* Middle-tier microservices that sit strictly between the BFFs and the Domain APIs.
-    * *Primary Concern:* Business rules, multi-domain orchestration, quantitative calculations, distributed sagas, third-party adapter execution (broker/bank), and event emission.
-    * *Implementation & Delivery:*
-      1. *Customer BLL (`cmd/customer-bll` :8085):*
-         * Orchestrates customer-facing operations: validates trade orders, queries feline medical holds from `workforce-api` before executing trades on `core-invest-api`, executes orders against broker adapter, verifies bank accounts via Plaid adapter, and computes portfolio performance metrics.
-         * Emits asynchronous events to RabbitMQ (`events.investment.order_placed.v1`, `events.banking.ach_transfer_requested.v1`).
-         * Exposes internal REST endpoints consumed by `cmd/customer-bff`.
-      2. *Internal BLL (`cmd/internal-bll` :8086):*
-         * Orchestrates corporate operations: executes `OnboardingSaga` and `OffboardingEngine` across `workforce-api` and `ops-api`, validates veterinary care directives, calculates executive BI metrics, and triggers edge firmware updates via `facilities-api`.
-         * Emits asynchronous events to RabbitMQ (`events.workforce.incident_created.v1`, `events.facilities.ota_triggered.v1`, `events.reporting.generate_monthly_requested.v1`).
-         * Exposes internal REST endpoints for corporate operations.
-      3. *Phased BFF Decoupling:* `cmd/customer-bff` routes customer order validation and trade placement to `cmd/customer-bll` when `CUSTOMER_BLL_URL` is set, and rejects direct order execution if the BLL fails. Complete decoupling of remaining read routes across `customer-bff` and `employee-bff` is scheduled for subsequent refactoring phases; legacy direct repository bindings remain in place as transition fallbacks.
-      4. *Kubernetes Manifests:* Created `k8s/oci-core/bll-services.yaml` with deployments, services, and NetworkPolicies restricting ingress strictly to BFF pods.
-
-  * **Async Queue Consumer Application (`cmd/worker`):**
-    * *Architecture:* Event-driven worker subscribing to RabbitMQ message streams using the Go Watermill framework.
-    * *Supported Handlers:*
-      * Observation-triggered algorithmic portfolio allocation and automated trade execution.
-      * Dynamic quantitative strategy backtest computation engine.
-      * Edge device OTA firmware update pipeline (download, checksum verification, device flashing, status callback).
-      * Executive report generation orchestrator depositing PDF/CSV assets into Nextcloud WebDAV.
-      * **Async Bank Transfers & ACH Settlement:**
-        * Event contract: `events.banking.ach_transfer_requested.v1` with transfer ID, customer ID, bank account, amount USD, and transfer type.
-        * `HandleACHTransferRequested` in `cmd/worker`: Consumes transfer requests from RabbitMQ, calls mock bank API to initiate clearing, simulates asynchronous settlement window, calls `core-invest-api` to credit/debit portfolio cash balance, and publishes `events.banking.ach_settled.v1`.
-
-  * **Scheduled / Batch Job Application:**
-    * *Architecture:* Time-triggered cron and batch worker executing periodic business maintenance workflows.
-    * *Supported Handlers:*
-      * Automated PKI intermediate CA rotation ticker checking and rotating expired certificates.
-      * **Recurring ACH Deposit Processor:**
-        * Scheduled cron runner executing daily at 00:00 UTC (configured in `cmd/worker` and Kubernetes CronJob in `k8s/oci-core/batch-jobs.yaml`).
-        * Queries due recurring deposit schedules from `core-invest-api` and dispatches `events.banking.ach_transfer_requested.v1`.
-      * **Automated End-of-Month Statement Batch Generator:**
-        * Scheduled cron runner executing on the 1st of every month at 01:00 UTC (in `cmd/worker` and Kubernetes CronJob in `k8s/oci-core/batch-jobs.yaml`).
-        * Batches active customer portfolios, invokes `pkg/reporting` to generate IRS 1099-B tax forms and monthly portfolio PDF statements, deposits copies into Nextcloud WebDAV vault, and emits completion notifications.
-
-  * **Pub/Sub Application (Incident Alerting Pipeline):**
-    * *Architecture:* Topic-based event publication and real-time subscriber fanout across wearables and web frontends.
-    * *Workplace Incident Alert Pipeline Implementation:*
-      1. *Incident Event Publication:* When a safety incident is logged in `cmd/internal-bll`, emits `events.workforce.incident_created.v1` to RabbitMQ with incident ID, room zone, severity level (`urgent`, `critical`, `info`), and hazard description.
-      2. *Real-Time Web Portal Banner:* Server-Sent Events (SSE) streaming hub in `cmd/employee-bff` (`GET /api/v1/employee/incidents/stream`) and ingestion broadcast endpoint (`POST /api/v1/employee/incidents/broadcast`), broadcasting emergency alert banners (`🚨 Workplace Incident Alert`) with 1-click Acknowledge/Dismiss across all active employee portal browser sessions.
-      3. *Wearable Alert Push to Pebble Watch:* Dedicated listener in `cmd/pebble-proxy` (`POST /api/v1/ops/pebble/incidents/broadcast`) converting incidents into pending wearable alerts, serving `GET /ops/pebble/alerts` with `AppMessageDict` keys for vibrating smartwatch notifications, and accepting physical button ACK signals via `POST /ops/pebble/ack`.
-
-### 7.8 Monitoring and Alerting
-Make better use of our logging and monitoring infra to surface issues
-* **Monitors:**
-  * Monitors for COTS apps
-  * Healthcheck monitors for websites and APIs
-  * Queue monitors for deadletter queues and also for excessive queue depth on the regular queues
-  * Monitor for Error level logs
-* **Alert notifications:**
-  * Pub/sub alert to watches and internal web banner?
-
-### 7.9 Fault Tolerance and General Error Handling
-Ensuring that negative scenarios with external APIs are well handled and that internal failures are reasonably handled and have functioning alerts.
-* **External Errors:**
-  * Mock Bank API - Add error responses that can be turned on/off by a new endpoint outside the regular banking endpoints
-  * Mock Broker API - Add error responses that can be turned on/off by a new endpoint outside the regular broker endpoints
-* **Chaos Monkey:**
-  * Make scripts of actions to intentionally break OCI in certain ways. Likely by intentional kubernetes misconfiguration. After each of these, observe the results in terms of logs and alerts firing before restoring functionality and moving to the next test. Note anywhere there is a lack of logging/alerting.
-  	* Turn off Postgres for OCI internal
-  	* Turn off Postgres for OCI core
-  	* Break network access between BLLs and Domain APIs
-  	* Break network access between BFFs and BLLs
-  	* Turn off a Domain API (repeat this for each Domain API)
-  	* Turn off a BLL API (repeat this for each BLL)
-  	* Turn off a BFF API (repeat this for each BFF)
-  	* Turn off the mock Bank API
-  	* Turn off the mock Broker API
-  	* Add a deadletter message to a queue
-  	* Add a malformed/invalid message to a queue
-
-### 7.11 Zero Trust Security Architecture: Dynamic mTLS, Network Policies & Secret Management
+### 7.11 Zero Trust Workload Identity & Dynamic Secret Management
 Complete the zero-trust security architecture to eliminate trust assumptions between internal workloads, enforce network isolation, and eliminate long-lived static credentials:
-* **Dynamic Inter-Service Mutual TLS (mTLS):**
-  * Implement dynamic certificate reloaders using Go standard library `crypto/tls` callbacks (`GetCertificate` and `GetClientCertificate`) in inter-service gRPC/HTTP clients and servers across `cmd/server`, `cmd/customer-bff`, `cmd/employee-bff`, and `cmd/worker`.
-  * Ensure rotated certificates provisioned by `cert-manager` from the internal CA are loaded directly from directory mounts without pod restarts (avoiding `subPath` volume mounts).
-* **Micro-Segmentation via Kubernetes Network Policies:**
-  * Author and apply `NetworkPolicy` manifests across all Kubernetes namespaces (`oci-core`, `oci-internal`, `oci-dev`, `external-sim`, `monitoring`, `logging`).
-  * Enforce strict default-deny ingress and egress rules, explicitly whitelisting only authorized traffic flows (e.g., BFFs $\rightarrow$ Server on port 8080, Server $\rightarrow$ Postgres on port 5432, Server $\rightarrow$ Valkey on port 6379, Worker $\rightarrow$ RabbitMQ on port 5672).
-  * Prevent unauthorized cross-namespace network bridging between internal enterprise tools (`oci-internal`) and customer-facing core systems (`oci-core`).
-* **Zero Static Secrets & Workload Identity:**
+* **Dynamic Secret Management & CSI Secrets Driver:**
   * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
-  * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending on network perimeter security.
+* **Workload Identity Service Mesh:**
+  * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending exclusively on network perimeter security.
+
+### 7.12 COTS Application Lifecycle Management & Upstream Security Patching Runbooks (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Comprehensive Standard Operating Procedures (SOPs) and runbooks are documented in [`docs/runbooks/cots-patching-lifecycle.md`](docs/runbooks/cots-patching-lifecycle.md), complemented by the maintenance helper automation CLI in [`scripts/cots-maintenance.sh`](scripts/cots-maintenance.sh).
+
+Document comprehensive, step-by-step Standard Operating Procedures (SOPs) and operational runbooks for IT systems administrators (`emp-human-frank`, Platform Security & K8s Infrastructure Lead) to safely apply upstream security patches, minor updates, and major version upgrades across all Commercial-Off-The-Shelf (COTS) business platforms in `oci-internal` and identity systems in `oci-core`:
+* **Standardized IT Maintenance & Pre-Flight Procedure:**
+  * Automated pre-upgrade database snapshots via Kubernetes backup cronjobs (`postgres-internal-backup-cronjob` and `postgres-core-backup-cronjob`).
+  * Staging verification gate in `oci-dev` prior to applying manifests to production (`oci-internal` and `oci-core`).
+  * Maintenance windows and Ingress maintenance banners.
+* **Application-Specific Upgrade Runbooks:**
+  * **Forgejo (`k8s/oci-internal/forgejo.yaml`):** Image bumps, database migrations against `postgres-internal`, Forgejo Actions Runner updates, and OAuth2 provider validation.
+  * **Nextcloud (`k8s/oci-internal/nextcloud.yaml`):** Sequential major version upgrades (28 $\rightarrow$ 29 $\rightarrow$ 30), post-upgrade `occ db:add-missing-indices`, and app compatibility audits.
+  * **Snipe-IT (`k8s/oci-internal/snipe-it.yaml`):** Laravel database migrations (`php artisan migrate --force`), preserving encryption keys (`APP_KEY`), and asset QR code verification.
+  * **ERPNext & Frappe HR (`k8s/oci-internal/erpnext-frappe.yaml`, `frappe-hr.yaml`):** Multi-app DocType synchronization via Frappe bench migrations, cache clearing, and timesheet/payroll ledger verification.
+  * **ZITADEL Customer Identity Provider (`k8s/oci-core/zitadel.yaml`):** Executing ZITADEL setup jobs (`zitadel init` / `zitadel setup`) for schema migrations and zero-downtime rolling updates.
+* **Automated Post-Upgrade Smoke Testing & Rollback Runbooks:**
+  * Automated validation via simulation driver (`go run ./simulation/cmd/simulator -mode live -persona emp-human-frank`).
+  * Single-command rollback SOPs restoring persistent volume snapshots and rolling back deployment revisions (`kubectl rollout undo deployment/<cots-app> -n oci-internal`).
+
+### 7.15 Fast Typo-Tolerant Full-Text Search via Meilisearch (Employee & Customer Portals) (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Full-text search engine client package (`pkg/search/meilisearch`), event-driven worker indexing pipeline in `cmd/worker`, BFF proxy endpoints (`/api/v1/customer/search`, `/api/v1/employee/search`), Command+K palette in Employee Portal, and instant search in Customer Portal are implemented and verified.
+
+Integrate the in-cluster **Meilisearch** instance (`meilisearch-service.oci-core.svc.cluster.local:7700`) into the customer and employee web portals to deliver instantaneous, typo-tolerant full-text search as a working platform showcase:
+* **Employee Portal (Unified Enterprise & Clinical Search):**
+  * Implement a global "Command+K" search palette in `web/employee-portal` allowing corporate staff, caretakers, and engineers to instantly search:
+    * IT Helpdesk tickets and resolutions (`oci-internal/helpdesk`).
+    * Knowledge Base documents, workplace policies, standard operating procedures (SOPs), and clinical protocols stored in Nextcloud.
+    * Feline Electronic Veterinary Health Records (VHR) and biometric notes.
+    * Facilities hardware asset inventory and firmware releases.
+* **Customer Portal (Investment Catalog & Research Search):**
+  * Instant search bar in `web/customer-portal` for:
+    * Equity market tickers, corporate fund descriptions, and feline behavioral alpha strategies.
+    * ESG feline welfare scorecards and habitat telemetry archives.
+    * Historical tax forms and investment performance statements.
+* **Backend Ingestion & Index Synchronization Pipeline:**
+  * Create lightweight change-data-capture (CDC) or event-driven indexers in Go (`cmd/worker` or dedicated service) subscribing to RabbitMQ domain events (`ticket_created`, `vhr_updated`, `asset_registered`, `trade_executed`) to continuously sync searchable document indices in Meilisearch.
+  * Implement BFF proxy search endpoints (`/api/v1/employee/search`, `/api/v1/customer/search`) with role-based document filtering and tenant isolation.
+
+### 7.16 Pure gRPC Wire Transport & Complete BFF Read-Route Decoupling to BLL (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Pure gRPC wire transport across Domain APIs with streaming valuation and environmental telemetry, standard gRPC health checking (`grpc.health.v1`), BLL and worker gRPC stubs, and complete removal of PostgreSQL `pgxpool` dependencies from Customer BFF and Employee BFF are implemented and verified.
+
+Finalize the microservices transition from transitional hybrid REST fallbacks to pure, decoupled gRPC wire transport:
+* **Complete BFF Decoupling from Direct Database Access:**
+  * Migrate all remaining direct database repository lookups (`pgxpool`) in `cmd/customer-bff` and `cmd/employee-bff` (e.g. portfolio queries, care schedules, asset lists) to route exclusively through the Customer BLL (`cmd/customer-bll`) and Internal BLL (`cmd/internal-bll`).
+  * Remove PostgreSQL connection pool dependencies entirely from both BFF binaries, ensuring BFFs function purely as presentation and session management proxies.
+* **Native gRPC Wire Transport over Mutual TLS:**
+  * Transition inter-service communication between BLL services and Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) from REST/HTTP to pure gRPC over mTLS using the compiled Protobuf services in `pkg/gen/go/`.
+  * Leverage gRPC streaming where appropriate (e.g., real-time habitat telemetry and live portfolio valuation recalculations).
+
+### 7.17 Automated Health Dashboard & Multi-Tenant Uptime Monitoring via Gatus (Completed)
+
+> [!NOTE]
+> **Status: Completed** — Automated service health dashboard and status page (`twinproduction/gatus:latest`) deployed in `k8s/monitoring/gatus.yaml`, probing Customer, Employee, and COTS services at `status.oci.local` with webhook incident alerting.
+
+Deploy and configure **[Gatus](https://github.com/TwiN/gatus)**, an automated service health dashboard and status page, to provide real-time uptime monitoring and transparent system status across all OCI custom services and commercial COTS applications:
+* **Target Services & Health Probing Endpoints:**
+  * **OCI Customer & Public Planes:** Static Marketing Site (`https://oci.local`), Customer Web Portal (`https://customer.oci.local`), Customer BFF (`http://oci-customer-bff-service.oci-core.svc.cluster.local:8083/healthz`), Customer BLL (`http://customer-bll-service.oci-core.svc.cluster.local:8085/healthz`), and external simulation services (Mock Bank `:8088/healthz`, Mock Broker `:8089/healthz`).
+  * **OCI Employee & Internal Planes:** Employee Web Portal (`https://employee.oci.local`), Employee BFF (`http://oci-employee-bff-service.oci-core.svc.cluster.local:8081/healthz`), Internal BLL (`http://internal-bll-service.oci-core.svc.cluster.local:8086/healthz`), and Domain APIs (`:8080/healthz`).
+  * **COTS Enterprise Platforms:** Forgejo (`http://forgejo-service.oci-internal.svc.cluster.local:3000/api/v1/version`), Nextcloud (`http://nextcloud-service.oci-internal.svc.cluster.local:80/status.php`), Snipe-IT (`http://snipe-it-service.oci-internal.svc.cluster.local:80/healthz`), ERPNext/Frappe HR (`http://erpnext-service.oci-internal.svc.cluster.local:8000/api/method/ping`), and ZITADEL (`http://zitadel-service.oci-core.svc.cluster.local:8080/debug/healthz`).
+* **Dashboard Capabilities & Architecture:**
+  * Deploy Gatus as a lightweight, single-pod Deployment (`twinproduction/gatus:latest`) in namespace `monitoring` or `oci-core` backed by a declarative ConfigMap (`gatus-config`).
+  * Expose a unified, mobile-responsive status page at `https://status.oci.local` featuring uptime percentages (7-day / 30-day), hourly latency heatmaps, TLS certificate expiration tracking, and incident history.
+* **Alerting Integrations:**
+  * Configure Gatus alert endpoints to trigger automatic incident events into RabbitMQ or webhooks targeting `cmd/pebble-proxy` and the employee portal real-time SSE stream whenever a monitored endpoint fails consecutive health checks.
+
+### 7.18 Research: Application Metrics & Tracing (OpenTelemetry) for OCI Applications
+Research and evaluate the integration of end-to-end distributed tracing, Application Performance Monitoring (APM), and business metrics using OpenTelemetry (OTel) across OCI custom services (`customer-bff`, `employee-bff`, `customer-bll`, `internal-bll`, `server`, `worker`, `pebble-proxy`) to establish complete request-path visibility and performance telemetry:
+* **Zero-Code Auto-Instrumentation:**
+  * **OpenTelemetry Operator for Kubernetes:** Evaluate deploying the OpenTelemetry Operator in the cluster to automatically inject instrumentation into running application pods using declarative annotations (e.g. `instrumentation.opentelemetry.io/inject-go: "true"` for Go microservices, `instrumentation.opentelemetry.io/inject-python: "true"` for Frappe HR/ERPNext background workers, or Node.js equivalents for web portal file servers).
+  * **Kernel-Level eBPF Telemetry (Grafana Beyla):** Investigate eBPF-based auto-instrumentation using Grafana Beyla as a zero-overhead alternative for Go binaries, automatically capturing inbound/outbound HTTP/gRPC route latencies, HTTP status codes, error rates (RED metrics), and outbound SQL (`pgxpool`) / REST calls without modifying application code or re-architecting binaries.
+* **SDK-Based Instrumentation for Custom Business Telemetry:**
+  * **Direct OpenTelemetry & Prometheus Client SDK Integration:** Integrate the OpenTelemetry Go SDK (`go.opentelemetry.io/otel`) or native Prometheus client SDK directly into critical business APIs across BFF, BLL, and Domain services.
+  * **Custom Business & Operational Metrics:** Instrument fine-grained counters, gauges, and histograms for domain-specific events:
+    * Retail investor user onboarding, KYC status transitions, and Plaid bank account linking success/failure rates.
+    * Trading checkout events, algorithmic order execution latency, and Smart Order Router bracket order fills.
+    * Feline behavioral event throughput (zoomies, perch occupancy, napping intervals) and computer vision frame classification inference confidence distributions.
+    * Feline Care Schedule updates and Emergency Medical Trading Hold toggle frequency.
+    * Wearable on-call alert dispatch-to-acknowledgment (MTTA) duration histograms from `cmd/pebble-proxy`.
+* **OTLP Pipeline, Collectors & Telemetry Storage Backend:**
+  * **Standardized OTLP Export:** Push traces, spans, and metrics over gRPC (port `4317`) and HTTP (port `4318`) using the OpenTelemetry Protocol (OTLP).
+  * **In-Cluster Telemetry Agent (OTel Collector / Grafana Alloy):** Deploy an in-cluster OpenTelemetry Collector or Grafana Alloy agent in namespace `monitoring` to receive, batch, sample, and redact incoming spans and metrics.
+  * **Storage & Correlation in Prometheus & Grafana Tempo:** Configure the collector to forward metrics to the in-cluster Prometheus instance (`monitoring/prometheus`) and distributed traces to Grafana Tempo, enabling seamless trace-to-metrics and trace-to-logs (Loki) correlation directly within Grafana dashboards.
+
+### 7.19 Queue Depths and Dead-Letter Queues in RabbitMQ (Built-in Prometheus Telemetry) (Completed)
+
+> [!NOTE]
+> **Status: Completed** — First-class native `rabbitmq_prometheus` plugin enabled on port `15692` with `prometheus.return_per_object_metrics = true`, Prometheus scraping at `/metrics/per-object`, and Alertmanager rules for DLQ backlogs and stagnant consumers are implemented and verified.
+
+Implement robust, low-overhead queue telemetry and automated alerting across RabbitMQ messaging infrastructure to monitor message delivery rates, queue backlog depths, and dead-letter queues (DLQ) without degrading broker throughput:
+* **First-Class Native `rabbitmq_prometheus` Plugin:**
+  * **Avoid Third-Party Exporters:** Avoid third-party RabbitMQ exporters—they poll the HTTP management API (`/api/...`), which causes CPU spikes, memory leaks, and struggles significantly under heavy message loads or failover conditions.
+  * **Built-in Telemetry:** RabbitMQ (3.8+) ships with a first-class, built-in `rabbitmq_prometheus` plugin that exposes metrics directly from the Erlang runtime and message core, providing fast, lightweight, and low-overhead Prometheus scraping.
+* **Plugin Setup & Port Exposition:**
+  * Enable the `rabbitmq_prometheus` plugin in the RabbitMQ configuration (via `/etc/rabbitmq/enabled_plugins` or the RabbitMQ Cluster Operator / ConfigMap).
+  * Expose dedicated Prometheus metrics port `15692` on the pod container and service (`k8s/oci-core/rabbitmq.yaml`).
+* **Crucial Configuration Tip (`/metrics/per-object`):**
+  * By default, RabbitMQ aggregates metrics across all queues on `/metrics` to protect large multi-tenant enterprise clusters from high metric cardinality.
+  * In a small-business sandbox stack, configure your Prometheus scrape target or ServiceMonitor to scrape `/metrics/per-object` (or set `prometheus.return_per_object_metrics = true` in `rabbitmq.conf`) so every individual queue and DLQ gets its own `queue="<name>"` label in Prometheus.
+* **Key Metrics to Track & Alert On:**
+  * **Dead-Letter Queue (DLQ) Backlog:** Trigger immediate alerts when `rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 0`, indicating unhandled serialization errors, poison-pill messages, or failing event handlers in Watermill consumers.
+  * **Queue Depth & Backlog Spikes:** Track `rabbitmq_queue_messages_ready` and `rabbitmq_queue_messages_unacknowledged` against worker consumption rates (`rabbitmq_queue_messages_delivered_total`).
+  * **Stagnant Consumers & Worker Failures:** Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating dead, hung, or disconnected worker subscriptions).
+  * **Erlang Process & Memory Watermarks:** Monitor `rabbitmq_process_resident_memory_bytes` against `rabbitmq_resident_memory_limit_bytes` and file descriptor limits to detect resource starvation before RabbitMQ connection flow control and alarms kick in.
+
+### 7.20 Research: Infrastructure Application Monitoring (Valkey, Meilisearch, RabbitMQ, & PostgreSQL)
+Research and evaluate comprehensive Prometheus telemetry, health probing, and alerting strategies for core stateful infrastructure backing Orange Cat Investments (`valkey`, `meilisearch`, `rabbitmq`, and dual `postgres-core`/`postgres-internal` databases). Because databases and persistence stores generally do not expose Prometheus metrics natively, Kubernetes architectures must evaluate the **Exporter Sidecar Pattern**, dedicated operators, or native internal plugin modules:
+
+* **Valkey (In-Memory Cache & Session Store):**
+  * **Redis Wire Compatibility:** Because Valkey maintains wire and command compatibility with Redis, the standard `oliver006/redis_exporter` works seamlessly without custom forks.
+  * **Setup:**
+    * If deployed via Helm chart, toggle `metrics.enabled=true` to automatically inject `redis_exporter` as a sidecar container listening on port `9121` alongside a `ServiceMonitor` / `PodMonitor`.
+    * In native manifests (`k8s/oci-core/valkey.yaml`), deploy `oliver006/redis_exporter:latest` as a sidecar container pointing to `redis://localhost:6379`.
+  * **Key Metrics & Alerts:**
+    * *Memory Saturation:* Compare `redis_memory_used_bytes` against `redis_memory_max_bytes` (alert above 85% to prevent sudden Linux OOMKilled pod evictions).
+    * *Key Evictions:* `increase(redis_evicted_keys_total[5m]) > 0` indicates Valkey is dropping keys under memory pressure, directly impacting active BFF sessions (`pkg/session/valkey`) and cached API query results (`pkg/cache/valkey`).
+    * *Cache Efficiency:* Calculate hit rate: `redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total)` (alert when hit rate drops below baseline thresholds).
+    * *Connected Clients & Command Latency:* Monitor `redis_connected_clients` against connection caps and track slow operations via `redis_slowlog_length`.
+
+* **PostgreSQL (Dual-Instance RDBMS - `postgres-core` & `postgres-internal`):**
+  * **Setup:**
+    * *CloudNativePG Operator (Recommended):* Migrate from static StatefulSets/Deployments to the CloudNativePG (CNPG) Operator, which embeds a Prometheus exporter directly into its instance manager on port `9187` with automated failover, WAL archiving, and declarative `PodMonitor` CRDs.
+    * *Exporter Sidecar:* Alternatively, run `prometheus-community/postgres_exporter` as a sidecar in `k8s/oci-core/postgres.yaml` and `k8s/oci-internal/postgres.yaml` authenticated via a read-only monitoring database role.
+    * *Query Profiling Extension:* Ensure the `pg_stat_statements` extension is enabled in `postgresql.conf` and database bootstrap scripts to monitor slow queries, execution counts, and buffer hit cache ratios.
+  * **Key Metrics & Alerts:**
+    * *Connection Saturation:* Active connections (`pg_stat_activity_count`) approaching `pg_settings_max_connections` (alert at 80% to prevent rejecting connection requests from application pools in `pgxpool`).
+    * *Dead Tuples & Autovacuum Lag:* Monitor `pg_stat_user_tables_n_dead_tup` to detect autovacuum starvation, which leads to severe table bloat and degraded query performance over time.
+    * *Transaction ID Wraparound & Replication Lag:* Monitor `pg_database_age` against emergency vacuum limits, and track WAL replication lag (`pg_stat_replication_bytes_lag`) if read replicas are deployed.
+    * *Buffer Cache Hit Ratio:* Alert if `sum(blks_hit) / (sum(blks_hit) + sum(blks_read))` drops below 99%.
+
+* **Meilisearch (Full-Text Search Engine):**
+  * **Setup & Exposition:**
+    * Enable experimental native Prometheus telemetry via the `--experimental-prometheus-metrics` CLI flag or environment variable `MEILI_EXPERIMENTAL_PROMETHEUS_METRICS=true` on port `7700`.
+    * Alternatively, deploy a lightweight exporter sidecar (such as `meilisearch-exporter` or a custom Go daemon) querying Meilisearch's internal `/health`, `/stats`, and `/tasks` JSON APIs.
+  * **Key Metrics & Alerts:**
+    * *Task & Indexing Queue Backlog:* Monitor pending task count (`meilisearch_task_queue_depth` or pending tasks in `/tasks?statuses=enqueued,processing`) to detect asynchronous indexing lag when updating knowledge base documents, SOPs, or VHR health records.
+    * *LMDB Disk & Memory Saturation:* Monitor `meilisearch_database_size_bytes` against the persistent volume capacity (`meilisearch-data-pvc`), and track memory virtual mapping (LMDB memory map size) to prevent out-of-disk crashes during large document re-indexing jobs.
+    * *Search Latency & QPS:* Track P95 and P99 search request latencies and queries per second (QPS) across the Employee Portal Command+K search palette.
+    * *Index Document Counts & Updates:* Track document counts per index (`helpdesk`, `sop_docs`, `vhr_records`) to verify document synchronization consistency.
+
+* **RabbitMQ (Distributed Message Broker & Event Bus):**
+  * **Native Plugin Telemetry (No Exporter Sidecar Required):**
+    * Unlike databases requiring external sidecars, RabbitMQ ships with the first-class `rabbitmq_prometheus` plugin operating directly inside the Erlang runtime on port `15692`.
+    * Avoid third-party HTTP management API exporters (`/api/...`) which poll the web interface and cause severe CPU/memory overhead under heavy message loads.
+  * **Setup & Per-Object Cardinality Tuning:**
+    * Enable `rabbitmq_prometheus` in `enabled_plugins` and expose port `15692` in `k8s/oci-core/rabbitmq.yaml` (container port and `rabbitmq-service`).
+    * Set `prometheus.return_per_object_metrics = true` in `rabbitmq.conf` (or scrape `/metrics/per-object`) so every individual queue and DLQ gets its own `queue="<name>"` label in Prometheus (see [Section 7.19](#719-queue-depths-and-dead-letter-queues-in-rabbitmq-built-in-prometheus-telemetry)).
+  * **Key Metrics & Alerts:**
+    * *Dead-Letter Queue (DLQ) Backlog:* Immediate alert if `rabbitmq_queue_messages_ready{queue=~".*dlq.*"} > 0` (poison pills or worker deserialization failures).
+    * *Queue Depth & Backlog Spikes:* Monitor unacknowledged and ready message counts against worker consumption rates.
+    * *Stagnant Consumers:* Alert when `rabbitmq_queue_consumers == 0` while `rabbitmq_queue_messages_ready > 0` (indicating disconnected or dead subscriber routines).
+    * *Erlang VM & Node Alarms:* Monitor `rabbitmq_process_resident_memory_bytes` against memory watermark limits and track `rabbitmq_disk_free_alarm` and `rabbitmq_memory_alarm` boolean states.
+
+### 7.21 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
+Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
+
+* **Persistent Volume (PVC) Disk Saturation (The #1 Silent Killer):**
+  * *The Vulnerability:* In managed cloud environments, managed database services and CSI drivers can automatically expand underlying block storage. In self-hosted Kubernetes, if a PersistentVolumeClaim backing PostgreSQL (`postgres-data-pvc`, `postgres-internal-data-pvc`), Nextcloud (`nextcloud-data-pvc`), RabbitMQ, Valkey, or Prometheus itself hits 100% capacity, write-ahead logs fail, databases crash, tables corrupt, and pods enter unrecoverable CrashLoopBackOff loops.
+  * *Implementation Plan:* Ensure Kubelet volume metrics (`kubelet_volume_stats_available_bytes` and `kubelet_volume_stats_capacity_bytes`) are scraped by Prometheus.
+  * *Alert Rules:* Configure alerts to trigger whenever any PVC drops below 15% free capacity, or if linear disk consumption predicts volume exhaustion within 24 hours (`predict_linear(kubelet_volume_stats_available_bytes[4h], 86400) < 0`).
+
+* **Kubernetes Object State & OOMKills (`kube-state-metrics`):**
+  * *The Vulnerability:* Standard CPU and memory graphs return to healthy, baseline levels immediately after a crashed pod restarts, masking memory leaks, thrashing restart loops, or image pull regressions.
+  * *Implementation Plan:* Deploy `kube-state-metrics` (standard within `kube-prometheus-stack`) to track and alert on Kubernetes control plane object state anomalies.
+  * *Key Alerts:*
+    * Pods stuck in `CrashLoopBackOff` or `ImagePullBackOff` for more than 5 minutes.
+    * Pods stuck in `Pending` (unschedulable due to resource requests, node affinity, or unbound PVCs).
+    * Container terminations caused by Out-Of-Memory evictions (`kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}`).
+
+* **Kubernetes API Event Shipping to Long-Term Logs:**
+  * *The Vulnerability:* By default, the Kubernetes API server purges cluster events (`kubectl get events`) after 60 minutes. If a pod fails to mount a volume, fails liveness probes, or is evicted by the node at 2:00 AM, all forensic evidence is deleted by morning.
+  * *Implementation Plan:* Configure Grafana Alloy (or Promtail) with the `loki.source.kubernetes_events` component to tail Kubernetes API events continuously and ship them to Grafana Loki alongside container stdout/stderr log streams, ensuring full historical auditability.
+
+* **Ingress & TLS Certificate Expiration (`cert-manager`):**
+  * *The Vulnerability:* Self-hosted stacks rely heavily on cert-manager with Let's Encrypt or private root CAs. A silent ACME DNS/HTTP-01 challenge failure or unhandled renewal webhook can cause production SSL certificates to expire unnoticed.
+  * *Implementation Plan:* Scrape cert-manager Prometheus metrics (`certmanager_certificate_expiration_timestamp_seconds` and `certmanager_certificate_ready_status`).
+  * *Alert Rule:* Configure Prometheus Alertmanager to fire a warning 14 days before certificate expiration, providing ample operational buffer to remediate challenge or renewal failures before customer browsers reject connections.
+
+* **Automated Backup Verification Metrics:**
+  * *The Vulnerability:* Running stateful apps (Postgres, Nextcloud, Forgejo) requires automated daily backups (via CloudNativePG Barman, Velero, or custom K8s backup CronJobs). Backups that silently fail due to storage exhaustion, network timeouts, or permission errors leave the cluster vulnerable to total data loss.
+  * *Implementation Plan:* Instrument and scrape backup controller metrics (e.g. backup completion timestamps, backup size, and exit status).
+  * *Alert Rule:* Alert immediately if the timestamp of the last successful backup is older than 26 hours (`time() - backup_last_successful_timestamp_seconds > 26 * 3600`), guaranteeing daily backup verification.
+
+* **"Watching the Watchers" (Dead Man's Switch / External Heartbeat Instructions):**
+  * *Operational Scope:* Instructions only (no implementation in repo).
+  * *The Problem:* If your self-hosted Kubernetes node loses electrical power, experiences hardware motherboard failure, or loses ISP internet connectivity, in-cluster Prometheus and Alertmanager instances are completely offline and physically incapable of firing webhook alerts or sending push notifications.
+  * *Setup Instructions:*
+    1. Utilize Prometheus Alertmanager's built-in `Watchdog` alert (a synthetic alert configured to always fire continuously with severity `none`).
+    2. In Alertmanager configuration, configure a dedicated route forwarding the `Watchdog` notification via an HTTP webhook every 5–10 minutes to a free external dead man's switch service (e.g. [Healthchecks.io](https://healthchecks.io), Better Stack, or Cronitor).
+    3. If the external heartbeat monitor stops receiving the expected ping within the configured grace period (e.g. 15 minutes), the external service immediately pages the on-call engineer via SMS, email, or mobile push notification, providing external out-of-band alerting for complete site, power, or internet failures.
+
+### 7.22 Automated In-Cluster Forgejo Runner CI/CD Pipeline & Test Cluster Promotion
+Refactor the test cluster verification and deployment workflow so that test clusters (e.g. `thinker`) are tested as authentic, self-contained deployment targets rather than relying on manual image builds pushed from external developer workstations:
+
+* **The Problem:**
+  Building OCI microservices and frontend SPAs locally on a developer or agent workstation and pushing them to the test cluster's registry (`localhost:32000` / `thinker:32000`) bypasses the cluster's internal deployment machinery. It exercises the workstation's local environment, Go compiler, and network rather than validating the deployed cluster's own self-hosted software supply chain.
+* **Architecture & Objectives:**
+  * **In-Cluster Source Synchronization:** Automatically sync or bootstrap the `orange-cat-investments` repository into the in-cluster **Forgejo** instance (`http://forgejo-service.oci-internal.svc:3000`) during platform deployment.
+  * **In-Cluster Container Builds via Forgejo Actions:** Utilize the deployed in-cluster runner ([`k8s/oci-internal/forgejo-runner.yaml`](k8s/oci-internal/forgejo-runner.yaml)) running `gitea/act_runner` with Docker-in-Docker (DinD). When code changes land on Forgejo, [`.forgejo/workflows/ci.yaml`](.forgejo/workflows/ci.yaml) executes inside the cluster node.
+  * **Direct Push to In-Cluster Registry (`localhost:32000`):** The runner builds the multi-stage container images (Domain APIs, BLLs, BFFs, `oci-worker`, `oci-pebble-proxy`, `oci-marketing`, portals) and pushes directly to `localhost:32000` over the in-cluster network.
+  * **Gated Promotion to Staging (`oci-dev`) & Production (`oci-core`):** Once unit tests and builds succeed inside the cluster runner, the workflow triggers Kubernetes rolling updates in `oci-dev` and subsequent promotion to `oci-core`.
+  * **Automated End-to-End Simulation Verification:** The runner triggers an automated post-deployment simulation run (`simulation/cmd/simulator -mode live`) to verify that all 12 personas function correctly on the freshly deployed cluster without requiring external CLI intervention.
+
+### 7.23 Stateful Persona Session Management & Cookie/CSRF Persistence in Platform Simulation
+Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/client.go`, `simulation/driver.go`) to manage authentic stateful sessions, persisting session cookies and double-submit CSRF tokens across consecutive actions executed by the same persona:
+
+* **The Problem:**
+  The current simulation HTTP client (`simulation.Client`) is stateless. It executes requests using a bare `http.Client` without an HTTP cookie jar (`net/http/cookiejar`) or persistent authentication context. While mock mode (`-mode mock`) sidesteps authentication by mounting unauthenticated mock handlers, live cluster validation (`-mode live`) targets production and staging BFFs (`oci-customer-bff` and `oci-employee-bff`) that strictly enforce session authentication (`__Host-customer-session`, `__Host-employee-session`) stored in Valkey and double-submit CSRF verification (`X-CSRF-Token`). As a result, authentic persona workflows calling protected BFF endpoints fail with `401 Unauthorized` or `403 Forbidden` in live environments. Furthermore, stateless execution cannot test real-world user lifecycles (e.g. login $\rightarrow$ authenticated operations $\rightarrow$ session revocation / logout), multi-step trading sessions, or session expiration.
+* **Architecture & Objectives:**
+  * **Per-Persona Cookie Jar & Session Scope:** Equip the simulation client with per-persona `http.CookieJar` instances (`net/http/cookiejar.New(nil)`). When executing a persona's action list during a simulation iteration, all HTTP requests dispatched by that persona reuse the persona's cookie jar, automatically preserving session cookies (`__Host-customer-session`, `__Host-employee-session`, `customer_session`, `employee_session`) and CSRF cookies across calls.
+  * **Automated Persona Authentication Handshake:** Introduce an automated pre-action authentication hook in `simulation.Driver`:
+    * *Customer Personas (Arthur Pendelton, Chloe Spark):* Prior to running daily customer actions, perform an authentication handshake against `POST /api/v1/customer/auth/login` (or ZITADEL OIDC flow in live mode), populating the cookie jar and extracting the active CSRF token.
+    * *Employee & Staff Personas (Bob Builder, Alice Vance, Dr. Elena Rostova, Frank Operations, etc.):* Authenticate via `POST /api/v1/employee/auth/login` (in development mode) or Forgejo OAuth2 handshake (`/api/v1/employee/auth/forgejo/login`), establishing an authentic session in Valkey.
+  * **Transparent Double-Submit CSRF Header Injection:** Automatically extract the active CSRF token from the persona's cookie jar and populate the `X-CSRF-Token` header on state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) to BFF endpoints, eliminating boilerplate in individual action definitions.
+  * **Stateful Lifecycle & Security Testing:**
+    * Enable personas to execute realistic multi-step journeys: login $\rightarrow$ browse directory / portfolio $\rightarrow$ submit timesheet / order $\rightarrow$ view paystub / statement $\rightarrow$ explicit logout.
+    * Enable negative security testing: verify that session invalidation during offboarding (e.g. Alice triggering employee offboarding) immediately invalidates the persona's session in Valkey, causing subsequent calls with the cached cookie to correctly fail with `401 Unauthorized`.
+  * **Mock & Live Mode Parity:** Ensure both `-mode mock` and `-mode live` adhere to the same session management model, guaranteeing seamless transition between offline test runner execution and live cluster verification.
+
+
+
 

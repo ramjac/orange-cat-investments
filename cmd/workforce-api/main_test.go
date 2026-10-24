@@ -1,43 +1,54 @@
 package main
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"testing"
 
-	"github.com/orange-cat-investments/oci/internal/handler"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
-func TestWorkforceAPI_Healthz(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","domain":"workforce"}`))
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"domain":"workforce"`)
-}
-
-func TestWorkforceAPI_Routes(t *testing.T) {
+func TestWorkforceAPI_GRPC(t *testing.T) {
 	repo := workforce.NewMockRepository()
 	svc := workforce_svc.NewService(repo)
-	h := handler.NewWorkforceHandler(svc, nil, nil)
 
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+	grpcServer := grpcutil.NewServer(nil)
+	grpcSrv := NewWorkforceGRPCServer(svc)
+	workforcev1.RegisterWorkforceServiceServer(grpcServer, grpcSrv)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
-	mux.ServeHTTP(rec, req)
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthSrv)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpcutil.Dial(t.Context(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Test Health
+	healthClient := grpc_health_v1.NewHealthClient(conn)
+	hRes, err := healthClient.Check(t.Context(), &grpc_health_v1.HealthCheckRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, hRes.Status)
+
+	// Test Service RPC
+	client := workforcev1.NewWorkforceServiceClient(conn)
+	res, err := client.ListEmployees(t.Context(), &workforcev1.ListEmployeesRequest{})
+	require.NoError(t, err)
+	assert.NotNil(t, res)
+	assert.NotEmpty(t, res.Employees)
 }
