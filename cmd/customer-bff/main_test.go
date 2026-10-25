@@ -14,6 +14,7 @@ import (
 
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
@@ -73,10 +74,11 @@ func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	ciRepo := core_invest_repo.NewMockRepository()
 	ciSvc := core_invest_svc.NewService(ciRepo)
-	wfRepo := workforce_repo.NewRepository(nil)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfSvc := workforce_svc.NewService(wfRepo)
 
 	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
+	bff.opsSvc = ops_svc.NewService(ops_repo.NewMockRepository())
 	bff.sessions.SetSession(&CustomerSession{
 		SessionID:  "sess-arthur-token",
 		CustomerID: "cust-longterm-arthur",
@@ -615,7 +617,7 @@ func TestCustomerBFF_BankIntegration(t *testing.T) {
 
 	mockRepo := core_invest_repo.NewMockRepository()
 	ciSvc := core_invest_svc.NewServiceWithIntegrations(mockRepo, nil, bankClient)
-	wfRepo := workforce_repo.NewRepository(nil)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfSvc := workforce_svc.NewService(wfRepo)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
@@ -1133,7 +1135,10 @@ func TestCustomerBFF_GDPRErasure_And_Certificate(t *testing.T) {
 }
 
 func TestCustomerBFF_Search(t *testing.T) {
-	_, mux := setupTestBFF()
+	bff, mux := setupTestBFF()
+	_ = bff.searchClient.IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
+		{"id": "fund-alpha", "category": "fund", "symbol": "ALPHA", "title": "OCI Feline Behavioral Alpha Fund", "description": "Dynamic quantitative weighting based on active feline zoomie intervals."},
+	})
 
 	// Search for Alpha fund with valid Arthur session
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/search?q=Alpha", nil)

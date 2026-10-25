@@ -963,6 +963,46 @@ Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/clie
     * Enable negative security testing: verify that session invalidation during offboarding (e.g. Alice triggering employee offboarding) immediately invalidates the persona's session in Valkey, causing subsequent calls with the cached cookie to correctly fail with `401 Unauthorized`.
   * **Mock & Live Mode Parity:** Ensure both `-mode mock` and `-mode live` adhere to the same session management model, guaranteeing seamless transition between offline test runner execution and live cluster verification.
 
+### 7.24 Modular BFF & BLL Application Architecture (Decomposition of Monolithic main.go Files)
+Refactor the OCI BFF and BLL service entrypoints (`cmd/customer-bff/main.go`, `cmd/employee-bff/main.go`, `cmd/customer-bll/main.go`, `cmd/internal-bll/main.go`, `cmd/worker/main.go`) from monolithic single-file implementations into a structured, modular internal package architecture:
+
+* **The Problem:**
+  Several critical application entrypoints currently span over 1,000–2,800 lines within a single `main.go` file (e.g. `cmd/customer-bff/main.go` at 2,200+ lines, `cmd/employee-bff/main.go` at 2,800+ lines, `cmd/customer-bll/main.go` at 1,100+ lines). These files combine CLI configuration parsing, server bootstrapping, middleware chains, route multiplexing, and dozens of discrete domain endpoint handlers in one place. This monolithic structure hinders readability, complicates code reviews, increases git merge conflict probability, and makes targeted unit testing more cumbersome.
+* **Architecture & Objectives:**
+  * **Formalized Layered Application Layout:**
+    * `cmd/<service>/main.go`: Retain as an ultra-lean bootstrap entrypoint responsible only for environment flag parsing, logging setup, dependency injection wiring, OS signal handling, and server lifecycle (`ListenAndServe` / graceful `Shutdown`).
+    * `internal/app/<service>/`: House the server application struct, configuration loader, and dependency container.
+    * `internal/app/<service>/router.go`: Define HTTP mux routing tables and middleware chains (session authentication, CSRF validation, rate limiting, request tracing, versioning).
+    * `internal/app/<service>/handlers/`: Group related HTTP handlers into focused controller modules:
+      * For `customer-bff`: `auth_handlers.go`, `portfolio_handlers.go`, `trading_handlers.go`, `stream_handlers.go`, `ticket_handlers.go`, `audit_handlers.go`.
+      * For `employee-bff`: `auth_handlers.go`, `workforce_handlers.go`, `facilities_handlers.go`, `review_handlers.go`, `incident_handlers.go`, `cots_handlers.go`.
+      * For `customer-bll`: `orders.go`, `banking.go`, `brokerage.go`, `streams.go`.
+      * For `internal-bll`: `incidents.go`, `firmware.go`, `reports.go`, `veterinary.go`, `sagas.go`.
+  * **Controller & Service Interface Segregation:**
+    * Decouple HTTP serialization/deserialization logic from domain business rules by injecting domain service interfaces rather than concrete clients.
+    * Standardize API error responses via structured error helpers (`apierror.Render(w, err)`).
+  * **Isolated Sub-Module Testing:**
+    * Enable unit testing of individual handler packages (`handlers/*_test.go`) without spinning up the entire server multiplexer or instantiating all domain clients.
+
+### 7.25 Dynamic Habitat Camera & Computer Vision Stream Lifecycle Management
+Design and implement an end-to-end dynamic lifecycle and discovery framework for OCI habitat camera feeds and optical computer vision streams (`core_invest.camera_streams` and `facilities.hardware_assets`):
+
+* **The Problem:**
+  Habitat camera streams are currently populated via static seed scripts (`scripts/seed-dev.sql`, `scripts/init.sql`). In production, optical observation feeds (e.g. 4K WebRTC low-latency habitat perch cameras, wide-angle feline observation scopes, thermal imaging feeds) are dynamically deployed, upgraded, repositioned, or decommissioned. The platform requires a formal management plane to register physical hardware cameras, provision streaming ingest endpoints (WebRTC/WHEP, RTSP, HLS), monitor stream health, dynamically negotiate WebRTC SDP handshakes, and route video frames into the ML computer vision observation pipeline without manual SQL intervention.
+* **Architecture & Objectives:**
+  * **Hardware Asset to Stream Binding:**
+    * Formalize the lifecycle link between `facilities.hardware_assets` (edge cameras identified by QR codes and serial numbers) and `core_invest.camera_streams`.
+    * Provide automated camera provisioning APIs in `facilities-api` and `internal-bll` for field engineers to scan a camera's QR code, pair it to a habitat zone (`Zone Alpha`, `Zone Beta`), and initialize its streaming ingestion pipeline.
+  * **Dynamic Stream Discovery & Catalog API:**
+    * Implement pure gRPC RPCs in `CoreInvestService` (`ListCameraStreams`, `GetCameraStream`, `RegisterCameraStream`, `UpdateStreamStatus`) backed by `core_invest.camera_streams`.
+    * Expose dynamic stream discovery in `customer-bll` (`GET /api/v1/customer-bll/streams`) and `customer-bff` (`GET /api/v1/customer/streams`), replacing any static fallbacks.
+  * **Edge Media Server Integration & Ingestion Pipeline:**
+    * Integrate an edge media server (e.g. MediaMTX / LiveKit / Janus WebRTC gateway) running in `oci-core` to ingest raw RTSP feeds from physical edge cameras and transcode/relay them to WebRTC (WHEP) and HLS endpoints for the customer web portal.
+    * Automate stream health checks: when a camera goes offline or encounters network degradation, automatically transition stream status (`active` $\rightarrow$ `idle` $\rightarrow$ `error`), notifying facilities engineers via ops alerts.
+  * **Computer Vision Ingestion Orchestration:**
+    * Connect the active stream ingestion plane with the feline executive observation engine: edge workers pull frames from the active stream, execute optical pose estimation and activity detection (e.g., alpha perch posture, rest cycles), and publish `events.investment.observation_ingested.v1` events to RabbitMQ.
+
+
 
 
 

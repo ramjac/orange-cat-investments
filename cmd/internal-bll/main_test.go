@@ -196,3 +196,30 @@ func TestInternalBLL_TriggerReport(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Contains(t, rec.Body.String(), "2026-10")
 }
+
+func TestInternalBLL_EnvironmentalStream_ZoneIDConfig(t *testing.T) {
+	bll := &InternalBLLServer{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/internal-bll/stream/telemetry", bll.handleEnvironmentalStream)
+
+	// Case 1: Missing zone_id and no DEFAULT_ZONE_ID
+	t.Setenv("DEFAULT_ZONE_ID", "")
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry", nil)
+	mux.ServeHTTP(rec1, req1)
+	assert.Equal(t, http.StatusBadRequest, rec1.Code)
+	assert.Contains(t, rec1.Body.String(), "DEFAULT_ZONE_ID")
+
+	// Case 2: Configured DEFAULT_ZONE_ID, but nil facClient -> 503
+	t.Setenv("DEFAULT_ZONE_ID", "zone-test")
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry", nil)
+	mux.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusServiceUnavailable, rec2.Code)
+
+	// Case 3: Query param zone_id provided, but nil facClient -> 503
+	rec3 := httptest.NewRecorder()
+	req3 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry?zone_id=zone-custom", nil)
+	mux.ServeHTTP(rec3, req3)
+	assert.Equal(t, http.StatusServiceUnavailable, rec3.Code)
+}

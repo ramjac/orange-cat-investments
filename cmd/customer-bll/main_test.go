@@ -410,3 +410,59 @@ func TestCustomerBLL_PortfolioMetrics_Validation(t *testing.T) {
 	assert.Equal(t, 2500.50, metrics["cash_balance"])
 	assert.Equal(t, 17500.50, metrics["total_value"])
 }
+
+func TestCustomerBLL_GetStreams(t *testing.T) {
+	// Case 1: core-invest returns active streams
+	mockCoreInvestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/core-invest/streams" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"stream_id":  "stream-01",
+					"stream_url": "webrtc://streams.oci.local/live/test-cam",
+					"protocol":   "webrtc",
+					"status":     "active",
+				},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockCoreInvestServer.Close()
+
+	bll := &CustomerBLLServer{
+		httpClient:    mockCoreInvestServer.Client(),
+		coreInvestURL: mockCoreInvestServer.URL,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/customer-bll/streams", bll.handleGetStreams)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/v1/customer-bll/streams", nil)
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, float64(1), resp["total"])
+
+	// Case 2: core-invest is unavailable
+	bllEmpty := &CustomerBLLServer{
+		httpClient:    http.DefaultClient,
+		coreInvestURL: "http://127.0.0.1:54321", // non-existent
+	}
+	muxEmpty := http.NewServeMux()
+	muxEmpty.HandleFunc("GET /api/v1/customer-bll/streams", bllEmpty.handleGetStreams)
+
+	recEmpty := httptest.NewRecorder()
+	reqEmpty := httptest.NewRequest("GET", "/api/v1/customer-bll/streams", nil)
+	muxEmpty.ServeHTTP(recEmpty, reqEmpty)
+
+	assert.Equal(t, http.StatusOK, recEmpty.Code)
+	var respEmpty map[string]interface{}
+	err = json.Unmarshal(recEmpty.Body.Bytes(), &respEmpty)
+	require.NoError(t, err)
+	assert.Equal(t, float64(0), respEmpty["total"])
+}

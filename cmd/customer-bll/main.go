@@ -704,28 +704,33 @@ func (s *CustomerBLLServer) handleGetWelfareTransparency(w http.ResponseWriter, 
 }
 
 func (s *CustomerBLLServer) handleGetStreams(w http.ResponseWriter, r *http.Request) {
-	streams := []map[string]interface{}{
-		{
-			"stream_id":  "stream-habitat-01",
-			"name":       "Perch Alpha 4K WebRTC Live Feed",
-			"zone":       "Zone Alpha",
-			"status":     "online",
-			"webrtc_url": "webrtc://streams.oci.local/live/habitat-cam-01",
-			"hls_url":    "https://streams.oci.local/live/habitat-cam-01/index.m3u8",
-		},
-		{
-			"stream_id":  "stream-habitat-02",
-			"name":       "Nap Pod Beta Wide-Angle Feed",
-			"zone":       "Zone Beta",
-			"status":     "online",
-			"webrtc_url": "webrtc://streams.oci.local/live/habitat-cam-02",
-			"hls_url":    "https://streams.oci.local/live/habitat-cam-02/index.m3u8",
-		},
-	}
 	w.Header().Set("Content-Type", "application/json")
+	if s.coreInvestURL != "" {
+		req, err := http.NewRequestWithContext(r.Context(), "GET", fmt.Sprintf("%s/api/v1/core-invest/streams", s.coreInvestURL), nil)
+		if err == nil {
+			client := s.httpClient
+			if client == nil {
+				client = http.DefaultClient
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					var rawStreams []map[string]interface{}
+					if err := json.NewDecoder(resp.Body).Decode(&rawStreams); err == nil {
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
+							"streams": rawStreams,
+							"total":   len(rawStreams),
+						})
+						return
+					}
+				}
+			}
+		}
+	}
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"streams": streams,
-		"total":   len(streams),
+		"streams": []map[string]interface{}{},
+		"total":   0,
 	})
 }
 

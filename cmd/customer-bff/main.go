@@ -131,12 +131,6 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 	meiliKey := os.Getenv("MEILI_MASTER_KEY")
 	sClient := meilisearch.NewClient(meiliURL, meiliKey)
 	_ = sClient.EnsureIndex(context.Background(), "customer_catalog", "id")
-	_ = sClient.IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
-		{"id": "fund-zoomie", "category": "fund", "symbol": "ZOOM", "title": "OCI Feline Behavioral Alpha Fund", "description": "Dynamic quantitative weighting based on active feline zoomie intervals."},
-		{"id": "fund-catnip", "category": "fund", "symbol": "NIP", "title": "Organic Catnip Agriculture ESG Fund", "description": "Sustainable feline agricultural infrastructure and cat grass ventures."},
-		{"id": "esg-welfare-2026", "category": "transparency", "title": "2026 Feline Workplace Welfare & Habitat Transparency", "description": "OSHA-compliant scratch post maintenance and continuous perch monitoring."},
-		{"id": "stmt-tax-1099b", "category": "statement", "title": "Form 1099-B Proceeds From Broker and Barter Exchange", "description": "Annual consolidated tax statement for realized capital gains and DCA distributions."},
-	})
 
 	var bllClient *http.Client
 	tlsCert := os.Getenv("TLS_CERT_FILE")
@@ -156,7 +150,7 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 	return &CustomerBFF{
 		ciSvc:          ciSvc,
 		wfSvc:          wfSvc,
-		opsSvc:         ops_svc.NewService(ops_repo.NewMockRepository()),
+		opsSvc:         ops_svc.NewService(ops_repo.NewRepository(nil)),
 		sessions:       sessionvalkey.NewCustomerSessionStore(valkeyAddr, valkeyPass, 0, logger),
 		cache:          cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger),
 		rateLimiter:    cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
@@ -1694,9 +1688,10 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 }
 
 func buildFelineExecutiveMap(emp *workforce_repo.Employee, records []*workforce_repo.VHRRecord) map[string]interface{} {
-	healthStatus := "OPTIMAL_ALPHA"
+	healthStatus := "ACTIVE"
 	whiskerSymmetry := "100%"
-	purrFreq := 28.5
+	purrFreq := 25.0
+	preferredSunbeam := "Observation Lounge"
 
 	if len(records) > 0 {
 		latest := records[0]
@@ -1707,6 +1702,10 @@ func buildFelineExecutiveMap(emp *workforce_repo.Employee, records []*workforce_
 		} else {
 			healthStatus = "UNDER_OBSERVATION"
 			whiskerSymmetry = "95.0%"
+			purrFreq = 22.0
+		}
+		if latest.ClinicalNotes != "" {
+			preferredSunbeam = latest.ClinicalNotes
 		}
 	}
 
@@ -1717,7 +1716,7 @@ func buildFelineExecutiveMap(emp *workforce_repo.Employee, records []*workforce_
 		"health_status":     healthStatus,
 		"whisker_symmetry": whiskerSymmetry,
 		"purr_frequency_hz": purrFreq,
-		"preferred_sunbeam": "Alpha Sunbeam Lounge",
+		"preferred_sunbeam": preferredSunbeam,
 		"vhr_records_cnt":   len(records),
 	}
 }
@@ -2084,7 +2083,7 @@ func main() {
 
 	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
 	// Customer BFF functions strictly as a presentation proxy delegating business lookups to Customer BLL.
-	ciRepo := core_invest_repo.NewMockRepository()
+	ciRepo := core_invest_repo.NewRepository(nil)
 
 	var ciSvc core_invest_svc.Service
 	brokerURL := os.Getenv("BROKER_API_BASE_URL")
@@ -2121,7 +2120,7 @@ func main() {
 		ciSvc = core_invest_svc.NewService(ciRepo)
 	}
 
-	wfRepo := workforce_repo.NewMockRepository()
+	wfRepo := workforce_repo.NewRepository(nil)
 	wfSvc := workforce_svc.NewService(wfRepo)
 	custBFF := NewCustomerBFF(ciSvc, wfSvc, logger)
 	if brokerClient != nil {
@@ -2131,7 +2130,7 @@ func main() {
 		custBFF.SetBankClient(bankClient)
 	}
 
-	opsRepo := ops_repo.NewMockRepository()
+	opsRepo := ops_repo.NewRepository(nil)
 
 	var issueTracker ops_svc.IssueTrackerClient
 	issueTrackerURL := os.Getenv("FORGEJO_URL")

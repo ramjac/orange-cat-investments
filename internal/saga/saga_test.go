@@ -11,7 +11,7 @@ import (
 )
 
 func TestOnboardingSagaAndOffboardingEngine(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	wfSvc := wfService.NewService(repo)
 
 	onboardSaga := NewOnboardingSaga(wfSvc, nil, nil)

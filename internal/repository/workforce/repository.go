@@ -189,11 +189,7 @@ type pgxRepository struct {
 }
 
 // NewRepository returns a PostgreSQL-backed workforce.Repository.
-// If db is nil, it delegates to NewMockRepository() for test and mock execution.
 func NewRepository(db *pgxpool.Pool) Repository {
-	if db == nil {
-		return NewMockRepository()
-	}
 	return &pgxRepository{db: db}
 }
 

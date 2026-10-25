@@ -36,7 +36,7 @@ func main() {
 
 	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
 	// Employee BFF acts as presentation/session proxy delegating business orchestration to Internal BLL.
-	repo := workforce.NewMockRepository()
+	repo := workforce.NewRepository(nil)
 
 	var hrClient wfService.HRClient
 	hrURL := os.Getenv("HR_SYSTEM_URL")
@@ -103,7 +103,7 @@ func main() {
 	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
 
-	opsRepo := ops_repo.NewMockRepository()
+	opsRepo := ops_repo.NewRepository(nil)
 
 	var issueTracker ops_svc.IssueTrackerClient
 	if issueTrackerURL != "" {
@@ -158,14 +158,6 @@ func main() {
 	meiliKey := os.Getenv("MEILI_MASTER_KEY")
 	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
 	_ = meiliClient.EnsureIndex(context.Background(), "employee_knowledge", "id")
-	_ = meiliClient.IndexDocuments(context.Background(), "employee_knowledge", []map[string]interface{}{
-		{"id": "sop-laser-01", "category": "sop", "title": "SOP-014: Laser Pointer Telemetry & Biometrics", "snippet": "Standard clinical operating procedure for automated optical tracking and zoomie measurement."},
-		{"id": "sop-nip-02", "category": "sop", "title": "SOP-089: Catnip Dispensary Quality Assurance", "snippet": "Guidelines for testing organic potency, THC-free feline compliance, and batch seals."},
-		{"id": "vhr-garfield", "category": "vhr", "title": "VHR: Garfield Clinical Notes (Feline Alpha)", "snippet": "Dr. Sarah Chen: Weight 14.2 kg. Prescribed 15-minute scheduled cardboard box play sessions."},
-		{"id": "vhr-chloe", "category": "vhr", "title": "VHR: Chloe Biometric & Activity Log", "snippet": "Active zoomies observed in Perch Zone Bravo. Resting heart rate nominal at 135 bpm."},
-		{"id": "ticket-it-101", "category": "ticket", "title": "Switch Port Error on Edge Switch Habitat Alpha", "snippet": "High packet error rate on port ge-0/0/4 connected to high-speed feline camera 1."},
-		{"id": "asset-cam-4k", "category": "asset", "title": "Edge 4K Habitat Camera (Firmware v2.1)", "snippet": "Sony IMX sensor edge vision node with real-time pose estimation inference."},
-	})
 
 	searchHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("q")

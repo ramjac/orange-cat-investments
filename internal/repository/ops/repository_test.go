@@ -32,7 +32,7 @@ func (r *mockRow) Scan(dest ...any) error {
 }
 
 func TestOpsPgxRepository(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("GetITTicketByID", func(t *testing.T) {

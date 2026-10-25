@@ -649,7 +649,7 @@ func (c *Client) initMockServers() error {
 	ciHandler := core_invest_handler.NewHandler(ciService)
 	ciHandler.RegisterRoutes(serverMux)
 
-	opsRepo := ops_repo.NewRepository(nil)
+	opsRepo := ops_repo.NewMockRepository()
 	opsService := ops_svc.NewService(opsRepo)
 	opsHandler := ops_handler.NewHandler(opsService)
 	opsHandler.RegisterRoutes(serverMux)
@@ -659,7 +659,7 @@ func (c *Client) initMockServers() error {
 
 	registerFacilitiesRoutes(serverMux, facService, opsService)
 
-	wfRepo := workforce_repo.NewRepository(nil)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfService := workforce_svc.NewService(wfRepo)
 	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
 	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)

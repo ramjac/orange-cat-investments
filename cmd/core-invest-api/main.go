@@ -32,28 +32,21 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var pool *pgxpool.Pool
 	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL != "" {
-		var err error
-		pool, err = pgxpool.New(ctx, dbURL)
-		if err != nil {
-			logger.Warn("failed to connect to database pool, falling back to mock persistence", "error", err)
-		} else {
-			defer pool.Close()
-			logger.Info("connected Core Invest Domain API to PostgreSQL pool successfully")
-		}
-	} else {
-		logger.Info("DATABASE_URL not set, running Core Invest Domain API with in-memory persistence fallback")
+	if dbURL == "" {
+		logger.Error("DATABASE_URL environment variable is required for Core Invest Domain API")
+		os.Exit(1)
 	}
 
-	var repo core_invest_repo.Repository
-	if pool != nil {
-		repo = core_invest_repo.NewRepository(pool)
-	} else {
-		repo = core_invest_repo.NewMockRepository()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		logger.Error("failed to connect to database pool", "error", err)
+		os.Exit(1)
 	}
+	defer pool.Close()
+	logger.Info("connected Core Invest Domain API to PostgreSQL pool successfully")
 
+	repo := core_invest_repo.NewRepository(pool)
 	svc := core_invest_svc.NewService(repo)
 
 	var tlsConfig *tls.Config

@@ -20,9 +20,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
-	"github.com/orange-cat-investments/oci/internal/saga"
-	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
@@ -33,14 +30,12 @@ import (
 )
 
 type InternalBLLServer struct {
-	logger         *slog.Logger
-	publisher      message.Publisher
-	httpClient     *http.Client
-	workforceURL   string
-	facilitiesURL  string
-	opsURL         string
-	onboardingSaga *saga.OnboardingSaga
-	offboardingEng *saga.OffboardingEngine
+	logger        *slog.Logger
+	publisher     message.Publisher
+	httpClient    *http.Client
+	workforceURL  string
+	facilitiesURL string
+	opsURL        string
 
 	wfClient  workforcev1.WorkforceServiceClient
 	facClient facilitiesv1.FacilitiesServiceClient
@@ -341,15 +336,24 @@ func (s *InternalBLLServer) handleTriggerReport(w http.ResponseWriter, r *http.R
 }
 
 func (s *InternalBLLServer) handleEnvironmentalStream(w http.ResponseWriter, r *http.Request) {
+	zoneID := r.URL.Query().Get("zone_id")
+	if zoneID == "" {
+		zoneID = os.Getenv("DEFAULT_ZONE_ID")
+	}
+	if zoneID == "" {
+		http.Error(w, `{"error":"zone_id query parameter or DEFAULT_ZONE_ID configuration required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if s.facClient == nil {
+		http.Error(w, `{"error":"facilities domain API unavailable"}`, http.StatusServiceUnavailable)
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
-	}
-
-	zoneID := r.URL.Query().Get("zone_id")
-	if zoneID == "" {
-		zoneID = "zone-alpha"
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -358,37 +362,25 @@ func (s *InternalBLLServer) handleEnvironmentalStream(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	if s.facClient != nil {
-		stream, err := s.facClient.StreamEnvironmentalTelemetry(r.Context(), &facilitiesv1.StreamTelemetryRequest{
-			ZoneID:      zoneID,
-			SampleCount: 10,
-		})
+	stream, err := s.facClient.StreamEnvironmentalTelemetry(r.Context(), &facilitiesv1.StreamTelemetryRequest{
+		ZoneID:      zoneID,
+		SampleCount: 10,
+	})
+	if err != nil {
+		s.log().Error("failed to open environmental telemetry stream", "error", err)
+		return
+	}
+	for {
+		event, err := stream.Recv()
 		if err != nil {
-			s.log().Error("failed to open environmental telemetry stream", "error", err)
-			return
-		}
-		for {
-			event, err := stream.Recv()
-			if err != nil {
-				if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
-					return
-				}
-				s.log().Warn("telemetry stream disconnected", "error", err)
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 				return
 			}
-			data, _ := json.Marshal(event)
-			fmt.Fprintf(w, "event: telemetry\ndata: %s\n\n", data)
-			flusher.Flush()
+			s.log().Warn("telemetry stream disconnected", "error", err)
+			return
 		}
-	} else {
-		payload, _ := json.Marshal(map[string]interface{}{
-			"zone_id":             zoneID,
-			"temperature_celsius": 21.5,
-			"humidity_percentage": 45.0,
-			"air_quality_ppm":     410.0,
-			"timestamp":           time.Now().UTC(),
-		})
-		fmt.Fprintf(w, "event: telemetry\ndata: %s\n\n", payload)
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "event: telemetry\ndata: %s\n\n", data)
 		flusher.Flush()
 	}
 }
@@ -587,11 +579,6 @@ func main() {
 		logger.Info("Internal BLL running with in-memory GoChannel publisher (local test mode)")
 	}
 
-	mockWfRepo := workforce.NewMockRepository()
-	mockWfSvc := workforce_svc.NewService(mockWfRepo)
-	onboardingSaga := saga.NewOnboardingSaga(mockWfSvc, nil, logger)
-	offboardingEng := saga.NewOffboardingEngine(mockWfSvc, nil, logger)
-
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	certFile := os.Getenv("TLS_CERT_FILE")
 	keyFile := os.Getenv("TLS_KEY_FILE")
@@ -614,14 +601,12 @@ func main() {
 	}
 
 	serverObj := &InternalBLLServer{
-		logger:         logger,
-		publisher:      pubSub,
-		httpClient:     httpClient,
-		workforceURL:   workforceURL,
-		facilitiesURL:  facilitiesURL,
-		opsURL:         opsURL,
-		onboardingSaga: onboardingSaga,
-		offboardingEng: offboardingEng,
+		logger:        logger,
+		publisher:     pubSub,
+		httpClient:    httpClient,
+		workforceURL:  workforceURL,
+		facilitiesURL: facilitiesURL,
+		opsURL:        opsURL,
 	}
 
 	// Dial Workforce Domain API via gRPC mTLS

@@ -10,7 +10,7 @@ import (
 )
 
 func TestGetEmployeeByID(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	emp, err := repo.GetEmployeeByID(ctx, "emp-feline-garfield")
@@ -20,7 +20,7 @@ func TestGetEmployeeByID(t *testing.T) {
 }
 
 func TestCareScheduleAndEmergencyMedicalHold(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	cs, err := repo.GetCareScheduleByFelineID(ctx, "emp-feline-garfield")
@@ -39,7 +39,7 @@ func TestCareScheduleAndEmergencyMedicalHold(t *testing.T) {
 }
 
 func TestCreateAndListEmployees(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	newEmp := &Employee{
@@ -60,7 +60,7 @@ func TestCreateAndListEmployees(t *testing.T) {
 }
 
 func TestUpdateEmployeeStatus(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("Success Path", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestUpdateEmployeeStatus(t *testing.T) {
 }
 
 func TestOnboardingChecklistTasks(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	task := &OnboardingTask{
@@ -108,7 +108,7 @@ func TestOnboardingChecklistTasks(t *testing.T) {
 }
 
 func TestLeaveRequests(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("List and Filter", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestLeaveRequests(t *testing.T) {
 }
 
 func TestReviewCycles(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("List and Filter", func(t *testing.T) {
@@ -262,7 +262,7 @@ func TestReviewCycles(t *testing.T) {
 }
 
 func TestVHRRecords(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("Create with Auto-Generated ID and Optional Fields", func(t *testing.T) {
@@ -319,7 +319,7 @@ func TestVHRRecords(t *testing.T) {
 	})
 
 	t.Run("List and Filter VHR Records", func(t *testing.T) {
-		r := NewRepository(nil)
+		r := NewMockRepository()
 		vetID := "emp-human-elena"
 		prescriptions := "Amoxicillin 50mg"
 
@@ -401,7 +401,7 @@ func TestVHRRecords(t *testing.T) {
 }
 
 func TestWorkplaceIncidents(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	felineID := "emp-feline-garfield"
@@ -552,7 +552,7 @@ func TestWorkforcePgxRepository_NilDB(t *testing.T) {
 }
 
 func TestExecutiveReports(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	// Verify pre-seeded reports

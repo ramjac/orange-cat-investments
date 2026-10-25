@@ -1193,23 +1193,26 @@ func main() {
 
 	var pool *pgxpool.Pool
 	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL != "" {
-		poolCfg, err := pgxpool.ParseConfig(dbURL)
-		if err == nil {
-			pool, _ = pgxpool.NewWithConfig(ctx, poolCfg)
-			if pool != nil {
-				defer pool.Close()
-				logger.Info("connected worker to PostgreSQL pool successfully")
-			}
-		}
+	if dbURL == "" {
+		logger.Error("DATABASE_URL is required for worker in production")
+		os.Exit(1)
 	}
 
-	var wfRepo workforce_repo.Repository
-	if pool != nil {
-		wfRepo = workforce_repo.NewRepository(pool)
-	} else {
-		wfRepo = workforce_repo.NewMockRepository()
+	poolCfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		logger.Error("invalid DATABASE_URL configuration", "error", err)
+		os.Exit(1)
 	}
+
+	pool, err = pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil || pool == nil {
+		logger.Error("failed to connect worker to PostgreSQL pool", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	logger.Info("connected worker to PostgreSQL pool successfully")
+
+	wfRepo := workforce_repo.NewRepository(pool)
 
 	var hrClient wfService.HRClient
 	frappeURL := os.Getenv("FRAPPE_HR_URL")

@@ -174,7 +174,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * **MicroK8s on Ubuntu Server as Primary Reference:** Orange Cat Investments uses **MicroK8s on Ubuntu Server** as the primary Kubernetes reference engine. In MicroK8s, the built-in NGINX Ingress controller (`microk8s enable ingress`) is the standard ingress controller.
    * **Ingress Class Defaults:** Manifests should use standard IngressClass `public` (or default to the cluster ingress controller) so that the cluster's ingress controller automatically adopts routes.
    * **In-Cluster Container Registry (`:32000`):** In MicroK8s, container images are hosted via the built-in container registry addon (`microk8s enable registry`) or `k8s/registry/registry.yaml` on NodePort 32000, preserving the `localhost:32000/<image>:<tag>` convention.
-   * **Dedicated Workload Storage:** Workloads default to MicroK8s hostpath storage (`microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass). On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), configure the storage path so all PVCs land on dedicated persistent storage.
+   * **Dedicated Workload Storage:** Workloads default to standard persistent storage (e.g., MicroK8s hostpath storage `microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass). When available, configure storage paths so persistent volume claims land on dedicated persistent storage.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
@@ -228,5 +228,4 @@ Before marking any task as complete or submitting code changes, agents must veri
 * **Local Private Server Notes (`local-server-notes.md`):**
   When performing integration tests, cluster provisioning, or remote verification on dedicated local testing hardware, always check for the presence of `local-server-notes.md` in the repository root.
   * This file is gitignored to keep private hostnames, SSH user details, network specifics, and cluster configurations private.
-  * **Primary MicroK8s Test Server (`thinker`):** Hostname `thinker`, running Ubuntu Server (Ubuntu 26.04 / 24.04 LTS), MicroK8s v1.34+, 16 GB RAM, control plane at `https://192.168.1.246:16443`. Kubeconfig is in `thinker-kube.config` or `microk8s-kube.config`.
   * Agents should inspect `local-server-notes.md` first to obtain connectivity details, active container/Kubernetes runtime specifications (e.g. MicroK8s, Docker), and local execution parameters before executing commands or tests against local infrastructure.

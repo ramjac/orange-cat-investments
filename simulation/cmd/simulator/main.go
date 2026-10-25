@@ -28,9 +28,27 @@ func main() {
 		delayMs      = flag.Int("delay", 100, "Pause delay between actions in milliseconds")
 		verbose      = flag.Bool("verbose", true, "Print detailed logs for each action execution")
 		listPersonas = flag.Bool("list-personas", false, "List all registered employee personas and exit")
+		seedSearch   = flag.Bool("seed-search", false, "Seed Meilisearch indexes with development fixtures before running simulation")
+		meiliURL     = flag.String("meili-url", "", "Meilisearch Base URL for search seeding (default from MEILISEARCH_URL or http://localhost:7700)")
 	)
 
 	flag.Parse()
+
+	if *seedSearch {
+		mURL := *meiliURL
+		if mURL == "" {
+			mURL = os.Getenv("MEILISEARCH_URL")
+		}
+		if mURL == "" {
+			mURL = "http://localhost:7700"
+		}
+		mKey := os.Getenv("MEILI_MASTER_KEY")
+		if err := simulation.SeedSearchFixtures(context.Background(), mURL, mKey); err != nil {
+			log.Printf("Warning: failed to seed Meilisearch fixtures: %v", err)
+		} else {
+			log.Printf("Successfully seeded Meilisearch development fixtures to %s", mURL)
+		}
+	}
 
 	if *listPersonas {
 		registry := simulation.NewRegistry()
