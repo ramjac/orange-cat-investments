@@ -50,7 +50,7 @@ spec:
                   key: INTERNAL_SERVICE_KEY
                   optional: true
           volumeMounts:
-            - name: ca-key-pair
+            - name: ca-bundle
               mountPath: /etc/oci/tls
               readOnly: true
           resources:
@@ -61,12 +61,7 @@ spec:
               cpu: 500m
               memory: 256Mi
       volumes:
-        - name: ca-key-pair
-          secret:
-            secretName: oci-lan-root-ca-key-pair
+        - name: ca-bundle
+          configMap:
+            name: oci-ca-bundle
             optional: true
-            items:
-              - key: tls.crt
-                path: ca.crt
-              - key: tls.key
-                path: ca.key

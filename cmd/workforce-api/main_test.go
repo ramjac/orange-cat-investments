@@ -52,3 +52,30 @@ func TestWorkforceAPI_GRPC(t *testing.T) {
 	assert.NotNil(t, res)
 	assert.NotEmpty(t, res.Employees)
 }
+
+func TestWorkforceAPI_DisabledFeline(t *testing.T) {
+	repo := workforce.NewMockRepository()
+	svc := workforce_svc.NewService(repo)
+
+	grpcServer := grpcutil.NewServer(nil)
+	grpcSrv := NewWorkforceGRPCServer(svc, false)
+	workforcev1.RegisterWorkforceServiceServer(grpcServer, grpcSrv)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+	defer grpcServer.Stop()
+
+	conn, err := grpcutil.Dial(t.Context(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := workforcev1.NewWorkforceServiceClient(conn)
+	_, err = client.GetCareSchedule(t.Context(), &workforcev1.GetCareScheduleRequest{FelineID: "emp-feline-garfield"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "feline workforce domain feature is disabled")
+}

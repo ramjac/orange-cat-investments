@@ -16,7 +16,9 @@ data:
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nextcloud_user') THEN
-        CREATE ROLE nextcloud_user WITH LOGIN PASSWORD 'oci_internal_pass' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+        CREATE ROLE nextcloud_user WITH LOGIN PASSWORD 'oci_secure_pass' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+      ELSE
+        ALTER ROLE nextcloud_user WITH PASSWORD 'oci_secure_pass';
       END IF;
     END
     $$;

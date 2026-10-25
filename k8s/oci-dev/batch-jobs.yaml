@@ -31,11 +31,26 @@ spec:
                 - name: ENABLE_CORE_INVEST
                   value: "true"
                 - name: CORE_INVEST_API_URL
-                  value: "http://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+                  value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
                 - name: BANK_API_BASE_URL
                   value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+                - name: RABBITMQ_URL
+                  value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
+                - name: TLS_CERT_FILE
+                  value: "/etc/tls/certs/tls.crt"
+                - name: TLS_KEY_FILE
+                  value: "/etc/tls/certs/tls.key"
+                - name: CA_CERT_FILE
+                  value: "/etc/tls/ca/ca.crt"
                 - name: BATCH_MODE
                   value: "ach-recurring"
+              volumeMounts:
+                - name: tls-certs
+                  mountPath: /etc/tls/certs
+                  readOnly: true
+                - name: ca-cert
+                  mountPath: /etc/tls/ca
+                  readOnly: true
               resources:
                 requests:
                   cpu: 50m
@@ -43,6 +58,14 @@ spec:
                 limits:
                   cpu: 200m
                   memory: 128Mi
+          volumes:
+            - name: tls-certs
+              secret:
+                secretName: oci-worker-dev-tls-certs
+            - name: ca-cert
+              configMap:
+                name: oci-ca-bundle
+                optional: true
 ---
 # 2. Automated End-of-Month Statement & Tax Batch Generator
 apiVersion: batch/v1
@@ -76,11 +99,24 @@ spec:
                 - name: ENABLE_CORE_INVEST
                   value: "true"
                 - name: CORE_INVEST_API_URL
-                  value: "http://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+                  value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
                 - name: NEXTCLOUD_URL
                   value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+                - name: TLS_CERT_FILE
+                  value: "/etc/tls/certs/tls.crt"
+                - name: TLS_KEY_FILE
+                  value: "/etc/tls/certs/tls.key"
+                - name: CA_CERT_FILE
+                  value: "/etc/tls/ca/ca.crt"
                 - name: BATCH_MODE
                   value: "eom-statements"
+              volumeMounts:
+                - name: tls-certs
+                  mountPath: /etc/tls/certs
+                  readOnly: true
+                - name: ca-cert
+                  mountPath: /etc/tls/ca
+                  readOnly: true
               resources:
                 requests:
                   cpu: 50m
@@ -88,3 +124,11 @@ spec:
                 limits:
                   cpu: 200m
                   memory: 256Mi
+          volumes:
+            - name: tls-certs
+              secret:
+                secretName: oci-worker-dev-tls-certs
+            - name: ca-cert
+              configMap:
+                name: oci-ca-bundle
+                optional: true

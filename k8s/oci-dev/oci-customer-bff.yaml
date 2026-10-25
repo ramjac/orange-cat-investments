@@ -32,11 +32,24 @@ spec:
             - name: VALKEY_ADDR
               value: "valkey-service.oci-dev.svc.cluster.local:6379"
             - name: CUSTOMER_BLL_URL
-              value: "http://customer-bll-service.oci-dev.svc.cluster.local:8085"
+              value: "https://customer-bll-service.oci-dev.svc.cluster.local:8085"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CA_CERT_FILE
+              value: "/etc/tls/ca/ca.crt"
             - name: BROKER_API_BASE_URL
               value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
             - name: BANK_API_BASE_URL
               value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -56,6 +69,30 @@ spec:
               port: 8083
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: oci-customer-bff-dev-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oci-customer-bff-dev-tls
+  namespace: oci-dev
+spec:
+  secretName: oci-customer-bff-dev-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: oci-customer-bff-dev-service.oci-dev.svc.cluster.local
+  dnsNames:
+    - oci-customer-bff-dev-service
+    - oci-customer-bff-dev-service.oci-dev.svc
+    - oci-customer-bff-dev-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service

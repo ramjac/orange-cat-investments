@@ -32,6 +32,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
@@ -110,6 +111,7 @@ type CustomerBFF struct {
 	broker         *alpaca.Client
 	bank           *plaid.Client
 	customerBLLURL string
+	bllClient      *http.Client
 	searchClient   *meilisearch.Client
 	vhrCache       vhrCache
 	felineCache    felineCache
@@ -136,6 +138,21 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		{"id": "stmt-tax-1099b", "category": "statement", "title": "Form 1099-B Proceeds From Broker and Barter Exchange", "description": "Annual consolidated tax statement for realized capital gains and DCA distributions."},
 	})
 
+	var bllClient *http.Client
+	tlsCert := os.Getenv("TLS_CERT_FILE")
+	tlsKey := os.Getenv("TLS_KEY_FILE")
+	clientCA := os.Getenv("CA_CERT_FILE")
+	if clientCA == "" {
+		clientCA = os.Getenv("CLIENT_CA_FILE")
+	}
+	if tlsCert != "" && tlsKey != "" && clientCA != "" {
+		if c, err := mtls.NewDynamicHTTPClient(tlsCert, tlsKey, clientCA, 10*time.Second); err == nil {
+			bllClient = c
+		} else {
+			logger.Warn("failed to configure mTLS client for Customer BLL upstream", "error", err)
+		}
+	}
+
 	return &CustomerBFF{
 		ciSvc:          ciSvc,
 		wfSvc:          wfSvc,
@@ -145,6 +162,7 @@ func NewCustomerBFF(ciSvc core_invest_svc.Service, wfSvc workforce_svc.Service, 
 		rateLimiter:    cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
 		logger:         logger,
 		customerBLLURL: os.Getenv("CUSTOMER_BLL_URL"),
+		bllClient:      bllClient,
 		searchClient:   sClient,
 		vhrCache: vhrCache{
 			ttl: 30 * time.Second,
@@ -624,7 +642,9 @@ func (b *CustomerBFF) handleCloseAccount(w http.ResponseWriter, r *http.Request)
 	}
 
 	if b.sessions != nil {
-		b.sessions.PurgeCustomerSessions(session.CustomerID)
+		if _, err := b.sessions.PurgeCustomerSessions(session.CustomerID); err != nil {
+			b.logger.Warn("failed to purge customer sessions on account closure", "customer_id", session.CustomerID, "error", err)
+		}
 	}
 	if b.cache != nil {
 		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
@@ -655,7 +675,13 @@ func (b *CustomerBFF) handleGDPRErasure(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	purgedCount := b.sessions.PurgeCustomerSessions(session.CustomerID)
+	purgedCount, err := b.sessions.PurgeCustomerSessions(session.CustomerID)
+	if err != nil {
+		b.logger.Error("failed to purge customer sessions during GDPR erasure", "customer_id", session.CustomerID, "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("session revocation failed: %v", err)})
+		return
+	}
 	cert.SessionsPurgedCount = purgedCount
 	if b.cache != nil {
 		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(session.CustomerID), cachevalkey.KeyOrders(session.CustomerID))
@@ -1179,7 +1205,11 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		}
 		bllReq.Header.Set("Content-Type", "application/json")
 		bllReq.Header.Set("X-Customer-ID", session.CustomerID)
-		bllResp, err := http.DefaultClient.Do(bllReq)
+		client := b.bllClient
+		if client == nil {
+			client = http.DefaultClient
+		}
+		bllResp, err := client.Do(bllReq)
 		if err != nil {
 			b.logger.Error("upstream Customer BLL order execution failed", "error", err)
 			http.Error(w, `{"error":"upstream customer-bll service unavailable"}`, http.StatusBadGateway)

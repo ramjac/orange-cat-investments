@@ -8,6 +8,8 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/facilities"
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type FacilitiesGRPCServer struct {
@@ -202,25 +204,36 @@ func (s *FacilitiesGRPCServer) IngestEnvironmentalTelemetry(ctx context.Context,
 }
 
 func (s *FacilitiesGRPCServer) StreamEnvironmentalTelemetry(req *facilitiesv1.StreamTelemetryRequest, stream facilitiesv1.FacilitiesService_StreamEnvironmentalTelemetryServer) error {
-	count := req.SampleCount
-	if count <= 0 {
-		count = 5
-	}
 	zone := req.ZoneID
 	if zone == "" {
 		zone = "zone-alpha"
 	}
-	for i := 0; i < int(count); i++ {
-		sample := &facilitiesv1.TelemetrySample{
-			TelemetryID:         fmt.Sprintf("tel-%d", time.Now().UnixNano()),
-			ZoneID:              zone,
-			TemperatureC:        21.5 + float64(i)*0.1,
-			RelativeHumidityPct: 45.0 + float64(i)*0.05,
-			LightIntensityLux:   520.0 + float64(i)*1.5,
-			NoiseLevelDB:        38.0 + float64(i)*0.2,
-			Timestamp:           time.Now().UTC().Format(time.RFC3339),
+	count := req.SampleCount
+	if count <= 0 {
+		count = 5
+	} else if count > 100 {
+		count = 100
+	}
+
+	samples, err := s.svc.GetLatestEnvironmentalTelemetry(stream.Context(), zone, int(count))
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to get environmental telemetry: %v", err)
+	}
+	if len(samples) == 0 {
+		return status.Errorf(codes.NotFound, "no environmental telemetry found for zone %s", zone)
+	}
+
+	for _, sample := range samples {
+		ts := &facilitiesv1.TelemetrySample{
+			TelemetryID:         sample.TelemetryID,
+			ZoneID:              sample.ZoneID,
+			TemperatureC:        sample.TemperatureC,
+			RelativeHumidityPct: sample.RelativeHumidityPct,
+			LightIntensityLux:   sample.LightIntensityLux,
+			NoiseLevelDB:        sample.NoiseLevelDB,
+			Timestamp:           sample.RecordedAt.UTC().Format(time.RFC3339),
 		}
-		if err := stream.Send(sample); err != nil {
+		if err := stream.Send(ts); err != nil {
 			return err
 		}
 	}

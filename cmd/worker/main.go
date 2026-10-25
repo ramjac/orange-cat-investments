@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,11 +28,30 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 )
 
 var deliveredIncidentBFF sync.Map
 var deliveredIncidentPebble sync.Map
+
+func getWorkerTLSConfig() *tls.Config {
+	wCert := os.Getenv("TLS_CERT_FILE")
+	wKey := os.Getenv("TLS_KEY_FILE")
+	wCA := os.Getenv("CLIENT_CA_FILE")
+	if wCA == "" {
+		wCA = os.Getenv("CA_CERT_FILE")
+	}
+	if wCA == "" {
+		wCA = os.Getenv("CA_CERT_PATH")
+	}
+	if wCert != "" && wKey != "" && wCA != "" {
+		if c, err := mtls.NewClientTLSConfig(wCert, wKey, wCA); err == nil {
+			return c
+		}
+	}
+	return nil
+}
 
 
 type EventEnvelope[T any] struct {
@@ -233,7 +253,7 @@ func HandleACHTransferRequested(logger *slog.Logger, coreInvestURL, bankURL stri
 		}
 		if strings.Contains(coreInvestURL, "50053") {
 			target := grpcutil.CleanTarget(coreInvestURL)
-			if conn, err := grpcutil.Dial(context.Background(), target, nil); err == nil {
+			if conn, err := grpcutil.Dial(context.Background(), target, getWorkerTLSConfig()); err == nil {
 				ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
 				_, err := ciClient.UpdatePortfolioBalance(context.Background(), &coreinvestv1.UpdatePortfolioBalanceRequest{
 					PortfolioID: req.PortfolioID,
@@ -782,7 +802,7 @@ func runACHRecurringBatch(ctx context.Context, coreInvestURL string, ps message.
 
 	if strings.Contains(coreInvestURL, "50053") {
 		target := grpcutil.CleanTarget(coreInvestURL)
-		if conn, err := grpcutil.Dial(ctx, target, nil); err == nil {
+		if conn, err := grpcutil.Dial(ctx, target, getWorkerTLSConfig()); err == nil {
 			ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
 			res, err := ciClient.ListRecurringDeposits(ctx, &coreinvestv1.ListRecurringDepositsRequest{})
 			if err == nil {
@@ -973,7 +993,7 @@ func runEOMStatementBatch(ctx context.Context, coreInvestURL string, ps message.
 
 	if strings.Contains(coreInvestURL, "50053") {
 		target := grpcutil.CleanTarget(coreInvestURL)
-		if conn, err := grpcutil.Dial(ctx, target, nil); err == nil {
+		if conn, err := grpcutil.Dial(ctx, target, getWorkerTLSConfig()); err == nil {
 			ciClient := coreinvestv1.NewCoreInvestServiceClient(conn)
 			ports, err := ciClient.ListPortfolios(ctx, &coreinvestv1.ListPortfoliosRequest{})
 			if err == nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -312,7 +313,9 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Query().Get("all") == "true" && employeeID != "" {
-		h.store.PurgeEmployeeSessions(employeeID)
+		if _, err := h.store.PurgeEmployeeSessions(employeeID); err != nil {
+			slog.Warn("failed to purge all employee sessions", "employee_id", employeeID, "error", err)
+		}
 	}
 
 	http.SetCookie(w, &http.Cookie{

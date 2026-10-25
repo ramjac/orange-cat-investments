@@ -59,6 +59,7 @@ func (s *CustomerBLLServer) SetOpsClient(c opsv1.OpsServiceClient) {
 }
 
 type TradeOrderRequest struct {
+	CustomerID  string  `json:"customer_id,omitempty"`
 	PortfolioID string  `json:"portfolio_id"`
 	FelineID    string  `json:"feline_id"`
 	Symbol      string  `json:"symbol"`
@@ -72,6 +73,7 @@ type TradeOrderRequest struct {
 
 type TradeOrderResult struct {
 	OrderID     string    `json:"order_id"`
+	CustomerID  string    `json:"customer_id,omitempty"`
 	PortfolioID string    `json:"portfolio_id"`
 	Symbol      string    `json:"symbol"`
 	Side        string    `json:"side"`
@@ -217,8 +219,14 @@ func (s *CustomerBLLServer) handleValidateAndExecuteOrder(w http.ResponseWriter,
 		orderID = clientOrderID
 	}
 
+	customerID := req.CustomerID
+	if customerID == "" {
+		customerID = r.Header.Get("X-Customer-ID")
+	}
+
 	result := TradeOrderResult{
 		OrderID:     orderID,
+		CustomerID:  customerID,
 		PortfolioID: req.PortfolioID,
 		Symbol:      req.Symbol,
 		Side:        req.Side,

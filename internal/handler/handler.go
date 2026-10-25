@@ -209,9 +209,18 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
+	}
+
 	if h.cache != nil {
 		var cached workforce.CareSchedule
-		if ok, _ := h.cache.Get(r.Context(), cachevalkey.KeyCareSchedule(felineID), &cached); ok {
+		if ok, _ := h.cache.Get(r.Context(), cachevalkey.KeyCareSchedule(canonicalID), &cached); ok {
 			data, err := json.Marshal(cached)
 			if err == nil {
 				if cachevalkey.HandleConditionalETag(w, r, data) {
@@ -224,16 +233,28 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	cs, err := h.wfSvc.GetCareSchedule(r.Context(), felineID)
+	var startVer int64
+	if h.cache != nil {
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &startVer)
+	}
+
+	cs, err := h.wfSvc.GetCareSchedule(r.Context(), canonicalID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 
 	if h.cache != nil && cs != nil {
-		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineID), cs, cachevalkey.TTLCareSchedule)
-		if cs.FelineID != "" && cs.FelineID != felineID {
-			_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(cs.FelineID), cs, cachevalkey.TTLCareSchedule)
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		if currVer == startVer {
+			_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(canonicalID), cs, cachevalkey.TTLCareSchedule)
+			if felineID != canonicalID {
+				_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineID), cs, cachevalkey.TTLCareSchedule)
+			}
+			if felineAlias != "" {
+				_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineAlias), cs, cachevalkey.TTLCareSchedule)
+			}
 		}
 	}
 
@@ -257,6 +278,15 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
+	}
+
 	var req struct {
 		DietaryPlan          string   `json:"dietary_plan"`
 		FeedingTimes         []string `json:"feeding_times"`
@@ -272,7 +302,7 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 	}
 
 	cs := &workforce.CareSchedule{
-		FelineID:             felineID,
+		FelineID:             canonicalID,
 		DietaryPlan:          req.DietaryPlan,
 		FeedingTimes:         req.FeedingTimes,
 		SpecialMedicalNeeds:  req.SpecialMedicalNeeds,
@@ -288,10 +318,21 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 	}
 
 	if h.cache != nil {
-		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
-		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
-			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), currVer+1, 24*time.Hour)
+
+		keys := []string{cachevalkey.KeyCareSchedule(canonicalID)}
+		if felineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
 		}
+		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
+		if felineAlias != "" {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))
+		}
+		_ = h.cache.Delete(r.Context(), keys...)
 	}
 
 	writeJSON(w, http.StatusOK, updated)
@@ -304,6 +345,15 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
+	}
+
 	var req struct {
 		EmergencyMedicalHold bool `json:"emergency_medical_hold"`
 	}
@@ -313,17 +363,28 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	updated, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), felineID, req.EmergencyMedicalHold)
+	updated, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), canonicalID, req.EmergencyMedicalHold)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if h.cache != nil {
-		_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(felineID))
-		if updated != nil && updated.FelineID != "" && updated.FelineID != felineID {
-			_ = h.cache.Delete(r.Context(), cachevalkey.KeyCareSchedule(updated.FelineID))
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), currVer+1, 24*time.Hour)
+
+		keys := []string{cachevalkey.KeyCareSchedule(canonicalID)}
+		if felineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
 		}
+		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
+		if felineAlias != "" {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))
+		}
+		_ = h.cache.Delete(r.Context(), keys...)
 	}
 
 	writeJSON(w, http.StatusOK, updated)

@@ -20,6 +20,7 @@ type Service interface {
 	ListOTAJobs(ctx context.Context, assetID string) ([]*facilities.DeviceOTAJob, error)
 
 	IngestEnvironmentalTelemetry(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
+	GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*facilities.EnvironmentalTelemetry, error)
 	ControlPTZ(ctx context.Context, cameraID string, payload map[string]interface{}) (map[string]interface{}, error)
 	CalibrateCameraLens(ctx context.Context, cameraID string) (map[string]interface{}, error)
 }
@@ -165,6 +166,10 @@ func (s *facilitiesService) IngestEnvironmentalTelemetry(ctx context.Context, pa
 		"telemetry_type": "environmental_hvac_lux_db",
 		"record":         rec,
 	}, nil
+}
+
+func (s *facilitiesService) GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*facilities.EnvironmentalTelemetry, error) {
+	return s.repo.GetLatestEnvironmentalTelemetry(ctx, zoneID, limit)
 }
 
 func (s *facilitiesService) ControlPTZ(ctx context.Context, cameraID string, payload map[string]interface{}) (map[string]interface{}, error) {

@@ -8,6 +8,8 @@ import (
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type CoreInvestGRPCServer struct {
@@ -292,29 +294,41 @@ func (s *CoreInvestGRPCServer) GenerateStatement(ctx context.Context, in *corein
 }
 
 func (s *CoreInvestGRPCServer) StreamPortfolioValuation(req *coreinvestv1.StreamPortfolioValuationRequest, stream coreinvestv1.CoreInvestService_StreamPortfolioValuationServer) error {
+	if req.PortfolioID == "" {
+		return status.Error(codes.InvalidArgument, "portfolio_id is required")
+	}
+
+	p, err := s.svc.GetPortfolio(stream.Context(), req.PortfolioID)
+	if err != nil || p == nil {
+		return status.Errorf(codes.NotFound, "portfolio %s not found: %v", req.PortfolioID, err)
+	}
+
 	count := req.UpdateCount
 	if count <= 0 {
 		count = 5
 	}
-	baseBalance := 10000.0
-	cashBalance := 2500.0
-	if req.PortfolioID != "" {
-		if p, err := s.svc.GetPortfolio(stream.Context(), req.PortfolioID); err == nil && p != nil {
-			baseBalance = p.TotalBalanceUSD
-			cashBalance = p.CashBalanceUSD
-		}
+
+	invested := p.TotalBalanceUSD - p.CashBalanceUSD
+	changePct := 0.0
+	if p.TotalBalanceUSD > 0 && invested > 0 {
+		changePct = (invested / p.TotalBalanceUSD) * 100.0
 	}
 
 	for i := 0; i < int(count); i++ {
-		fluctuation := float64(i) * 12.50
-		total := baseBalance + fluctuation
-		invested := total - cashBalance
-		changePct := (fluctuation / baseBalance) * 100.0
+		if i > 0 {
+			if latest, err := s.svc.GetPortfolio(stream.Context(), req.PortfolioID); err == nil && latest != nil {
+				p = latest
+				invested = p.TotalBalanceUSD - p.CashBalanceUSD
+				if p.TotalBalanceUSD > 0 && invested > 0 {
+					changePct = (invested / p.TotalBalanceUSD) * 100.0
+				}
+			}
+		}
 
 		err := stream.Send(&coreinvestv1.PortfolioValuationEvent{
-			PortfolioID:        req.PortfolioID,
-			TotalBalanceUSD:    total,
-			CashBalanceUSD:     cashBalance,
+			PortfolioID:        p.PortfolioID,
+			TotalBalanceUSD:    p.TotalBalanceUSD,
+			CashBalanceUSD:     p.CashBalanceUSD,
 			InvestedBalanceUSD: invested,
 			ChangePct:          changePct,
 			Timestamp:          time.Now().UTC().Format(time.RFC3339),

@@ -42,7 +42,7 @@ type CustomerSessionStore interface {
 	Create(customerID, name, email string) (*CustomerSession, error)
 	SetSession(session *CustomerSession) error
 	Delete(token string)
-	PurgeCustomerSessions(customerID string) int
+	PurgeCustomerSessions(customerID string) (int, error)
 	PruneStaleSessions(customerID string) int
 	Close() error
 }
@@ -53,7 +53,7 @@ type EmployeeSessionStore interface {
 	Create(employeeID, email, name, role, department string) (*EmployeeSession, error)
 	SetSession(session *EmployeeSession) error
 	Delete(token string)
-	PurgeEmployeeSessions(employeeID string) int
+	PurgeEmployeeSessions(employeeID string) (int, error)
 	PruneStaleSessions(employeeID string) int
 	Close() error
 }
@@ -115,7 +115,7 @@ func (s *memoryCustomerSessionStore) Delete(token string) {
 	delete(s.sessions, token)
 }
 
-func (s *memoryCustomerSessionStore) PurgeCustomerSessions(customerID string) int {
+func (s *memoryCustomerSessionStore) PurgeCustomerSessions(customerID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	purged := 0
@@ -125,7 +125,7 @@ func (s *memoryCustomerSessionStore) PurgeCustomerSessions(customerID string) in
 			purged++
 		}
 	}
-	return purged
+	return purged, nil
 }
 
 func (s *memoryCustomerSessionStore) PruneStaleSessions(customerID string) int {
@@ -283,37 +283,35 @@ func (s *valkeyCustomerSessionStore) Delete(token string) {
 	}
 }
 
-func (s *valkeyCustomerSessionStore) PurgeCustomerSessions(customerID string) int {
+const purgeSessionsLua = `
+local tokens = redis.call('SMEMBERS', KEYS[1])
+if not tokens or #tokens == 0 then
+    redis.call('DEL', KEYS[1])
+    return 0
+end
+for _, token in ipairs(tokens) do
+    redis.call('DEL', ARGV[1] .. token)
+end
+redis.call('DEL', KEYS[1])
+return #tokens
+`
+
+func (s *valkeyCustomerSessionStore) PurgeCustomerSessions(customerID string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	indexKey := customerUserIndexKey(customerID)
-	tokens, err := s.client.SMembers(ctx, indexKey).Result()
+	res, err := s.client.Eval(ctx, purgeSessionsLua, []string{indexKey}, "session:customer:").Result()
 	if err != nil {
-		// Preserve index key on lookup error to prevent orphaned unrevoked sessions (Comment 16)
-		s.logger.Error("failed to query customer session index for purge", "customer_id", customerID, "error", err)
-		return 0
-	}
-	if len(tokens) == 0 {
-		_ = s.client.Del(ctx, indexKey)
-		return 0
+		s.logger.Error("failed to execute atomic purge for customer sessions", "customer_id", customerID, "error", err)
+		return 0, fmt.Errorf("failed to execute purge for customer sessions: %w", err)
 	}
 
-	activeCount := 0
-	pipe := s.client.Pipeline()
-	for _, token := range tokens {
-		if sess, ok := s.Get(token); ok && sess != nil {
-			activeCount++
-		}
-		pipe.Del(ctx, customerSessionKey(token))
+	var count int
+	if n, ok := res.(int64); ok {
+		count = int(n)
 	}
-	pipe.Del(ctx, indexKey)
-	if _, err := pipe.Exec(ctx); err != nil {
-		s.logger.Error("failed to execute purge pipeline for customer sessions", "customer_id", customerID, "error", err)
-		return 0
-	}
-
-	return activeCount
+	return count, nil
 }
 
 // PruneStaleSessions prunes expired or evicted session tokens from the customer index set.
@@ -408,7 +406,7 @@ func (s *memoryEmployeeSessionStore) Delete(token string) {
 	delete(s.sessions, token)
 }
 
-func (s *memoryEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) int {
+func (s *memoryEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	purged := 0
@@ -418,7 +416,7 @@ func (s *memoryEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) in
 			purged++
 		}
 	}
-	return purged
+	return purged, nil
 }
 
 func (s *memoryEmployeeSessionStore) PruneStaleSessions(employeeID string) int {
@@ -571,37 +569,22 @@ func (s *valkeyEmployeeSessionStore) Delete(token string) {
 	}
 }
 
-func (s *valkeyEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) int {
+func (s *valkeyEmployeeSessionStore) PurgeEmployeeSessions(employeeID string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	indexKey := employeeUserIndexKey(employeeID)
-	tokens, err := s.client.SMembers(ctx, indexKey).Result()
+	res, err := s.client.Eval(ctx, purgeSessionsLua, []string{indexKey}, "session:employee:").Result()
 	if err != nil {
-		// Preserve index key on lookup error to prevent orphaned unrevoked sessions (Comment 16)
-		s.logger.Error("failed to query employee session index for purge", "employee_id", employeeID, "error", err)
-		return 0
-	}
-	if len(tokens) == 0 {
-		_ = s.client.Del(ctx, indexKey)
-		return 0
+		s.logger.Error("failed to execute atomic purge for employee sessions", "employee_id", employeeID, "error", err)
+		return 0, fmt.Errorf("failed to execute purge for employee sessions: %w", err)
 	}
 
-	activeCount := 0
-	pipe := s.client.Pipeline()
-	for _, token := range tokens {
-		if sess, ok := s.Get(token); ok && sess != nil {
-			activeCount++
-		}
-		pipe.Del(ctx, employeeSessionKey(token))
+	var count int
+	if n, ok := res.(int64); ok {
+		count = int(n)
 	}
-	pipe.Del(ctx, indexKey)
-	if _, err := pipe.Exec(ctx); err != nil {
-		s.logger.Error("failed to execute purge pipeline for employee sessions", "employee_id", employeeID, "error", err)
-		return 0
-	}
-
-	return activeCount
+	return count, nil
 }
 
 // PruneStaleSessions prunes expired or evicted session tokens from the employee index set.

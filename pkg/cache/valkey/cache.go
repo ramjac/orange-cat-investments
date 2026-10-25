@@ -59,6 +59,10 @@ func KeyCareSchedule(felineID string) string {
 	return "cache:care_schedule:" + felineID
 }
 
+func KeyCareScheduleVersion(felineID string) string {
+	return "cache:care_schedule:v:" + felineID
+}
+
 func KeySnipeITAssets() string {
 	return "cache:cots:snipeit:assets"
 }

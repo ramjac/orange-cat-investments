@@ -19,7 +19,9 @@ func TestCARotationManager(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Default Config Initialization with Real Cryptography", func(t *testing.T) {
-		manager := NewCARotationManager(CARotationConfig{})
+		manager := NewCARotationManager(CARotationConfig{
+			AllowGeneratedFallback: true,
+		})
 		assert.NotNil(t, manager)
 
 		status, err := manager.GetCAStatus(ctx)
@@ -29,9 +31,21 @@ func TestCARotationManager(t *testing.T) {
 		assert.True(t, status.NeedsRotation)
 	})
 
+	t.Run("Fail Initialization When No CA Configured and No Fallback", func(t *testing.T) {
+		manager := NewCARotationManager(CARotationConfig{
+			AllowGeneratedFallback: false,
+		})
+		assert.NotNil(t, manager)
+
+		status, err := manager.GetCAStatus(ctx)
+		assert.Error(t, err)
+		assert.Nil(t, status)
+	})
+
 	t.Run("CheckAndRotateCA When Rotation Needed", func(t *testing.T) {
 		manager := NewCARotationManager(CARotationConfig{
-			RenewalThresholdDays: 30,
+			RenewalThresholdDays:   30,
+			AllowGeneratedFallback: true,
 		})
 
 		initialStatus, _ := manager.GetCAStatus(ctx)
@@ -53,7 +67,8 @@ func TestCARotationManager(t *testing.T) {
 
 	t.Run("CheckAndRotateCA When No Rotation Needed", func(t *testing.T) {
 		manager := NewCARotationManager(CARotationConfig{
-			RenewalThresholdDays: 30,
+			RenewalThresholdDays:   30,
+			AllowGeneratedFallback: true,
 		})
 
 		// Perform initial rotation to make CA fresh
@@ -95,10 +110,11 @@ func TestCARotationManager(t *testing.T) {
 		keyPath := filepath.Join(tmpDir, "ca.key")
 
 		manager := NewCARotationManager(CARotationConfig{
-			IntermediateCAName:   "oci-test-intermediate-ca",
-			RenewalThresholdDays: 30,
-			CACertFile:           certPath,
-			CAKeyFile:            keyPath,
+			IntermediateCAName:     "oci-test-intermediate-ca",
+			RenewalThresholdDays:   30,
+			CACertFile:             certPath,
+			CAKeyFile:              keyPath,
+			AllowGeneratedFallback: true,
 		})
 
 		res, err := manager.CheckAndRotateCA(ctx)
@@ -166,12 +182,13 @@ func TestCARotationManager(t *testing.T) {
 		defer server.Close()
 
 		manager := NewCARotationManager(CARotationConfig{
-			IntermediateCAName:   "oci-intermediate-ca",
-			RenewalThresholdDays: 30,
-			IssuerNamespace:      "cert-manager",
-			KubeAPIBaseURL:       server.URL,
-			KubeToken:            "test-token",
-			KubeHTTPClient:       server.Client(),
+			IntermediateCAName:     "oci-intermediate-ca",
+			RenewalThresholdDays:   30,
+			IssuerNamespace:        "cert-manager",
+			KubeAPIBaseURL:         server.URL,
+			KubeToken:              "test-token",
+			KubeHTTPClient:         server.Client(),
+			AllowGeneratedFallback: true,
 		})
 
 		res, err := manager.CheckAndRotateCA(ctx)

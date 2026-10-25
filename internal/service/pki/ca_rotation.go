@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -28,6 +29,10 @@ type CARotationConfig struct {
 	IntermediateCAName   string
 	RenewalThresholdDays int
 	IssuerNamespace      string
+
+	// AllowGeneratedFallback allows generating a test CA key pair if no certificate can be loaded.
+	// This should be set strictly in test environments.
+	AllowGeneratedFallback bool
 
 	// Optional file paths for inspecting and persisting CA key pairs
 	CACertFile string
@@ -188,17 +193,88 @@ func (m *caRotationManager) initCertificates() {
 		}
 	}
 
-	// 3. Fallback: generate a real, valid initial X.509 CA keypair
-	// Default to an initial CA expiring in threshold/2 days so initial status triggers rotation as expected in unit tests
-	now := time.Now().UTC()
-	key, cert, certPEM, keyPEM, err := generateCAKeyPair(m.config.IntermediateCAName, now.AddDate(0, -11, 0), now.AddDate(0, 0, m.config.RenewalThresholdDays/2), nil, nil)
-	if err == nil {
-		m.currentCert = cert
-		m.currentKey = key
-		m.certPEM = certPEM
-		m.keyPEM = keyPEM
-		m.updateStatusFromCert(cert)
+	// 3. Try reading from Kubernetes Secret in cert-manager
+	if m.kubeClient != nil && m.kubeBaseURL != "" {
+		secretNames := []string{
+			m.config.IntermediateCAName + "-key-pair",
+			"oci-lan-root-ca-key-pair",
+		}
+		for _, name := range secretNames {
+			if m.loadKubeSecret(name) {
+				return
+			}
+		}
 	}
+
+	// 4. Fallback generation: only permitted in tests when AllowGeneratedFallback is true
+	if m.config.AllowGeneratedFallback {
+		now := time.Now().UTC()
+		key, cert, certPEM, keyPEM, err := generateCAKeyPair(m.config.IntermediateCAName, now.AddDate(0, -11, 0), now.AddDate(0, 0, m.config.RenewalThresholdDays/2), nil, nil)
+		if err == nil {
+			m.currentCert = cert
+			m.currentKey = key
+			m.certPEM = certPEM
+			m.keyPEM = keyPEM
+			m.updateStatusFromCert(cert)
+		}
+		return
+	}
+
+	slog.Error("failed to load authoritative CA certificate: no valid CA found in mounts, environment, or Kubernetes Secret",
+		"cert_file", certPath,
+		"issuer_namespace", m.config.IssuerNamespace,
+	)
+}
+
+func (m *caRotationManager) loadKubeSecret(secretName string) bool {
+	if m.kubeClient == nil || m.kubeBaseURL == "" {
+		return false
+	}
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s/secrets/%s", m.kubeBaseURL, m.config.IssuerNamespace, secretName)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+m.kubeToken)
+	resp, err := m.kubeClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var sec struct {
+		Data map[string]string `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sec); err != nil {
+		return false
+	}
+	crtB64 := sec.Data["tls.crt"]
+	if crtB64 == "" {
+		return false
+	}
+	certPEM, err := base64.StdEncoding.DecodeString(crtB64)
+	if err != nil {
+		return false
+	}
+	cert, err := parseCertPEM(certPEM)
+	if err != nil {
+		return false
+	}
+	m.currentCert = cert
+	m.certPEM = certPEM
+
+	if keyB64 := sec.Data["tls.key"]; keyB64 != "" {
+		if keyPEM, err := base64.StdEncoding.DecodeString(keyB64); err == nil {
+			if key, err := parseECPrivateKeyPEM(keyPEM); err == nil {
+				m.currentKey = key
+				m.keyPEM = keyPEM
+			}
+		}
+	}
+	m.updateStatusFromCert(cert)
+	return true
 }
 
 func (m *caRotationManager) updateStatusFromCert(cert *x509.Certificate) {

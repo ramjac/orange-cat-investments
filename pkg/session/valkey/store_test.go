@@ -48,7 +48,8 @@ func TestMemoryCustomerSessionStore(t *testing.T) {
 	sessOther, err := store.Create("cust-999", "Other Customer", "other@example.com")
 	require.NoError(t, err)
 
-	purged := store.PurgeCustomerSessions("cust-101")
+	purged, err := store.PurgeCustomerSessions("cust-101")
+	require.NoError(t, err)
 	assert.Equal(t, 3, purged) // sess, expiredSess, and sess2 were all cust-101
 
 	_, ok = store.Get(sess.SessionID)
@@ -123,7 +124,8 @@ func TestMemoryEmployeeSessionStore(t *testing.T) {
 	sessOther, err := store.Create("emp-202", "marcus@example.com", "Marcus", "engineering", "Core Platform")
 	require.NoError(t, err)
 
-	purged := store.PurgeEmployeeSessions("emp-101")
+	purged, err := store.PurgeEmployeeSessions("emp-101")
+	require.NoError(t, err)
 	assert.Equal(t, 3, purged) // sess, expiredSess, and sess2 were all emp-101
 
 	_, ok = store.Get(sess.SessionID)

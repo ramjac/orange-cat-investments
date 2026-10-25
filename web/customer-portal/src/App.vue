@@ -18,7 +18,8 @@
           @focus="showSearchDropdown = true"
         />
         <div v-if="showSearchDropdown && catalogSearchResults.length > 0" class="search-dropdown-menu">
-          <div
+          <button
+            type="button"
             v-for="res in catalogSearchResults"
             :key="res.id"
             class="search-dropdown-item"
@@ -29,7 +30,7 @@
               <strong>{{ res.title }}</strong>
               <small>{{ res.description }}</small>
             </div>
-          </div>
+          </button>
         </div>
       </div>
       <div class="user-profile">
@@ -1006,21 +1007,36 @@ const csrfToken = ref('');
 const catalogSearchQuery = ref('');
 const catalogSearchResults = ref([]);
 const showSearchDropdown = ref(false);
+let searchAbortController = null;
 
 const performCatalogSearch = async () => {
-  if (!catalogSearchQuery.value) {
+  const query = catalogSearchQuery.value ? catalogSearchQuery.value.trim() : '';
+  if (searchAbortController) {
+    searchAbortController.abort();
+    searchAbortController = null;
+  }
+  if (!query) {
     catalogSearchResults.value = [];
+    showSearchDropdown.value = false;
     return;
   }
+  searchAbortController = new AbortController();
   try {
-    const res = await fetch(`/api/v1/customer/search?q=${encodeURIComponent(catalogSearchQuery.value)}`, { credentials: 'same-origin' });
+    const res = await fetch(`/api/v1/customer/search?q=${encodeURIComponent(query)}`, {
+      credentials: 'same-origin',
+      signal: searchAbortController.signal,
+    });
     if (res.ok) {
       const data = await res.json();
-      catalogSearchResults.value = data.hits || [];
-      showSearchDropdown.value = true;
+      if (catalogSearchQuery.value && catalogSearchQuery.value.trim() === query) {
+        catalogSearchResults.value = data.hits || [];
+        showSearchDropdown.value = true;
+      }
     }
   } catch (e) {
-    console.error('search error', e);
+    if (e.name !== 'AbortError') {
+      console.error('search error', e);
+    }
   }
 };
 
@@ -1952,8 +1968,26 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .search-bar-container input:focus { border-color: var(--secondary-color, #ea580c); }
 .search-bar-container .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; color: #94a3b8; pointer-events: none; }
 .search-dropdown-menu { position: absolute; top: calc(100% + 0.5rem); left: 0; right: 0; background: var(--card-color, #1e293b); border: 1px solid #475569; border-radius: 0.5rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); max-height: 280px; overflow-y: auto; z-index: 50; padding: 0.25rem; }
-.search-dropdown-item { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.75rem; border-radius: 0.35rem; cursor: pointer; transition: background 0.15s; }
-.search-dropdown-item:hover { background: #334155; }
+.search-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.search-dropdown-item:hover,
+.search-dropdown-item:focus {
+  background: #334155;
+  outline: none;
+}
 .item-tag { font-size: 0.65rem; font-weight: bold; padding: 2px 5px; border-radius: 3px; background: #475569; color: white; }
 .item-tag.fund { background: #ea580c; }
 .item-tag.transparency { background: #059669; }

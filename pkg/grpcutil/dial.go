@@ -30,6 +30,9 @@ func Dial(ctx context.Context, target string, tlsConfig *tls.Config, opts ...grp
 		credOption = grpc.WithTransportCredentials(insecure.NewCredentials())
 	}
 
-	allOpts := append([]grpc.DialOption{credOption}, opts...)
+	allOpts := append([]grpc.DialOption{
+		credOption,
+		grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")),
+	}, opts...)
 	return grpc.NewClient(cleaned, allOpts...)
 }

@@ -96,6 +96,7 @@ type Repository interface {
 	UpdateOTAJobStatus(ctx context.Context, jobID string, status string, errorMsg *string, completedAt *time.Time) (*DeviceOTAJob, error)
 	ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*DeviceOTAJob, error)
 	RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error)
+	GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*EnvironmentalTelemetry, error)
 }
 
 type pgxRepository struct {
@@ -447,4 +448,37 @@ func (r *pgxRepository) RecordEnvironmentalTelemetry(ctx context.Context, t *Env
 	}
 	return t, nil
 }
+
+func (r *pgxRepository) GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*EnvironmentalTelemetry, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if limit <= 0 {
+		limit = 10
+	} else if limit > 100 {
+		limit = 100
+	}
+
+	query := `SELECT telemetry_id, zone_id, temperature_c, relative_humidity_pct, light_intensity_lux, noise_level_db, recorded_at
+	          FROM facilities.environmental_telemetry
+	          WHERE ($1 = '' OR zone_id::text = $1 OR zone_id IN (SELECT zone_id FROM facilities.location_zones WHERE name = $1))
+	          ORDER BY recorded_at DESC
+	          LIMIT $2`
+	rows, err := r.db.Query(ctx, query, zoneID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*EnvironmentalTelemetry
+	for rows.Next() {
+		var t EnvironmentalTelemetry
+		if err := rows.Scan(&t.TelemetryID, &t.ZoneID, &t.TemperatureC, &t.RelativeHumidityPct, &t.LightIntensityLux, &t.NoiseLevelDB, &t.RecordedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, &t)
+	}
+	return list, rows.Err()
+}
+
 

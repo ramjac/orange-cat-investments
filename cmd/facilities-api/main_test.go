@@ -50,4 +50,23 @@ func TestFacilitiesAPI_GRPC(t *testing.T) {
 	res, err := client.ListAssets(t.Context(), &facilitiesv1.ListAssetsRequest{})
 	require.NoError(t, err)
 	assert.NotNil(t, res)
+
+	// Test StreamEnvironmentalTelemetry
+	stream, err := client.StreamEnvironmentalTelemetry(t.Context(), &facilitiesv1.StreamTelemetryRequest{
+		ZoneID:      "zone-alpha",
+		SampleCount: 3,
+	})
+	require.NoError(t, err)
+	sampleCount := 0
+	for {
+		sample, err := stream.Recv()
+		if err != nil {
+			break
+		}
+		assert.NotEmpty(t, sample.TelemetryID)
+		assert.Equal(t, "zone-alpha", sample.ZoneID)
+		assert.Equal(t, 21.5, sample.TemperatureC)
+		sampleCount++
+	}
+	assert.Equal(t, 3, sampleCount)
 }

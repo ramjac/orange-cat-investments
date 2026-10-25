@@ -195,6 +195,7 @@ func NewServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, er
 		MinVersion:     tls.VersionTLS12,
 		GetCertificate: reloader.GetCertificate,
 		ClientAuth:     tls.RequireAndVerifyClientCert,
+		NextProtos:     []string{"h2", "http/1.1"},
 	}
 
 	tlsConfig := baseConfig.Clone()
@@ -206,6 +207,9 @@ func NewServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, er
 		}
 		cfg := baseConfig.Clone()
 		cfg.ClientCAs = pool
+		if len(tlsConfig.NextProtos) > 0 {
+			cfg.NextProtos = tlsConfig.NextProtos
+		}
 		return cfg, nil
 	}
 

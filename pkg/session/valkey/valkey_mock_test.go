@@ -169,6 +169,26 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 				}
 			case "EXPIRE":
 				conn.Write([]byte(":1\r\n"))
+			case "EVAL":
+				if len(args) >= 4 {
+					key := args[3]
+					prefix := ""
+					if len(args) >= 5 {
+						prefix = args[4]
+					}
+					set := s.sets[key]
+					count := 0
+					for m := range set {
+						if _, exists := s.strings[prefix+m]; exists {
+							count++
+							delete(s.strings, prefix+m)
+						}
+					}
+					delete(s.sets, key)
+					conn.Write([]byte(fmt.Sprintf(":%d\r\n", count)))
+				} else {
+					conn.Write([]byte(":0\r\n"))
+				}
 			default:
 				conn.Write([]byte("+OK\r\n"))
 			}
@@ -200,7 +220,8 @@ func TestValkeyCustomerAndEmployeeSessionStore_WithMockValkey(t *testing.T) {
 	custSess2, err := custStore.Create("cust-202", "Diana Prince", "diana@amazon.com")
 	require.NoError(t, err)
 
-	purgedCust := custStore.PurgeCustomerSessions("cust-202")
+	purgedCust, err := custStore.PurgeCustomerSessions("cust-202")
+	require.NoError(t, err)
 	assert.Equal(t, 2, purgedCust)
 
 	_, ok = custStore.Get(custSess.SessionID)
@@ -245,7 +266,8 @@ func TestValkeyCustomerAndEmployeeSessionStore_WithMockValkey(t *testing.T) {
 	// Inject another stale token to test PurgeCustomerSessions return count consistency
 	client.SAdd(ctx, customerUserIndexKey("cust-drift"), "stale-evicted-token-2")
 	// Purge should return 1 (only the active session), even though SMembers had 2 tokens
-	purgedCount := custStore.PurgeCustomerSessions("cust-drift")
+	purgedCount, err := custStore.PurgeCustomerSessions("cust-drift")
+	require.NoError(t, err)
 	assert.Equal(t, 1, purgedCount)
 
 	// 4. Test Expired Session Cleanup during Get()
@@ -274,6 +296,7 @@ func TestValkeyCustomerAndEmployeeSessionStore_WithMockValkey(t *testing.T) {
 	assert.Equal(t, 1, empPruned)
 
 	client.SAdd(ctx, employeeUserIndexKey("emp-drift"), "stale-emp-token-2")
-	empPurgedCount := empStore.PurgeEmployeeSessions("emp-drift")
+	empPurgedCount, err := empStore.PurgeEmployeeSessions("emp-drift")
+	require.NoError(t, err)
 	assert.Equal(t, 1, empPurgedCount)
 }

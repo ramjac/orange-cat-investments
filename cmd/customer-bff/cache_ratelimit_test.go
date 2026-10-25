@@ -133,7 +133,8 @@ func TestCustomerBFF_MultiDeviceLogoutPurge(t *testing.T) {
 	assert.True(t, ok1)
 	assert.True(t, ok2)
 
-	purged := store.PurgeCustomerSessions("cust-multi")
+	purged, err := store.PurgeCustomerSessions("cust-multi")
+	require.NoError(t, err)
 	assert.Equal(t, 2, purged)
 
 	_, ok1 = store.Get(sess1.SessionID)

@@ -70,8 +70,13 @@ func main() {
 		logger.Info("Workforce Domain API configured with dynamic mTLS")
 	}
 
+	enableFeline := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+		enableFeline = false
+	}
+
 	grpcServer := grpcutil.NewServer(tlsConfig)
-	grpcSrv := NewWorkforceGRPCServer(svc)
+	grpcSrv := NewWorkforceGRPCServer(svc, enableFeline)
 	workforcev1.RegisterWorkforceServiceServer(grpcServer, grpcSrv)
 
 	healthSrv := health.NewServer()

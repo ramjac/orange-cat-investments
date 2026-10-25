@@ -13,6 +13,8 @@ metadata:
     app: container-registry
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: container-registry
@@ -28,6 +30,9 @@ spec:
           ports:
             - containerPort: 5000
               name: registry
+          volumeMounts:
+            - name: registry-storage
+              mountPath: /var/lib/registry
           resources:
             requests:
               cpu: 50m
@@ -35,6 +40,24 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+      volumes:
+        - name: registry-storage
+          persistentVolumeClaim:
+            claimName: container-registry-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: container-registry-pvc
+  namespace: kube-system
+  labels:
+    app: container-registry
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
 ---
 apiVersion: v1
 kind: Service

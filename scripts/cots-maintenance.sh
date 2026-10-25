@@ -99,20 +99,85 @@ case "${CMD}" in
         echo "  Verifying COTS Workload Health                          "
         echo "=========================================================="
 
-        echo "Checking oci-internal pods..."
-        kubectl get pods -n oci-internal -l 'app in (forgejo, nextcloud, snipe-it, erpnext-frappe, frappe-hr, postgres-internal)' || true
+        echo "1. Verifying oci-internal workload rollouts..."
+        kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s
+        kubectl rollout status deployment/forgejo -n oci-internal --timeout=120s
+        kubectl rollout status deployment/nextcloud -n oci-internal --timeout=120s
+        kubectl rollout status deployment/snipe-it -n oci-internal --timeout=120s
+        kubectl rollout status deployment/erpnext-frappe -n oci-internal --timeout=120s
+        kubectl rollout status deployment/frappe-hr -n oci-internal --timeout=120s
 
-        echo ""
-        echo "Checking oci-core identity pods..."
-        kubectl get pods -n oci-core -l 'app in (zitadel, postgres-core)' || true
+        echo "2. Verifying oci-core identity workload rollouts..."
+        kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s
+        kubectl rollout status deployment/zitadel -n oci-core --timeout=120s
 
-        echo ""
-        echo "Running simulated persona verification for Frank Operations..."
-        if command -v go >/dev/null 2>&1 || [[ -x "/home/ramjac/.local/bin/go" ]]; then
-            export PATH="/home/ramjac/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/bin:$PATH"
-            go run "${REPO_ROOT}/simulation/cmd/simulator" -mode mock -persona emp-human-frank
+        echo "3. Asserting pod readiness across workloads..."
+        kubectl wait --for=condition=ready pod -l 'app in (forgejo, nextcloud, snipe-it, erpnext-frappe, frappe-hr, postgres-internal)' -n oci-internal --timeout=120s
+        kubectl wait --for=condition=ready pod -l 'app in (zitadel, postgres-core)' -n oci-core --timeout=120s
+
+        echo "4. Probing live application health endpoints..."
+        FAILED_CHECKS=0
+
+        # Postgres Internal
+        echo -n "Checking postgres-internal... "
+        if kubectl exec statefulset/postgres-internal -n oci-internal -- pg_isready -U oci_admin >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
         fi
-        echo "✅ Health verification completed."
+
+        # Postgres Core
+        echo -n "Checking postgres-core... "
+        if kubectl exec statefulset/postgres-core -n oci-core -- pg_isready -U oci_admin >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+
+        # Forgejo
+        echo -n "Checking Forgejo HTTP endpoint... "
+        if kubectl exec deployment/forgejo -n oci-internal -- sh -c 'wget -q -O - http://localhost:3000/api/v1/version 2>/dev/null || curl -sf http://localhost:3000/api/v1/version 2>/dev/null' >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+
+        # Nextcloud
+        echo -n "Checking Nextcloud HTTP endpoint... "
+        if kubectl exec deployment/nextcloud -n oci-internal -- sh -c 'curl -sf http://localhost:80/status.php 2>/dev/null || php /var/www/html/occ status 2>/dev/null' >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+
+        # Snipe-IT
+        echo -n "Checking Snipe-IT HTTP endpoint... "
+        if kubectl exec deployment/snipe-it -n oci-internal -- sh -c 'curl -sf http://localhost:80/health 2>/dev/null || curl -sf http://localhost:80/ 2>/dev/null' >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+
+        # Zitadel
+        echo -n "Checking Zitadel health endpoint... "
+        if kubectl exec deployment/zitadel -n oci-core -- sh -c 'curl -sf http://localhost:8080/debug/healthz 2>/dev/null || wget -q -O - http://localhost:8080/debug/healthz 2>/dev/null' >/dev/null 2>&1; then
+            echo "OK"
+        else
+            echo "FAILED"
+            FAILED_CHECKS=$((FAILED_CHECKS + 1))
+        fi
+
+        if [[ ${FAILED_CHECKS} -gt 0 ]]; then
+            echo "❌ COTS health verification failed with ${FAILED_CHECKS} failing health check(s)." >&2
+            exit 1
+        fi
+
+        echo "✅ All COTS applications are healthy and ready."
         ;;
 
     rollback)

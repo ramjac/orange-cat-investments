@@ -3,6 +3,7 @@ package valkey
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 
@@ -89,8 +90,9 @@ func (l *InvalidationListener) consumeTopic(ctx context.Context, topic string, m
 }
 
 type genericPayload struct {
-	CustomerID string `json:"customer_id"`
-	FelineID   string `json:"feline_id"`
+	CustomerID  string `json:"customer_id"`
+	PortfolioID string `json:"portfolio_id"`
+	FelineID    string `json:"feline_id"`
 }
 
 func (l *InvalidationListener) handleMessage(ctx context.Context, topic string, msg *message.Message) {
@@ -109,11 +111,18 @@ func (l *InvalidationListener) handleMessage(ctx context.Context, topic string, 
 	switch topic {
 	case "events.investment.trade_executed.v1", "events.investment.order_placed.v1":
 		if payload.CustomerID != "" {
-			if err := l.cache.Delete(ctx, KeyPortfolio(payload.CustomerID), KeyOrders(payload.CustomerID)); err != nil {
-				l.logger.Warn("failed to evict customer portfolio cache on trade event", "customer_id", payload.CustomerID, "error", err)
-			} else {
-				l.logger.Info("evicted customer portfolio cache on trade event", "customer_id", payload.CustomerID)
+			keysToDel := []string{
+				KeyPortfolio(payload.CustomerID),
+				KeyOrders(payload.CustomerID),
 			}
+			if payload.PortfolioID != "" {
+				keysToDel = append(keysToDel, KeyPortfolioWithID(payload.CustomerID, payload.PortfolioID))
+			}
+			if err := l.cache.Delete(ctx, keysToDel...); err != nil {
+				l.logger.Warn("failed to evict customer portfolio cache on trade event", "customer_id", payload.CustomerID, "error", err)
+			}
+			_ = l.cache.DeletePrefix(ctx, fmt.Sprintf("cache:portfolio:%s:", payload.CustomerID))
+			l.logger.Info("evicted customer portfolio cache on trade event", "customer_id", payload.CustomerID)
 		} else {
 			if err := l.cache.DeletePrefix(ctx, "cache:portfolio:"); err != nil {
 				l.logger.Warn("failed to evict all portfolio caches on trade event", "error", err)

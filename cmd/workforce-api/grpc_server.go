@@ -7,14 +7,21 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type WorkforceGRPCServer struct {
-	svc workforce_svc.Service
+	svc          workforce_svc.Service
+	enableFeline bool
 }
 
-func NewWorkforceGRPCServer(svc workforce_svc.Service) *WorkforceGRPCServer {
-	return &WorkforceGRPCServer{svc: svc}
+func NewWorkforceGRPCServer(svc workforce_svc.Service, enableFeline ...bool) *WorkforceGRPCServer {
+	enabled := true
+	if len(enableFeline) > 0 {
+		enabled = enableFeline[0]
+	}
+	return &WorkforceGRPCServer{svc: svc, enableFeline: enabled}
 }
 
 func strPtr(s string) *string {
@@ -125,6 +132,9 @@ func (s *WorkforceGRPCServer) CreateEmployee(ctx context.Context, in *workforcev
 }
 
 func (s *WorkforceGRPCServer) GetCareSchedule(ctx context.Context, in *workforcev1.GetCareScheduleRequest) (*workforcev1.GetCareScheduleResponse, error) {
+	if !s.enableFeline {
+		return nil, status.Error(codes.FailedPrecondition, "feline workforce domain feature is disabled")
+	}
 	cs, err := s.svc.GetCareSchedule(ctx, in.FelineID)
 	if err != nil {
 		return nil, err
@@ -133,6 +143,9 @@ func (s *WorkforceGRPCServer) GetCareSchedule(ctx context.Context, in *workforce
 }
 
 func (s *WorkforceGRPCServer) UpdateCareSchedule(ctx context.Context, in *workforcev1.UpdateCareScheduleRequest) (*workforcev1.UpdateCareScheduleResponse, error) {
+	if !s.enableFeline {
+		return nil, status.Error(codes.FailedPrecondition, "feline workforce domain feature is disabled")
+	}
 	cs := &workforce.CareSchedule{
 		FelineID:             in.FelineID,
 		DietaryPlan:          in.DietaryPlan,
@@ -150,6 +163,9 @@ func (s *WorkforceGRPCServer) UpdateCareSchedule(ctx context.Context, in *workfo
 }
 
 func (s *WorkforceGRPCServer) SetMedicalHold(ctx context.Context, in *workforcev1.SetMedicalHoldRequest) (*workforcev1.SetMedicalHoldResponse, error) {
+	if !s.enableFeline {
+		return nil, status.Error(codes.FailedPrecondition, "feline workforce domain feature is disabled")
+	}
 	cs, err := s.svc.SetEmergencyMedicalHold(ctx, in.FelineID, in.EmergencyMedicalHold)
 	if err != nil {
 		return nil, err
@@ -251,6 +267,9 @@ func (s *WorkforceGRPCServer) ListReviewCycles(ctx context.Context, in *workforc
 }
 
 func (s *WorkforceGRPCServer) CreateVHRRecord(ctx context.Context, in *workforcev1.CreateVHRRecordRequest) (*workforcev1.CreateVHRRecordResponse, error) {
+	if !s.enableFeline {
+		return nil, status.Error(codes.FailedPrecondition, "feline workforce domain feature is disabled")
+	}
 	rec := &workforce.VHRRecord{
 		FelineID:          in.FelineID,
 		VeterinarianID:    strPtr(in.VeterinarianID),
@@ -279,6 +298,9 @@ func (s *WorkforceGRPCServer) CreateVHRRecord(ctx context.Context, in *workforce
 }
 
 func (s *WorkforceGRPCServer) ListVHRRecords(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error) {
+	if !s.enableFeline {
+		return nil, status.Error(codes.FailedPrecondition, "feline workforce domain feature is disabled")
+	}
 	records, err := s.svc.ListVHRRecords(ctx, in.FelineID)
 	if err != nil {
 		return nil, err
