@@ -63,6 +63,14 @@ func (d *Driver) Registry() *Registry {
 	return d.registry
 }
 
+// AuthenticatePersona executes the automated authentication handshake for the specified persona.
+func (d *Driver) AuthenticatePersona(ctx context.Context, p *Persona) error {
+	if d.client == nil {
+		return fmt.Errorf("simulation client not initialized")
+	}
+	return d.client.AuthenticatePersona(ctx, p)
+}
+
 // Run executes the simulation based on the configured mode and target persona.
 func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 	startTime := time.Now()
@@ -97,6 +105,13 @@ func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 		for _, p := range personasToRun {
 			d.logger.Info("simulating persona day actions", "persona_id", p.ID, "persona_name", p.Name, "role", p.RoleTitle)
 
+			personaCtx := WithPersona(ctx, p)
+
+			// Automated persona authentication handshake hook
+			if err := d.client.AuthenticatePersona(personaCtx, p); err != nil {
+				d.logger.Error("persona authentication handshake failed", "persona_id", p.ID, "persona_name", p.Name, "error", err)
+			}
+
 			for _, act := range p.Actions {
 				select {
 				case <-ctx.Done():
@@ -105,7 +120,7 @@ func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 				default:
 				}
 
-				res, err := act.Execute(ctx, d.client)
+				res, err := act.Execute(personaCtx, d.client)
 				if err != nil {
 					res = &ActionResult{
 						PersonaID:   p.ID,

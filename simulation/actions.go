@@ -47,6 +47,8 @@ func (r *Registry) createGarfieldPersona() *Persona {
 		Type:          "feline",
 		RoleTitle:     "Chief Observation Officer (COO)",
 		Department:    "Core Executive Observation Plane",
+		Role:          "admin",
+		Email:         "garfield@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createGarfieldMorningZoomiesAction(),
@@ -196,6 +198,8 @@ func (r *Registry) createBarnebyPersona() *Persona {
 		Type:          "feline",
 		RoleTitle:     "Senior Alpha Perch Analyst",
 		Department:    "Habitat Intelligence & Telemetry",
+		Role:          "staff",
+		Email:         "barneby@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createBarnebySunbeamTrackingAction(),
@@ -341,6 +345,8 @@ func (r *Registry) createAlicePersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Head of Human & Feline Resources",
 		Department:    "Workforce Operations",
+		Role:          "hr",
+		Email:         "alice.vance@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createAliceWorkforceDirectoryAction(),
@@ -711,6 +717,8 @@ func (r *Registry) createBobPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Lead Facilities & Edge Telemetry Engineer",
 		Department:    "Habitat Facilities & Infrastructure",
+		Role:          "facilities",
+		Email:         "bob.builder@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -880,6 +888,8 @@ func (r *Registry) createCarolPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Chief Investment Officer (CIO)",
 		Department:    "Core Investment Management",
+		Role:          "investment",
+		Email:         "carol.danvers@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -944,6 +954,8 @@ func (r *Registry) createDavidPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Feline Behavioral Data Scientist",
 		Department:    "Quantitative Analytics & AI",
+		Role:          "investment",
+		Email:         "david.quant@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1032,6 +1044,8 @@ func (r *Registry) createElenaPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Chief Veterinary Officer & Habitat Care Specialist",
 		Department:    "Feline Health & Habitat Welfare",
+		Role:          "veterinary",
+		Email:         "elena.rostova@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1145,6 +1159,8 @@ func (r *Registry) createFrankPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Platform Security & K8s Infrastructure Lead",
 		Department:    "Systems Platform & DevSecOps",
+		Role:          "ops",
+		Email:         "frank.ops@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1271,6 +1287,8 @@ func (r *Registry) createArthurPersona() *Persona {
 		Type:          "customer",
 		RoleTitle:     "Long-Term Value Investor",
 		Department:    "Retail Investor Community",
+		Role:          "customer",
+		Email:         "arthur@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1637,6 +1655,8 @@ func (r *Registry) createChloePersona() *Persona {
 		Type:          "customer",
 		RoleTitle:     "Momentum Alpha Trader",
 		Department:    "Retail Investor Community",
+		Role:          "customer",
+		Email:         "chloe@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1881,6 +1901,8 @@ func (r *Registry) createRickPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Junior Operations Associate",
 		Department:    "Workforce Operations",
+		Role:          "staff",
+		Email:         "rick.newhire@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -2017,6 +2039,8 @@ func (r *Registry) createElisePersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Software Developer",
 		Department:    "Engineering & Platform Development",
+		Role:          "engineering",
+		Email:         "elise.dev@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -2287,6 +2311,8 @@ func (r *Registry) createMarcusPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Principal Systems Architect & Senior Developer",
 		Department:    "Engineering & Platform Development",
+		Role:          "engineering",
+		Email:         "marcus.lead@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{

@@ -683,6 +683,11 @@ The remaining items are prioritized in the execution order that maximizes engine
 ---
 
 ### 7.1 Stateful Persona Session Management & Cookie/CSRF Persistence in Platform Simulation
+
+> [!NOTE]
+> **Status: Completed**
+> The OCI Platform Simulator (`simulation/client.go`, `simulation/driver.go`, `simulation/context.go`, `simulation/session_test.go`) manages authentic stateful sessions with per-persona `http.CookieJar` instances, automated pre-action authentication handshakes, transparent double-submit CSRF header injection, and negative security testing (session purge on offboarding & GDPR erasure).
+
 Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/client.go`, `simulation/driver.go`) to manage authentic stateful sessions, persisting session cookies and double-submit CSRF tokens across consecutive actions executed by the same persona:
 
 * **Why First:** The simulation driver is the primary end-to-end verification gate for refactoring (`7.2`) and automated CI/CD cluster promotion (`7.3`). Adding stateful cookie and CSRF persistence first ensures all subsequent architectural changes are validated against authentic browser session flows.
