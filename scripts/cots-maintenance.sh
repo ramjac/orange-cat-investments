@@ -7,9 +7,6 @@ set -euo pipefail
 # Role: Platform Security & K8s Infrastructure Lead (emp-human-frank)
 # ==============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-
 usage() {
     cat << EOF
 Usage: $(basename "$0") <command> [arguments]
