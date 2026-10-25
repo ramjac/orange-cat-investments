@@ -41,7 +41,7 @@ spec:
     spec:
       containers:
         - name: runner
-          image: codeberg.org/forgejo/act_runner:latest
+          image: gitea/act_runner:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: DOCKER_HOST
@@ -74,6 +74,11 @@ spec:
         # Docker-in-Docker sidecar engine providing Docker daemon for container jobs
         - name: daemon
           image: docker:26-dind
+          command:
+            - dockerd
+            - --host=tcp://0.0.0.0:2375
+            - --host=unix:///var/run/docker.sock
+            - --insecure-registry=localhost:32000
           securityContext:
             privileged: true
           env:

@@ -12,6 +12,7 @@ import (
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 )
 
 type WorkforceHandler struct {
@@ -19,6 +20,11 @@ type WorkforceHandler struct {
 	onboardingSaga        *saga.OnboardingSaga
 	offboardingEng        *saga.OffboardingEngine
 	EnableFelineWorkforce bool
+	cache                 cachevalkey.Cache
+}
+
+func (h *WorkforceHandler) SetCache(c cachevalkey.Cache) {
+	h.cache = c
 }
 
 func NewWorkforceHandler(
@@ -203,9 +209,62 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	cs, err := h.wfSvc.GetCareSchedule(r.Context(), felineID)
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
+	}
+
+	if h.cache != nil {
+		var cached workforce.CareSchedule
+		if ok, _ := h.cache.Get(r.Context(), cachevalkey.KeyCareSchedule(canonicalID), &cached); ok {
+			data, err := json.Marshal(cached)
+			if err == nil {
+				if cachevalkey.HandleConditionalETag(w, r, data) {
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+
+	var startVer int64
+	if h.cache != nil {
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &startVer)
+	}
+
+	cs, err := h.wfSvc.GetCareSchedule(r.Context(), canonicalID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if h.cache != nil && cs != nil {
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		if currVer == startVer {
+			_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(canonicalID), cs, cachevalkey.TTLCareSchedule)
+			if felineID != canonicalID {
+				_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineID), cs, cachevalkey.TTLCareSchedule)
+			}
+			if felineAlias != "" {
+				_ = h.cache.Set(r.Context(), cachevalkey.KeyCareSchedule(felineAlias), cs, cachevalkey.TTLCareSchedule)
+			}
+		}
+	}
+
+	data, err := json.Marshal(cs)
+	if err == nil {
+		if cachevalkey.HandleConditionalETag(w, r, data) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
 		return
 	}
 
@@ -217,6 +276,15 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 	if felineID == "" {
 		writeError(w, http.StatusBadRequest, "felineId parameter is required")
 		return
+	}
+
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
 	}
 
 	var req struct {
@@ -234,7 +302,7 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 	}
 
 	cs := &workforce.CareSchedule{
-		FelineID:             felineID,
+		FelineID:             canonicalID,
 		DietaryPlan:          req.DietaryPlan,
 		FeedingTimes:         req.FeedingTimes,
 		SpecialMedicalNeeds:  req.SpecialMedicalNeeds,
@@ -249,6 +317,24 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if h.cache != nil {
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), currVer+1, 24*time.Hour)
+
+		keys := []string{cachevalkey.KeyCareSchedule(canonicalID)}
+		if felineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
+		}
+		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
+		if felineAlias != "" {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))
+		}
+		_ = h.cache.Delete(r.Context(), keys...)
+	}
+
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -257,6 +343,15 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 	if felineID == "" {
 		writeError(w, http.StatusBadRequest, "felineId parameter is required")
 		return
+	}
+
+	canonicalID := felineID
+	var felineAlias string
+	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+		canonicalID = emp.EmployeeID
+		if emp.FirstName != "" {
+			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+		}
 	}
 
 	var req struct {
@@ -268,10 +363,28 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	updated, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), felineID, req.EmergencyMedicalHold)
+	updated, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), canonicalID, req.EmergencyMedicalHold)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	if h.cache != nil {
+		var currVer int64
+		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &currVer)
+		_ = h.cache.Set(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), currVer+1, 24*time.Hour)
+
+		keys := []string{cachevalkey.KeyCareSchedule(canonicalID)}
+		if felineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
+		}
+		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		}
+		if felineAlias != "" {
+			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))
+		}
+		_ = h.cache.Delete(r.Context(), keys...)
 	}
 
 	writeJSON(w, http.StatusOK, updated)
@@ -1053,15 +1166,40 @@ func (h *WorkforceHandler) handleGetEmployeeLifecycle(w http.ResponseWriter, r *
 }
 
 func (h *WorkforceHandler) listGroupFolders(w http.ResponseWriter, r *http.Request) {
+	cacheKey := "cache:cots:nextcloud:folders"
+	if h.cache != nil {
+		if raw, ok, _ := h.cache.GetRaw(r.Context(), cacheKey); ok {
+			if cachevalkey.HandleConditionalETag(w, r, raw) {
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(raw)
+			return
+		}
+	}
+
 	folders, err := h.wfSvc.ListGroupFolders(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"folders": folders,
 		"total":   len(folders),
-	})
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	if h.cache != nil {
+		_ = h.cache.SetRaw(r.Context(), cacheKey, data, cachevalkey.TTLCOTSMetadata)
+	}
+	if cachevalkey.HandleConditionalETag(w, r, data) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(data)
 }
 
 func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Request) {
@@ -1082,6 +1220,9 @@ func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.cache != nil {
+		_ = h.cache.Delete(r.Context(), "cache:cots:nextcloud:folders")
 	}
 	writeJSON(w, http.StatusCreated, folder)
 }

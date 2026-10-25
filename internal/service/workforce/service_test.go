@@ -16,7 +16,7 @@ import (
 
 func setupWorkforceService(t *testing.T) (Service, context.Context) {
 	t.Helper()
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 	return svc, ctx
@@ -775,7 +775,7 @@ func (c *testHRClient) GetFinancialMetrics(ctx context.Context, period string) (
 }
 
 func TestTimesheets_SubmitAndGet(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 
@@ -822,7 +822,7 @@ func TestTimesheets_SubmitAndGet(t *testing.T) {
 }
 
 func TestTimesheets_ValidationErrors(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 
@@ -866,7 +866,7 @@ func TestTimesheets_ValidationErrors(t *testing.T) {
 }
 
 func TestTimesheets_ApproveAndReject(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	publisher := &testEventPublisher{}
 	hrClient := &testHRClient{}
 	svc := NewServiceWithIntegrations(repo, publisher, hrClient)
@@ -931,7 +931,7 @@ func TestTimesheets_ApproveAndReject(t *testing.T) {
 }
 
 func TestPayroll_SalarySlipsAndRun(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 
@@ -983,7 +983,7 @@ func TestPayroll_SalarySlipsAndRun(t *testing.T) {
 }
 
 func TestHubAndDocuments_Service(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 
@@ -1041,7 +1041,7 @@ func TestHubAndDocuments_Service(t *testing.T) {
 }
 
 func TestCalendarEvents_Service(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := NewService(repo)
 	ctx := context.Background()
 
@@ -1073,7 +1073,7 @@ func TestCalendarEvents_Service(t *testing.T) {
 }
 
 func TestExecutiveReports_Service(t *testing.T) {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	hrClient := &testHRClient{}
 	svc := NewServiceWithIntegrations(repo, nil, hrClient)
 	ctx := context.Background()

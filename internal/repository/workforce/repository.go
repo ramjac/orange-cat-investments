@@ -3,6 +3,7 @@ package workforce
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -188,11 +189,7 @@ type pgxRepository struct {
 }
 
 // NewRepository returns a PostgreSQL-backed workforce.Repository.
-// If db is nil, it delegates to NewMockRepository() for test and mock execution.
 func NewRepository(db *pgxpool.Pool) Repository {
-	if db == nil {
-		return NewMockRepository()
-	}
 	return &pgxRepository{db: db}
 }
 
@@ -204,17 +201,47 @@ func (r *pgxRepository) GetEmployeeByID(ctx context.Context, id string) (*Employ
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at
-	          FROM workforce.employees WHERE employee_id::text = $1`
+
+	// 1. Try exact match by employee_id UUID or email
+	exactQuery := `SELECT employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at
+	          FROM workforce.employees
+	          WHERE employee_id::text = $1 OR lower(email) = lower($1)`
 	var emp Employee
-	err := r.db.QueryRow(ctx, query, id).Scan(
+	err := r.db.QueryRow(ctx, exactQuery, id).Scan(
 		&emp.EmployeeID, &emp.EmployeeType, &emp.FirstName, &emp.LastName, &emp.Email,
 		&emp.RoleTitle, &emp.Department, &emp.Status, &emp.HiredAt, &emp.CreatedAt, &emp.UpdatedAt,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("employee with id %s not found: %w", id, err)
+	if err == nil {
+		return &emp, nil
 	}
-	return &emp, nil
+
+	// 2. Try alias resolution (e.g. emp-human-bob, emp-feline-garfield), ensuring no ambiguous multiple matches
+	cleanName := strings.TrimPrefix(strings.TrimPrefix(id, "emp-feline-"), "emp-human-")
+	aliasQuery := `SELECT employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at
+	          FROM workforce.employees
+	          WHERE lower(first_name) = lower($1)
+	          LIMIT 2`
+	rows, err := r.db.Query(ctx, aliasQuery, cleanName)
+	if err != nil {
+		return nil, fmt.Errorf("failed searching employee alias: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []*Employee
+	for rows.Next() {
+		var e Employee
+		if err := rows.Scan(&e.EmployeeID, &e.EmployeeType, &e.FirstName, &e.LastName, &e.Email, &e.RoleTitle, &e.Department, &e.Status, &e.HiredAt, &e.CreatedAt, &e.UpdatedAt); err == nil {
+			matches = append(matches, &e)
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("employee with id %s not found", id)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous employee alias %s matches multiple employees", id)
+	}
+	return matches[0], nil
 }
 
 func (r *pgxRepository) ListEmployees(ctx context.Context, employeeType, status string) ([]*Employee, error) {
@@ -372,12 +399,18 @@ func (r *pgxRepository) GetCareScheduleByFelineID(ctx context.Context, felineID 
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at
-	          FROM workforce.care_schedules
-	          WHERE feline_id::text = $1`
+
+	felineUUID := felineID
+	if emp, err := r.GetEmployeeByID(ctx, felineID); err == nil && emp != nil {
+		felineUUID = emp.EmployeeID
+	}
+
+	query := `SELECT cs.schedule_id::text, cs.feline_id::text, cs.dietary_plan, cs.feeding_times, cs.special_medical_needs, cs.preferred_perch_zone, cs.emergency_medical_hold, cs.caretaker_id::text, cs.created_at, cs.updated_at
+	          FROM workforce.care_schedules cs
+	          WHERE cs.feline_id::text = $1`
 	var cs CareSchedule
 	var caretakerID *string
-	err := r.db.QueryRow(ctx, query, felineID).Scan(
+	err := r.db.QueryRow(ctx, query, felineUUID).Scan(
 		&cs.ScheduleID, &cs.FelineID, &cs.DietaryPlan, &cs.FeedingTimes, &cs.SpecialMedicalNeeds, &cs.PreferredPerchZone, &cs.EmergencyMedicalHold, &caretakerID, &cs.CreatedAt, &cs.UpdatedAt,
 	)
 	if err != nil {
@@ -391,6 +424,11 @@ func (r *pgxRepository) UpsertCareSchedule(ctx context.Context, cs *CareSchedule
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	felineUUID := cs.FelineID
+	if emp, err := r.GetEmployeeByID(ctx, cs.FelineID); err == nil && emp != nil {
+		felineUUID = emp.EmployeeID
+	}
+
 	query := `INSERT INTO workforce.care_schedules (
 		schedule_id, feline_id, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id
 	) VALUES (
@@ -407,7 +445,7 @@ func (r *pgxRepository) UpsertCareSchedule(ctx context.Context, cs *CareSchedule
 	var res CareSchedule
 	var caretakerID *string
 	err := r.db.QueryRow(ctx, query,
-		cs.ScheduleID, cs.FelineID, cs.DietaryPlan, cs.FeedingTimes, cs.SpecialMedicalNeeds, cs.PreferredPerchZone, cs.EmergencyMedicalHold, cs.CaretakerID,
+		cs.ScheduleID, felineUUID, cs.DietaryPlan, cs.FeedingTimes, cs.SpecialMedicalNeeds, cs.PreferredPerchZone, cs.EmergencyMedicalHold, cs.CaretakerID,
 	).Scan(
 		&res.ScheduleID, &res.FelineID, &res.DietaryPlan, &res.FeedingTimes, &res.SpecialMedicalNeeds, &res.PreferredPerchZone, &res.EmergencyMedicalHold, &caretakerID, &res.CreatedAt, &res.UpdatedAt,
 	)
@@ -422,6 +460,11 @@ func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID st
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	felineUUID := felineID
+	if emp, err := r.GetEmployeeByID(ctx, felineID); err == nil && emp != nil {
+		felineUUID = emp.EmployeeID
+	}
+
 	query := `INSERT INTO workforce.care_schedules (
 		schedule_id, feline_id, dietary_plan, feeding_times, emergency_medical_hold
 	) VALUES (
@@ -432,7 +475,7 @@ func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID st
 	RETURNING schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at`
 	var res CareSchedule
 	var caretakerID *string
-	err := r.db.QueryRow(ctx, query, felineID, hold).Scan(
+	err := r.db.QueryRow(ctx, query, felineUUID, hold).Scan(
 		&res.ScheduleID, &res.FelineID, &res.DietaryPlan, &res.FeedingTimes, &res.SpecialMedicalNeeds, &res.PreferredPerchZone, &res.EmergencyMedicalHold, &caretakerID, &res.CreatedAt, &res.UpdatedAt,
 	)
 	if err != nil {
@@ -481,12 +524,20 @@ func (r *pgxRepository) ListLeaveRequests(ctx context.Context, employeeID, statu
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT leave_id::text, employee_id::text, leave_type, start_date::text, end_date::text, status, reason, created_at, updated_at
-	          FROM workforce.leave_requests
-	          WHERE ($1 = '' OR employee_id::text = $1)
-	            AND ($2 = '' OR status = $2)
-	          ORDER BY created_at DESC`
-	rows, err := r.db.Query(ctx, query, employeeID, status)
+
+	canonicalEmpID := employeeID
+	if employeeID != "" {
+		if emp, err := r.GetEmployeeByID(ctx, employeeID); err == nil && emp != nil {
+			canonicalEmpID = emp.EmployeeID
+		}
+	}
+
+	query := `SELECT lr.leave_id::text, lr.employee_id::text, lr.leave_type, lr.start_date::text, lr.end_date::text, lr.status, lr.reason, lr.created_at, lr.updated_at
+	          FROM workforce.leave_requests lr
+	          WHERE ($1 = '' OR lr.employee_id::text = $1)
+	            AND ($2 = '' OR lr.status = $2)
+	          ORDER BY lr.created_at DESC`
+	rows, err := r.db.Query(ctx, query, canonicalEmpID, status)
 	if err != nil {
 		return nil, err
 	}
@@ -602,17 +653,25 @@ func (r *pgxRepository) ListReviewCycles(ctx context.Context, employeeID, status
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := `SELECT review_id::text, employee_id::text, review_type, review_period, phase, scheduled_for::text, status,
-	                 reviewer_id::text, score, notes, self_appraisal, self_score, peer_feedback, peer_score,
-	                 peer_reviewer_id::text, manager_assessment, manager_score, kpi_ratings::text,
-	                 wellness_audit_score, habitat_recommendations, clinical_auditor_id::text, vhr_record_id::text,
-	                 completed_at, created_at, updated_at
-	          FROM workforce.review_cycles
-	          WHERE ($1 = '' OR employee_id::text = $1)
-	            AND ($2 = '' OR status = $2)
-	            AND ($3 = '' OR review_type = $3)
-	          ORDER BY scheduled_for DESC, created_at DESC`
-	rows, err := r.db.Query(ctx, query, employeeID, status, reviewType)
+
+	canonicalEmpID := employeeID
+	if employeeID != "" {
+		if emp, err := r.GetEmployeeByID(ctx, employeeID); err == nil && emp != nil {
+			canonicalEmpID = emp.EmployeeID
+		}
+	}
+
+	query := `SELECT rc.review_id::text, rc.employee_id::text, rc.review_type, rc.review_period, rc.phase, rc.scheduled_for::text, rc.status,
+	                 rc.reviewer_id::text, rc.score, rc.notes, rc.self_appraisal, rc.self_score, rc.peer_feedback, rc.peer_score,
+	                 rc.peer_reviewer_id::text, rc.manager_assessment, rc.manager_score, rc.kpi_ratings::text,
+	                 rc.wellness_audit_score, rc.habitat_recommendations, rc.clinical_auditor_id::text, rc.vhr_record_id::text,
+	                 rc.completed_at, rc.created_at, rc.updated_at
+	          FROM workforce.review_cycles rc
+	          WHERE ($1 = '' OR rc.employee_id::text = $1)
+	            AND ($2 = '' OR rc.status = $2)
+	            AND ($3 = '' OR rc.review_type = $3)
+	          ORDER BY rc.scheduled_for DESC, rc.created_at DESC`
+	rows, err := r.db.Query(ctx, query, canonicalEmpID, status, reviewType)
 	if err != nil {
 		return nil, err
 	}

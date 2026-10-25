@@ -155,7 +155,11 @@ func ResolveRoutingURLs(unifiedURL, serverURL, bffURL, custBFFURL, forgejoURL st
 		}
 		if resolvedForgejo == "" {
 			if strings.Contains(uURL, "dev.api.oci.local") {
-				resolvedForgejo = "https://forgejo.oci.local"
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedForgejo = "http://forgejo.oci.local"
+				} else {
+					resolvedForgejo = "https://forgejo.oci.local"
+				}
 			} else if strings.Contains(uURL, ":8080") {
 				resolvedForgejo = strings.Replace(uURL, ":8080", ":3000", 1)
 			} else if strings.Contains(uURL, "dev.api.") {
@@ -180,5 +184,46 @@ func ResolveRoutingURLs(unifiedURL, serverURL, bffURL, custBFFURL, forgejoURL st
 	}
 
 	return resolvedServer, resolvedBFF, resolvedCustBFF, resolvedForgejo
+}
+
+// ResolveExternalURLs resolves the mock broker and mock bank URLs based on unifiedURL and explicit flags.
+func ResolveExternalURLs(unifiedURL, brokerURL, bankURL string) (string, string) {
+	resolvedBroker := strings.TrimRight(brokerURL, "/")
+	resolvedBank := strings.TrimRight(bankURL, "/")
+	uURL := strings.TrimRight(strings.TrimSpace(unifiedURL), "/")
+
+	if uURL != "" {
+		if resolvedBroker == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedBroker = "http://broker-api.sim.oci.local"
+				} else {
+					resolvedBroker = "https://broker-api.sim.oci.local"
+				}
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBroker = strings.Replace(uURL, ":8080", ":8089", 1)
+			}
+		}
+		if resolvedBank == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedBank = "http://plaid-api.sim.oci.local"
+				} else {
+					resolvedBank = "https://plaid-api.sim.oci.local"
+				}
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBank = strings.Replace(uURL, ":8080", ":8088", 1)
+			}
+		}
+	}
+
+	if resolvedBroker == "" {
+		resolvedBroker = "http://localhost:8089"
+	}
+	if resolvedBank == "" {
+		resolvedBank = "http://localhost:8088"
+	}
+
+	return resolvedBroker, resolvedBank
 }
 

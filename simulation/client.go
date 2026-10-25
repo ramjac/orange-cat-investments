@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -58,6 +60,21 @@ type Client struct {
 
 // NewClient constructs a new simulation client. In "mock" mode, it spins up in-memory HTTP test servers.
 func NewClient(cfg *Config) (*Client, error) {
+	ingressIP := os.Getenv("OCI_INGRESS_IP")
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	if ingressIP != "" {
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err == nil && (strings.HasSuffix(host, ".oci.local") || host == "oci.local") {
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ingressIP, port))
+			}
+			return dialer.DialContext(ctx, network, addr)
+		}
+	}
+
 	c := &Client{
 		serverURL:  strings.TrimSuffix(cfg.ServerURL, "/"),
 		bffURL:     strings.TrimSuffix(cfg.EmployeeBFFURL, "/"),
@@ -67,10 +84,8 @@ func NewClient(cfg *Config) (*Client, error) {
 		forgejoURL: strings.TrimSuffix(cfg.ForgejoURL, "/"),
 		mode:       cfg.Mode,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+			Timeout:   10 * time.Second,
+			Transport: transport,
 		},
 	}
 
@@ -634,7 +649,7 @@ func (c *Client) initMockServers() error {
 	ciHandler := core_invest_handler.NewHandler(ciService)
 	ciHandler.RegisterRoutes(serverMux)
 
-	opsRepo := ops_repo.NewRepository(nil)
+	opsRepo := ops_repo.NewMockRepository()
 	opsService := ops_svc.NewService(opsRepo)
 	opsHandler := ops_handler.NewHandler(opsService)
 	opsHandler.RegisterRoutes(serverMux)
@@ -644,7 +659,7 @@ func (c *Client) initMockServers() error {
 
 	registerFacilitiesRoutes(serverMux, facService, opsService)
 
-	wfRepo := workforce_repo.NewRepository(nil)
+	wfRepo := workforce_repo.NewMockRepository()
 	wfService := workforce_svc.NewService(wfRepo)
 	onboardingSaga := saga.NewOnboardingSaga(wfService, nil, nil)
 	offboardingEng := saga.NewOffboardingEngine(wfService, nil, nil)

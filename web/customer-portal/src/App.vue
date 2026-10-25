@@ -8,12 +8,40 @@
           <p>Customer Investor Portal — Portfolio, Live Habitat Stream & Momentum Trading</p>
         </div>
       </div>
+      <div class="search-bar-container">
+        <span class="search-icon">🔍</span>
+        <input
+          v-model="catalogSearchQuery"
+          type="text"
+          placeholder="Search funds, tickers, ESG scores..."
+          @input="performCatalogSearch"
+          @focus="showSearchDropdown = true"
+        />
+        <div v-if="showSearchDropdown && catalogSearchResults.length > 0" class="search-dropdown-menu">
+          <button
+            type="button"
+            v-for="res in catalogSearchResults"
+            :key="res.id"
+            class="search-dropdown-item"
+            @click="selectCatalogResult(res)"
+          >
+            <span class="item-tag" :class="res.category">{{ (res.category || 'ITEM').toUpperCase() }}</span>
+            <div class="item-text">
+              <strong>{{ res.title }}</strong>
+              <small>{{ res.description }}</small>
+            </div>
+          </button>
+        </div>
+      </div>
       <div class="user-profile">
         <div class="avatar">{{ currentPersona === 'arthur' ? 'AP' : 'CS' }}</div>
         <div class="user-info">
           <h4>{{ portfolio.customer_name || (currentPersona === 'arthur' ? 'Arthur Pendelton' : 'Chloe Spark') }}</h4>
           <span>{{ portfolio.account_name || (currentPersona === 'arthur' ? 'Long-Term Value Investor' : 'Short-Term Momentum Alpha Trader') }}</span>
         </div>
+        <a href="https://status.oci.local" target="_blank" class="switch-persona-btn" style="text-decoration: none; color: #4ade80; display: inline-flex; align-items: center; gap: 4px;" title="Real-Time System Uptime & Status">
+          🟢 Status
+        </a>
         <button class="switch-persona-btn" @click="togglePersona" style="margin-right: 0.5rem;">
           Switch Persona
         </button>
@@ -976,6 +1004,53 @@ const isSubmittingDeposit = ref(false);
 const newlyCreatedKey = ref('');
 const csrfToken = ref('');
 
+const catalogSearchQuery = ref('');
+const catalogSearchResults = ref([]);
+const showSearchDropdown = ref(false);
+let searchAbortController = null;
+
+const performCatalogSearch = async () => {
+  const query = catalogSearchQuery.value ? catalogSearchQuery.value.trim() : '';
+  if (searchAbortController) {
+    searchAbortController.abort();
+    searchAbortController = null;
+  }
+  if (!query) {
+    catalogSearchResults.value = [];
+    showSearchDropdown.value = false;
+    return;
+  }
+  searchAbortController = new AbortController();
+  try {
+    const res = await fetch(`/api/v1/customer/search?q=${encodeURIComponent(query)}`, {
+      credentials: 'same-origin',
+      signal: searchAbortController.signal,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (catalogSearchQuery.value && catalogSearchQuery.value.trim() === query) {
+        catalogSearchResults.value = data.hits || [];
+        showSearchDropdown.value = true;
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      console.error('search error', e);
+    }
+  }
+};
+
+const selectCatalogResult = (item) => {
+  showSearchDropdown.value = false;
+  if (item.category === 'fund' || item.category === 'trading') {
+    currentTab.value = 'trading';
+  } else if (item.category === 'transparency' || item.category === 'welfare') {
+    currentTab.value = 'esg';
+  } else if (item.category === 'statement') {
+    currentTab.value = 'statements';
+  }
+};
+
 // Support & Inquiries State
 const customerTickets = ref([]);
 const selectedTicket = ref(null);
@@ -1888,6 +1963,38 @@ header { display: flex; justify-content: space-between; align-items: center; bor
 .brand { display: flex; align-items: center; gap: 0.75rem; }
 .brand-title h1 { margin: 0; color: var(--secondary-color, #ea580c); font-size: 1.5rem; }
 .brand-title p { margin: 0; color: #94a3b8; font-size: 0.85rem; }
+.search-bar-container { position: relative; flex: 1; max-width: 380px; margin: 0 1rem; }
+.search-bar-container input { width: 100%; background: var(--card-color, #1e293b); border: 1px solid #334155; border-radius: 9999px; padding: 0.5rem 1rem 0.5rem 2.25rem; color: #f8fafc; font-size: 0.85rem; outline: none; transition: border-color 0.2s; }
+.search-bar-container input:focus { border-color: var(--secondary-color, #ea580c); }
+.search-bar-container .search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 0.85rem; color: #94a3b8; pointer-events: none; }
+.search-dropdown-menu { position: absolute; top: calc(100% + 0.5rem); left: 0; right: 0; background: var(--card-color, #1e293b); border: 1px solid #475569; border-radius: 0.5rem; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); max-height: 280px; overflow-y: auto; z-index: 50; padding: 0.25rem; }
+.search-dropdown-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.search-dropdown-item:hover,
+.search-dropdown-item:focus {
+  background: #334155;
+  outline: none;
+}
+.item-tag { font-size: 0.65rem; font-weight: bold; padding: 2px 5px; border-radius: 3px; background: #475569; color: white; }
+.item-tag.fund { background: #ea580c; }
+.item-tag.transparency { background: #059669; }
+.item-tag.statement { background: #3b82f6; }
+.item-text strong { display: block; font-size: 0.85rem; color: #f8fafc; }
+.item-text small { color: #94a3b8; font-size: 0.75rem; }
+
 .user-profile { display: flex; align-items: center; gap: 0.75rem; background: var(--card-color, #1e293b); padding: 0.5rem 1rem; border-radius: 9999px; }
 .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--accent-color, #3b82f6); display: flex; align-items: center; justify-content: center; font-weight: bold; }
 .user-info h4 { margin: 0; font-size: 0.85rem; }

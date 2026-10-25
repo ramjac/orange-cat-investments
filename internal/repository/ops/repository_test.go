@@ -32,7 +32,7 @@ func (r *mockRow) Scan(dest ...any) error {
 }
 
 func TestOpsPgxRepository(t *testing.T) {
-	repo := NewRepository(nil)
+	repo := NewMockRepository()
 	ctx := context.Background()
 
 	t.Run("GetITTicketByID", func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestOpsPgxRepository(t *testing.T) {
 	t.Run("CreateITTicket", func(t *testing.T) {
 		body := "Disk space low"
 		ticket := &ITTicket{
-			ForgejoRepo:    "infra/k3s-cluster",
+			ForgejoRepo:    "infra/microk8s-cluster",
 			Title:          "Disk Space Warning",
 			Body:           &body,
 			AuthorUsername: "emp-human-frank",
@@ -229,7 +229,7 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 
 		body := "Disk space low"
 		_, err = pgxRepo.CreateITTicket(ctx, &ITTicket{
-			ForgejoRepo:    "infra/k3s-cluster",
+			ForgejoRepo:    "infra/microk8s-cluster",
 			Title:          "Disk Space Warning",
 			Body:           &body,
 			AuthorUsername: "emp-human-frank",

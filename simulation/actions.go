@@ -388,7 +388,7 @@ func (r *Registry) createAliceTriggerOnboardingSagaAction() Action {
 			endpoint := "/api/v1/webhooks/frappe-hr"
 			payload := map[string]any{
 				"event":         "employee_created",
-				"employee_id":   "emp-simulated-newhire",
+				"employee_id":   "018f3a9a-e999-7000-8000-000000000099",
 				"employee_type": "human",
 				"first_name":    "Nala",
 				"last_name":     "Simba",
@@ -679,9 +679,9 @@ func (r *Registry) createAliceOffboardEmployeeAction() Action {
 		Name:        "alice_offboard_employee",
 		Description: "Executes automated deprovisioning engine for separating employee across VCS, Nextcloud, and Snipe-IT",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-			endpoint := "/api/v1/workforce/employees/emp-simulated-newhire/offboard"
+			endpoint := "/api/v1/workforce/employees/018f3a9a-e999-7000-8000-000000000099/offboard"
 			payload := map[string]any{
-				"employee_id":   "emp-simulated-newhire",
+				"employee_id":   "018f3a9a-e999-7000-8000-000000000099",
 				"reason":        "Seasonal habitat monitoring contract concluded",
 				"target_status": "separated",
 			}
@@ -1113,7 +1113,7 @@ func (r *Registry) createElenaPersona() *Persona {
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/workforce/review-cycles/018e0000-0000-7000-8000-000000000021/vet-audit"
 					payload := map[string]any{
-						"clinical_auditor_id":     "emp-human-elena",
+						"clinical_auditor_id":     "018f3a9a-e004-7000-8000-000000000004",
 						"wellness_audit_score":    4.90,
 						"habitat_recommendations": "Recalibrate perch climb angle to reduce joint strain and install secondary scratching post",
 					}
@@ -1500,6 +1500,7 @@ func (r *Registry) createArthurPersona() *Persona {
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/customer/auth/register"
 					payload := map[string]any{
+						"full_name":           "Arthur Pendelton Jr",
 						"name":                "Arthur Pendelton Jr",
 						"email":               "arthur.jr@oci.local",
 						"password":            "NIST_Compliant#2026!Strong",

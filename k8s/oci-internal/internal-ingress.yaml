@@ -8,7 +8,6 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
-  ingressClassName: public
   rules:
     - host: nextcloud.oci.local
       http:
@@ -37,7 +36,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: erpnext-frappe-service
+                name: erpnext-service
                 port:
                   number: 8000
     - host: hr.oci.local

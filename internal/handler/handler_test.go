@@ -16,7 +16,7 @@ import (
 )
 
 func setupTestServer() *http.ServeMux {
-	repo := workforce.NewRepository(nil)
+	repo := workforce.NewMockRepository()
 	svc := wfService.NewService(repo)
 	onboardSaga := saga.NewOnboardingSaga(svc, nil, nil)
 	offboardEng := saga.NewOffboardingEngine(svc, nil, nil)

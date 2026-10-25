@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,23 +20,38 @@ import (
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
-	"github.com/orange-cat-investments/oci/internal/saga"
-	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
+	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 type InternalBLLServer struct {
-	logger         *slog.Logger
-	publisher      message.Publisher
-	httpClient     *http.Client
-	workforceURL   string
-	facilitiesURL  string
-	opsURL         string
-	onboardingSaga *saga.OnboardingSaga
-	offboardingEng *saga.OffboardingEngine
+	logger        *slog.Logger
+	publisher     message.Publisher
+	httpClient    *http.Client
+	workforceURL  string
+	facilitiesURL string
+	opsURL        string
+
+	wfClient  workforcev1.WorkforceServiceClient
+	facClient facilitiesv1.FacilitiesServiceClient
+	opsClient opsv1.OpsServiceClient
+}
+
+func (s *InternalBLLServer) SetWorkforceClient(c workforcev1.WorkforceServiceClient) {
+	s.wfClient = c
+}
+
+func (s *InternalBLLServer) SetFacilitiesClient(c facilitiesv1.FacilitiesServiceClient) {
+	s.facClient = c
+}
+
+func (s *InternalBLLServer) SetOpsClient(c opsv1.OpsServiceClient) {
+	s.opsClient = c
 }
 
 type IncidentCreateRequest struct {
@@ -94,7 +112,24 @@ func (s *InternalBLLServer) handleCreateIncident(w http.ResponseWriter, r *http.
 
 	// 1. Forward to workforce domain API and extract canonical incident_id (Thread 37)
 	canonicalID := ""
-	if s.workforceURL != "" {
+	if s.wfClient != nil {
+		wfRes, err := s.wfClient.CreateIncident(r.Context(), &workforcev1.CreateIncidentRequest{
+			Title:            req.Title,
+			Category:         req.Category,
+			InvolvedFelineID: req.InvolvedFelineID,
+			InvolvedHumanID:  req.InvolvedHumanID,
+			Severity:         req.Severity,
+			Description:      req.Description,
+		})
+		if err != nil {
+			s.log().Error("workforce domain API rejected incident creation via gRPC", "error", err)
+			http.Error(w, fmt.Sprintf(`{"error":"workforce API rejected incident: %v"}`, err), http.StatusBadGateway)
+			return
+		}
+		if wfRes != nil && wfRes.Incident != nil && wfRes.Incident.IncidentID != "" {
+			canonicalID = wfRes.Incident.IncidentID
+		}
+	} else if s.workforceURL != "" {
 		postBody, _ := json.Marshal(map[string]interface{}{
 			"title":              req.Title,
 			"category":           req.Category,
@@ -187,7 +222,21 @@ func (s *InternalBLLServer) handleTriggerOTA(w http.ResponseWriter, r *http.Requ
 	var createdJobs []otaJob
 
 	// 1. Persist per-device jobs via facilities-api (Thread 14)
-	if s.facilitiesURL != "" {
+	if s.facClient != nil {
+		res, err := s.facClient.CreateOTAJob(r.Context(), &facilitiesv1.CreateOTAJobRequest{
+			AssetIDs:  req.AssetIDs,
+			ReleaseID: req.ReleaseID,
+		})
+		if err == nil && res != nil {
+			for _, job := range res.Jobs {
+				createdJobs = append(createdJobs, otaJob{
+					JobID:     job.JobID,
+					AssetID:   job.AssetID,
+					ReleaseID: job.ReleaseID,
+				})
+			}
+		}
+	} else if s.facilitiesURL != "" {
 		postBody, _ := json.Marshal(map[string]interface{}{
 			"asset_ids":  req.AssetIDs,
 			"release_id": req.ReleaseID,
@@ -286,6 +335,207 @@ func (s *InternalBLLServer) handleTriggerReport(w http.ResponseWriter, r *http.R
 	_ = json.NewEncoder(w).Encode(repPayload)
 }
 
+func (s *InternalBLLServer) handleEnvironmentalStream(w http.ResponseWriter, r *http.Request) {
+	zoneID := r.URL.Query().Get("zone_id")
+	if zoneID == "" {
+		zoneID = os.Getenv("DEFAULT_ZONE_ID")
+	}
+	if zoneID == "" {
+		http.Error(w, `{"error":"zone_id query parameter or DEFAULT_ZONE_ID configuration required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if s.facClient == nil {
+		http.Error(w, `{"error":"facilities domain API unavailable"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	stream, err := s.facClient.StreamEnvironmentalTelemetry(r.Context(), &facilitiesv1.StreamTelemetryRequest{
+		ZoneID:      zoneID,
+		SampleCount: 10,
+	})
+	if err != nil {
+		s.log().Error("failed to open environmental telemetry stream", "error", err)
+		return
+	}
+	for {
+		event, err := stream.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+				return
+			}
+			s.log().Warn("telemetry stream disconnected", "error", err)
+			return
+		}
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "event: telemetry\ndata: %s\n\n", data)
+		flusher.Flush()
+	}
+}
+
+func (s *InternalBLLServer) handleListEmployees(w http.ResponseWriter, r *http.Request) {
+	species := r.URL.Query().Get("species")
+	status := r.URL.Query().Get("status")
+	if s.wfClient != nil {
+		res, err := s.wfClient.ListEmployees(r.Context(), &workforcev1.ListEmployeesRequest{
+			EmployeeType: species,
+			Status:       status,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to list employees: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Employees)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode([]interface{}{})
+}
+
+func (s *InternalBLLServer) handleGetEmployee(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/internal-bll/employees/")
+	if s.wfClient != nil {
+		res, err := s.wfClient.GetEmployee(r.Context(), &workforcev1.GetEmployeeRequest{EmployeeID: id})
+		if err != nil || res == nil || res.Employee == nil {
+			http.Error(w, `{"error":"employee not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Employee)
+		return
+	}
+	http.Error(w, `{"error":"employee not found"}`, http.StatusNotFound)
+}
+
+func (s *InternalBLLServer) handleGetCareSchedule(w http.ResponseWriter, r *http.Request) {
+	felineID := r.URL.Query().Get("feline_id")
+	if s.wfClient != nil {
+		res, err := s.wfClient.GetCareSchedule(r.Context(), &workforcev1.GetCareScheduleRequest{FelineID: felineID})
+		if err != nil || res == nil || res.CareSchedule == nil {
+			http.Error(w, `{"error":"care schedule not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.CareSchedule)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"feline_id": felineID, "status": "nominal"})
+}
+
+func (s *InternalBLLServer) handleUpdateCareSchedule(w http.ResponseWriter, r *http.Request) {
+	var sched workforcev1.CareSchedule
+	if err := json.NewDecoder(r.Body).Decode(&sched); err != nil {
+		http.Error(w, `{"error":"invalid schedule"}`, http.StatusBadRequest)
+		return
+	}
+	if s.wfClient != nil {
+		res, err := s.wfClient.UpdateCareSchedule(r.Context(), &workforcev1.UpdateCareScheduleRequest{
+			FelineID:             sched.FelineID,
+			DietaryPlan:          sched.DietaryPlan,
+			FeedingTimes:         sched.FeedingTimes,
+			SpecialMedicalNeeds:  sched.SpecialMedicalNeeds,
+			PreferredPerchZone:   sched.PreferredPerchZone,
+			EmergencyMedicalHold: sched.EmergencyMedicalHold,
+			CaretakerID:          sched.CaretakerID,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to update care schedule: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.CareSchedule)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(sched)
+}
+
+func (s *InternalBLLServer) handleSetMedicalHold(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		FelineID string `json:"feline_id"`
+		Hold     bool   `json:"hold"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid hold request"}`, http.StatusBadRequest)
+		return
+	}
+	if s.wfClient != nil {
+		res, err := s.wfClient.SetMedicalHold(r.Context(), &workforcev1.SetMedicalHoldRequest{
+			FelineID:             req.FelineID,
+			EmergencyMedicalHold: req.Hold,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to update medical hold: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.CareSchedule)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "updated", "hold": req.Hold})
+}
+
+func (s *InternalBLLServer) handleListIncidents(w http.ResponseWriter, r *http.Request) {
+	if s.wfClient != nil {
+		res, err := s.wfClient.ListIncidents(r.Context(), &workforcev1.ListIncidentsRequest{})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to list incidents: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Incidents)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode([]interface{}{})
+}
+
+func (s *InternalBLLServer) handleListTickets(w http.ResponseWriter, r *http.Request) {
+	if s.opsClient != nil {
+		res, err := s.opsClient.ListTickets(r.Context(), &opsv1.ListTicketsRequest{Limit: 50, Offset: 0})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to list tickets: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Tickets)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode([]interface{}{})
+}
+
+func (s *InternalBLLServer) handleGetTicket(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/internal-bll/tickets/")
+	if s.opsClient != nil {
+		res, err := s.opsClient.GetTicket(r.Context(), &opsv1.GetTicketRequest{TicketID: id})
+		if err != nil || res == nil || res.Ticket == nil {
+			http.Error(w, `{"error":"ticket not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Ticket)
+		return
+	}
+	http.Error(w, `{"error":"ticket not found"}`, http.StatusNotFound)
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("starting OCI Internal Business Logic Layer (Internal BLL) API...")
@@ -329,20 +579,17 @@ func main() {
 		logger.Info("Internal BLL running with in-memory GoChannel publisher (local test mode)")
 	}
 
-	mockWfRepo := workforce.NewMockRepository()
-	mockWfSvc := workforce_svc.NewService(mockWfRepo)
-	onboardingSaga := saga.NewOnboardingSaga(mockWfSvc, nil, logger)
-	offboardingEng := saga.NewOffboardingEngine(mockWfSvc, nil, logger)
-
 	httpClient := &http.Client{Timeout: 5 * time.Second}
 	certFile := os.Getenv("TLS_CERT_FILE")
 	keyFile := os.Getenv("TLS_KEY_FILE")
 	clientCA := os.Getenv("CLIENT_CA_FILE")
+	var clientTLS *tls.Config
 	if certFile != "" && keyFile != "" && clientCA != "" {
-		clientTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+		cTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
 		if err != nil {
 			logger.Warn("failed to configure outbound client dynamic mTLS", "error", err)
 		} else {
+			clientTLS = cTLS
 			httpClient = &http.Client{
 				Timeout: 10 * time.Second,
 				Transport: &http.Transport{
@@ -354,14 +601,36 @@ func main() {
 	}
 
 	serverObj := &InternalBLLServer{
-		logger:         logger,
-		publisher:      pubSub,
-		httpClient:     httpClient,
-		workforceURL:   workforceURL,
-		facilitiesURL:  facilitiesURL,
-		opsURL:         opsURL,
-		onboardingSaga: onboardingSaga,
-		offboardingEng: offboardingEng,
+		logger:        logger,
+		publisher:     pubSub,
+		httpClient:    httpClient,
+		workforceURL:  workforceURL,
+		facilitiesURL: facilitiesURL,
+		opsURL:        opsURL,
+	}
+
+	// Dial Workforce Domain API via gRPC mTLS
+	wfTarget := grpcutil.CleanTarget(workforceURL)
+	wfConn, err := grpcutil.Dial(context.Background(), wfTarget, clientTLS)
+	if err == nil && wfConn != nil {
+		serverObj.wfClient = workforcev1.NewWorkforceServiceClient(wfConn)
+		logger.Info("Internal BLL connected to workforce domain API via gRPC", "target", wfTarget)
+	}
+
+	// Dial Facilities Domain API via gRPC mTLS
+	facTarget := grpcutil.CleanTarget(facilitiesURL)
+	facConn, err := grpcutil.Dial(context.Background(), facTarget, clientTLS)
+	if err == nil && facConn != nil {
+		serverObj.facClient = facilitiesv1.NewFacilitiesServiceClient(facConn)
+		logger.Info("Internal BLL connected to facilities domain API via gRPC", "target", facTarget)
+	}
+
+	// Dial Ops Domain API via gRPC mTLS
+	opsTarget := grpcutil.CleanTarget(opsURL)
+	opsConn, err := grpcutil.Dial(context.Background(), opsTarget, clientTLS)
+	if err == nil && opsConn != nil {
+		serverObj.opsClient = opsv1.NewOpsServiceClient(opsConn)
+		logger.Info("Internal BLL connected to ops domain API via gRPC", "target", opsTarget)
 	}
 
 	mux := http.NewServeMux()
@@ -374,6 +643,15 @@ func main() {
 	mux.HandleFunc("POST /api/v1/internal-bll/incidents", serverObj.handleCreateIncident)
 	mux.HandleFunc("POST /api/v1/internal-bll/firmware/ota", serverObj.handleTriggerOTA)
 	mux.HandleFunc("POST /api/v1/internal-bll/reports/monthly", serverObj.handleTriggerReport)
+	mux.HandleFunc("GET /api/v1/internal-bll/stream/telemetry", serverObj.handleEnvironmentalStream)
+	mux.HandleFunc("GET /api/v1/internal-bll/employees", serverObj.handleListEmployees)
+	mux.HandleFunc("GET /api/v1/internal-bll/employees/", serverObj.handleGetEmployee)
+	mux.HandleFunc("GET /api/v1/internal-bll/care-schedules", serverObj.handleGetCareSchedule)
+	mux.HandleFunc("PUT /api/v1/internal-bll/care-schedules", serverObj.handleUpdateCareSchedule)
+	mux.HandleFunc("POST /api/v1/internal-bll/medical-hold", serverObj.handleSetMedicalHold)
+	mux.HandleFunc("GET /api/v1/internal-bll/incidents", serverObj.handleListIncidents)
+	mux.HandleFunc("GET /api/v1/internal-bll/tickets", serverObj.handleListTickets)
+	mux.HandleFunc("GET /api/v1/internal-bll/tickets/", serverObj.handleGetTicket)
 
 	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
 
@@ -393,6 +671,8 @@ func main() {
 		server.TLSConfig = tlsConfig
 		logger.Info("Internal BLL configured with dynamic mTLS")
 	}
+
+	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "internal-bll")
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -416,6 +696,10 @@ func main() {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+
+	if healthServer != nil {
+		_ = healthServer.Shutdown(shutdownCtx)
+	}
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("failed graceful shutdown", "error", err)

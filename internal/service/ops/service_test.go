@@ -21,7 +21,7 @@ func (m *mockOpsRepo) GetITTicketByID(ctx context.Context, ticketID string) (*op
 	body := "Mock ticket body"
 	return &ops.ITTicket{
 		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s",
+		ForgejoRepo:    "infra/microk8s",
 		Title:          "Mock Title",
 		Body:           &body,
 		State:          "open",
@@ -36,8 +36,8 @@ func (m *mockOpsRepo) ListOpenITTickets(ctx context.Context, limit, offset int32
 	return []*ops.ITTicket{
 		{
 			TicketID:       "ticket-mock-123",
-			ForgejoRepo:    "infra/k3s",
-			Title:          "K3s Pod CrashLoopBackOff",
+			ForgejoRepo:    "infra/microk8s",
+			Title:          "MicroK8s Pod CrashLoopBackOff",
 			Body:           &body,
 			State:          "open",
 			AuthorUsername: "emp-human-frank",
@@ -62,8 +62,8 @@ func (m *mockOpsRepo) AcknowledgeITTicket(ctx context.Context, ticketID, acknowl
 	body := "Mock acknowledged ticket body"
 	return &ops.ITTicket{
 		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s",
-		Title:          "K3s Pod CrashLoopBackOff",
+		ForgejoRepo:    "infra/microk8s",
+		Title:          "MicroK8s Pod CrashLoopBackOff",
 		Body:           &body,
 		State:          "acknowledged",
 		AuthorUsername: "emp-human-frank",
@@ -131,7 +131,7 @@ func TestOpsService(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, alerts, 1)
 		assert.Equal(t, "ticket-mock-123", alerts[0].TicketID)
-		assert.Equal(t, "K3s Pod CrashLoopBackOff", alerts[0].Title)
+		assert.Equal(t, "MicroK8s Pod CrashLoopBackOff", alerts[0].Title)
 		assert.NotNil(t, alerts[0].AppMessageDict)
 		assert.Equal(t, "ticket-mock-123", alerts[0].AppMessageDict[PebbleKeyTicketID])
 	})
@@ -184,7 +184,7 @@ func TestOpsService(t *testing.T) {
 
 	t.Run("CreateITTicket", func(t *testing.T) {
 		ticket, err := service.CreateITTicket(ctx, &CreateITTicketRequest{
-			ForgejoRepo:    "infra/k3s",
+			ForgejoRepo:    "infra/microk8s",
 			Title:          "Node Unreachable",
 			Body:           "Worker node 1 down",
 			AuthorUsername: "emp-human-frank",
@@ -196,7 +196,7 @@ func TestOpsService(t *testing.T) {
 		assert.Error(t, errNil)
 
 		_, errInvalid := service.CreateITTicket(ctx, &CreateITTicketRequest{
-			ForgejoRepo:    "infra/k3s",
+			ForgejoRepo:    "infra/microk8s",
 			Title:          "",
 			Body:           "",
 			AuthorUsername: "",

@@ -86,45 +86,63 @@ jobs:
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Building development images for commit: sha-${COMMIT_SHA}"
           
-          # Build and tag all 7 core microservices and web portals
-          docker build -t localhost:32000/oci-server:dev-latest -t localhost:32000/oci-server:sha-${COMMIT_SHA} -f cmd/server/Dockerfile . || true
+          # Build and tag all decoupled microservices and web portals
+          docker build -t localhost:32000/workforce-api:dev-latest -t localhost:32000/workforce-api:sha-${COMMIT_SHA} -f cmd/workforce-api/Dockerfile . || true
+          docker build -t localhost:32000/facilities-api:dev-latest -t localhost:32000/facilities-api:sha-${COMMIT_SHA} -f cmd/facilities-api/Dockerfile . || true
+          docker build -t localhost:32000/core-invest-api:dev-latest -t localhost:32000/core-invest-api:sha-${COMMIT_SHA} -f cmd/core-invest-api/Dockerfile . || true
+          docker build -t localhost:32000/ops-api:dev-latest -t localhost:32000/ops-api:sha-${COMMIT_SHA} -f cmd/ops-api/Dockerfile . || true
+          docker build -t localhost:32000/customer-bll:dev-latest -t localhost:32000/customer-bll:sha-${COMMIT_SHA} -f cmd/customer-bll/Dockerfile . || true
+          docker build -t localhost:32000/internal-bll:dev-latest -t localhost:32000/internal-bll:sha-${COMMIT_SHA} -f cmd/internal-bll/Dockerfile . || true
           docker build -t localhost:32000/oci-customer-bff:dev-latest -t localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -f cmd/customer-bff/Dockerfile . || true
           docker build -t localhost:32000/oci-employee-bff:dev-latest -t localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -f cmd/employee-bff/Dockerfile . || true
           docker build -t localhost:32000/oci-pebble-proxy:dev-latest -t localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -f cmd/pebble-proxy/Dockerfile . || true
           docker build -t localhost:32000/oci-worker:dev-latest -t localhost:32000/oci-worker:sha-${COMMIT_SHA} -f cmd/worker/Dockerfile . || true
           docker build -t localhost:32000/oci-customer-portal:dev-latest -t localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -f web/customer-portal/Dockerfile . || true
           docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile . || true
+          docker build -t localhost:32000/oci-marketing:dev-latest -t localhost:32000/oci-marketing:sha-${COMMIT_SHA} -f web/marketing/Dockerfile . || true
 
           echo "Pushing images to local cluster container registry (localhost:32000)..."
-          docker push localhost:32000/oci-server:dev-latest || true
-          docker push localhost:32000/oci-server:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-customer-bff:dev-latest || true
-          docker push localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-employee-bff:dev-latest || true
-          docker push localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-pebble-proxy:dev-latest || true
-          docker push localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-worker:dev-latest || true
-          docker push localhost:32000/oci-worker:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-customer-portal:dev-latest || true
-          docker push localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} || true
-          docker push localhost:32000/oci-employee-portal:dev-latest || true
-          docker push localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} || true
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing; do
+            docker push localhost:32000/${app}:dev-latest || true
+            docker push localhost:32000/${app}:sha-${COMMIT_SHA} || true
+          done
 
       - name: Deploy Manifests to Kubernetes oci-dev Namespace
         run: |
-          echo "Applying development environment manifests to oci-dev..."
+          COMMIT_SHA=$(git rev-parse --short HEAD)
+          echo "Applying development environment manifests to oci-dev for sha-${COMMIT_SHA}..."
           kubectl apply -f k8s/namespaces/namespaces.yaml
           kubectl apply -f k8s/oci-dev/
           
+          echo "Setting immutable image tags (sha-${COMMIT_SHA}) on oci-dev deployments..."
+          kubectl set image deployment/workforce-api workforce-api=localhost:32000/workforce-api:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/facilities-api facilities-api=localhost:32000/facilities-api:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/core-invest-api core-invest-api=localhost:32000/core-invest-api:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/ops-api ops-api=localhost:32000/ops-api:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/customer-bll customer-bll=localhost:32000/customer-bll:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/internal-bll internal-bll=localhost:32000/internal-bll:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-customer-bff-dev oci-customer-bff=localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-employee-bff-dev oci-employee-bff=localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-customer-portal-dev oci-customer-portal=localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-employee-portal-dev oci-employee-portal=localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-pebble-proxy-dev oci-pebble-proxy=localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-worker-dev oci-worker=localhost:32000/oci-worker:sha-${COMMIT_SHA} -n oci-dev || true
+          kubectl set image deployment/oci-marketing oci-marketing=localhost:32000/oci-marketing:sha-${COMMIT_SHA} -n oci-dev || true
+
           echo "Waiting for oci-dev workloads to reach ready state..."
-          kubectl rollout status deployment/oci-server-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/workforce-api -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/facilities-api -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/core-invest-api -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/ops-api -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/customer-bll -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/internal-bll -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-customer-bff-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-employee-bff-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-customer-portal-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-employee-portal-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-pebble-proxy-dev -n oci-dev --timeout=120s || true
           kubectl rollout status deployment/oci-worker-dev -n oci-dev --timeout=120s || true
+          kubectl rollout status deployment/oci-marketing -n oci-dev --timeout=120s || true
 
   integration-test-gate:
     name: Automated Live Integration Testing Gate
@@ -157,7 +175,7 @@ jobs:
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Promoting verified release sha-${COMMIT_SHA} to production :prod-stable and :latest"
-          for app in oci-server oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing; do
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:prod-stable || true
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:latest || true
             docker push localhost:32000/${app}:prod-stable || true
@@ -168,7 +186,12 @@ jobs:
         run: |
           echo "Rolling out verified stable release to oci-core..."
           kubectl apply -f k8s/oci-core/
-          kubectl rollout status deployment/oci-server -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/workforce-api -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/facilities-api -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/core-invest-api -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/ops-api -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/customer-bll -n oci-core --timeout=180s || true
+          kubectl rollout status deployment/internal-bll -n oci-core --timeout=180s || true
           kubectl rollout status deployment/oci-customer-bff -n oci-core --timeout=180s || true
           kubectl rollout status deployment/oci-employee-bff -n oci-core --timeout=180s || true
           kubectl rollout status deployment/oci-customer-portal -n oci-core --timeout=180s || true

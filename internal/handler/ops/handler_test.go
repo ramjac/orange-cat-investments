@@ -63,7 +63,7 @@ func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateI
 func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*opsrepo.ITTicket, error) {
 	return &opsrepo.ITTicket{
 		TicketID:       ticketID,
-		ForgejoRepo:    "infra/k3s",
+		ForgejoRepo:    "infra/microk8s",
 		Title:          "Sample Ticket",
 		State:          "open",
 		AuthorUsername: "emp-human-frank",
@@ -75,7 +75,7 @@ func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32)
 	return []*opsrepo.ITTicket{
 		{
 			TicketID:       "ticket-test-123",
-			ForgejoRepo:    "infra/k3s",
+			ForgejoRepo:    "infra/microk8s",
 			Title:          "Pod OOMKilled Warning",
 			State:          "open",
 			AuthorUsername: "emp-human-frank",
@@ -215,9 +215,9 @@ func TestOpsHandler(t *testing.T) {
 
 	t.Run("POST /api/v1/ops/tickets", func(t *testing.T) {
 		body := map[string]any{
-			"forgejo_repo":    "infra/k3s",
+			"forgejo_repo":    "infra/microk8s",
 			"title":           "Node Out of Memory",
-			"body":            "K3s worker node 2 OOM",
+			"body":            "MicroK8s worker node 2 OOM",
 			"author_username": "emp-human-frank",
 		}
 		data, _ := json.Marshal(body)
@@ -239,7 +239,7 @@ func TestOpsHandler(t *testing.T) {
 	t.Run("POST /api/v1/ops/notifications", func(t *testing.T) {
 		body := map[string]any{
 			"topic":    "alerts",
-			"title":    "K3s Node High Memory",
+			"title":    "MicroK8s Node High Memory",
 			"message":  "Node memory utilization at 92%",
 			"priority": "high",
 		}

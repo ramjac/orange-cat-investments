@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,7 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/orange-cat-investments/oci/internal/handler"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
@@ -18,9 +21,12 @@ import (
 	"github.com/orange-cat-investments/oci/internal/saga"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
@@ -28,34 +34,9 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Employee BFF API Server...")
 
-	dbURL := os.Getenv("DATABASE_URL")
-	var pool *pgxpool.Pool
-	if dbURL != "" {
-		var err error
-		pool, err = pgxpool.New(context.Background(), dbURL)
-		if err != nil {
-			logger.Warn("failed to connect to database pool", "error", err)
-			if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
-				logger.Error("database connection required in production mode, exiting")
-				os.Exit(1)
-			}
-		} else {
-			defer pool.Close()
-			logger.Info("connected to PostgreSQL database pool successfully")
-		}
-	} else if os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production" || os.Getenv("REQUIRE_DB") == "true" {
-		logger.Error("DATABASE_URL must be specified in production mode, exiting")
-		os.Exit(1)
-	} else {
-		logger.Info("no DATABASE_URL provided, running with mock repository for local development")
-	}
-
-	var repo workforce.Repository
-	if pool != nil {
-		repo = workforce.NewRepository(pool)
-	} else {
-		repo = workforce.NewMockRepository()
-	}
+	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
+	// Employee BFF acts as presentation/session proxy delegating business orchestration to Internal BLL.
+	repo := workforce.NewRepository(nil)
 
 	var hrClient wfService.HRClient
 	hrURL := os.Getenv("HR_SYSTEM_URL")
@@ -102,7 +83,14 @@ func main() {
 	wfHandler.EnableFelineWorkforce = enableFeline
 
 	mux := http.NewServeMux()
-	sessionStore := NewSessionStore()
+
+	valkeyAddr := os.Getenv("VALKEY_ADDR")
+	valkeyPass := os.Getenv("VALKEY_PASSWORD")
+
+	sessionStore := sessionvalkey.NewEmployeeSessionStore(valkeyAddr, valkeyPass, 0, logger)
+	cache := cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger)
+	rateLimiter := cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger)
+	wfHandler.SetCache(cache)
 
 	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
 
@@ -115,12 +103,7 @@ func main() {
 	authHandler.RegisterAuthRoutes(mux)
 	wfHandler.RegisterRoutes(mux)
 
-	var opsRepo ops_repo.Repository
-	if pool != nil {
-		opsRepo = ops_repo.NewRepository(pool)
-	} else {
-		opsRepo = ops_repo.NewMockRepository()
-	}
+	opsRepo := ops_repo.NewRepository(nil)
 
 	var issueTracker ops_svc.IssueTrackerClient
 	if issueTrackerURL != "" {
@@ -138,7 +121,24 @@ func main() {
 		opsSvc = ops_svc.NewService(opsRepo)
 	}
 	opsH := ops_handler.NewHandler(opsSvc)
-	registerProtectedOpsRoutes(mux, opsH, sessionStore)
+	registerProtectedOpsRoutes(mux, opsH, sessionStore, rateLimiter)
+
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL != "" {
+		watermillLogger := watermill.NewStdLogger(false, false)
+		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
+			return "employee-bff.cache-invalidation." + topic
+		})
+		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
+		if err == nil {
+			listener := cachevalkey.NewInvalidationListener(cache, amqpSub, logger)
+			listener.Start(context.Background())
+			defer listener.Stop()
+			logger.Info("connected Employee BFF to RabbitMQ for event-driven cache invalidation")
+		} else {
+			logger.Warn("failed to initialize RabbitMQ subscriber for cache invalidation", "error", err)
+		}
+	}
 
 	// Incident Alert Real-Time SSE Stream & Broadcast Hub
 	incidentBroker := NewIncidentBroker(logger)
@@ -149,6 +149,37 @@ func main() {
 	mux.Handle("GET /employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
 	mux.Handle("POST /api/v1/employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
 	mux.Handle("POST /employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
+
+	// Command+K Typo-Tolerant Search API via Meilisearch
+	meiliURL := os.Getenv("MEILISEARCH_URL")
+	if meiliURL == "" {
+		meiliURL = "http://localhost:7700"
+	}
+	meiliKey := os.Getenv("MEILI_MASTER_KEY")
+	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
+	_ = meiliClient.EnsureIndex(context.Background(), "employee_knowledge", "id")
+
+	searchHandler := func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		category := r.URL.Query().Get("category")
+		filter := ""
+		if category != "" {
+			filter = fmt.Sprintf("category = '%s'", category)
+		}
+		res, err := meiliClient.Search(r.Context(), "employee_knowledge", q, meilisearch.SearchOptions{
+			Filter: filter,
+			Limit:  25,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+	}
+
+	mux.Handle("GET /api/v1/employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
+	mux.Handle("GET /employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
 
 	// Health check endpoint
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

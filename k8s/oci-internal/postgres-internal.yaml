@@ -11,6 +11,19 @@ data:
     SELECT 'CREATE DATABASE snipeit' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'snipeit')\gexec
     SELECT 'CREATE DATABASE erpnext' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'erpnext')\gexec
     SELECT 'CREATE DATABASE frappe_hr' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'frappe_hr')\gexec
+
+    -- Provision unprivileged nextcloud_user without CREATEROLE to prevent role generation loops
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nextcloud_user') THEN
+        CREATE ROLE nextcloud_user WITH LOGIN PASSWORD 'oci_secure_pass' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+      ELSE
+        ALTER ROLE nextcloud_user WITH PASSWORD 'oci_secure_pass';
+      END IF;
+    END
+    $$;
+    GRANT ALL PRIVILEGES ON DATABASE nextcloud TO nextcloud_user;
+    ALTER DATABASE nextcloud OWNER TO nextcloud_user;
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

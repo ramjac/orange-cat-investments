@@ -62,11 +62,8 @@ type pgxRepository struct {
 	db DBExecutor
 }
 
-// NewRepository returns an ops.Repository backed by PostgreSQL. If db is nil, it delegates to NewMockRepository().
+// NewRepository returns an ops.Repository backed by PostgreSQL.
 func NewRepository(db DBExecutor) Repository {
-	if db == nil {
-		return NewMockRepository()
-	}
 	return &pgxRepository{db: db}
 }
 

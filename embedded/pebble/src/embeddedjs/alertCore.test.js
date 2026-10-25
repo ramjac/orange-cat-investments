@@ -7,8 +7,8 @@ test('AlertQueue - process incoming alert AppMessage', () => {
   const rawMsg = {
     CMD: CMD_ALERT,
     TICKET_ID: 'ticket-uuid-001',
-    TITLE: 'K3s Node Disk Pressure Warning',
-    BODY: 'Node oci-k3s-worker-01 disk usage above 85%',
+    TITLE: 'MicroK8s Node Disk Pressure Warning',
+    BODY: 'Node oci-worker-01 disk usage above 85%',
     PRIORITY: 'HIGH',
     AUTHOR: 'frank_ops',
     TIMESTAMP: '2025-01-15T10:00:00Z',
@@ -17,7 +17,7 @@ test('AlertQueue - process incoming alert AppMessage', () => {
   const alert = queue.processAppMessage(rawMsg);
   assert.notEqual(alert, null);
   assert.equal(alert.ticketId, 'ticket-uuid-001');
-  assert.equal(alert.title, 'K3s Node Disk Pressure Warning');
+  assert.equal(alert.title, 'MicroK8s Node Disk Pressure Warning');
   assert.equal(alert.acknowledged, false);
 
   const pending = queue.getPendingAlerts();

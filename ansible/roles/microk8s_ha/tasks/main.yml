@@ -1,0 +1,92 @@
+---
+- name: Ensure Ubuntu dependencies are installed
+  ansible.builtin.apt:
+    name:
+      - snapd
+      - curl
+      - ca-certificates
+      - iptables
+    state: present
+    update_cache: true
+  ignore_errors: true
+
+- name: Install MicroK8s via snap
+  ansible.builtin.command:
+    cmd: "snap install microk8s --classic --channel={{ microk8s_channel }}"
+  args:
+    creates: /snap/bin/microk8s
+
+- name: Add deployment user to microk8s group
+  ansible.builtin.user:
+    name: "{{ microk8s_user }}"
+    groups: microk8s
+    append: true
+  when: microk8s_user is defined and microk8s_user != 'root'
+  ignore_errors: true
+
+- name: Wait for MicroK8s to be ready on local node
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s status --wait-ready"
+  changed_when: false
+
+- name: Generate join command on primary server
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s add-node"
+  register: add_node_output
+  when: inventory_hostname in groups['microk8s_primary_server']
+  changed_when: false
+
+- name: Set join command fact on primary server
+  ansible.builtin.set_fact:
+    microk8s_join_cmd: "{{ add_node_output.stdout_lines | select('search', 'microk8s join') | first | default('') }}"
+  when: inventory_hostname in groups['microk8s_primary_server']
+
+- name: Check if secondary node has already joined the cluster
+  ansible.builtin.shell:
+    cmd: "/snap/bin/microk8s status --yaml | grep -q 'cluster:' && /snap/bin/microk8s kubectl get nodes | grep -q '{{ inventory_hostname }}'"
+  register: is_already_joined
+  failed_when: false
+  changed_when: false
+  when: inventory_hostname in groups.get('microk8s_secondary_servers', [])
+
+- name: Join secondary nodes to primary cluster
+  ansible.builtin.command:
+    cmd: "/snap/{{ hostvars[groups['microk8s_primary_server'][0]]['microk8s_join_cmd'] }}"
+  when:
+    - inventory_hostname in groups.get('microk8s_secondary_servers', [])
+    - is_already_joined.rc != 0
+    - hostvars[groups['microk8s_primary_server'][0]]['microk8s_join_cmd'] is defined
+    - hostvars[groups['microk8s_primary_server'][0]]['microk8s_join_cmd'] != ''
+
+- name: Wait for all HA nodes to report Ready
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s kubectl wait --for=condition=ready nodes --all --timeout=180s"
+  when: inventory_hostname in groups['microk8s_primary_server']
+  changed_when: false
+
+- name: Enable configured MicroK8s addons on cluster primary
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s enable {{ item }}"
+  loop: "{{ microk8s_addons }}"
+  register: enable_addon
+  changed_when: "'already enabled' not in enable_addon.stdout"
+  when: inventory_hostname in groups['microk8s_primary_server']
+  ignore_errors: true
+
+- name: Wait for MicroK8s cluster to be ready after enabling addons
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s status --wait-ready"
+  when: inventory_hostname in groups['microk8s_primary_server']
+  changed_when: false
+
+- name: Verify cluster node status from primary
+  ansible.builtin.command:
+    cmd: "/snap/bin/microk8s kubectl get nodes -o wide"
+  register: cluster_nodes
+  when: inventory_hostname in groups['microk8s_primary_server']
+  changed_when: false
+
+- name: Display cluster node status
+  ansible.builtin.debug:
+    var: cluster_nodes.stdout_lines
+  when: inventory_hostname in groups['microk8s_primary_server']

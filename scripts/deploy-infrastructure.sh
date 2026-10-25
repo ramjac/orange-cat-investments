@@ -21,7 +21,7 @@ export ANSIBLE_CONFIG="${REPO_ROOT}/ansible/ansible.cfg"
 echo "1. Checking Ansible syntax across playbooks..."
 ansible-playbook --syntax-check "${REPO_ROOT}/ansible/site.yml"
 
-echo "2. Bootstrapping K3s cluster and deploying platform workloads..."
+echo "2. Bootstrapping MicroK8s cluster on Ubuntu Server and deploying platform workloads..."
 if [ "${DRY_RUN:-false}" = "true" ]; then
     echo "DRY_RUN is true: Skipping live deployment."
 else

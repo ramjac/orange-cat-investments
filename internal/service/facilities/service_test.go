@@ -81,6 +81,20 @@ func (m *mockRepo) RecordEnvironmentalTelemetry(ctx context.Context, t *faciliti
 	return t, nil
 }
 
+func (m *mockRepo) GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*facilities.EnvironmentalTelemetry, error) {
+	return []*facilities.EnvironmentalTelemetry{
+		{
+			TelemetryID:         "mock-env-123",
+			ZoneID:              zoneID,
+			TemperatureC:        21.5,
+			RelativeHumidityPct: 45.0,
+			LightIntensityLux:   520.0,
+			NoiseLevelDB:        38.0,
+			RecordedAt:          time.Now().UTC(),
+		},
+	}, nil
+}
+
 func TestFacilitiesService(t *testing.T) {
 	repo := &mockRepo{}
 	service := NewService(repo)

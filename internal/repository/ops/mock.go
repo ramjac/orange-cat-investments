@@ -28,8 +28,8 @@ func (r *mockRepository) seedDefaults() {
 	body001 := "Sample IT ticket body"
 	r.tickets["ticket-001"] = &ITTicket{
 		TicketID:       "ticket-001",
-		ForgejoRepo:    "infra/k3s-cluster",
-		Title:          "K3s Node High Memory Warning",
+		ForgejoRepo:    "infra/microk8s-cluster",
+		Title:          "MicroK8s Node High Memory Warning",
 		Body:           &body001,
 		State:          "open",
 		Severity:       "high",
@@ -41,10 +41,10 @@ func (r *mockRepository) seedDefaults() {
 		UpdatedAt:      now,
 	}
 
-	bodyOpen001 := "High priority memory alert on k3s worker node 2"
+	bodyOpen001 := "High priority memory alert on microk8s worker node 2"
 	r.tickets["ticket-uuid-open-001"] = &ITTicket{
 		TicketID:       "ticket-uuid-open-001",
-		ForgejoRepo:    "infra/k3s-cluster",
+		ForgejoRepo:    "infra/microk8s-cluster",
 		Title:          "High Memory Usage Alert",
 		Body:           &bodyOpen001,
 		State:          "open",

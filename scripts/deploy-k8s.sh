@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Direct Kubernetes Deployment Script for Orange Cat Investments (OCI)
-# Targets any existing Kubernetes cluster (MicroK8s, K3s, Minikube, kind, or cloud K8s)
+# Targets any existing Kubernetes cluster (MicroK8s, Minikube, kind, or cloud K8s)
 # using standard kubectl without requiring host SSH or Ansible.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,26 +13,23 @@ echo "  Orange Cat Investments (OCI) - Kubernetes Platform Deploy  "
 echo "=============================================================="
 echo "Working directory: ${REPO_ROOT}"
 
-PROFILE="full"
+PROFILE="all"
 if [[ "${1:-}" == "--profile" ]]; then
-    PROFILE="${2:-full}"
+    PROFILE="${2:-all}"
 fi
 
 case "${PROFILE}" in
-    full)
-        echo "Deployment profile: ${PROFILE} (Complete enterprise suite)"
+    all)
+        echo "Deployment profile: ${PROFILE} (Default: Full platform suite, internal COTS, monitoring/logging, and staging)"
         ;;
-    small-business|smb)
-        echo "Deployment profile: ${PROFILE} (Lightweight core SMB suite)"
+    business-only)
+        echo "Deployment profile: ${PROFILE} (Internal business COTS applications only - oci-internal without demo data or OCI custom apps)"
         ;;
     dev|staging)
-        echo "Deployment profile: ${PROFILE} (Development & simulation staging suite - oci-dev)"
-        ;;
-    all)
-        echo "Deployment profile: ${PROFILE} (Full production suite + oci-dev staging)"
+        echo "Deployment profile: ${PROFILE} (Development & simulation staging suite - oci-dev & external-sim)"
         ;;
     *)
-        echo "ERROR: Unknown deployment profile '${PROFILE}'. Valid profiles are 'full', 'small-business', 'dev', and 'all'." >&2
+        echo "ERROR: Unknown deployment profile '${PROFILE}'. Valid profiles are 'all', 'business-only', and 'dev'." >&2
         exit 1
         ;;
 esac
@@ -68,9 +65,24 @@ if kubectl get crd certificates.cert-manager.io &>/dev/null; then
             --dry-run=client -o yaml | kubectl apply -f -
         kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/intranet-cluster-issuer.yaml"
         echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
+
+        # Ensure fallback oci-ca-bundle ConfigMap exists in core application namespaces
+        for ns in oci-core oci-internal oci-dev default; do
+            kubectl create configmap oci-ca-bundle \
+                --namespace "${ns}" \
+                --from-file=ca.crt="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" \
+                --dry-run=client -o yaml | kubectl apply -f - &>/dev/null || true
+        done
     fi
 else
-    echo "WARNING: cert-manager CRDs not detected. If running on MicroK8s, run 'microk8s enable cert-manager'."
+    echo "WARNING: cert-manager CRDs not detected. Please install cert-manager (e.g., 'kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml' or 'microk8s enable cert-manager')."
+fi
+
+echo ""
+echo "Checking local container registry (:32000)..."
+if ! kubectl get svc -n kube-system container-registry &>/dev/null && ! kubectl get svc -n container-registry registry &>/dev/null; then
+    echo "Deploying in-cluster container registry on NodePort 32000..."
+    kubectl apply -f "${REPO_ROOT}/k8s/registry/registry.yaml"
 fi
 
 echo ""
@@ -79,19 +91,15 @@ if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    echo "Staging environment deployed. Clean production (oci-core) left untouched."
-elif [[ "${PROFILE}" == "small-business" || "${PROFILE}" == "smb" ]]; then
+    echo "Staging environment deployed. Production (oci-core) and internal COTS left untouched."
+elif [[ "${PROFILE}" == "business-only" ]]; then
     echo ""
-    echo "3. Deploying Core Infrastructure & Custom Apps (oci-core) and Internal Auth (Forgejo)..."
-    kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
-    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/postgres-internal.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/forgejo.yaml"
-    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    echo "Skipping heavyweight COTS (ERPNext, Frappe HR, Nextcloud, Snipe-IT) and monitoring/logging stacks."
+    echo "3. Deploying Internal Business Applications & COTS (oci-internal)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/"
+    echo "Deployed internal COTS suite (Nextcloud, Snipe-IT, ERPNext, Frappe HR, Forgejo). OCI demo apps and simulation seeds skipped."
 else
     echo ""
-    echo "3. Deploying Clean Core Applications & Infrastructure (oci-core)..."
+    echo "3. Deploying Core Applications & Infrastructure (oci-core)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-core/"
 
     echo ""
@@ -107,28 +115,38 @@ else
     kubectl apply -f "${REPO_ROOT}/k8s/monitoring/"
     kubectl apply -f "${REPO_ROOT}/k8s/logging/"
 
-    if [[ "${PROFILE}" == "all" ]]; then
-        echo ""
-        echo "7. Deploying Development & Simulation Staging (oci-dev)..."
-        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
-    fi
+    echo ""
+    echo "7. Deploying Development & Simulation Staging (oci-dev)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
 fi
 
 echo ""
-echo "7. Waiting for core database and messaging workloads to become ready..."
-echo "Waiting for OCI Core PostgreSQL..."
-kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s || true
-
-echo "Waiting for Valkey..."
-kubectl rollout status deployment/valkey -n oci-core --timeout=120s || true
-
-echo "Waiting for RabbitMQ..."
-kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s || true
+echo "8. Waiting for database and messaging workloads to become ready..."
+if [[ "${PROFILE}" == "business-only" ]]; then
+    echo "Waiting for Internal PostgreSQL (postgres-internal)..."
+    kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s || true
+elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+    echo "Waiting for Dev PostgreSQL..."
+    kubectl rollout status statefulset/postgres-dev -n oci-dev --timeout=120s || true
+    echo "Waiting for Dev Valkey..."
+    kubectl rollout status deployment/valkey -n oci-dev --timeout=120s || true
+    echo "Waiting for Dev RabbitMQ..."
+    kubectl rollout status deployment/rabbitmq -n oci-dev --timeout=120s || true
+else
+    echo "Waiting for OCI Core PostgreSQL..."
+    kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s || true
+    echo "Waiting for Internal PostgreSQL..."
+    kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s || true
+    echo "Waiting for Valkey..."
+    kubectl rollout status deployment/valkey -n oci-core --timeout=120s || true
+    echo "Waiting for RabbitMQ..."
+    kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s || true
+fi
 
 # Provision starter platform administrator in Forgejo IdP if deployed
 if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-admin-credentials -n oci-internal &>/dev/null; then
     echo ""
-    echo "8. Provisioning starter platform administrator account in Forgejo IdP..."
+    echo "9. Provisioning starter platform administrator account in Forgejo IdP..."
     if kubectl rollout status deployment/forgejo -n oci-internal --timeout=90s 2>/dev/null; then
         ADMIN_PWD=$(kubectl get secret starter-admin-credentials -n oci-internal -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d 2>/dev/null || true)
         if [[ -n "${ADMIN_PWD}" ]]; then
@@ -136,29 +154,57 @@ if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-
                 forgejo admin user create --admin --username "admin" --password "${ADMIN_PWD}" --email "admin@oci.local" 2>/dev/null || true
             echo "Starter admin account 'admin' provisioned in Forgejo."
         fi
+
+        # Auto-provision Forgejo Actions runner registration token if needed
+        if ! kubectl get secret forgejo-runner-secret -n oci-internal &>/dev/null; then
+            RUNNER_TOKEN=$(kubectl exec -n oci-internal deployment/forgejo -- forgejo actions generate-runner-token 2>/dev/null | tr -d '\r\n' || true)
+            if [[ -n "${RUNNER_TOKEN}" ]]; then
+                kubectl create secret generic forgejo-runner-secret \
+                    --namespace oci-internal \
+                    --from-literal=RUNNER_TOKEN="${RUNNER_TOKEN}" \
+                    --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+                echo "Forgejo runner registration token secret provisioned."
+            fi
+        fi
     fi
 fi
 
 echo ""
 echo "=============================================================="
-echo "  OCI Platform Workloads Successfully Deployed!              "
+echo "  Platform Workloads Successfully Deployed!                   "
 echo "=============================================================="
 echo ""
-echo "Cluster Status:"
-kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, oci-server, oci-worker)' || kubectl get pods -A
-
-echo ""
-echo "Quickstart: Connect from local machine using port-forwarding:"
-echo "  # Terminal 1: PostgreSQL Core"
-echo "  kubectl port-forward -n oci-core svc/postgres-core-service 5432:5432"
-echo ""
-echo "  # Terminal 2: Valkey & RabbitMQ"
-echo "  kubectl port-forward -n oci-core svc/valkey-service 6379:6379 &"
-echo "  kubectl port-forward -n oci-core svc/rabbitmq-service 5672:5672 15672:15672 &"
-echo ""
-echo "  # Terminal 3: Run OCI Unified API Server"
-echo "  DATABASE_URL='postgres://oci_admin:oci_secure_pass@localhost:5432/oci?sslmode=disable' PORT=8080 go run ./cmd/server"
-echo ""
-echo "  # Terminal 4: Run Platform Simulation Driver"
-echo "  go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081"
+if [[ "${PROFILE}" == "business-only" ]]; then
+    echo "Cluster Status (oci-internal):"
+    kubectl get pods -n oci-internal
+    echo ""
+    echo "Quickstart: Access Internal Business Applications:"
+    echo "  # Forgejo Git & Identity (port 3000):"
+    echo "  kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &"
+    echo "  # Nextcloud Workspace (port 80):"
+    echo "  kubectl port-forward -n oci-internal svc/nextcloud-service 8080:80 &"
+    echo "  # Snipe-IT Asset Management (port 80):"
+    echo "  kubectl port-forward -n oci-internal svc/snipe-it-service 8088:80 &"
+    echo "  # ERPNext / Frappe (port 8000):"
+    echo "  kubectl port-forward -n oci-internal svc/erpnext-service 8000:8000 &"
+    echo "  # Initial bootstrap admin credentials: starter-admin-credentials.txt"
+elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+    echo "Cluster Status (oci-dev & external-sim):"
+    kubectl get pods -n oci-dev
+    kubectl get pods -n external-sim
+    echo ""
+    echo "Seed staging database fixtures:"
+    echo "  ./scripts/seed-dev.sh"
+else
+    echo "Cluster Status:"
+    kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, workforce-api, facilities-api, core-invest-api, ops-api, customer-bll, internal-bll, oci-worker)' || kubectl get pods -A
+    echo ""
+    echo "Quickstart: Connect from local machine using port-forwarding:"
+    echo "  # Employee BFF & Web Portal:"
+    echo "  kubectl port-forward -n oci-core svc/oci-employee-bff-service 8081:8081 &"
+    echo "  # Customer BFF & Web Portal:"
+    echo "  kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &"
+    echo "  # Forgejo Git & Identity:"
+    echo "  kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &"
+fi
 echo "=============================================================="

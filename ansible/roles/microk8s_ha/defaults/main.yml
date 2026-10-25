@@ -1,0 +1,9 @@
+---
+microk8s_channel: "1.34/stable"
+microk8s_user: "{{ ansible_user | default(ansible_env.USER | default('ubuntu')) }}"
+microk8s_addons:
+  - dns
+  - storage
+  - ingress
+  - registry
+  - metrics-server

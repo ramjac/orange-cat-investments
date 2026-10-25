@@ -2,6 +2,7 @@ package facilities
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -9,17 +10,19 @@ type mockRepository struct {
 	assets   map[string]*HardwareAsset
 	tickets  map[string]*MaintenanceTicket
 	logs     map[string][]*MaintenanceLog
-	releases map[string][]*FirmwareRelease
-	otaJobs  map[string][]*DeviceOTAJob
+	releases  map[string][]*FirmwareRelease
+	otaJobs   map[string][]*DeviceOTAJob
+	telemetry []*EnvironmentalTelemetry
 }
 
 func NewMockRepository() Repository {
 	return &mockRepository{
-		assets:   make(map[string]*HardwareAsset),
-		tickets:  make(map[string]*MaintenanceTicket),
-		logs:     make(map[string][]*MaintenanceLog),
-		releases: make(map[string][]*FirmwareRelease),
-		otaJobs:  make(map[string][]*DeviceOTAJob),
+		assets:    make(map[string]*HardwareAsset),
+		tickets:   make(map[string]*MaintenanceTicket),
+		logs:      make(map[string][]*MaintenanceLog),
+		releases:  make(map[string][]*FirmwareRelease),
+		otaJobs:   make(map[string][]*DeviceOTAJob),
+		telemetry: make([]*EnvironmentalTelemetry, 0),
 	}
 }
 
@@ -329,10 +332,48 @@ func (m *mockRepository) ListOTAJobsByAsset(ctx context.Context, assetID string)
 
 func (m *mockRepository) RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error) {
 	now := time.Now().UTC()
-	t.TelemetryID = "telemetry-env-" + time.Now().Format("20060102150405")
+	if t.TelemetryID == "" {
+		t.TelemetryID = "telemetry-env-" + time.Now().Format("20060102150405")
+	}
 	if t.RecordedAt.IsZero() {
 		t.RecordedAt = now
 	}
+	m.telemetry = append(m.telemetry, t)
 	return t, nil
+}
+
+func (m *mockRepository) GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*EnvironmentalTelemetry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	var res []*EnvironmentalTelemetry
+	for i := len(m.telemetry) - 1; i >= 0; i-- {
+		t := m.telemetry[i]
+		if zoneID == "" || t.ZoneID == zoneID {
+			res = append(res, t)
+			if len(res) >= limit {
+				break
+			}
+		}
+	}
+	if len(res) == 0 {
+		now := time.Now().UTC()
+		zid := zoneID
+		if zid == "" {
+			zid = "zone-alpha"
+		}
+		for i := 0; i < limit && i < 5; i++ {
+			res = append(res, &EnvironmentalTelemetry{
+				TelemetryID:         fmt.Sprintf("telemetry-env-seed-%d", i+1),
+				ZoneID:              zid,
+				TemperatureC:        21.5,
+				RelativeHumidityPct: 45.0,
+				LightIntensityLux:   520.0,
+				NoiseLevelDB:        38.0,
+				RecordedAt:          now.Add(-time.Duration(i) * time.Minute),
+			})
+		}
+	}
+	return res, nil
 }
 

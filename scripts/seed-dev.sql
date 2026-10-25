@@ -25,6 +25,29 @@ VALUES
 ON CONFLICT (serial_number) DO NOTHING;
 
 --------------------------------------------------------------------------------
+-- Habitat Camera Streams (WebRTC / RTSP Ingestion)
+--------------------------------------------------------------------------------
+INSERT INTO core_invest.camera_streams (stream_id, camera_asset_id, stream_url, protocol, status, ingest_settings)
+VALUES
+    (
+        '018f3a9a-c001-7000-8000-000000000001',
+        '018e0000-0000-7000-8000-000000000001',
+        'webrtc://streams.oci.local/live/habitat-cam-01',
+        'webrtc',
+        'active',
+        '{"name": "Perch Alpha 4K WebRTC Live Feed", "zone": "Zone Alpha", "hls_url": "https://streams.oci.local/live/habitat-cam-01/index.m3u8"}'::jsonb
+    ),
+    (
+        '018f3a9a-c002-7000-8000-000000000002',
+        '018f3a9a-3333-7000-8000-000000000003',
+        'webrtc://streams.oci.local/live/habitat-cam-02',
+        'webrtc',
+        'active',
+        '{"name": "Nap Pod Beta Wide-Angle Feed", "zone": "Zone Beta", "hls_url": "https://streams.oci.local/live/habitat-cam-02/index.m3u8"}'::jsonb
+    )
+ON CONFLICT (stream_id) DO NOTHING;
+
+--------------------------------------------------------------------------------
 -- Firmware Release Catalog
 --------------------------------------------------------------------------------
 INSERT INTO facilities.firmware_releases (release_id, version, device_type, checksum, file_url, status)

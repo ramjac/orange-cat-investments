@@ -1,0 +1,7 @@
+---
+# Master Playbook: Provision and Bootstrap Resilient 3-Node MicroK8s HA Cluster on Ubuntu Server
+- name: Deploy Prerequisites and Initialize MicroK8s HA Cluster
+  hosts: microk8s_cluster
+  become: true
+  roles:
+    - microk8s_ha

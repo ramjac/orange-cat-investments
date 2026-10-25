@@ -112,10 +112,15 @@ else
     exit 1
 fi
 
+# 3. Seed Meilisearch Development Fixtures
+echo "Seeding development search fixtures into Meilisearch (if available)..."
+python3 "${REPO_ROOT}/scripts/seed-search.py" --url "${DEV_MEILI_URL:-http://localhost:7700}" || true
+
 echo ""
 echo "================================================================================"
-echo "  ✅ Development Database Seeding Completed Successfully for ${TARGET_NAMESPACE}!"
+echo "  ✅ Development Seeding Completed Successfully for ${TARGET_NAMESPACE}!"
 echo "================================================================================"
 echo "Seeded entities: Habitat Zones, Hardware Devices, Firmware Releases,"
-echo "                 Workforce Personas, Portfolios, Holdings, Review Cycles & Reports."
+echo "                 Workforce Personas, Portfolios, Holdings, Review Cycles & Reports,"
+echo "                 Meilisearch Search Indexes (customer_catalog, employee_knowledge)."
 echo "================================================================================"

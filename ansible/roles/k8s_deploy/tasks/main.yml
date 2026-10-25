@@ -1,4 +1,8 @@
 ---
+- name: Determine active kubeconfig path
+  ansible.builtin.set_fact:
+    active_kubeconfig: "{{ k8s_kubeconfig_path | default(microk8s_kubeconfig_path) }}"
+
 - name: Ensure kubectl is available
   ansible.builtin.command:
     cmd: kubectl version --client
@@ -6,24 +10,24 @@
 
 - name: Deploy Kubernetes Namespaces
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/namespaces/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/namespaces/ --kubeconfig={{ active_kubeconfig }}"
 
 - name: Deploy Core Infrastructure & Applications (oci-core)
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/oci-core/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/oci-core/ --kubeconfig={{ active_kubeconfig }}"
 
 - name: Deploy Internal COTS Business Applications (oci-internal)
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/oci-internal/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/oci-internal/ --kubeconfig={{ active_kubeconfig }}"
 
 - name: Deploy External Simulation Microservices (external-sim)
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/external-sim/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/external-sim/ --kubeconfig={{ active_kubeconfig }}"
 
 - name: Deploy Monitoring Stack (Prometheus + Grafana)
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/monitoring/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/monitoring/ --kubeconfig={{ active_kubeconfig }}"
 
 - name: Deploy Logging Stack (Loki + Promtail)
   ansible.builtin.command:
-    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/logging/ --kubeconfig={{ k3s_kubeconfig_path }}"
+    cmd: "kubectl apply -f {{ k8s_manifests_dir }}/logging/ --kubeconfig={{ active_kubeconfig }}"
