@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
@@ -20,13 +19,6 @@ func (h *WorkforceHandler) resolveFeline(r *http.Request, felineID string) (stri
 			canonicalID = resp.Employee.EmployeeID
 			if resp.Employee.FirstName != "" {
 				felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(resp.Employee.FirstName))
-			}
-		}
-	} else if h.wfSvc != nil {
-		if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
-			canonicalID = emp.EmployeeID
-			if emp.FirstName != "" {
-				felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
 			}
 		}
 	}
@@ -43,7 +35,7 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 	canonicalID, felineAlias := h.resolveFeline(r, felineID)
 
 	if h.cache != nil {
-		var cached workforce.CareSchedule
+		var cached workforcev1.CareSchedule
 		if ok, _ := h.cache.Get(r.Context(), cachevalkey.KeyCareSchedule(canonicalID), &cached); ok {
 			data, err := json.Marshal(cached)
 			if err == nil {
@@ -62,25 +54,17 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &startVer)
 	}
 
-	var cs any
-	if h.bllClient != nil {
-		resp, err := h.bllClient.GetCareSchedule(r.Context(), &workforcev1.GetCareScheduleRequest{FelineID: canonicalID})
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		cs = resp.CareSchedule
-	} else if h.wfSvc != nil {
-		sched, err := h.wfSvc.GetCareSchedule(r.Context(), canonicalID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		cs = sched
-	} else {
+	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
+
+	resp, err := h.bllClient.GetCareSchedule(r.Context(), &workforcev1.GetCareScheduleRequest{FelineID: canonicalID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	cs := resp.CareSchedule
 
 	if h.cache != nil && cs != nil {
 		var currVer int64
@@ -132,61 +116,40 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var updated any
-	var updatedFelineID string
-
-	if h.bllClient != nil {
-		specialNeeds := ""
-		if req.SpecialMedicalNeeds != nil {
-			specialNeeds = *req.SpecialMedicalNeeds
-		}
-		perchZone := ""
-		if req.PreferredPerchZone != nil {
-			perchZone = *req.PreferredPerchZone
-		}
-		caretakerID := ""
-		if req.CaretakerID != nil {
-			caretakerID = *req.CaretakerID
-		}
-		resp, err := h.bllClient.UpdateCareSchedule(r.Context(), &workforcev1.UpdateCareScheduleRequest{
-			FelineID:             canonicalID,
-			DietaryPlan:          req.DietaryPlan,
-			FeedingTimes:         req.FeedingTimes,
-			SpecialMedicalNeeds:  specialNeeds,
-			PreferredPerchZone:   perchZone,
-			EmergencyMedicalHold: req.EmergencyMedicalHold,
-			CaretakerID:          caretakerID,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		updated = resp.CareSchedule
-		if resp.CareSchedule != nil {
-			updatedFelineID = resp.CareSchedule.FelineID
-		}
-	} else if h.wfSvc != nil {
-		cs := &workforce.CareSchedule{
-			FelineID:             canonicalID,
-			DietaryPlan:          req.DietaryPlan,
-			FeedingTimes:         req.FeedingTimes,
-			SpecialMedicalNeeds:  req.SpecialMedicalNeeds,
-			PreferredPerchZone:   req.PreferredPerchZone,
-			EmergencyMedicalHold: req.EmergencyMedicalHold,
-			CaretakerID:          req.CaretakerID,
-		}
-		res, err := h.wfSvc.UpdateCareSchedule(r.Context(), cs)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		updated = res
-		if res != nil {
-			updatedFelineID = res.FelineID
-		}
-	} else {
+	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
+	}
+
+	specialNeeds := ""
+	if req.SpecialMedicalNeeds != nil {
+		specialNeeds = *req.SpecialMedicalNeeds
+	}
+	perchZone := ""
+	if req.PreferredPerchZone != nil {
+		perchZone = *req.PreferredPerchZone
+	}
+	caretakerID := ""
+	if req.CaretakerID != nil {
+		caretakerID = *req.CaretakerID
+	}
+	resp, err := h.bllClient.UpdateCareSchedule(r.Context(), &workforcev1.UpdateCareScheduleRequest{
+		FelineID:             canonicalID,
+		DietaryPlan:          req.DietaryPlan,
+		FeedingTimes:         req.FeedingTimes,
+		SpecialMedicalNeeds:  specialNeeds,
+		PreferredPerchZone:   perchZone,
+		EmergencyMedicalHold: req.EmergencyMedicalHold,
+		CaretakerID:          caretakerID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated := resp.CareSchedule
+	var updatedFelineID string
+	if resp.CareSchedule != nil {
+		updatedFelineID = resp.CareSchedule.FelineID
 	}
 
 	if h.cache != nil {
@@ -228,35 +191,23 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	var updated any
-	var updatedFelineID string
-
-	if h.bllClient != nil {
-		resp, err := h.bllClient.SetMedicalHold(r.Context(), &workforcev1.SetMedicalHoldRequest{
-			FelineID:             canonicalID,
-			EmergencyMedicalHold: req.EmergencyMedicalHold,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		updated = resp.CareSchedule
-		if resp.CareSchedule != nil {
-			updatedFelineID = resp.CareSchedule.FelineID
-		}
-	} else if h.wfSvc != nil {
-		res, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), canonicalID, req.EmergencyMedicalHold)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		updated = res
-		if res != nil {
-			updatedFelineID = res.FelineID
-		}
-	} else {
+	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
+	}
+
+	resp, err := h.bllClient.SetMedicalHold(r.Context(), &workforcev1.SetMedicalHoldRequest{
+		FelineID:             canonicalID,
+		EmergencyMedicalHold: req.EmergencyMedicalHold,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated := resp.CareSchedule
+	var updatedFelineID string
+	if resp.CareSchedule != nil {
+		updatedFelineID = resp.CareSchedule.FelineID
 	}
 
 	if h.cache != nil {

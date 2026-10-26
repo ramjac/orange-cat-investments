@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 
@@ -122,37 +121,6 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	symbols := []string{"AAPL", "NVDA", "MSFT", "TSLA"}
-
-	if b.broker != nil {
-		bars, err := b.broker.GetLatestBars(r.Context(), symbols)
-		if err == nil && len(bars) > 0 {
-			quotes, _ := b.broker.GetLatestQuotes(r.Context(), symbols)
-			tickerData := make([]map[string]any, 0, len(symbols))
-			for _, sym := range symbols {
-				if bar, ok := bars[sym]; ok && bar.Close > 0 {
-					price := bar.Close
-					if quote, ok := quotes[sym]; ok && quote.AskPrice > 0 {
-						price = (quote.BidPrice + quote.AskPrice) / 2.0
-					}
-					changePct := 0.0
-					if bar.Open > 0 {
-						changePct = math.Round(((price-bar.Open)/bar.Open)*10000.0) / 100.0
-					}
-					tickerData = append(tickerData, map[string]any{
-						"symbol":     sym,
-						"price":      math.Round(price*100.0) / 100.0,
-						"change_pct": changePct,
-						"volume":     bar.Volume,
-					})
-				}
-			}
-			if b.cache != nil && len(tickerData) > 0 {
-				_ = b.cache.Set(r.Context(), cachevalkey.KeyQuotes("TICKER_ALL"), tickerData, cachevalkey.TTLMarketQuotes)
-			}
-			httputil.WriteJSON(w, http.StatusOK, tickerData)
-			return
-		}
-	}
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")

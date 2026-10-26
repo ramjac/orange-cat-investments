@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,46 +46,7 @@ func BenchmarkGetESGTransparency(b *testing.B) {
 }
 
 func BenchmarkHandleTickerSSE(b *testing.B) {
-	brokerMux := http.NewServeMux()
-	brokerMux.HandleFunc("GET /v2/stocks/bars/latest", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"bars": map[string]alpaca.Bar{
-				"AAPL": {Open: 220.0, Close: 225.5, Volume: 50000},
-				"NVDA": {Open: 135.0, Close: 140.0, Volume: 80000},
-				"MSFT": {Open: 400.0, Close: 405.0, Volume: 60000},
-				"TSLA": {Open: 250.0, Close: 255.0, Volume: 70000},
-			},
-		})
-	})
-	brokerMux.HandleFunc("GET /v2/stocks/quotes/latest", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"quotes": map[string]alpaca.Quote{
-				"AAPL": {BidPrice: 225.4, AskPrice: 225.6},
-				"NVDA": {BidPrice: 139.9, AskPrice: 140.1},
-				"MSFT": {BidPrice: 404.9, AskPrice: 405.1},
-				"TSLA": {BidPrice: 254.9, AskPrice: 255.1},
-			},
-		})
-	})
-	brokerMux.HandleFunc("GET /v2/stocks/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"symbol": "STOCK",
-			"quote":  alpaca.Quote{BidPrice: 100.0, AskPrice: 102.0},
-		})
-	})
-
-	brokerServer := httptest.NewServer(brokerMux)
-	defer brokerServer.Close()
-
-	brokerClient := alpaca.NewClient(alpaca.Config{
-		BaseURL: brokerServer.URL,
-	})
-
-	bff, mux := setupTestBFF()
-	bff.SetBrokerClient(brokerClient)
+	_, mux := setupTestBFF()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/ticker", nil)
 	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})

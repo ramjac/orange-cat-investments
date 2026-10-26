@@ -3,9 +3,7 @@ package customerbff
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,21 +23,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 	}
 
 	portfolioID := r.URL.Query().Get("portfolio_id")
-	if portfolioID == "" && b.broker != nil {
-		accs, err := b.broker.ListAccounts(r.Context())
-		if err == nil {
-			for _, a := range accs {
-				if a.ID == custID || a.AccountNumber == custID || (custID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(custID))) {
-					portfolioID = a.ID
-					break
-				}
-			}
-			if portfolioID == "" && len(accs) > 0 {
-				portfolioID = accs[0].ID
-			}
-		}
-	}
-	if portfolioID == "" {
+	if portfolioID == "" && custID != "" {
 		portfolioID = fmt.Sprintf("port-%s", custID)
 	}
 
@@ -58,64 +42,6 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 				_, _ = w.Write(data)
 				return
 			}
-		}
-	}
-
-	if b.broker != nil {
-		acc, accErr := b.broker.GetAccount(r.Context(), portfolioID)
-		positions, posErr := b.broker.ListPositions(r.Context(), portfolioID)
-		if accErr == nil && acc != nil && posErr == nil {
-			holdings := make([]map[string]any, 0, len(positions))
-			for _, p := range positions {
-				holdings = append(holdings, map[string]any{
-					"symbol":        p.Symbol,
-					"quantity":      p.Qty,
-					"avg_price":     p.AvgEntryPrice,
-					"current_price": p.CurrentPrice,
-					"market_value":  p.MarketValue,
-				})
-			}
-			accountName := "OCI Investment Portfolio"
-			if acc.AccountNumber != "" {
-				accountName = fmt.Sprintf("Account %s", acc.AccountNumber)
-			}
-			customerName := custID
-			if acc.CustomerName != "" {
-				customerName = acc.CustomerName
-			}
-			if session := CustomerFromContext(r.Context()); session != nil && session.Name != "" {
-				customerName = session.Name
-			}
-			portfolioResp := map[string]any{
-				"portfolio_id":      portfolioID,
-				"customer_id":       custID,
-				"customer_name":     customerName,
-				"account_name":      accountName,
-				"total_balance_usd": acc.PortfolioValue,
-				"cash_balance_usd":  acc.Cash,
-				"status":            acc.Status,
-				"holdings":          holdings,
-				"historical_performance": []map[string]any{
-					{"date": "2026-01-01", "valuation": math.Round(acc.PortfolioValue * 0.78)},
-					{"date": "2026-02-01", "valuation": math.Round(acc.PortfolioValue * 0.85)},
-					{"date": "2026-03-01", "valuation": math.Round(acc.PortfolioValue * 0.92)},
-					{"date": "2026-04-01", "valuation": acc.PortfolioValue},
-				},
-			}
-			if custID != "" && b.cache != nil {
-				_ = b.cache.Set(r.Context(), cacheKey, portfolioResp, cachevalkey.TTLPortfolioValuation)
-			}
-			data, err := json.Marshal(portfolioResp)
-			if err == nil {
-				if cachevalkey.HandleConditionalETag(w, r, data) {
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write(data)
-				return
-			}
-			httputil.WriteJSON(w, http.StatusOK, portfolioResp)
-			return
 		}
 	}
 
@@ -233,31 +159,6 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 		req.Frequency = "one_time"
 	}
 
-	if b.bank != nil {
-		accountID := req.AccountID
-		if accountID == "" {
-			accs, err := b.bank.GetAccounts(r.Context(), session.CustomerID)
-			if err == nil && len(accs) > 0 {
-				accountID = accs[0].AccountID
-			}
-		}
-		if accountID != "" {
-			auth, err := b.bank.AuthorizeTransfer(r.Context(), accountID, req.AmountUSD, "debit")
-			if err != nil {
-				httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("bank authorization failed: %v", err))
-				return
-			}
-			if auth != nil && auth.Decision == "declined" {
-				desc := "insufficient funds"
-				if auth.DecisionRationale != nil && auth.DecisionRationale.Description != "" {
-					desc = auth.DecisionRationale.Description
-				}
-				httputil.WriteError(w, http.StatusBadRequest, fmt.Sprintf("bank declined deposit authorization: %s", desc))
-				return
-			}
-		}
-	}
-
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
 		return
@@ -292,16 +193,6 @@ func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Reque
 	if custID == "" {
 		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: customer identity required")
 		return
-	}
-
-	if b.bank != nil {
-		accs, err := b.bank.GetAccounts(r.Context(), custID)
-		if err == nil && len(accs) > 0 {
-			httputil.WriteJSON(w, http.StatusOK, map[string]any{
-				"accounts": accs,
-			})
-			return
-		}
 	}
 
 	if b.bllClient == nil {

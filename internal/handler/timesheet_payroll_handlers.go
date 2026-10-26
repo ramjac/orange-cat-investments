@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
@@ -17,50 +16,30 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	toDate := r.URL.Query().Get("to_date")
 	taskCode := r.URL.Query().Get("task_code")
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.ListTimesheets(r.Context(), &internalbllv1.ListTimesheetsRequest{
-			EmployeeID: empID,
-			Status:     status,
-			FromDate:   fromDate,
-			ToDate:     toDate,
-			TaskCode:   taskCode,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		items := resp.Timesheets
-		if items == nil {
-			items = []*frappe.Timesheet{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items": items,
-			"total": len(items),
-		})
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		filter := wfService.TimesheetFilter{
-			EmployeeID: empID,
-			Status:     status,
-			FromDate:   fromDate,
-			ToDate:     toDate,
-			TaskCode:   taskCode,
-		}
-		timesheets, err := h.wfSvc.ListTimesheets(r.Context(), filter)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items": timesheets,
-			"total": len(timesheets),
-		})
+	resp, err := h.bllClient.ListTimesheets(r.Context(), &internalbllv1.ListTimesheetsRequest{
+		EmployeeID: empID,
+		Status:     status,
+		FromDate:   fromDate,
+		ToDate:     toDate,
+		TaskCode:   taskCode,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	items := resp.Timesheets
+	if items == nil {
+		items = []*frappe.Timesheet{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items,
+		"total": len(items),
+	})
 }
 
 func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Request) {
@@ -70,27 +49,17 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.SubmitTimesheet(r.Context(), &internalbllv1.SubmitTimesheetRequest{Timesheet: &ts})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, resp.Timesheet)
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		created, err := h.wfSvc.SubmitTimesheet(r.Context(), &ts)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
+	resp, err := h.bllClient.SubmitTimesheet(r.Context(), &internalbllv1.SubmitTimesheetRequest{Timesheet: &ts})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	writeJSON(w, http.StatusCreated, resp.Timesheet)
 }
 
 func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) {
@@ -100,27 +69,17 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.GetTimesheet(r.Context(), &internalbllv1.GetTimesheetRequest{TimesheetID: id})
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, resp.Timesheet)
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		ts, err := h.wfSvc.GetTimesheet(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, ts)
+	resp, err := h.bllClient.GetTimesheet(r.Context(), &internalbllv1.GetTimesheetRequest{TimesheetID: id})
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	writeJSON(w, http.StatusOK, resp.Timesheet)
 }
 
 func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +100,11 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
+	}
+
 	switch strings.ToLower(req.Status) {
 	case "approved":
 		approver := req.ApproverID
@@ -152,28 +116,16 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 			return
 		}
 
-		if h.bllClient != nil {
-			resp, err := h.bllClient.ApproveTimesheet(r.Context(), &internalbllv1.ApproveTimesheetRequest{
-				TimesheetID: id,
-				ApproverID:  approver,
-			})
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, resp.Timesheet)
+		resp, err := h.bllClient.ApproveTimesheet(r.Context(), &internalbllv1.ApproveTimesheetRequest{
+			TimesheetID: id,
+			ApproverID:  approver,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-
-		if h.wfSvc != nil {
-			updated, err := h.wfSvc.ApproveTimesheet(r.Context(), id, approver)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, updated)
-			return
-		}
+		writeJSON(w, http.StatusOK, resp.Timesheet)
+		return
 
 	case "rejected":
 		reviewer := req.ReviewerID
@@ -181,72 +133,44 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 			reviewer = req.ApproverID
 		}
 
-		if h.bllClient != nil {
-			resp, err := h.bllClient.RejectTimesheet(r.Context(), &internalbllv1.RejectTimesheetRequest{
-				TimesheetID: id,
-				ReviewerID:  reviewer,
-				Reason:      req.Reason,
-			})
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, resp.Timesheet)
+		resp, err := h.bllClient.RejectTimesheet(r.Context(), &internalbllv1.RejectTimesheetRequest{
+			TimesheetID: id,
+			ReviewerID:  reviewer,
+			Reason:      req.Reason,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-
-		if h.wfSvc != nil {
-			updated, err := h.wfSvc.RejectTimesheet(r.Context(), id, reviewer, req.Reason)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, updated)
-			return
-		}
+		writeJSON(w, http.StatusOK, resp.Timesheet)
+		return
 
 	default:
 		writeError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
-		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.ListSalarySlips(r.Context(), &internalbllv1.ListSalarySlipsRequest{EmployeeID: employeeID})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		slips := resp.SalarySlips
-		if slips == nil {
-			slips = []frappe.SalarySlip{}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items": slips,
-			"total": len(slips),
-		})
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		slips, err := h.wfSvc.ListSalarySlips(r.Context(), employeeID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items": slips,
-			"total": len(slips),
-		})
+	resp, err := h.bllClient.ListSalarySlips(r.Context(), &internalbllv1.ListSalarySlipsRequest{EmployeeID: employeeID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	slips := resp.SalarySlips
+	if slips == nil {
+		slips = []frappe.SalarySlip{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": slips,
+		"total": len(slips),
+	})
 }
 
 func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request) {
@@ -256,27 +180,17 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.GetSalarySlip(r.Context(), &internalbllv1.GetSalarySlipRequest{SlipID: id})
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, resp.SalarySlip)
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		slip, err := h.wfSvc.GetSalarySlip(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, slip)
+	resp, err := h.bllClient.GetSalarySlip(r.Context(), &internalbllv1.GetSalarySlipRequest{SlipID: id})
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	writeJSON(w, http.StatusOK, resp.SalarySlip)
 }
 
 func (h *WorkforceHandler) processPayrollRun(w http.ResponseWriter, r *http.Request) {
@@ -286,25 +200,15 @@ func (h *WorkforceHandler) processPayrollRun(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.ProcessPayrollRun(r.Context(), &internalbllv1.ProcessPayrollRunRequest{PayrollEntry: &pe})
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, resp.PayrollEntry)
+	if h.bllClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
-	if h.wfSvc != nil {
-		result, err := h.wfSvc.ProcessPayrollRun(r.Context(), &pe)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, result)
+	resp, err := h.bllClient.ProcessPayrollRun(r.Context(), &internalbllv1.ProcessPayrollRunRequest{PayrollEntry: &pe})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+	writeJSON(w, http.StatusCreated, resp.PayrollEntry)
 }

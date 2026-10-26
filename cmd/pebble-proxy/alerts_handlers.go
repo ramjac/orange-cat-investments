@@ -9,7 +9,7 @@ import (
 	"time"
 
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
+	"github.com/orange-cat-investments/oci/pkg/pebble"
 )
 
 func (h *GatewayHandler) Healthz(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alerts := res.Alerts
-	payloads := make([]*opssvc.PebbleAlertPayload, 0, len(alerts))
+	payloads := make([]*pebble.PebbleAlertPayload, 0, len(alerts))
 	for _, a := range alerts {
 		priority := "HIGH"
 		sev := strings.ToLower(a.Severity)
@@ -54,16 +54,16 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		dict := map[uint32]string{
-			opssvc.PebbleKeyCmd:       "1",
-			opssvc.PebbleKeyTicketID:  a.TicketID,
-			opssvc.PebbleKeyTitle:     a.Title,
-			opssvc.PebbleKeyBody:      a.Body,
-			opssvc.PebbleKeyPriority:  priority,
-			opssvc.PebbleKeyAuthor:    a.Author,
-			opssvc.PebbleKeyTimestamp: createdAt.Format(time.RFC3339),
+			pebble.PebbleKeyCmd:       "1",
+			pebble.PebbleKeyTicketID:  a.TicketID,
+			pebble.PebbleKeyTitle:     a.Title,
+			pebble.PebbleKeyBody:      a.Body,
+			pebble.PebbleKeyPriority:  priority,
+			pebble.PebbleKeyAuthor:    a.Author,
+			pebble.PebbleKeyTimestamp: createdAt.Format(time.RFC3339),
 		}
 
-		payloads = append(payloads, &opssvc.PebbleAlertPayload{
+		payloads = append(payloads, &pebble.PebbleAlertPayload{
 			TicketID:       a.TicketID,
 			Title:          a.Title,
 			Priority:       priority,
@@ -80,7 +80,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *GatewayHandler) SubmitAck(w http.ResponseWriter, r *http.Request) {
-	var req opssvc.PebbleAckRequest
+	var req pebble.PebbleAckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
@@ -129,7 +129,7 @@ func (h *GatewayHandler) SubmitAck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := &opssvc.PebbleAckResponse{
+	resp := &pebble.PebbleAckResponse{
 		TicketID:       res.AlertID,
 		State:          res.State,
 		AcknowledgedAt: ackTime,

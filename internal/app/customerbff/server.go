@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
-	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
@@ -27,8 +25,6 @@ type CustomerBFF struct {
 	rateLimiter  *cachevalkey.RateLimiter
 	logger       *slog.Logger
 	searchClient *meilisearch.Client
-	broker       *alpaca.Client
-	bank         *plaid.Client
 }
 
 // NewCustomerBFF initializes a new CustomerBFF instance.
@@ -95,23 +91,6 @@ func (b *CustomerBFF) SetSearchClient(client *meilisearch.Client) {
 func (b *CustomerBFF) SearchClient() *meilisearch.Client {
 	return b.searchClient
 }
-
-// Backwards-compatible setters for external mock wiring during tests
-func (b *CustomerBFF) SetCustomerBLLURL(url string) {}
-
-func (b *CustomerBFF) SetBrokerClient(client *alpaca.Client) {
-	b.broker = client
-}
-
-func (b *CustomerBFF) SetAlpacaClient(client *alpaca.Client) {
-	b.broker = client
-}
-
-func (b *CustomerBFF) SetBankClient(client *plaid.Client) {
-	b.bank = client
-}
-
-func (b *CustomerBFF) SetOpsService(svc any) {}
 
 func CustomerFromContext(ctx context.Context) *CustomerSession {
 	return session.CustomerFromContext(ctx)

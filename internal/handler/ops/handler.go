@@ -4,18 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/pebble"
 )
 
 type Handler struct {
 	bllClient internalbllv1.InternalBLLServiceClient
-	service   opssvc.Service
 }
 
-func NewHandler(service opssvc.Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(bllClient internalbllv1.InternalBLLServiceClient) *Handler {
+	return &Handler{bllClient: bllClient}
 }
 
 func NewHandlerWithBLL(bllClient internalbllv1.InternalBLLServiceClient) *Handler {
@@ -69,74 +68,48 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *Handler) GetPebbleAlerts(w http.ResponseWriter, r *http.Request) {
-	if h.bllClient != nil {
-		resp, err := h.bllClient.ListAlerts(r.Context(), &opsv1.ListAlertsRequest{UnacknowledgedOnly: true})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		alerts := resp.Alerts
-		if alerts == nil {
-			alerts = []*opsv1.PebbleAlert{}
-		}
-		_ = json.NewEncoder(w).Encode(alerts)
-		return
-	}
-
-	if h.service == nil {
+	if h.bllClient == nil {
 		http.Error(w, "ops service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	alerts, err := h.service.GetPendingAlerts(r.Context())
+	resp, err := h.bllClient.ListAlerts(r.Context(), &opsv1.ListAlertsRequest{UnacknowledgedOnly: true})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	alerts := resp.Alerts
+	if alerts == nil {
+		alerts = []*opsv1.PebbleAlert{}
+	}
 	_ = json.NewEncoder(w).Encode(alerts)
 }
 
 func (h *Handler) SubmitPebbleAck(w http.ResponseWriter, r *http.Request) {
-	var req opssvc.PebbleAckRequest
+	var req pebble.PebbleAckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if h.bllClient != nil {
-		resp, err := h.bllClient.AcknowledgeAlert(r.Context(), &opsv1.AcknowledgeAlertRequest{
-			AlertID:        req.TicketID,
-			AcknowledgedBy: req.AcknowledgedBy,
-			ButtonID:       int32(req.ButtonID),
-			WatchID:        req.WatchID,
-			DeviceID:       req.DeviceID,
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(resp)
-		return
-	}
-
-	if h.service == nil {
+	if h.bllClient == nil {
 		http.Error(w, "ops service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	resp, err := h.service.ProcessPebbleAck(r.Context(), &req)
+	resp, err := h.bllClient.AcknowledgeAlert(r.Context(), &opsv1.AcknowledgeAlertRequest{
+		AlertID:        req.TicketID,
+		AcknowledgedBy: req.AcknowledgedBy,
+		ButtonID:       int32(req.ButtonID),
+		WatchID:        req.WatchID,
+		DeviceID:       req.DeviceID,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)

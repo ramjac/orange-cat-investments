@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/orange-cat-investments/oci/internal/saga"
-	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
@@ -13,9 +11,6 @@ import (
 
 type WorkforceHandler struct {
 	bllClient             internalbllv1.InternalBLLServiceClient
-	wfSvc                 wfService.Service
-	onboardingSaga        *saga.OnboardingSaga
-	offboardingEng        *saga.OffboardingEngine
 	EnableFelineWorkforce bool
 	cache                 cachevalkey.Cache
 }
@@ -28,24 +23,15 @@ func (h *WorkforceHandler) SetBLLClient(client internalbllv1.InternalBLLServiceC
 	h.bllClient = client
 }
 
-func NewWorkforceHandler(
-	wfSvc wfService.Service,
-	onboardSaga *saga.OnboardingSaga,
-	offboardEng *saga.OffboardingEngine,
-) *WorkforceHandler {
+func NewWorkforceHandler(bllClient internalbllv1.InternalBLLServiceClient) *WorkforceHandler {
 	return &WorkforceHandler{
-		wfSvc:                 wfSvc,
-		onboardingSaga:        onboardSaga,
-		offboardingEng:        offboardEng,
+		bllClient:             bllClient,
 		EnableFelineWorkforce: true,
 	}
 }
 
 func NewWorkforceHandlerWithBLL(bllClient internalbllv1.InternalBLLServiceClient) *WorkforceHandler {
-	return &WorkforceHandler{
-		bllClient:             bllClient,
-		EnableFelineWorkforce: true,
-	}
+	return NewWorkforceHandler(bllClient)
 }
 
 func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
@@ -214,20 +200,6 @@ func (h *WorkforceHandler) listEmployees(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"items": items,
 			"total": len(items),
-		})
-		return
-	}
-
-	if h.wfSvc != nil {
-		employees, err := h.wfSvc.ListEmployees(r.Context(), empType, status)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"items": employees,
-			"total": len(employees),
 		})
 		return
 	}

@@ -55,32 +55,6 @@ func (h *WorkforceHandler) listGroupFolders(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if h.wfSvc != nil {
-		folders, err := h.wfSvc.ListGroupFolders(r.Context())
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		respMap := map[string]any{
-			"folders": folders,
-			"total":   len(folders),
-		}
-		data, err := json.Marshal(respMap)
-		if err != nil {
-			writeJSON(w, http.StatusOK, respMap)
-			return
-		}
-		if h.cache != nil {
-			_ = h.cache.SetRaw(r.Context(), cacheKey, data, cachevalkey.TTLCOTSMetadata)
-		}
-		if cachevalkey.HandleConditionalETag(w, r, data) {
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(data)
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -113,19 +87,6 @@ func (h *WorkforceHandler) createGroupFolder(w http.ResponseWriter, r *http.Requ
 			_ = h.cache.Delete(r.Context(), "cache:cots:nextcloud:folders")
 		}
 		writeJSON(w, http.StatusCreated, resp.GroupFolder)
-		return
-	}
-
-	if h.wfSvc != nil {
-		folder, err := h.wfSvc.CreateGroupFolder(r.Context(), req.MountPoint, req.Groups, req.Quota)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if h.cache != nil {
-			_ = h.cache.Delete(r.Context(), "cache:cots:nextcloud:folders")
-		}
-		writeJSON(w, http.StatusCreated, folder)
 		return
 	}
 
@@ -197,19 +158,6 @@ func (h *WorkforceHandler) listDocuments(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if h.wfSvc != nil {
-		docs, err := h.wfSvc.ListDocuments(r.Context(), dept, cat, q)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"documents": docs,
-			"total":     len(docs),
-		})
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -227,16 +175,6 @@ func (h *WorkforceHandler) getDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, resp.Document)
-		return
-	}
-
-	if h.wfSvc != nil {
-		doc, err := h.wfSvc.GetDocument(r.Context(), id)
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, doc)
 		return
 	}
 
@@ -290,16 +228,6 @@ func (h *WorkforceHandler) publishDocument(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.wfSvc != nil {
-		published, err := h.wfSvc.PublishDocument(r.Context(), doc)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, published)
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -350,19 +278,6 @@ func (h *WorkforceHandler) listCalendarEvents(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if h.wfSvc != nil {
-		events, err := h.wfSvc.ListCalendarEvents(r.Context(), cal, dept, fromDate, toDate)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"events": events,
-			"total":  len(events),
-		})
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -384,16 +299,6 @@ func (h *WorkforceHandler) createCalendarEvent(w http.ResponseWriter, r *http.Re
 			return
 		}
 		writeJSON(w, http.StatusCreated, resp.Event)
-		return
-	}
-
-	if h.wfSvc != nil {
-		created, err := h.wfSvc.CreateCalendarEvent(r.Context(), ev)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
 		return
 	}
 

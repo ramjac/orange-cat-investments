@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
 func TestEmployeeAuthAndRBAC(t *testing.T) {
@@ -179,9 +178,8 @@ func TestProtectedOpsRoutes(t *testing.T) {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	repo := opssvc.NewMockRepository()
-	svc := opssvc.NewService(repo)
-	opsH := opshandler.NewHandler(svc)
+	bllClient := newMockInternalBLLClient()
+	opsH := opshandler.NewHandler(bllClient)
 
 	mux := http.NewServeMux()
 	registerProtectedOpsRoutes(mux, opsH, store)

@@ -13,7 +13,7 @@ import (
 
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
+	"github.com/orange-cat-investments/oci/pkg/pebble"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -295,12 +295,12 @@ func TestPebbleProxy_IncidentAlertAndPebbleAckLifecycle(t *testing.T) {
 	defer alertsResp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, alertsResp.StatusCode)
-	var alerts []*opssvc.PebbleAlertPayload
+	var alerts []*pebble.PebbleAlertPayload
 	err = json.NewDecoder(alertsResp.Body).Decode(&alerts)
 	require.NoError(t, err)
 
 	// Find the created alert in pending alerts
-	var targetAlert *opssvc.PebbleAlertPayload
+	var targetAlert *pebble.PebbleAlertPayload
 	for _, a := range alerts {
 		if a.TicketID == "inc-pebble-test-001" {
 			targetAlert = a
@@ -311,8 +311,8 @@ func TestPebbleProxy_IncidentAlertAndPebbleAckLifecycle(t *testing.T) {
 	assert.Equal(t, "CRITICAL", targetAlert.Priority)
 	assert.Contains(t, targetAlert.Title, "Coffee Spilled on Core Switch")
 	assert.NotNil(t, targetAlert.AppMessageDict)
-	assert.Equal(t, "inc-pebble-test-001", targetAlert.AppMessageDict[opssvc.PebbleKeyTicketID])
-	assert.Equal(t, "CRITICAL", targetAlert.AppMessageDict[opssvc.PebbleKeyPriority])
+	assert.Equal(t, "inc-pebble-test-001", targetAlert.AppMessageDict[pebble.PebbleKeyTicketID])
+	assert.Equal(t, "CRITICAL", targetAlert.AppMessageDict[pebble.PebbleKeyPriority])
 
 	// 3. Smartwatch Physical Button ACK: POST /ops/pebble/ack
 	ackPayload := map[string]string{
@@ -327,7 +327,7 @@ func TestPebbleProxy_IncidentAlertAndPebbleAckLifecycle(t *testing.T) {
 	defer ackResp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, ackResp.StatusCode)
-	var ackResult opssvc.PebbleAckResponse
+	var ackResult pebble.PebbleAckResponse
 	err = json.NewDecoder(ackResp.Body).Decode(&ackResult)
 	require.NoError(t, err)
 	assert.Equal(t, "inc-pebble-test-001", ackResult.TicketID)
@@ -338,7 +338,7 @@ func TestPebbleProxy_IncidentAlertAndPebbleAckLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	defer alertsResp2.Body.Close()
 
-	var alerts2 []*opssvc.PebbleAlertPayload
+	var alerts2 []*pebble.PebbleAlertPayload
 	err = json.NewDecoder(alertsResp2.Body).Decode(&alerts2)
 	require.NoError(t, err)
 

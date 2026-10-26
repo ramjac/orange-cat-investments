@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
 
@@ -64,47 +63,6 @@ func (h *WorkforceHandler) createVHRRecord(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if h.wfSvc != nil {
-		var vetID *string
-		if rec.VeterinarianID != "" {
-			vetID = &rec.VeterinarianID
-		}
-		weight := 0.0
-		if rec.WeightKG != nil {
-			weight = *rec.WeightKG
-		}
-		dental := 0
-		if rec.DentalScore != nil {
-			dental = int(*rec.DentalScore)
-		}
-		vax := ""
-		if rec.VaccinationStatus != nil {
-			vax = *rec.VaccinationStatus
-		}
-		notes := ""
-		if rec.ClinicalNotes != nil {
-			notes = *rec.ClinicalNotes
-		}
-
-		legacyRec := &workforce.VHRRecord{
-			FelineID:          rec.FelineID,
-			VeterinarianID:    vetID,
-			VisitDate:         rec.VisitDate,
-			WeightKG:          weight,
-			DentalScore:       dental,
-			VaccinationStatus: vax,
-			Prescriptions:     rec.Prescriptions,
-			ClinicalNotes:     notes,
-		}
-		created, err := h.wfSvc.CreateVHRRecord(r.Context(), legacyRec)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -120,16 +78,6 @@ func (h *WorkforceHandler) listVHRRecords(w http.ResponseWriter, r *http.Request
 		records := resp.Records
 		if records == nil {
 			records = []*workforcev1.VHRRecord{}
-		}
-		writeJSON(w, http.StatusOK, records)
-		return
-	}
-
-	if h.wfSvc != nil {
-		records, err := h.wfSvc.ListVHRRecords(r.Context(), felineID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
 		}
 		writeJSON(w, http.StatusOK, records)
 		return
@@ -178,24 +126,6 @@ func (h *WorkforceHandler) createIncident(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if h.wfSvc != nil {
-		legacyInc := &workforce.WorkplaceIncident{
-			Title:            inc.Title,
-			Category:         inc.Category,
-			InvolvedFelineID: inc.InvolvedFelineID,
-			InvolvedHumanID:  inc.InvolvedHumanID,
-			Severity:         inc.Severity,
-			Description:      inc.Description,
-		}
-		created, err := h.wfSvc.CreateWorkplaceIncident(r.Context(), legacyInc)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusCreated, created)
-		return
-	}
-
 	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
@@ -213,16 +143,6 @@ func (h *WorkforceHandler) listIncidents(w http.ResponseWriter, r *http.Request)
 			incidents = []*workforcev1.WorkplaceIncident{}
 		}
 		writeJSON(w, http.StatusOK, incidents)
-		return
-	}
-
-	if h.wfSvc != nil {
-		list, err := h.wfSvc.ListWorkplaceIncidents(r.Context(), status)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, list)
 		return
 	}
 
@@ -251,16 +171,6 @@ func (h *WorkforceHandler) updateIncidentStatus(w http.ResponseWriter, r *http.R
 			return
 		}
 		writeJSON(w, http.StatusOK, resp.Incident)
-		return
-	}
-
-	if h.wfSvc != nil {
-		updated, err := h.wfSvc.UpdateWorkplaceIncidentStatus(r.Context(), id, req.Status, req.ResolutionNotes)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, updated)
 		return
 	}
 
