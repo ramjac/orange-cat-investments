@@ -4,31 +4,118 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
-	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/internal/app/worker"
+	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+type mockCustomerBLLClient struct {
+	customerbllv1.CustomerBLLServiceClient
+	settleFunc    func(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error)
+	claimFunc     func(ctx context.Context, in *customerbllv1.ClaimDueRecurringDepositsRequest) (*customerbllv1.ClaimDueRecurringDepositsResponse, error)
+	batchStmtFunc func(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error)
+}
+
+func (m *mockCustomerBLLClient) SettleACHTransfer(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error) {
+	if m.settleFunc != nil {
+		return m.settleFunc(ctx, in)
+	}
+	return &customerbllv1.SettleACHTransferResponse{
+		TransferID:  in.TransferID,
+		CustomerID:  in.CustomerID,
+		PortfolioID: in.PortfolioID,
+		AmountUSD:   in.AmountUSD,
+		Status:      "settled",
+		SettledAt:   time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (m *mockCustomerBLLClient) ClaimDueRecurringDeposits(ctx context.Context, in *customerbllv1.ClaimDueRecurringDepositsRequest) (*customerbllv1.ClaimDueRecurringDepositsResponse, error) {
+	if m.claimFunc != nil {
+		return m.claimFunc(ctx, in)
+	}
+	return &customerbllv1.ClaimDueRecurringDepositsResponse{}, nil
+}
+
+func (m *mockCustomerBLLClient) GenerateBatchStatements(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error) {
+	if m.batchStmtFunc != nil {
+		return m.batchStmtFunc(ctx, in)
+	}
+	return &customerbllv1.GenerateBatchStatementsResponse{
+		Period:          in.Period,
+		TotalPortfolios: 2,
+		Status:          "completed",
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+type mockInternalBLLClient struct {
+	internalbllv1.InternalBLLServiceClient
+	generateReportFunc func(ctx context.Context, in *internalbllv1.GenerateMonthlyReportRequest) (*internalbllv1.GenerateMonthlyReportResponse, error)
+	checkReportFunc    func(ctx context.Context, in *internalbllv1.CheckExecutiveReportRequest) (*internalbllv1.CheckExecutiveReportResponse, error)
+	getFelineFunc      func(ctx context.Context, in *internalbllv1.GetFelineTargetRequest) (*internalbllv1.GetFelineTargetResponse, error)
+	broadcastFunc      func(ctx context.Context, in *internalbllv1.BroadcastPebbleIncidentAlertRequest) (*internalbllv1.BroadcastPebbleIncidentAlertResponse, error)
+}
+
+func (m *mockInternalBLLClient) GenerateMonthlyReport(ctx context.Context, in *internalbllv1.GenerateMonthlyReportRequest) (*internalbllv1.GenerateMonthlyReportResponse, error) {
+	if m.generateReportFunc != nil {
+		return m.generateReportFunc(ctx, in)
+	}
+	return &internalbllv1.GenerateMonthlyReportResponse{
+		Report: &internalbllv1.ExecutiveReportSummary{
+			ReportID:        "rep-12345",
+			Period:          in.Period,
+			Status:          "archived",
+			TotalHeadcount:  25,
+			NetProfit:       450000.0,
+			OperationalBurn: 120000.0,
+			CashReserves:    1500000.0,
+		},
+	}, nil
+}
+
+func (m *mockInternalBLLClient) CheckExecutiveReport(ctx context.Context, in *internalbllv1.CheckExecutiveReportRequest) (*internalbllv1.CheckExecutiveReportResponse, error) {
+	if m.checkReportFunc != nil {
+		return m.checkReportFunc(ctx, in)
+	}
+	return &internalbllv1.CheckExecutiveReportResponse{Exists: false}, nil
+}
+
+func (m *mockInternalBLLClient) GetFelineTarget(ctx context.Context, in *internalbllv1.GetFelineTargetRequest) (*internalbllv1.GetFelineTargetResponse, error) {
+	if m.getFelineFunc != nil {
+		return m.getFelineFunc(ctx, in)
+	}
+	return &internalbllv1.GetFelineTargetResponse{FelineID: "emp-feline-garfield"}, nil
+}
+
+func (m *mockInternalBLLClient) BroadcastPebbleIncidentAlert(ctx context.Context, in *internalbllv1.BroadcastPebbleIncidentAlertRequest) (*internalbllv1.BroadcastPebbleIncidentAlertResponse, error) {
+	if m.broadcastFunc != nil {
+		return m.broadcastFunc(ctx, in)
+	}
+	return &internalbllv1.BroadcastPebbleIncidentAlertResponse{TicketID: "tick-001", Status: "broadcasted"}, nil
+}
+
 func TestEventEnvelopeJSON(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	event := EventEnvelope[CatSpottedPayload]{
+	event := worker.EventEnvelope[worker.CatSpottedPayload]{
 		EventID:       "evt-123",
 		EventType:     "observation.cat_spotted.v1",
 		OccurredAt:    now,
 		CorrelationID: "corr-456",
-		Payload: CatSpottedPayload{
+		Payload: worker.CatSpottedPayload{
 			CameraID:        "CAM-01",
 			FelineID:        "cat-01",
 			ActivityType:    "napping",
@@ -39,7 +126,7 @@ func TestEventEnvelopeJSON(t *testing.T) {
 	data, err := json.Marshal(event)
 	require.NoError(t, err)
 
-	var unmarshaled EventEnvelope[CatSpottedPayload]
+	var unmarshaled worker.EventEnvelope[worker.CatSpottedPayload]
 	err = json.Unmarshal(data, &unmarshaled)
 	require.NoError(t, err)
 
@@ -53,20 +140,15 @@ func TestEventEnvelopeJSON(t *testing.T) {
 func TestWorkerRouter_CatSpottedHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, router)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Subscribe to output topic
 	allocationCheckMessages, err := pubSub.Subscribe(ctx, "events.investment.allocation_check.v1")
 	require.NoError(t, err)
 
@@ -76,12 +158,12 @@ func TestWorkerRouter_CatSpottedHandler(t *testing.T) {
 
 	<-router.Running()
 
-	event := EventEnvelope[CatSpottedPayload]{
+	event := worker.EventEnvelope[worker.CatSpottedPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "observation.cat_spotted.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "correlation-test",
-		Payload: CatSpottedPayload{
+		Payload: worker.CatSpottedPayload{
 			CameraID:        "CAM-ORANGE-01",
 			FelineID:        "emp-feline-garfield",
 			ActivityType:    "zooming",
@@ -107,13 +189,9 @@ func TestWorkerRouter_CatSpottedHandler(t *testing.T) {
 func TestWorkerRouter_CatSpottedHandler_InvalidPayload(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -128,7 +206,6 @@ func TestWorkerRouter_CatSpottedHandler_InvalidPayload(t *testing.T) {
 
 	<-router.Running()
 
-	// Send malformed non-JSON payload
 	msg := message.NewMessage(watermill.NewUUID(), []byte("invalid-json"))
 	err = pubSub.Publish("events.observation.cat_spotted.v1", msg)
 	require.NoError(t, err)
@@ -145,13 +222,9 @@ func TestWorkerRouter_CatSpottedHandler_InvalidPayload(t *testing.T) {
 func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -183,13 +256,9 @@ func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -204,12 +273,12 @@ func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
 
 	<-router.Running()
 
-	event := EventEnvelope[OTATriggeredPayload]{
+	event := worker.EventEnvelope[worker.OTATriggeredPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "facilities.ota_triggered.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-corr-ota",
-		Payload: OTATriggeredPayload{
+		Payload: worker.OTATriggeredPayload{
 			JobID:      "job-router-1",
 			AssetID:    "asset-router-2",
 			ReleaseID:  "release-router-3",
@@ -229,7 +298,7 @@ func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
 	select {
 	case outMsg := <-otaCompletedMessages:
 		outMsg.Ack()
-		var completed EventEnvelope[OTACompletedPayload]
+		var completed worker.EventEnvelope[worker.OTACompletedPayload]
 		err := json.Unmarshal(outMsg.Payload, &completed)
 		require.NoError(t, err)
 		assert.Equal(t, "job-router-1", completed.Payload.JobID)
@@ -247,7 +316,7 @@ func TestHandleCatSpotted_DoesNotLogRawPayload(t *testing.T) {
 	secretPayloadStr := `{"secret_key":"TOP_SECRET_PAYLOAD_DATA","payload":{"camera_id":"CAM-1","feline_id":"garfield","activity_type":"zooming","confidence_score":0.99}}`
 	msg := message.NewMessage("test-msg-uuid-123", []byte(secretPayloadStr))
 
-	outMsgs, err := handleCatSpotted(logger, msg)
+	outMsgs, err := worker.HandleCatSpotted(logger, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
 
@@ -263,7 +332,7 @@ func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 	secretPayloadStr := `{"secret_strategy":"CLASSIFIED_QUANT_MODEL"}`
 	msg := message.NewMessage("test-msg-uuid-456", []byte(secretPayloadStr))
 
-	outMsgs, err := handleBacktestRun(logger, msg)
+	outMsgs, err := worker.HandleBacktestRun(logger, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
 
@@ -275,12 +344,12 @@ func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 func TestHandleOTATriggered(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	event := EventEnvelope[OTATriggeredPayload]{
+	event := worker.EventEnvelope[worker.OTATriggeredPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "facilities.ota_triggered.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-corr-id",
-		Payload: OTATriggeredPayload{
+		Payload: worker.OTATriggeredPayload{
 			JobID:      "job-123",
 			AssetID:    "asset-456",
 			ReleaseID:  "release-789",
@@ -295,12 +364,12 @@ func TestHandleOTATriggered(t *testing.T) {
 	assert.NoError(t, err)
 
 	msg := message.NewMessage(event.EventID, data)
-	outputMsgs, err := HandleOTATriggered(logger, msg)
+	outputMsgs, err := worker.HandleOTATriggered(logger, msg)
 
 	assert.NoError(t, err)
 	assert.Len(t, outputMsgs, 1)
 
-	var completionEvent EventEnvelope[OTACompletedPayload]
+	var completionEvent worker.EventEnvelope[worker.OTACompletedPayload]
 	err = json.Unmarshal(outputMsgs[0].Payload, &completionEvent)
 	assert.NoError(t, err)
 	assert.Equal(t, "job-123", completionEvent.Payload.JobID)
@@ -315,7 +384,7 @@ func TestHandleOTATriggered_DoesNotLogRawPayload(t *testing.T) {
 	secretPayloadStr := `{"secret_ota_token":"SUPER_SECRET_OTA_KEY","payload":{"job_id":"job-1","asset_id":"asset-1","release_id":"rel-1","device_type":"edge_cam","version":"1.0","file_url":"http://url","checksum":"chk"}}`
 	msg := message.NewMessage("test-msg-uuid-789", []byte(secretPayloadStr))
 
-	outMsgs, err := HandleOTATriggered(logger, msg)
+	outMsgs, err := worker.HandleOTATriggered(logger, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
 
@@ -330,7 +399,7 @@ func TestWorkerRouter_FeatureFlags(t *testing.T) {
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
 	t.Run("DefaultEnabled", func(t *testing.T) {
-		router, err := createRouter(pubSub, watermillLogger, logger)
+		router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 		require.NoError(t, err)
 		handlers := router.Handlers()
 		assert.Contains(t, handlers, "cat_spotted_handler")
@@ -340,7 +409,7 @@ func TestWorkerRouter_FeatureFlags(t *testing.T) {
 
 	t.Run("FelineDisabled", func(t *testing.T) {
 		t.Setenv("ENABLE_FELINE_WORKFORCE", "false")
-		router, err := createRouter(pubSub, watermillLogger, logger)
+		router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 		require.NoError(t, err)
 		handlers := router.Handlers()
 		assert.NotContains(t, handlers, "cat_spotted_handler")
@@ -350,7 +419,7 @@ func TestWorkerRouter_FeatureFlags(t *testing.T) {
 
 	t.Run("CoreInvestDisabled", func(t *testing.T) {
 		t.Setenv("ENABLE_CORE_INVEST", "false")
-		router, err := createRouter(pubSub, watermillLogger, logger)
+		router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 		require.NoError(t, err)
 		handlers := router.Handlers()
 		assert.NotContains(t, handlers, "cat_spotted_handler")
@@ -362,7 +431,7 @@ func TestWorkerRouter_FeatureFlags(t *testing.T) {
 		t.Setenv("ENABLE_SMALL_BUSINESS_MODE", "true")
 		t.Setenv("ENABLE_CORE_INVEST", "")
 		t.Setenv("ENABLE_FELINE_WORKFORCE", "")
-		router, err := createRouter(pubSub, watermillLogger, logger)
+		router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
 		require.NoError(t, err)
 		handlers := router.Handlers()
 		assert.NotContains(t, handlers, "cat_spotted_handler")
@@ -371,65 +440,13 @@ func TestWorkerRouter_FeatureFlags(t *testing.T) {
 	})
 }
 
-func BenchmarkEventPublishingOriginal(b *testing.B) {
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		event := EventEnvelope[CatSpottedPayload]{
-			EventID:       watermill.NewUUID(),
-			EventType:     "observation.cat_spotted.v1",
-			OccurredAt:    time.Now().UTC(),
-			CorrelationID: "correlation-trace-001",
-			Payload: CatSpottedPayload{
-				CameraID:        "CAM-ORANGE-01",
-				FelineID:        "emp-feline-garfield",
-				ActivityType:    "zooming",
-				ConfidenceScore: 0.992,
-			},
-		}
-		data, _ := json.Marshal(event)
-		_ = message.NewMessage(event.EventID, data)
-	}
-}
-
-func BenchmarkEventPublishingOptimized(b *testing.B) {
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	event := EventEnvelope[CatSpottedPayload]{
-		EventType:     "observation.cat_spotted.v1",
-		CorrelationID: "correlation-trace-001",
-		Payload: CatSpottedPayload{
-			CameraID:        "CAM-ORANGE-01",
-			FelineID:        "emp-feline-garfield",
-			ActivityType:    "zooming",
-			ConfidenceScore: 0.992,
-		},
-	}
-
-	for i := 0; i < b.N; i++ {
-		event.EventID = watermill.NewUUID()
-		event.OccurredAt = time.Now().UTC()
-
-		data, _ := json.Marshal(event)
-		_ = message.NewMessage(event.EventID, data)
-	}
-}
-
 func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	mockRepo := workforce_repo.NewMockRepository()
-	wfSvc := wfService.NewService(mockRepo)
-
-	router, err := createRouter(pubSub, watermillLogger, logger, wfSvc)
+	mockBLL := &mockInternalBLLClient{}
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, mockBLL, "", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, router)
 
@@ -463,13 +480,13 @@ func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
 	select {
 	case resultMsg := <-sub:
 		require.NotNil(t, resultMsg)
-		var envelope EventEnvelope[ExecutiveReportPayload]
+		var envelope worker.EventEnvelope[worker.ExecutiveReportPayload]
 		err := json.Unmarshal(resultMsg.Payload, &envelope)
 		require.NoError(t, err)
 		assert.Equal(t, "events.reporting.report_generated.v1", envelope.EventType)
 		assert.Equal(t, "2026-10", envelope.Payload.Period)
 		assert.Equal(t, "archived", envelope.Payload.Status)
-		assert.NotEmpty(t, envelope.Payload.ReportID)
+		assert.Equal(t, "rep-12345", envelope.Payload.ReportID)
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for report_generated event")
 	}
@@ -480,13 +497,10 @@ func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
 func TestWorkerRouter_ACHSettlementHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	pubSub := gochannel.NewGoChannel(
-		gochannel.Config{OutputChannelBuffer: 10},
-		watermillLogger,
-	)
-
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	mockCustomerBLL := &mockCustomerBLLClient{}
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, mockCustomerBLL, nil, "", "", nil)
 	require.NoError(t, err)
 	require.NotNil(t, router)
 
@@ -506,12 +520,12 @@ func TestWorkerRouter_ACHSettlementHandler(t *testing.T) {
 		t.Fatal("router failed to start in time")
 	}
 
-	transferReq := EventEnvelope[ACHTransferRequestedPayload]{
+	transferReq := worker.EventEnvelope[worker.ACHTransferRequestedPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "events.banking.ach_transfer_requested.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-ach-trace",
-		Payload: ACHTransferRequestedPayload{
+		Payload: worker.ACHTransferRequestedPayload{
 			TransferID:   "ach-transfer-test-1",
 			CustomerID:   "cust-user-1",
 			PortfolioID:  "port-user-1",
@@ -530,7 +544,7 @@ func TestWorkerRouter_ACHSettlementHandler(t *testing.T) {
 	select {
 	case outMsg := <-settledMessages:
 		outMsg.Ack()
-		var settled EventEnvelope[ACHSettledPayload]
+		var settled worker.EventEnvelope[worker.ACHSettledPayload]
 		err := json.Unmarshal(outMsg.Payload, &settled)
 		require.NoError(t, err)
 		assert.Equal(t, "events.banking.ach_settled.v1", settled.EventType)
@@ -548,7 +562,6 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 	bffReceived := make(chan bool, 1)
 	pebbleReceived := make(chan bool, 1)
 
-	// Mock Employee BFF and Pebble Proxy servers
 	bffServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/employee/incidents/broadcast" {
 			bffReceived <- true
@@ -567,14 +580,12 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 	}))
 	defer pebbleServer.Close()
 
-	t.Setenv("EMPLOYEE_BFF_URL", bffServer.URL)
-	t.Setenv("PEBBLE_PROXY_URL", pebbleServer.URL)
-
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	router, err := createRouter(pubSub, watermillLogger, logger)
+	mockInternalBLL := &mockInternalBLLClient{}
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, mockInternalBLL, bffServer.URL, pebbleServer.URL, bffServer.Client())
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -586,12 +597,12 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 
 	<-router.Running()
 
-	incidentEnv := EventEnvelope[IncidentCreatedEventPayload]{
+	incidentEnv := worker.EventEnvelope[worker.IncidentCreatedEventPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "events.workforce.incident_created.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "corr-inc-001",
-		Payload: IncidentCreatedEventPayload{
+		Payload: worker.IncidentCreatedEventPayload{
 			IncidentID:       "inc-workmill-test-01",
 			Title:            "Treat Stash Raid in Progress",
 			Category:         "facilities",
@@ -611,14 +622,12 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 
 	select {
 	case <-bffReceived:
-		// success
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for incident fanout to Employee BFF")
 	}
 
 	select {
 	case <-pebbleReceived:
-		// success
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for incident fanout to Pebble Proxy")
 	}
@@ -629,37 +638,30 @@ func TestWorkerRouter_IncidentAlertPipelineHandler(t *testing.T) {
 func TestHandleACHTransferRequested_Success(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	var bankCalled, coreInvestCalled bool
-	mockBank := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/transfer/create", r.URL.Path)
-		var body map[string]interface{}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		assert.Equal(t, "debit", body["direction"])
-		assert.Equal(t, 250.0, body["amount"])
-		bankCalled = true
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"created"}`))
-	}))
-	defer mockBank.Close()
+	var bllCalled bool
+	mockBLL := &mockCustomerBLLClient{
+		settleFunc: func(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error) {
+			assert.Equal(t, "ach-trans-123", in.TransferID)
+			assert.Equal(t, 250.0, in.AmountUSD)
+			assert.Equal(t, "port-001", in.PortfolioID)
+			bllCalled = true
+			return &customerbllv1.SettleACHTransferResponse{
+				TransferID:  in.TransferID,
+				CustomerID:  in.CustomerID,
+				PortfolioID: in.PortfolioID,
+				AmountUSD:   in.AmountUSD,
+				Status:      "settled",
+				SettledAt:   time.Now().UTC().Format(time.RFC3339),
+			}, nil
+		},
+	}
 
-	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/core-invest/portfolios/port-001/balance", r.URL.Path)
-		var body map[string]interface{}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		assert.Equal(t, "ach-trans-123", body["transfer_id"])
-		assert.Equal(t, 250.0, body["delta_usd"])
-		coreInvestCalled = true
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"portfolio_id":"port-001","cash_balance":1250.0}`))
-	}))
-	defer mockCoreInvest.Close()
-
-	payload := EventEnvelope[ACHTransferRequestedPayload]{
+	payload := worker.EventEnvelope[worker.ACHTransferRequestedPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "events.banking.ach_transfer_requested.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-corr-ach",
-		Payload: ACHTransferRequestedPayload{
+		Payload: worker.ACHTransferRequestedPayload{
 			TransferID:   "ach-trans-123",
 			CustomerID:   "cust-001",
 			PortfolioID:  "port-001",
@@ -671,13 +673,12 @@ func TestHandleACHTransferRequested_Success(t *testing.T) {
 	data, _ := json.Marshal(payload)
 	msg := message.NewMessage(payload.EventID, data)
 
-	outMsgs, err := HandleACHTransferRequested(logger, mockCoreInvest.URL, mockBank.URL, http.DefaultClient, msg)
+	outMsgs, err := worker.HandleACHTransferRequested(context.Background(), logger, mockBLL, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
-	assert.True(t, bankCalled, "mock bank transfer/create should be called")
-	assert.True(t, coreInvestCalled, "core-invest balance update should be called")
+	assert.True(t, bllCalled, "Customer BLL SettleACHTransfer should be called")
 
-	var settled EventEnvelope[ACHSettledPayload]
+	var settled worker.EventEnvelope[worker.ACHSettledPayload]
 	err = json.Unmarshal(outMsgs[0].Payload, &settled)
 	require.NoError(t, err)
 	assert.Equal(t, "ach-trans-123", settled.Payload.TransferID)
@@ -687,15 +688,16 @@ func TestHandleACHTransferRequested_Success(t *testing.T) {
 func TestHandleACHTransferRequested_BankFailure(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	mockBank := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error":"insufficient funds"}`, http.StatusBadRequest)
-	}))
-	defer mockBank.Close()
+	mockBLL := &mockCustomerBLLClient{
+		settleFunc: func(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error) {
+			return nil, errors.New("bank clearing rejected: insufficient funds")
+		},
+	}
 
-	payload := EventEnvelope[ACHTransferRequestedPayload]{
+	payload := worker.EventEnvelope[worker.ACHTransferRequestedPayload]{
 		EventID:   watermill.NewUUID(),
 		EventType: "events.banking.ach_transfer_requested.v1",
-		Payload: ACHTransferRequestedPayload{
+		Payload: worker.ACHTransferRequestedPayload{
 			TransferID:   "ach-fail-001",
 			PortfolioID:  "port-001",
 			AmountUSD:    100.0,
@@ -705,7 +707,7 @@ func TestHandleACHTransferRequested_BankFailure(t *testing.T) {
 	data, _ := json.Marshal(payload)
 	msg := message.NewMessage(payload.EventID, data)
 
-	outMsgs, err := HandleACHTransferRequested(logger, "http://localhost:59999", mockBank.URL, http.DefaultClient, msg)
+	outMsgs, err := worker.HandleACHTransferRequested(context.Background(), logger, mockBLL, msg)
 	assert.Error(t, err)
 	assert.Nil(t, outMsgs)
 	assert.Contains(t, err.Error(), "bank clearing rejected")
@@ -716,54 +718,27 @@ func TestRunACHRecurringBatch(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	now := time.Now().UTC()
-	past := now.Add(-2 * time.Hour)
-	future := now.Add(24 * time.Hour)
-
-	var advanceCalled bool
-	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/core-invest/recurring-deposits" {
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
-				{
-					"deposit_id":     "dep-due",
-					"customer_id":    "cust-01",
-					"portfolio_id":   "port-01",
-					"amount_usd":     500.0,
-					"frequency":      "monthly",
-					"bank_account":   "act-01",
-					"status":         "active",
-					"next_charge_at": past,
+	mockBLL := &mockCustomerBLLClient{
+		claimFunc: func(ctx context.Context, in *customerbllv1.ClaimDueRecurringDepositsRequest) (*customerbllv1.ClaimDueRecurringDepositsResponse, error) {
+			return &customerbllv1.ClaimDueRecurringDepositsResponse{
+				DueDeposits: []*customerbllv1.RecurringDepositSummary{
+					{
+						DepositID:   "dep-due",
+						CustomerID:  "cust-01",
+						PortfolioID: "port-01",
+						AmountUSD:   500.0,
+						BankAccount: "act-01",
+					},
 				},
-				{
-					"deposit_id":     "dep-future",
-					"customer_id":    "cust-02",
-					"portfolio_id":   "port-02",
-					"amount_usd":     100.0,
-					"frequency":      "weekly",
-					"bank_account":   "act-02",
-					"status":         "active",
-					"next_charge_at": future,
-				},
-			})
-			return
-		}
-		if strings.Contains(r.URL.Path, "/advance") {
-			advanceCalled = true
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"advanced"}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer mockCoreInvest.Close()
+			}, nil
+		},
+	}
 
 	ch, err := pubSub.Subscribe(context.Background(), "events.banking.ach_transfer_requested.v1")
 	require.NoError(t, err)
 
-	err = runACHRecurringBatch(context.Background(), mockCoreInvest.URL, pubSub, mockCoreInvest.Client(), logger)
+	err = worker.RunACHRecurringBatch(context.Background(), mockBLL, pubSub, logger)
 	require.NoError(t, err)
-	assert.True(t, advanceCalled, "advance endpoint should be called for due deposit")
 
 	select {
 	case msg := <-ch:
@@ -779,38 +754,33 @@ func TestRunEOMStatementBatch(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
 
-	var generatedCount int
-	mockCoreInvest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/core-invest/portfolios" {
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
-				{"portfolio_id": "port-1", "customer_id": "cust-1"},
-				{"portfolio_id": "port-2", "customer_id": "cust-2"},
-			})
-			return
-		}
-		if r.URL.Path == "/api/v1/core-invest/statements/generate" {
-			generatedCount++
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"status":"generated"}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer mockCoreInvest.Close()
+	var bllBatchCalled bool
+	mockBLL := &mockCustomerBLLClient{
+		batchStmtFunc: func(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error) {
+			bllBatchCalled = true
+			assert.Equal(t, int32(2026), in.Year)
+			assert.Equal(t, "2026-10", in.Period)
+			return &customerbllv1.GenerateBatchStatementsResponse{
+				Period:          in.Period,
+				TotalPortfolios: 2,
+				Status:          "completed",
+				GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+			}, nil
+		},
+	}
 
 	ch, err := pubSub.Subscribe(context.Background(), "events.reporting.statements_generated.v1")
 	require.NoError(t, err)
 
 	now := time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC)
-	err = runEOMStatementBatch(context.Background(), mockCoreInvest.URL, pubSub, mockCoreInvest.Client(), logger, now)
+	err = worker.RunEOMStatementBatch(context.Background(), mockBLL, pubSub, logger, now)
 	require.NoError(t, err)
-	assert.Equal(t, 2, generatedCount, "both portfolios should have statements generated")
+	assert.True(t, bllBatchCalled, "Customer BLL GenerateBatchStatements should be called")
 
 	select {
 	case msg := <-ch:
 		msg.Ack()
-		var env EventEnvelope[StatementGeneratedPayload]
+		var env worker.EventEnvelope[worker.StatementGeneratedPayload]
 		_ = json.Unmarshal(msg.Payload, &env)
 		assert.Equal(t, "2026-10", env.Payload.Period, "should target previous month")
 		assert.Equal(t, 2, env.Payload.TotalPortfolios, "derived total should match actual generated count")
@@ -818,7 +788,3 @@ func TestRunEOMStatementBatch(t *testing.T) {
 		t.Fatal("timed out waiting for statement generated event")
 	}
 }
-
-
-
-

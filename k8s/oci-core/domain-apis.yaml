@@ -443,12 +443,6 @@ spec:
         - podSelector:
             matchLabels:
               tier: bll
-        - podSelector:
-            matchLabels:
-              tier: batch
-        - podSelector:
-            matchLabels:
-              app: oci-worker
       ports:
         - protocol: TCP
           port: 50051

@@ -705,6 +705,15 @@ Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/clie
   * **Mock & Live Mode Parity:** Ensure both `-mode mock` and `-mode live` adhere to the same session management model, guaranteeing seamless transition between offline test runner execution and live cluster verification.
 
 ### 7.2 Modular BFF & BLL Application Architecture (Decomposition of Monolithic main.go Files)
+
+> [!NOTE]
+> **Status: Completed**
+> The monolithic application entrypoints (`cmd/customer-bff`, `cmd/employee-bff`, `cmd/customer-bll`, `cmd/internal-bll`, `cmd/worker`, `cmd/pebble-proxy`) have been decomposed into modular packages under `internal/app/` (< 450 lines per file). Architecture strictly enforces 5-Tier layer isolation:
+> 1. **BFF Tier (`customer-bff`, `employee-bff`, `pebble-proxy`):** Chi routers (`chi/v5`), Valkey session/CSRF middleware, Meilisearch client; dials BLL services over gRPC with zero database or Domain API imports.
+> 2. **BLL Tier (`customer-bll`, `internal-bll`):** Pure gRPC microservices implementing business orchestrations, external bank/broker adapters, and sagas; dials Domain APIs over gRPC mTLS with zero HTTP endpoints (unauthenticated `mtls.StartHealthListener` on health port for K8s probes).
+> 3. **Domain APIs & Database:** Pure gRPC over PostgreSQL schemas (`workforce`, `facilities`, `core_invest`, `ops`) with zero cross-domain calls.
+> 4. **Worker & Batch CronJobs:** Dial customer and internal BLL services over gRPC mTLS with zero direct database or Domain API connections. Network policies restrict Domain APIs exclusively to `tier: bll`.
+
 Refactor the OCI BFF and BLL service entrypoints (`cmd/customer-bff/main.go`, `cmd/employee-bff/main.go`, `cmd/customer-bll/main.go`, `cmd/internal-bll/main.go`, `cmd/worker/main.go`) from monolithic single-file implementations into a structured, modular internal package architecture:
 
 * **Why Second:** Decomposing the monolithic `main.go` files before adding new stream management routes (`7.4`), OpenTelemetry instrumentation (`7.7`), or fault-tolerance middleware (`7.8`) ensures new features land cleanly in dedicated controller packages rather than compounding 1,000–2,200+ line files.

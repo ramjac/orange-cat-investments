@@ -5,6 +5,7 @@ metadata:
   namespace: oci-core
   labels:
     app: oci-pebble-proxy
+    tier: bff
 spec:
   replicas: 1
   selector:
@@ -14,6 +15,7 @@ spec:
     metadata:
       labels:
         app: oci-pebble-proxy
+        tier: bff
     spec:
       containers:
         - name: oci-pebble-proxy
@@ -27,11 +29,21 @@ spec:
               value: "8082"
             - name: ENABLE_PEBBLE_GATEWAY
               value: "true"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: DATABASE_URL
+            - name: INTERNAL_BLL_URL
+              value: "https://internal-bll-service.oci-core.svc.cluster.local:8086"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -39,6 +51,42 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: oci-pebble-proxy-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oci-pebble-proxy-tls
+  namespace: oci-core
+spec:
+  secretName: oci-pebble-proxy-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: oci-pebble-proxy-service.oci-core.svc.cluster.local
+  dnsNames:
+    - oci-pebble-proxy-service
+    - oci-pebble-proxy-service.oci-core.svc
+    - oci-pebble-proxy-service.oci-core.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -47,6 +95,7 @@ metadata:
   namespace: oci-core
   labels:
     app: oci-pebble-proxy
+    tier: bff
 spec:
   ports:
     - port: 8082

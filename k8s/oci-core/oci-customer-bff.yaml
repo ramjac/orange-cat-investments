@@ -5,6 +5,7 @@ metadata:
   namespace: oci-core
   labels:
     app: oci-customer-bff
+    tier: bff
 spec:
   replicas: 1
   selector:
@@ -14,6 +15,7 @@ spec:
     metadata:
       labels:
         app: oci-customer-bff
+        tier: bff
     spec:
       containers:
         - name: oci-customer-bff
@@ -39,32 +41,6 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CA_CERT_FILE
               value: "/etc/tls/ca/ca.crt"
-            - name: ALPACA_BASE_URL
-              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
-            - name: ALPACA_DATA_URL
-              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
-            - name: APCA_API_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: APCA_API_KEY_ID
-            - name: APCA_API_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: APCA_API_SECRET_KEY
-            - name: BANK_API_BASE_URL
-              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
-            - name: PLAID_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: PLAID_CLIENT_ID
-            - name: PLAID_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: PLAID_SECRET
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs

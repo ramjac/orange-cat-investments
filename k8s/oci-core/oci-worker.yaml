@@ -5,6 +5,7 @@ metadata:
   namespace: oci-core
   labels:
     app: oci-worker
+    tier: worker
 spec:
   replicas: 1
   selector:
@@ -14,31 +15,38 @@ spec:
     metadata:
       labels:
         app: oci-worker
+        tier: worker
     spec:
       containers:
         - name: oci-worker
           image: localhost:32000/oci-worker:latest
           imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: health
           env:
             - name: ENABLE_CORE_INVEST
               value: "true"
             - name: ENABLE_FELINE_WORKFORCE
               value: "true"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: oci-core-secrets
-                  key: DATABASE_URL
+            - name: HEALTH_PORT
+              value: "8080"
+            - name: CUSTOMER_BLL_URL
+              value: "https://customer-bll-service.oci-core.svc.cluster.local:8085"
+            - name: INTERNAL_BLL_URL
+              value: "https://internal-bll-service.oci-core.svc.cluster.local:8086"
             - name: EMPLOYEE_BFF_URL
               value: "http://oci-employee-bff.oci-core.svc.cluster.local:8081"
             - name: PEBBLE_PROXY_URL
               value: "http://oci-pebble-proxy.oci-core.svc.cluster.local:8082"
-            - name: CORE_INVEST_API_URL
-              value: "http://core-invest-api-service.oci-core.svc.cluster.local:50053"
-            - name: BANK_API_BASE_URL
-              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+            - name: TLS_CERT_FILE
+              value: "/etc/tls/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/etc/tls/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/etc/tls/ca/ca.crt"
             - name: CA_CERT_PATH
               value: "/etc/oci/tls/ca.crt"
             - name: CA_KEY_PATH
@@ -50,6 +58,12 @@ spec:
                   key: INTERNAL_SERVICE_KEY
                   optional: true
           volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
             - name: ca-bundle
               mountPath: /etc/oci/tls
               readOnly: true
@@ -60,8 +74,43 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
       volumes:
+        - name: tls-certs
+          secret:
+            secretName: oci-worker-tls-certs
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
         - name: ca-bundle
           configMap:
             name: oci-ca-bundle
             optional: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: oci-worker-tls
+  namespace: oci-core
+spec:
+  secretName: oci-worker-tls-certs
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+  commonName: oci-worker.oci-core.svc.cluster.local
+  dnsNames:
+    - oci-worker
+    - oci-worker.oci-core.svc
+    - oci-worker.oci-core.svc.cluster.local
