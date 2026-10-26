@@ -94,13 +94,15 @@ spec:
             - |
               mkdir -p /data
               if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+                TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                CA_DATA=$(base64 -w 0 < /var/run/secrets/kubernetes.io/serviceaccount/ca.crt 2>/dev/null || base64 < /var/run/secrets/kubernetes.io/serviceaccount/ca.crt | tr -d '\n')
                 cat <<EOF > /data/kubeconfig
               apiVersion: v1
               kind: Config
               clusters:
               - name: in-cluster
                 cluster:
-                  certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                  certificate-authority-data: ${CA_DATA}
                   server: https://kubernetes.default.svc.cluster.local:443
               contexts:
               - name: in-cluster
@@ -112,7 +114,7 @@ spec:
               users:
               - name: runner-sa
                 user:
-                  tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+                  token: ${TOKEN}
               EOF
                 chmod 644 /data/kubeconfig
                 echo "Generated in-cluster /data/kubeconfig successfully."
