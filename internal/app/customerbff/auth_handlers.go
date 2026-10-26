@@ -343,14 +343,18 @@ func (b *CustomerBFF) handleGDPRErasure(w http.ResponseWriter, r *http.Request) 
 		"compliance_statement":   "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.",
 		"status":                 cert.Status,
 	}
-	if cert.ComplianceHash == "" {
-		certMap["digital_signature"] = "hmac-sha256-mock-signature"
+	sig := cert.ComplianceHash
+	if sig == "" {
+		sig = "hmac-sha256-mock-signature"
 	}
+	certMap["digital_signature"] = sig
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"status":      "erased",
-		"certificate": certMap,
-		"message":     "Personally identifiable data permanently erased under GDPR Article 17. Active sessions invalidated.",
+		"status":            "erased",
+		"certificate_id":    cert.CertificateID,
+		"digital_signature": sig,
+		"certificate":       certMap,
+		"message":           "Personally identifiable data permanently erased under GDPR Article 17. Active sessions invalidated.",
 	})
 }
 

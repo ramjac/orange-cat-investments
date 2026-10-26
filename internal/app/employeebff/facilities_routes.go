@@ -3,6 +3,7 @@ package employeebff
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
@@ -138,28 +139,52 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		var req struct {
-			Logs []struct {
-				ClientLogID string `json:"client_log_id"`
-				AssetID     string `json:"asset_id"`
-				ActionTaken string `json:"action_taken"`
-				PerformedBy string `json:"performed_by"`
-				Timestamp   string `json:"timestamp"`
-			} `json:"logs"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		type logEntry struct {
+			ClientLogID  string `json:"client_log_id"`
+			AssetID      string `json:"asset_id"`
+			ActionTaken  string `json:"action_taken"`
+			PerformedBy  string `json:"performed_by"`
+			TechnicianID string `json:"technician_id"`
+			Timestamp    string `json:"timestamp"`
+			CreatedAt    string `json:"created_at"`
+		}
+
+		var entries []logEntry
+		// Try parsing as JSON array
+		if err := json.Unmarshal(bodyBytes, &entries); err != nil {
+			// Fallback: try parsing as wrapped object {"logs": [...]}
+			var req struct {
+				Logs []logEntry `json:"logs"`
+			}
+			if err2 := json.Unmarshal(bodyBytes, &req); err2 != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			entries = req.Logs
+		}
+
 		var pbLogs []*facilitiesv1.MaintenanceLog
-		for _, l := range req.Logs {
+		for _, l := range entries {
+			techID := l.PerformedBy
+			if techID == "" {
+				techID = l.TechnicianID
+			}
+			syncedAt := l.Timestamp
+			if syncedAt == "" {
+				syncedAt = l.CreatedAt
+			}
 			pbLogs = append(pbLogs, &facilitiesv1.MaintenanceLog{
 				LogID:        l.ClientLogID,
 				AssetID:      l.AssetID,
 				ActionTaken:  l.ActionTaken,
-				TechnicianID: l.PerformedBy,
-				SyncedAt:     l.Timestamp,
+				TechnicianID: techID,
+				SyncedAt:     syncedAt,
 			})
 		}
 

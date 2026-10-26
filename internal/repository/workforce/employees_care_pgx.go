@@ -93,7 +93,17 @@ func (r *pgxRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Emp
 		COALESCE(NULLIF($1, '')::uuid, gen_random_uuid_v7()), $2, $3, $4, $5, $6, $7,
 		COALESCE(NULLIF($8, ''), 'onboarding'),
 		COALESCE(NULLIF($9::timestamptz, '0001-01-01 00:00:00+00'::timestamptz), CURRENT_TIMESTAMP)
-	) RETURNING employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at`
+	)
+	ON CONFLICT (employee_id) DO UPDATE SET
+		employee_type = EXCLUDED.employee_type,
+		first_name = EXCLUDED.first_name,
+		last_name = EXCLUDED.last_name,
+		email = EXCLUDED.email,
+		role_title = EXCLUDED.role_title,
+		department = EXCLUDED.department,
+		status = EXCLUDED.status,
+		updated_at = CURRENT_TIMESTAMP
+	RETURNING employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at`
 	var res Employee
 	err := r.db.QueryRow(ctx, query,
 		emp.EmployeeID, emp.EmployeeType, emp.FirstName, emp.LastName, emp.Email,
