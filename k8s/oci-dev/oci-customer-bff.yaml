@@ -39,10 +39,6 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CA_CERT_FILE
               value: "/etc/tls/ca/ca.crt"
-            - name: BROKER_API_BASE_URL
-              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
-            - name: BANK_API_BASE_URL
-              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs

@@ -30,20 +30,18 @@ spec:
               env:
                 - name: ENABLE_CORE_INVEST
                   value: "true"
-                - name: CORE_INVEST_API_URL
-                  value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
-                - name: BANK_API_BASE_URL
-                  value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+                - name: CUSTOMER_BLL_URL
+                  value: "https://customer-bll-service.oci-dev.svc.cluster.local:8085"
+                - name: BATCH_MODE
+                  value: "ach-recurring"
                 - name: RABBITMQ_URL
                   value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
                 - name: TLS_CERT_FILE
                   value: "/etc/tls/certs/tls.crt"
                 - name: TLS_KEY_FILE
                   value: "/etc/tls/certs/tls.key"
-                - name: CA_CERT_FILE
+                - name: CLIENT_CA_FILE
                   value: "/etc/tls/ca/ca.crt"
-                - name: BATCH_MODE
-                  value: "ach-recurring"
               volumeMounts:
                 - name: tls-certs
                   mountPath: /etc/tls/certs
@@ -98,18 +96,18 @@ spec:
               env:
                 - name: ENABLE_CORE_INVEST
                   value: "true"
-                - name: CORE_INVEST_API_URL
-                  value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
-                - name: NEXTCLOUD_URL
-                  value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+                - name: CUSTOMER_BLL_URL
+                  value: "https://customer-bll-service.oci-dev.svc.cluster.local:8085"
+                - name: BATCH_MODE
+                  value: "eom-statements"
+                - name: RABBITMQ_URL
+                  value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
                 - name: TLS_CERT_FILE
                   value: "/etc/tls/certs/tls.crt"
                 - name: TLS_KEY_FILE
                   value: "/etc/tls/certs/tls.key"
-                - name: CA_CERT_FILE
+                - name: CLIENT_CA_FILE
                   value: "/etc/tls/ca/ca.crt"
-                - name: BATCH_MODE
-                  value: "eom-statements"
               volumeMounts:
                 - name: tls-certs
                   mountPath: /etc/tls/certs

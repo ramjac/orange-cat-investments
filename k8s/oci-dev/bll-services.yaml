@@ -157,6 +157,8 @@ spec:
               value: "https://facilities-api-service.oci-dev.svc.cluster.local:50052"
             - name: OPS_API_URL
               value: "https://ops-api-service.oci-dev.svc.cluster.local:50054"
+            - name: CORE_INVEST_API_URL
+              value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: TLS_CERT_FILE
