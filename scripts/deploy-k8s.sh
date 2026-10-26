@@ -164,8 +164,13 @@ if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-
                     --from-literal=RUNNER_TOKEN="${RUNNER_TOKEN}" \
                     --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
                 echo "Forgejo runner registration token secret provisioned."
+                kubectl rollout restart deployment/forgejo-runner -n oci-internal 2>/dev/null || true
             fi
         fi
+
+        echo ""
+        echo "10. Synchronizing repository and seeding CI/CD pipelines in Forgejo..."
+        "${REPO_ROOT}/scripts/sync-repo-to-forgejo.sh" 2>/dev/null || true
     fi
 fi
 

@@ -224,3 +224,152 @@ func TestForgejoClient_CreateAndManageIssues(t *testing.T) {
 	assert.Equal(t, "closed", updated.State)
 }
 
+func TestForgejoClient_OrganizationAndRepositoryLifecycle(t *testing.T) {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("POST /api/v1/orgs", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "token secret-token", r.Header.Get("Authorization"))
+		var opt CreateOrgOption
+		err := json.NewDecoder(r.Body).Decode(&opt)
+		require.NoError(t, err)
+		assert.Equal(t, "oci", opt.UserName)
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Organization{
+			ID:          10,
+			UserName:    opt.UserName,
+			FullName:    opt.FullName,
+			Description: opt.Description,
+			Visibility:  "public",
+		})
+	})
+
+	mux.HandleFunc("GET /api/v1/orgs/{org}", func(w http.ResponseWriter, r *http.Request) {
+		org := r.PathValue("org")
+		if org != "oci" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(Organization{
+			ID:          10,
+			UserName:    "oci",
+			FullName:    "Orange Cat Investments",
+			Description: "Enterprise Monorepo GitOps Platform",
+			Visibility:  "public",
+		})
+	})
+
+	mux.HandleFunc("POST /api/v1/orgs/{org}/repos", func(w http.ResponseWriter, r *http.Request) {
+		org := r.PathValue("org")
+		assert.Equal(t, "oci", org)
+
+		var opt CreateRepoOption
+		err := json.NewDecoder(r.Body).Decode(&opt)
+		require.NoError(t, err)
+		assert.Equal(t, "monorepo", opt.Name)
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Repository{
+			ID:            101,
+			Name:          opt.Name,
+			FullName:      "oci/" + opt.Name,
+			Description:   opt.Description,
+			Private:       opt.Private,
+			DefaultBranch: "main",
+			HasActions:    true,
+			HasIssues:     true,
+			HasPull:       true,
+		})
+	})
+
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
+		owner := r.PathValue("owner")
+		repo := r.PathValue("repo")
+		if owner != "oci" || repo != "monorepo" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(Repository{
+			ID:            101,
+			Name:          repo,
+			FullName:      owner + "/" + repo,
+			DefaultBranch: "main",
+			HasActions:    true,
+			HasIssues:     true,
+			HasPull:       true,
+		})
+	})
+
+	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}", func(w http.ResponseWriter, r *http.Request) {
+		owner := r.PathValue("owner")
+		repo := r.PathValue("repo")
+		assert.Equal(t, "oci", owner)
+		assert.Equal(t, "monorepo", repo)
+
+		var opt UpdateRepoOption
+		err := json.NewDecoder(r.Body).Decode(&opt)
+		require.NoError(t, err)
+		assert.True(t, *opt.HasActions)
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(Repository{
+			ID:            101,
+			Name:          repo,
+			FullName:      owner + "/" + repo,
+			DefaultBranch: "main",
+			HasActions:    *opt.HasActions,
+			HasIssues:     true,
+			HasPull:       true,
+		})
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL: server.URL,
+		Token:   "secret-token",
+	})
+	ctx := context.Background()
+
+	// 1. Create Organization
+	org, err := client.CreateOrganization(ctx, CreateOrgOption{
+		UserName:    "oci",
+		FullName:    "Orange Cat Investments",
+		Description: "Enterprise Monorepo GitOps Platform",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "oci", org.UserName)
+	assert.Equal(t, int64(10), org.ID)
+
+	// 2. Get Organization
+	fetchedOrg, err := client.GetOrganization(ctx, "oci")
+	require.NoError(t, err)
+	assert.Equal(t, "Orange Cat Investments", fetchedOrg.FullName)
+
+	// 3. Create Org Repository
+	repo, err := client.CreateOrgRepository(ctx, "oci", CreateRepoOption{
+		Name:        "monorepo",
+		Description: "Main OCI codebase monorepo",
+		Private:     false,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "monorepo", repo.Name)
+	assert.Equal(t, "oci/monorepo", repo.FullName)
+
+	// 4. Get Repository
+	fetchedRepo, err := client.GetRepository(ctx, "oci", "monorepo")
+	require.NoError(t, err)
+	assert.Equal(t, "oci/monorepo", fetchedRepo.FullName)
+
+	// 5. Update Repository
+	actionsEnabled := true
+	updatedRepo, err := client.UpdateRepository(ctx, "oci", "monorepo", UpdateRepoOption{
+		HasActions: &actionsEnabled,
+	})
+	require.NoError(t, err)
+	assert.True(t, updatedRepo.HasActions)
+}
+

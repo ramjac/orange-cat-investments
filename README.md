@@ -727,6 +727,16 @@ Refactor the OCI BFF and BLL service entrypoints (`cmd/customer-bff/main.go`, `c
     * Enable unit testing of individual handler packages (`handlers/*_test.go`) without spinning up the entire server multiplexer or instantiating all domain clients.
 
 ### 7.3 Automated In-Cluster Forgejo Runner CI/CD Pipeline & Test Cluster Promotion
+
+> [!NOTE]
+> **Status: Completed**
+> The self-hosted in-cluster Forgejo runner CI/CD supply chain and promotion pipeline are established and verified:
+> 1. **In-Cluster Source Synchronization (`scripts/sync-repo-to-forgejo.sh`):** Automates organization provisioning (`oci`), repository synchronization (`monorepo`, `orange-cat-investments`), Actions enablement, and backlog issue seeding (#42) during platform deployments (`scripts/deploy-k8s.sh`, Ansible).
+> 2. **In-Cluster Runner Daemon & RBAC (`k8s/oci-internal/forgejo-runner.yaml`):** Deploys `gitea/act_runner` paired with a privileged Docker-in-Docker sidecar (`docker:26-dind`), cluster deployer RBAC (`forgejo-runner-sa`), host networking, automatic in-cluster `/data/kubeconfig` generation, and insecure registry access for `localhost:32000`.
+> 3. **Self-Hosted Container Builds & Local Registry Push:** Builds all multi-stage microservices and web portals inside the runner and pushes directly to `localhost:32000` without requiring external developer workstation compilation.
+> 4. **Gated Promotion Pipeline (`.forgejo/workflows/ci.yaml`):** Implements automated multi-stage gates: lint/unit tests $\rightarrow$ staging deployment (`oci-dev`) $\rightarrow$ live simulation validation gate $\rightarrow$ production promotion rolling updates (`oci-core`).
+> 5. **End-to-End Simulation Verification:** Verified with offline mock parity (`simulation/sync_test.go`) and the 13-persona simulation suite (73/73 actions passing).
+
 Refactor the test cluster verification and deployment workflow so that test clusters (e.g. `thinker`) are tested as authentic, self-contained deployment targets rather than relying on manual image builds pushed from external developer workstations:
 
 * **Why Third:** With stateful live simulation (`7.1`) and modularized service packages (`7.2`) in place, automating the in-cluster Forgejo CI/CD pipeline and live simulation promotion gate allows all subsequent feature and infrastructure changes (`7.4`–`7.9`) to be built, tested, and promoted through the cluster's native GitOps supply chain.
