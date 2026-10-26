@@ -564,20 +564,20 @@ The repository includes a comprehensive simulation driver (`simulation/cmd/simul
 
 > [!NOTE]
 > **STRICT TARGETING INVARIANT:**
-> The simulation engine and mock personas are strictly restricted to the **`oci-dev`** namespace (or local mock environments). The production environment (`oci-core`) is safeguarded: any attempt to target production domains (`api.oci.local`) or production cluster services (`*.oci-core.*`) in live mode is automatically rejected by built-in configuration guards.
+> The simulation engine and synthetic personas are strictly restricted to the **`oci-dev`** namespace (or local development stack). The production environment (`oci-core`) is safeguarded: any attempt to target production domains (`api.oci.local`) or production cluster services (`*.oci-core.*`) is automatically rejected by built-in configuration guards. The simulator runs exclusively in live mode against running HTTP service endpoints to catch authentic runtime issues.
 
 ```bash
-# 1. Run in Mock Mode (offline, embedded in-memory):
-go run ./simulation/cmd/simulator -mode mock
+# 1. Run against Kubernetes oci-dev Staging (smart URL routing):
+go run ./simulation/cmd/simulator -url https://dev.api.oci.local
 
-# 2. Run in Live Mode against Kubernetes oci-dev Staging (smart URL routing):
-go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
-
-# 3. Run in Live Mode against local test services:
+# 2. Run against local test services:
 go run ./simulation/cmd/simulator \
-  -mode live \
   -server-url http://localhost:8080 \
-  -bff-url http://localhost:8081
+  -bff-url http://localhost:8081 \
+  -cust-bff-url http://localhost:8083 \
+  -broker-url http://localhost:8089 \
+  -bank-url http://localhost:8088
+```
 ```
 
 ---
@@ -692,7 +692,7 @@ Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/clie
 
 * **Why First:** The simulation driver is the primary end-to-end verification gate for refactoring (`7.2`) and automated CI/CD cluster promotion (`7.3`). Adding stateful cookie and CSRF persistence first ensures all subsequent architectural changes are validated against authentic browser session flows.
 * **The Problem:**
-  The current simulation HTTP client (`simulation.Client`) is stateless. It executes requests using a bare `http.Client` without an HTTP cookie jar (`net/http/cookiejar`) or persistent authentication context. While mock mode (`-mode mock`) sidesteps authentication by mounting unauthenticated mock handlers, live cluster validation (`-mode live`) targets production and staging BFFs (`oci-customer-bff` and `oci-employee-bff`) that strictly enforce session authentication (`__Host-customer-session`, `__Host-employee-session`) stored in Valkey and double-submit CSRF verification (`X-CSRF-Token`). As a result, authentic persona workflows calling protected BFF endpoints fail with `401 Unauthorized` or `403 Forbidden` in live environments. Furthermore, stateless execution cannot test real-world user lifecycles (e.g. login $\rightarrow$ authenticated operations $\rightarrow$ session revocation / logout), multi-step trading sessions, or session expiration.
+  The simulation HTTP client (`simulation.Client`) previously lacked persistent cookie and CSRF handling, which caused authentic persona workflows calling protected BFF endpoints (`oci-customer-bff` and `oci-employee-bff`) to fail with `401 Unauthorized` or `403 Forbidden` in live environments where Valkey sessions (`__Host-customer-session`, `__Host-employee-session`) and double-submit CSRF verification (`X-CSRF-Token`) are strictly enforced. Furthermore, stateless execution cannot test real-world user lifecycles (e.g. login $\rightarrow$ authenticated operations $\rightarrow$ session revocation / logout), multi-step trading sessions, or session expiration.
 * **Architecture & Objectives:**
   * **Per-Persona Cookie Jar & Session Scope:** Equip the simulation client with per-persona `http.CookieJar` instances (`net/http/cookiejar.New(nil)`). When executing a persona's action list during a simulation iteration, all HTTP requests dispatched by that persona reuse the persona's cookie jar, automatically preserving session cookies (`__Host-customer-session`, `__Host-employee-session`, `customer_session`, `employee_session`) and CSRF cookies across calls.
   * **Automated Persona Authentication Handshake:** Introduce an automated pre-action authentication hook in `simulation.Driver`:
@@ -702,7 +702,7 @@ Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/clie
   * **Stateful Lifecycle & Security Testing:**
     * Enable personas to execute realistic multi-step journeys: login $\rightarrow$ browse directory / portfolio $\rightarrow$ submit timesheet / order $\rightarrow$ view paystub / statement $\rightarrow$ explicit logout.
     * Enable negative security testing: verify that session invalidation during offboarding (e.g. Alice triggering employee offboarding) immediately invalidates the persona's session in Valkey, causing subsequent calls with the cached cookie to correctly fail with `401 Unauthorized`.
-  * **Mock & Live Mode Parity:** Ensure both `-mode mock` and `-mode live` adhere to the same session management model, guaranteeing seamless transition between offline test runner execution and live cluster verification.
+  * **Live Verification Paradigm:** The simulation engine exercises authentic live HTTP endpoints, ensuring all authentication handshakes, cookies, CSRF tokens, and middle-tier layers are verified against real network boundaries.
 
 ### 7.2 Modular BFF & BLL Application Architecture (Decomposition of Monolithic main.go Files)
 
@@ -744,7 +744,7 @@ Refactor the OCI BFF and BLL service entrypoints (`cmd/customer-bff/main.go`, `c
 > 2. **In-Cluster Runner Daemon & RBAC (`k8s/oci-internal/forgejo-runner.yaml`):** Deploys `gitea/act_runner` paired with a privileged Docker-in-Docker sidecar (`docker:26-dind`), cluster deployer RBAC (`forgejo-runner-sa`), host networking, automatic in-cluster `/data/kubeconfig` generation, and insecure registry access for `localhost:32000`.
 > 3. **Self-Hosted Container Builds & Local Registry Push:** Builds all multi-stage microservices and web portals inside the runner and pushes directly to `localhost:32000` without requiring external developer workstation compilation.
 > 4. **Gated Promotion Pipeline (`.forgejo/workflows/ci.yaml`):** Implements automated multi-stage gates: lint/unit tests $\rightarrow$ staging deployment (`oci-dev`) $\rightarrow$ live simulation validation gate $\rightarrow$ production promotion rolling updates (`oci-core`).
-> 5. **End-to-End Simulation Verification:** Verified with offline mock parity (`simulation/sync_test.go`) and the 13-persona simulation suite (73/73 actions passing).
+> 5. **End-to-End Simulation Verification:** Verified via the 13-persona simulation suite (73 persona action workflows targeting live service endpoints).
 
 Refactor the test cluster verification and deployment workflow so that test clusters (e.g. `thinker`) are tested as authentic, self-contained deployment targets rather than relying on manual image builds pushed from external developer workstations:
 

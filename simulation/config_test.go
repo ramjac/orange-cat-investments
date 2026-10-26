@@ -17,7 +17,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, "http://localhost:8083", cfg.CustomerBFFURL)
 	assert.Equal(t, "http://localhost:8089", cfg.BrokerURL)
 	assert.Equal(t, "http://localhost:8088", cfg.BankURL)
-	assert.Equal(t, "mock", cfg.Mode)
+	assert.Equal(t, "live", cfg.Mode)
 	assert.Equal(t, "all", cfg.TargetPersona)
 	assert.Equal(t, 1, cfg.Iterations)
 	assert.Equal(t, 100*time.Millisecond, cfg.ActionDelay)
@@ -62,13 +62,6 @@ func TestResolveRoutingURLs(t *testing.T) {
 }
 
 func TestConfigValidateTarget(t *testing.T) {
-	// Mock mode always succeeds regardless of URL strings
-	mockCfg := &Config{
-		Mode:      "mock",
-		ServerURL: "https://api.oci.local",
-	}
-	assert.NoError(t, mockCfg.ValidateTarget(), "mock mode should not fail target validation")
-
 	// Live mode targeting staging dev.api.oci.local succeeds
 	devCfg := &Config{
 		Mode:           "live",

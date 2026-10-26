@@ -6,12 +6,34 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
 
 func (h *WorkforceHandler) getBIMetrics(w http.ResponseWriter, r *http.Request) {
 	period := r.URL.Query().Get("period")
 	if period == "" {
 		period = time.Now().UTC().Format("2006-01")
+	}
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.GetBIMetrics(r.Context(), &internalbllv1.GetBIMetricsRequest{Period: period})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to get BI metrics: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"period":    period,
+			"financial": resp.FinancialMetrics,
+			"workforce": resp.WorkforceMetrics,
+		})
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
 	}
 
 	fin, err := h.wfSvc.GetFinancialMetrics(r.Context(), period)
@@ -34,6 +56,28 @@ func (h *WorkforceHandler) getBIMetrics(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WorkforceHandler) listExecutiveReports(w http.ResponseWriter, r *http.Request) {
+	if h.bllClient != nil {
+		resp, err := h.bllClient.ListExecutiveReports(r.Context(), &workforcev1.ListExecutiveReportsRequest{Limit: 50, Offset: 0})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		reports := resp.Reports
+		if reports == nil {
+			reports = []*workforcev1.ExecutiveReport{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items": reports,
+			"total": len(reports),
+		})
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
+	}
+
 	reports, err := h.wfSvc.ListExecutiveReports(r.Context(), 50, 0)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -59,6 +103,24 @@ func (h *WorkforceHandler) generateMonthlyReport(w http.ResponseWriter, r *http.
 		req.GeneratedBy = "authorized-executive"
 	}
 
+	if h.bllClient != nil {
+		resp, err := h.bllClient.GenerateMonthlyReport(r.Context(), &internalbllv1.GenerateMonthlyReportRequest{
+			Period:      req.Period,
+			GeneratedBy: req.GeneratedBy,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate monthly report: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, resp.Report)
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
+	}
+
 	rep, err := h.wfSvc.GenerateMonthlyReport(r.Context(), req.Period, req.GeneratedBy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate monthly report: "+err.Error())
@@ -72,6 +134,21 @@ func (h *WorkforceHandler) getExecutiveReport(w http.ResponseWriter, r *http.Req
 	if id == "" {
 		parts := strings.Split(strings.TrimRight(r.URL.Path, "/"), "/")
 		id = parts[len(parts)-1]
+	}
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.GetExecutiveReport(r.Context(), &workforcev1.GetExecutiveReportRequest{ReportID: id})
+		if err != nil {
+			writeError(w, http.StatusNotFound, "executive report not found: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp.Report)
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
 	}
 
 	rep, err := h.wfSvc.GetExecutiveReport(r.Context(), id)
@@ -91,13 +168,40 @@ func (h *WorkforceHandler) downloadExecutiveReport(w http.ResponseWriter, r *htt
 		}
 	}
 
+	format := strings.ToLower(r.URL.Query().Get("format"))
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.DownloadExecutiveReport(r.Context(), &internalbllv1.DownloadExecutiveReportRequest{
+			ReportID: id,
+			Format:   format,
+		})
+		if err != nil {
+			writeError(w, http.StatusNotFound, "failed to download executive report: "+err.Error())
+			return
+		}
+
+		if resp.ContentType != "" {
+			w.Header().Set("Content-Type", resp.ContentType)
+		}
+		if resp.Filename != "" {
+			w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, resp.Filename))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(resp.Content)
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
+		return
+	}
+
 	rep, err := h.wfSvc.GetExecutiveReport(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "executive report not found: "+err.Error())
 		return
 	}
 
-	format := strings.ToLower(r.URL.Query().Get("format"))
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="executive_summary_report_%s.csv"`, rep.Period))

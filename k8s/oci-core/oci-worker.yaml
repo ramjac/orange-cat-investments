@@ -36,9 +36,9 @@ spec:
             - name: INTERNAL_BLL_URL
               value: "https://internal-bll-service.oci-core.svc.cluster.local:8086"
             - name: EMPLOYEE_BFF_URL
-              value: "http://oci-employee-bff.oci-core.svc.cluster.local:8081"
+              value: "http://oci-employee-bff-service.oci-core.svc.cluster.local:8081"
             - name: PEBBLE_PROXY_URL
-              value: "http://oci-pebble-proxy.oci-core.svc.cluster.local:8082"
+              value: "http://oci-pebble-proxy-service.oci-core.svc.cluster.local:8082"
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: TLS_CERT_FILE

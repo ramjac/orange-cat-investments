@@ -46,7 +46,10 @@ func (b *EmployeeBFF) RegisterRoutes(mux *http.ServeMux) {
 		RegisterProtectedOpsRoutes(mux, b.opsHandler, b.sessionStore, b.rateLimiter)
 	}
 
-	// 5. Incident SSE Stream & Broadcast Hub
+	// 5. Facilities domain routes (delegating to internal-bll over gRPC)
+	b.RegisterFacilitiesRoutes(mux)
+
+	// 6. Incident SSE Stream & Broadcast Hub
 	if b.incidentBroker != nil {
 		sessionAuth := SessionAuthMiddleware(b.sessionStore)
 		serviceAuth := InternalServiceAuthMiddleware()

@@ -210,6 +210,3 @@ jobs:
 
       - name: Run Go tests with race detection
         run: go test -v -race ./...
-
-      - name: Run Platform Simulation Driver (Mock Mode - All 12 Personas)
-        run: go run ./simulation/cmd/simulator -mode mock

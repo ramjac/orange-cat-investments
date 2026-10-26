@@ -45,9 +45,9 @@ func NewEmployeeBFF(bllClient internalbllv1.InternalBLLServiceClient, logger *sl
 	}
 
 	b.authHandler = NewAuthHandler(b.sessionStore, "", false)
-	b.wfHandler = handler.NewWorkforceHandler(nil, nil, nil)
+	b.wfHandler = handler.NewWorkforceHandlerWithBLL(bllClient)
 	b.wfHandler.EnableFelineWorkforce = true
-	b.opsHandler = opshandler.NewHandler(nil)
+	b.opsHandler = opshandler.NewHandlerWithBLL(bllClient)
 
 	return b
 }

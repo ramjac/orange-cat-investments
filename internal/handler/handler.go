@@ -8,6 +8,7 @@ import (
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
 
 type WorkforceHandler struct {
@@ -197,16 +198,41 @@ func (h *WorkforceHandler) listEmployees(w http.ResponseWriter, r *http.Request)
 	empType := r.URL.Query().Get("employee_type")
 	status := r.URL.Query().Get("status")
 
-	employees, err := h.wfSvc.ListEmployees(r.Context(), empType, status)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if h.bllClient != nil {
+		resp, err := h.bllClient.ListEmployees(r.Context(), &workforcev1.ListEmployeesRequest{
+			EmployeeType: empType,
+			Status:       status,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		items := resp.Employees
+		if items == nil {
+			items = []*workforcev1.Employee{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items": items,
+			"total": len(items),
+		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items": employees,
-		"total": len(employees),
-	})
+	if h.wfSvc != nil {
+		employees, err := h.wfSvc.ListEmployees(r.Context(), empType, status)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items": employees,
+			"total": len(employees),
+		})
+		return
+	}
+
+	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

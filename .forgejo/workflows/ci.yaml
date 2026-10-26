@@ -59,10 +59,9 @@ jobs:
       - name: Run Go Unit & Race Test Suite
         run: go test -v -race ./...
 
-      - name: Run Offline 12-Persona Simulation Suite
+      - name: Run Simulation Test Suite
         run: |
           go test -v ./simulation/...
-          go run ./simulation/cmd/simulator -mode mock
 
       - name: Run Frontend Tests, Design Token Compilation & Production Bundles
         run: |

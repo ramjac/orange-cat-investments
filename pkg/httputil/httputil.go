@@ -97,7 +97,10 @@ func ListenAndServeGraceful(serviceName, port string, handler http.Handler, logg
 	}
 
 	useTLS := false
-	if tlsCert != "" && tlsKey != "" && clientCA != "" {
+	// Only activate server-side mTLS if explicitly requested via HTTP_SERVER_MTLS=true.
+	// In-cluster BFF HTTP endpoints serve plaintext HTTP behind cluster ingress termination and K8s probes;
+	// TLS env vars are primarily provisioned for outgoing client mTLS to Tier 3 BLL gRPC services.
+	if os.Getenv("HTTP_SERVER_MTLS") == "true" && tlsCert != "" && tlsKey != "" && clientCA != "" {
 		if tlsCfg, err := mtls.NewServerTLSConfig(tlsCert, tlsKey, clientCA); err == nil {
 			server.TLSConfig = tlsCfg
 			useTLS = true

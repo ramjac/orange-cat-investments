@@ -429,7 +429,7 @@ func (s *workforceService) ProcessPayrollRun(ctx context.Context, pe *frappe.Pay
 		pe.PostingDate = time.Now().UTC().Format("2006-01-02")
 	}
 
-	if len(pe.Employees) == 0 {
+	if len(pe.Employees) == 0 && s.repo != nil {
 		if emps, err := s.repo.ListEmployees(ctx, "human", "active"); err == nil && len(emps) > 0 {
 			for _, emp := range emps {
 				pe.Employees = append(pe.Employees, emp.EmployeeID)

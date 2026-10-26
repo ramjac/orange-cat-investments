@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/orange-cat-investments/oci/internal/saga"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
 type FrappeHRWebhookPayload struct {
@@ -27,6 +28,28 @@ func (h *WorkforceHandler) handleFrappeHRWebhook(w http.ResponseWriter, r *http.
 	var payload FrappeHRWebhookPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid webhook payload")
+		return
+	}
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.HandleHRWebhook(r.Context(), &internalbllv1.HandleHRWebhookRequest{
+			Event:        payload.Event,
+			EmployeeID:   payload.EmployeeID,
+			EmployeeType: payload.EmployeeType,
+			FirstName:    payload.FirstName,
+			LastName:     payload.LastName,
+			Email:        payload.Email,
+			RoleTitle:    payload.RoleTitle,
+			Department:   payload.Department,
+			Status:       payload.Status,
+			DietaryPlan:  payload.DietaryPlan,
+			FeedingTimes: payload.FeedingTimes,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
 		return
 	}
 
@@ -97,8 +120,7 @@ func (h *WorkforceHandler) handleFrappeHRWebhook(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Status update
-	if payload.EmployeeID != "" && payload.Status != "" {
+	if payload.EmployeeID != "" && payload.Status != "" && h.wfSvc != nil {
 		updated, err := h.wfSvc.UpdateEmployeeStatus(r.Context(), payload.EmployeeID, payload.Status)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -132,6 +154,29 @@ func (h *WorkforceHandler) handleOnboardEmployee(w http.ResponseWriter, r *http.
 		req.EmployeeType = "human"
 	}
 
+	if h.bllClient != nil {
+		resp, err := h.bllClient.OnboardEmployee(r.Context(), &internalbllv1.OnboardEmployeeSagaRequest{
+			EmployeeID:   req.EmployeeID,
+			EmployeeType: req.EmployeeType,
+			FirstName:    req.FirstName,
+			LastName:     req.LastName,
+			Email:        req.Email,
+			RoleTitle:    req.RoleTitle,
+			Department:   req.Department,
+			DietaryPlan:  req.DietaryPlan,
+			FeedingTimes: req.FeedingTimes,
+			CaretakerID:  req.CaretakerID,
+			SSHKey:       req.SSHKey,
+			StorageQuota: req.StorageQuota,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, resp.SagaResult)
+		return
+	}
+
 	if h.onboardingSaga == nil {
 		writeError(w, http.StatusNotImplemented, "onboarding saga is not configured on domain API (orchestration belongs to BLL)")
 		return
@@ -159,6 +204,20 @@ func (h *WorkforceHandler) handleOffboardEmployee(w http.ResponseWriter, r *http
 		return
 	}
 
+	if h.bllClient != nil {
+		resp, err := h.bllClient.OffboardEmployee(r.Context(), &internalbllv1.OffboardEmployeeSagaRequest{
+			EmployeeID:   req.EmployeeID,
+			Reason:       req.Reason,
+			TargetStatus: req.TargetStatus,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp.SagaResult)
+		return
+	}
+
 	if h.offboardingEng == nil {
 		writeError(w, http.StatusNotImplemented, "offboarding engine is not configured on domain API (orchestration belongs to BLL)")
 		return
@@ -176,6 +235,23 @@ func (h *WorkforceHandler) handleGetEmployeeLifecycle(w http.ResponseWriter, r *
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "employee_id is required")
+		return
+	}
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.GetEmployeeLifecycle(r.Context(), &internalbllv1.GetEmployeeLifecycleRequest{
+			EmployeeID: id,
+		})
+		if err != nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("employee %s not found", id))
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	if h.wfSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 

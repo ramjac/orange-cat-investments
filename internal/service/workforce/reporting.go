@@ -62,6 +62,10 @@ func (s *workforceService) GetWorkforceMetrics(ctx context.Context, period strin
 		period = time.Now().UTC().Format("2006-01")
 	}
 
+	if s.repo == nil {
+		return &reporting.WorkforceMetrics{Period: period}, nil
+	}
+
 	employees, err := s.repo.ListEmployees(ctx, "", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list employees for workforce metrics: %w", err)
@@ -247,6 +251,9 @@ func (s *workforceService) GenerateMonthlyReport(ctx context.Context, period, ge
 }
 
 func (s *workforceService) ListExecutiveReports(ctx context.Context, limit, offset int) ([]*workforce.ExecutiveReport, error) {
+	if s.repo == nil {
+		return []*workforce.ExecutiveReport{}, nil
+	}
 	return s.repo.ListExecutiveReports(ctx, limit, offset)
 }
 
@@ -254,12 +261,18 @@ func (s *workforceService) GetExecutiveReport(ctx context.Context, id string) (*
 	if id == "" {
 		return nil, errors.New("report id cannot be empty")
 	}
+	if s.repo == nil {
+		return nil, errors.New("repository not configured")
+	}
 	return s.repo.GetExecutiveReportByID(ctx, id)
 }
 
 func (s *workforceService) GetExecutiveReportByPeriod(ctx context.Context, period string) (*workforce.ExecutiveReport, error) {
 	if period == "" {
 		return nil, errors.New("period cannot be empty")
+	}
+	if s.repo == nil {
+		return nil, errors.New("repository not configured")
 	}
 	return s.repo.GetExecutiveReportByPeriod(ctx, period)
 }

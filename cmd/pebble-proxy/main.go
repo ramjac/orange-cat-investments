@@ -39,13 +39,15 @@ func main() {
 	}
 
 	var tlsConfig *tls.Config
-	if os.Getenv("ENABLE_MTLS") == "true" {
+	tlsCert := os.Getenv("TLS_CERT_FILE")
+	tlsKey := os.Getenv("TLS_KEY_FILE")
+	caCert := os.Getenv("CLIENT_CA_FILE")
+	if caCert == "" {
+		caCert = os.Getenv("CA_CERT_FILE")
+	}
+	if tlsCert != "" && tlsKey != "" && caCert != "" {
 		var err error
-		tlsConfig, err = mtls.NewClientTLSConfig(
-			os.Getenv("TLS_CERT_FILE"),
-			os.Getenv("TLS_KEY_FILE"),
-			os.Getenv("CA_CERT_FILE"),
-		)
+		tlsConfig, err = mtls.NewClientTLSConfig(tlsCert, tlsKey, caCert)
 		if err != nil {
 			logger.Warn("could not load client mTLS config for internal-bll, proceeding without TLS", "error", err)
 		}

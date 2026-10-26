@@ -9,7 +9,29 @@ import (
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
+
+func (h *WorkforceHandler) resolveFeline(r *http.Request, felineID string) (string, string) {
+	canonicalID := felineID
+	var felineAlias string
+	if h.bllClient != nil {
+		if resp, err := h.bllClient.GetEmployee(r.Context(), &workforcev1.GetEmployeeRequest{EmployeeID: felineID}); err == nil && resp.Employee != nil {
+			canonicalID = resp.Employee.EmployeeID
+			if resp.Employee.FirstName != "" {
+				felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(resp.Employee.FirstName))
+			}
+		}
+	} else if h.wfSvc != nil {
+		if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
+			canonicalID = emp.EmployeeID
+			if emp.FirstName != "" {
+				felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
+			}
+		}
+	}
+	return canonicalID, felineAlias
+}
 
 func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Request) {
 	felineID := r.PathValue("felineId")
@@ -18,14 +40,7 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	canonicalID := felineID
-	var felineAlias string
-	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
-		canonicalID = emp.EmployeeID
-		if emp.FirstName != "" {
-			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
-		}
-	}
+	canonicalID, felineAlias := h.resolveFeline(r, felineID)
 
 	if h.cache != nil {
 		var cached workforce.CareSchedule
@@ -47,9 +62,23 @@ func (h *WorkforceHandler) getCareSchedule(w http.ResponseWriter, r *http.Reques
 		_, _ = h.cache.Get(r.Context(), cachevalkey.KeyCareScheduleVersion(canonicalID), &startVer)
 	}
 
-	cs, err := h.wfSvc.GetCareSchedule(r.Context(), canonicalID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+	var cs any
+	if h.bllClient != nil {
+		resp, err := h.bllClient.GetCareSchedule(r.Context(), &workforcev1.GetCareScheduleRequest{FelineID: canonicalID})
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		cs = resp.CareSchedule
+	} else if h.wfSvc != nil {
+		sched, err := h.wfSvc.GetCareSchedule(r.Context(), canonicalID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		cs = sched
+	} else {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
@@ -87,14 +116,7 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	canonicalID := felineID
-	var felineAlias string
-	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
-		canonicalID = emp.EmployeeID
-		if emp.FirstName != "" {
-			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
-		}
-	}
+	canonicalID, felineAlias := h.resolveFeline(r, felineID)
 
 	var req struct {
 		DietaryPlan          string   `json:"dietary_plan"`
@@ -110,19 +132,60 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	cs := &workforce.CareSchedule{
-		FelineID:             canonicalID,
-		DietaryPlan:          req.DietaryPlan,
-		FeedingTimes:         req.FeedingTimes,
-		SpecialMedicalNeeds:  req.SpecialMedicalNeeds,
-		PreferredPerchZone:   req.PreferredPerchZone,
-		EmergencyMedicalHold: req.EmergencyMedicalHold,
-		CaretakerID:          req.CaretakerID,
-	}
+	var updated any
+	var updatedFelineID string
 
-	updated, err := h.wfSvc.UpdateCareSchedule(r.Context(), cs)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if h.bllClient != nil {
+		specialNeeds := ""
+		if req.SpecialMedicalNeeds != nil {
+			specialNeeds = *req.SpecialMedicalNeeds
+		}
+		perchZone := ""
+		if req.PreferredPerchZone != nil {
+			perchZone = *req.PreferredPerchZone
+		}
+		caretakerID := ""
+		if req.CaretakerID != nil {
+			caretakerID = *req.CaretakerID
+		}
+		resp, err := h.bllClient.UpdateCareSchedule(r.Context(), &workforcev1.UpdateCareScheduleRequest{
+			FelineID:             canonicalID,
+			DietaryPlan:          req.DietaryPlan,
+			FeedingTimes:         req.FeedingTimes,
+			SpecialMedicalNeeds:  specialNeeds,
+			PreferredPerchZone:   perchZone,
+			EmergencyMedicalHold: req.EmergencyMedicalHold,
+			CaretakerID:          caretakerID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = resp.CareSchedule
+		if resp.CareSchedule != nil {
+			updatedFelineID = resp.CareSchedule.FelineID
+		}
+	} else if h.wfSvc != nil {
+		cs := &workforce.CareSchedule{
+			FelineID:             canonicalID,
+			DietaryPlan:          req.DietaryPlan,
+			FeedingTimes:         req.FeedingTimes,
+			SpecialMedicalNeeds:  req.SpecialMedicalNeeds,
+			PreferredPerchZone:   req.PreferredPerchZone,
+			EmergencyMedicalHold: req.EmergencyMedicalHold,
+			CaretakerID:          req.CaretakerID,
+		}
+		res, err := h.wfSvc.UpdateCareSchedule(r.Context(), cs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = res
+		if res != nil {
+			updatedFelineID = res.FelineID
+		}
+	} else {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
@@ -135,8 +198,8 @@ func (h *WorkforceHandler) updateCareSchedule(w http.ResponseWriter, r *http.Req
 		if felineID != canonicalID {
 			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
 		}
-		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
-			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		if updatedFelineID != "" && updatedFelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updatedFelineID))
 		}
 		if felineAlias != "" {
 			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))
@@ -154,14 +217,7 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	canonicalID := felineID
-	var felineAlias string
-	if emp, err := h.wfSvc.GetEmployee(r.Context(), felineID); err == nil && emp != nil {
-		canonicalID = emp.EmployeeID
-		if emp.FirstName != "" {
-			felineAlias = fmt.Sprintf("emp-feline-%s", strings.ToLower(emp.FirstName))
-		}
-	}
+	canonicalID, felineAlias := h.resolveFeline(r, felineID)
 
 	var req struct {
 		EmergencyMedicalHold bool `json:"emergency_medical_hold"`
@@ -172,9 +228,34 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	updated, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), canonicalID, req.EmergencyMedicalHold)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	var updated any
+	var updatedFelineID string
+
+	if h.bllClient != nil {
+		resp, err := h.bllClient.SetMedicalHold(r.Context(), &workforcev1.SetMedicalHoldRequest{
+			FelineID:             canonicalID,
+			EmergencyMedicalHold: req.EmergencyMedicalHold,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = resp.CareSchedule
+		if resp.CareSchedule != nil {
+			updatedFelineID = resp.CareSchedule.FelineID
+		}
+	} else if h.wfSvc != nil {
+		res, err := h.wfSvc.SetEmergencyMedicalHold(r.Context(), canonicalID, req.EmergencyMedicalHold)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		updated = res
+		if res != nil {
+			updatedFelineID = res.FelineID
+		}
+	} else {
+		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
 	}
 
@@ -187,8 +268,8 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		if felineID != canonicalID {
 			keys = append(keys, cachevalkey.KeyCareSchedule(felineID))
 		}
-		if updated != nil && updated.FelineID != "" && updated.FelineID != canonicalID {
-			keys = append(keys, cachevalkey.KeyCareSchedule(updated.FelineID))
+		if updatedFelineID != "" && updatedFelineID != canonicalID {
+			keys = append(keys, cachevalkey.KeyCareSchedule(updatedFelineID))
 		}
 		if felineAlias != "" {
 			keys = append(keys, cachevalkey.KeyCareSchedule(felineAlias))

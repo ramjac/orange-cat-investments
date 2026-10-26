@@ -42,7 +42,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("starting OCI Background Worker with Watermill Engine (5-Tier BLL Architecture)")
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), "8080", logger, "worker")
+	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), "", logger, "worker")
 	if healthServer != nil {
 		defer func() {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)

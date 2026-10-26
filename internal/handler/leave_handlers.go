@@ -6,23 +6,44 @@ import (
 
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 )
 
 func (h *WorkforceHandler) listLeaveRequests(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
 	status := r.URL.Query().Get("status")
 
-	list, err := h.wfSvc.ListLeaveRequests(r.Context(), employeeID, status)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if h.bllClient != nil {
+		resp, err := h.bllClient.ListLeaveRequests(r.Context(), &workforcev1.ListLeaveRequestsRequest{
+			EmployeeID: employeeID,
+			Status:     status,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		list := resp.LeaveRequests
+		if list == nil {
+			list = []*workforcev1.LeaveRequest{}
+		}
+		writeJSON(w, http.StatusOK, list)
 		return
 	}
 
-	if list == nil {
-		list = []*workforce.LeaveRequest{}
+	if h.wfSvc != nil {
+		list, err := h.wfSvc.ListLeaveRequests(r.Context(), employeeID, status)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if list == nil {
+			list = []*workforce.LeaveRequest{}
+		}
+		writeJSON(w, http.StatusOK, list)
+		return
 	}
 
-	writeJSON(w, http.StatusOK, list)
+	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
 func (h *WorkforceHandler) createLeaveRequest(w http.ResponseWriter, r *http.Request) {
@@ -39,19 +60,43 @@ func (h *WorkforceHandler) createLeaveRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	created, err := h.wfSvc.CreateLeaveRequest(r.Context(), wfService.CreateLeaveRequestParams{
-		EmployeeID: req.EmployeeID,
-		LeaveType:  req.LeaveType,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Reason:     req.Reason,
-	})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if h.bllClient != nil {
+		reason := ""
+		if req.Reason != nil {
+			reason = *req.Reason
+		}
+		resp, err := h.bllClient.SubmitLeaveRequest(r.Context(), &workforcev1.SubmitLeaveRequestMessage{
+			EmployeeID: req.EmployeeID,
+			LeaveType:  req.LeaveType,
+			StartDate:  req.StartDate,
+			EndDate:    req.EndDate,
+			Reason:     reason,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, resp.LeaveRequest)
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, created)
+	if h.wfSvc != nil {
+		created, err := h.wfSvc.CreateLeaveRequest(r.Context(), wfService.CreateLeaveRequestParams{
+			EmployeeID: req.EmployeeID,
+			LeaveType:  req.LeaveType,
+			StartDate:  req.StartDate,
+			EndDate:    req.EndDate,
+			Reason:     req.Reason,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+		return
+	}
+
+	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
 
 func (h *WorkforceHandler) updateLeaveRequestStatus(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +115,28 @@ func (h *WorkforceHandler) updateLeaveRequestStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	updated, err := h.wfSvc.UpdateLeaveRequestStatus(r.Context(), id, req.Status)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if h.bllClient != nil {
+		resp, err := h.bllClient.UpdateLeaveStatus(r.Context(), &workforcev1.UpdateLeaveStatusRequest{
+			LeaveID: id,
+			Status:  req.Status,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, resp.LeaveRequest)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, updated)
+	if h.wfSvc != nil {
+		updated, err := h.wfSvc.UpdateLeaveRequestStatus(r.Context(), id, req.Status)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+		return
+	}
+
+	writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 }
