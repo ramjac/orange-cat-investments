@@ -15,6 +15,7 @@ import (
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 )
 
 // EventPublisher publishes domain event payloads to a topic.
@@ -57,6 +58,7 @@ type Server struct {
 	hwClient        saga.HardwareClient
 	publisher       EventPublisher
 	logger          *slog.Logger
+	meiliClient     *meilisearch.Client
 }
 
 // Config configures optional COTS and saga dependencies for the Internal BLL server.
@@ -67,6 +69,7 @@ type Config struct {
 	HardwareClient   saga.HardwareClient
 	WorkforceSvc     wfService.Service
 	CoreInvestClient coreinvestv1.CoreInvestServiceClient
+	SearchClient     *meilisearch.Client
 }
 
 // NewServer creates a new Internal BLL gRPC server backed by Domain API gRPC clients.
@@ -100,6 +103,16 @@ func NewServer(
 		hw = saga.NewSnipeITHardwareAdapter(nil)
 	}
 
+	meiliClient := cfg.SearchClient
+	if meiliClient == nil {
+		meiliURL := os.Getenv("MEILISEARCH_URL")
+		if meiliURL == "" {
+			meiliURL = "http://localhost:7700"
+		}
+		meiliKey := os.Getenv("MEILI_MASTER_KEY")
+		meiliClient = meilisearch.NewClient(meiliURL, meiliKey)
+	}
+
 	return &Server{
 		wfClient:        wfClient,
 		facClient:       facClient,
@@ -111,10 +124,16 @@ func NewServer(
 		hwClient:        hw,
 		publisher:       publisher,
 		logger:          logger,
+		meiliClient:     meiliClient,
 	}
 }
 
 // SetCoreInvestClient sets the CoreInvestServiceClient on the server.
 func (s *Server) SetCoreInvestClient(c coreinvestv1.CoreInvestServiceClient) {
 	s.ciClient = c
+}
+
+// SetSearchClient sets the Meilisearch client on the server.
+func (s *Server) SetSearchClient(c *meilisearch.Client) {
+	s.meiliClient = c
 }

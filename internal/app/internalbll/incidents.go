@@ -53,24 +53,36 @@ func (s *Server) CreateIncident(ctx context.Context, in *workforcev1.CreateIncid
 	}
 
 	protoInc := resp.Incident
-	if protoInc != nil && s.publisher != nil {
-		env := envelope.NewEventEnvelope(
-			fmt.Sprintf("evt-inc-%d", time.Now().UnixNano()),
-			"events.workforce.incident_created.v1",
-			"",
-			envelope.IncidentCreatedPayload{
-				IncidentID:       protoInc.IncidentID,
-				Title:            protoInc.Title,
-				Category:         protoInc.Category,
-				InvolvedFelineID: protoInc.InvolvedFelineID,
-				InvolvedHumanID:  protoInc.InvolvedHumanID,
-				Severity:         protoInc.Severity,
-				Status:           protoInc.Status,
-				Description:      protoInc.Description,
-				ReportedAt:       time.Now().UTC(),
-			},
-		)
-		_ = s.publisher.Publish("events.workforce.incident_created.v1", env)
+	if protoInc != nil {
+		if s.meiliClient != nil {
+			_ = s.meiliClient.IndexDocuments(ctx, "employee_knowledge", []map[string]interface{}{
+				{
+					"id":       protoInc.IncidentID,
+					"category": "incident",
+					"title":    protoInc.Title,
+					"snippet":  fmt.Sprintf("Severity: %s | %s", protoInc.Severity, protoInc.Description),
+				},
+			})
+		}
+		if s.publisher != nil {
+			env := envelope.NewEventEnvelope(
+				fmt.Sprintf("evt-inc-%d", time.Now().UnixNano()),
+				"events.workforce.incident_created.v1",
+				"",
+				envelope.IncidentCreatedPayload{
+					IncidentID:       protoInc.IncidentID,
+					Title:            protoInc.Title,
+					Category:         protoInc.Category,
+					InvolvedFelineID: protoInc.InvolvedFelineID,
+					InvolvedHumanID:  protoInc.InvolvedHumanID,
+					Severity:         protoInc.Severity,
+					Status:           protoInc.Status,
+					Description:      protoInc.Description,
+					ReportedAt:       time.Now().UTC(),
+				},
+			)
+			_ = s.publisher.Publish("events.workforce.incident_created.v1", env)
+		}
 	}
 
 	return resp, nil
@@ -117,6 +129,16 @@ func (s *Server) BroadcastPebbleIncidentAlert(ctx context.Context, in *internalb
 	ticketID := ""
 	if resp.Ticket != nil {
 		ticketID = resp.Ticket.TicketID
+	}
+	if s.meiliClient != nil {
+		_ = s.meiliClient.IndexDocuments(ctx, "employee_knowledge", []map[string]interface{}{
+			{
+				"id":       in.IncidentID,
+				"category": "incident",
+				"title":    in.Title,
+				"snippet":  fmt.Sprintf("Severity: %s | %s", sev, in.Description),
+			},
+		})
 	}
 	return &internalbllv1.BroadcastPebbleIncidentAlertResponse{
 		TicketID: ticketID,

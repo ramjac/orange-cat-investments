@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
@@ -83,8 +81,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "workforce-api")
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -97,13 +93,6 @@ func main() {
 
 	<-stop
 	logger.Info("shutting down Workforce Domain API...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if healthServer != nil {
-		_ = healthServer.Shutdown(shutdownCtx)
-	}
 
 	grpcServer.GracefulStop()
 	logger.Info("Workforce Domain API stopped gracefully")

@@ -186,8 +186,8 @@ Developed and deployed to guarantee uninterrupted multi-day operations, zero-dow
   * Uses cert-manager's `trust-manager` addon and [`k8s/ha/lan/tls/oci-ca-bundle.yaml`](k8s/ha/lan/tls/oci-ca-bundle.yaml) to continuously sync `secret/oci-lan-root-ca-key-pair` in namespace `cert-manager` to `ConfigMap/oci-ca-bundle` across all application namespaces (`oci-core`, `oci-internal`, `monitoring`).
 * **Zero-Downtime Dynamic CA Pool Hot-Swapping (`pkg/mtls`):**
   * [`pkg/mtls.DynamicCAPoolReloader`](pkg/mtls/mtls.go) watches file modification timestamps on mounted `ca.crt` bundles and hot-swaps active `ClientCAs` and `RootCAs` pools dynamically under RWMutex lock via `tls.Config.GetConfigForClient` and `tls.Config.VerifyConnection`, accepting new CA roots without connection drops or pod restarts.
-* **Decoupled mTLS Probing Architecture:**
-  * Plaintext HTTP `/healthz` and `/livez` listener on port `:8080` via `mtls.StartHealthListener`, keeping business RPCs on ports `50051`–`50054` strictly enforced with mutual TLS (`ClientAuth: RequireAndVerifyClientCert`), resolving Kubelet probe handshake errors.
+* **Decoupled Transport & Probing Architecture:**
+  * Domain APIs (`cmd/*-api`) and BLL services (`cmd/*-bll`) operate as pure gRPC services implementing standard `grpc_health_v1` and probed via Kubernetes `tcpSocket` directly on their service ports. Frontend BFFs, web portals, and background worker provide unauthenticated plaintext HTTP `/healthz` endpoints.
 * **Active Kubernetes Cert-Manager CA Reconciler in `cmd/worker`:**
   * [`internal/service/pki/ca_rotation.go`](internal/service/pki/ca_rotation.go) interfaces directly with Kubernetes API using standard library crypto and in-cluster credentials to inspect expiration metrics, trigger automated reissuances 30 days prior to expiry, verify `trust-manager` bundle synchronization, and emit `ops.ca_rotated.v1` events.
 * **COTS Persistent Volume Architecture & Idempotency (Nextcloud):**
@@ -710,7 +710,7 @@ Enhance the OCI Platform Simulator (`simulation/cmd/simulator`, `simulation/clie
 > **Status: Completed**
 > The monolithic application entrypoints (`cmd/customer-bff`, `cmd/employee-bff`, `cmd/customer-bll`, `cmd/internal-bll`, `cmd/worker`, `cmd/pebble-proxy`) have been decomposed into modular packages under `internal/app/` (< 450 lines per file). Architecture strictly enforces 5-Tier layer isolation:
 > 1. **BFF Tier (`customer-bff`, `employee-bff`, `pebble-proxy`):** Chi routers (`chi/v5`), Valkey session/CSRF middleware, Meilisearch client; dials BLL services over gRPC with zero database or Domain API imports.
-> 2. **BLL Tier (`customer-bll`, `internal-bll`):** Pure gRPC microservices implementing business orchestrations, external bank/broker adapters, and sagas; dials Domain APIs over gRPC mTLS with zero HTTP endpoints (unauthenticated `mtls.StartHealthListener` on health port for K8s probes).
+> 2. **BLL Tier (`customer-bll`, `internal-bll`):** Pure gRPC microservices implementing business orchestrations, external bank/broker adapters, Meilisearch knowledge indexing, and sagas; dials Domain APIs over gRPC mTLS with zero HTTP endpoints (probed via `tcpSocket` / gRPC health).
 > 3. **Domain APIs & Database:** Pure gRPC over PostgreSQL schemas (`workforce`, `facilities`, `core_invest`, `ops`) with zero cross-domain calls.
 > 4. **Worker & Batch CronJobs:** Dial customer and internal BLL services over gRPC mTLS with zero direct database or Domain API connections. Network policies restrict Domain APIs exclusively to `tier: bll`.
 

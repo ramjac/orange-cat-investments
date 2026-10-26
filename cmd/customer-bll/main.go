@@ -1,15 +1,12 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
 	"github.com/orange-cat-investments/oci/internal/app/customerbll"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
@@ -98,8 +95,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "customer-bll")
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -112,13 +107,6 @@ func main() {
 
 	<-stop
 	logger.Info("shutting down Customer BLL...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if healthServer != nil {
-		_ = healthServer.Shutdown(shutdownCtx)
-	}
 
 	grpcServer.GracefulStop()
 	logger.Info("Customer BLL stopped gracefully")

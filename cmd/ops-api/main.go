@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
@@ -78,8 +76,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "ops-api")
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -92,13 +88,6 @@ func main() {
 
 	<-stop
 	logger.Info("shutting down Ops Domain API...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if healthServer != nil {
-		_ = healthServer.Shutdown(shutdownCtx)
-	}
 
 	grpcServer.GracefulStop()
 	logger.Info("Ops Domain API stopped gracefully")

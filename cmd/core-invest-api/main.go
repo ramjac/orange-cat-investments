@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
@@ -78,8 +76,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "core-invest-api")
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -92,13 +88,6 @@ func main() {
 
 	<-stop
 	logger.Info("shutting down Core Invest Domain API...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if healthServer != nil {
-		_ = healthServer.Shutdown(shutdownCtx)
-	}
 
 	grpcServer.GracefulStop()
 	logger.Info("Core Invest Domain API stopped gracefully")

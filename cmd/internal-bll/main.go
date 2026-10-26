@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/orange-cat-investments/oci/internal/app/internalbll"
 	"github.com/orange-cat-investments/oci/internal/saga"
@@ -161,8 +160,6 @@ func main() {
 	healthSrv.SetServingStatus("oci.internal_bll.v1.InternalBLLService", grpc_health_v1.HealthCheckResponse_SERVING)
 	grpc_health_v1.RegisterHealthServer(grpcSrv, healthSrv)
 
-	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), port, logger, "internal-bll")
-
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		logger.Error("failed to listen", "port", port, "error", err)
@@ -181,10 +178,5 @@ func main() {
 
 	<-ctx.Done()
 	logger.Info("Shutting down internal-bll gRPC server...")
-	if healthServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = healthServer.Shutdown(shutdownCtx)
-	}
 	grpcSrv.GracefulStop()
 }

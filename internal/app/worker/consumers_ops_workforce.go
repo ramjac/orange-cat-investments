@@ -14,7 +14,6 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
-	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 )
 
 var deliveredIncidentBFF sync.Map
@@ -215,22 +214,6 @@ func HandleIncidentAlert(ctx context.Context, logger *slog.Logger, internalBLL i
 	if len(deliveryErrors) > 0 {
 		return fmt.Errorf("incident alert fanout failures (%d): %v", len(deliveryErrors), deliveryErrors)
 	}
-
-	// Index workplace safety incident in Meilisearch employee knowledge index
-	meiliURL := os.Getenv("MEILISEARCH_URL")
-	if meiliURL == "" {
-		meiliURL = "http://localhost:7700"
-	}
-	meiliKey := os.Getenv("MEILI_MASTER_KEY")
-	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
-	_ = meiliClient.IndexDocuments(ctx, "employee_knowledge", []map[string]interface{}{
-		{
-			"id":       incidentID,
-			"category": "incident",
-			"title":    payload.Title,
-			"snippet":  fmt.Sprintf("Severity: %s | Zone: %s | %s", payload.Severity, payload.RoomZone, payload.Description),
-		},
-	})
 
 	return nil
 }
