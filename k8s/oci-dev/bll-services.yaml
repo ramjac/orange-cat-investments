@@ -159,6 +159,21 @@ spec:
               value: "https://ops-api-service.oci-dev.svc.cluster.local:50054"
             - name: CORE_INVEST_API_URL
               value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+            - name: NEXTCLOUD_URL
+              value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+            - name: FORGEJO_URL
+              value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
+            - name: FRAPPE_URL
+              value: "http://erpnext-service.oci-internal.svc.cluster.local:8000"
+            - name: SNIPEIT_URL
+              value: "http://snipeit-service.oci-internal.svc.cluster.local:80"
+            - name: MEILISEARCH_URL
+              value: "http://meilisearch-service.oci-dev.svc.cluster.local:7700"
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: MEILI_MASTER_KEY
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: TLS_CERT_FILE
@@ -232,7 +247,7 @@ spec:
   selector:
     app: internal-bll
 ---
-# NetworkPolicy: Restrict Ingress to BLL services to BFF pods
+# NetworkPolicy: Restrict Ingress to BLL services to BFF, Batch, and Worker pods
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -249,6 +264,18 @@ spec:
         - podSelector:
             matchLabels:
               tier: bff
+        - podSelector:
+            matchLabels:
+              tier: batch
+        - podSelector:
+            matchLabels:
+              tier: worker
+        - podSelector:
+            matchLabels:
+              app: oci-worker-dev
+        - podSelector:
+            matchLabels:
+              app: oci-pebble-proxy-dev
       ports:
         - protocol: TCP
           port: 8085

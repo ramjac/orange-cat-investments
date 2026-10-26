@@ -6,6 +6,7 @@ import (
 
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -91,6 +92,22 @@ func (s *Server) ProcessPayrollRun(ctx context.Context, in *internalbllv1.Proces
 	if in.PayrollEntry == nil {
 		return nil, status.Error(codes.InvalidArgument, "payroll_entry is required")
 	}
+
+	// If no explicit employee list is provided, dynamically resolve active human employees
+	// from workforce-api via gRPC so payroll runs do not fail when workforce service has no direct database repository.
+	if len(in.PayrollEntry.Employees) == 0 && s.wfClient != nil {
+		if empResp, err := s.wfClient.ListEmployees(ctx, &workforcev1.ListEmployeesRequest{
+			EmployeeType: "human",
+			Status:       "active",
+		}); err == nil && empResp != nil {
+			for _, emp := range empResp.Employees {
+				if emp != nil && emp.EmployeeID != "" {
+					in.PayrollEntry.Employees = append(in.PayrollEntry.Employees, emp.EmployeeID)
+				}
+			}
+		}
+	}
+
 	created, err := s.wfSvc.ProcessPayrollRun(ctx, in.PayrollEntry)
 	if err != nil {
 		return nil, err

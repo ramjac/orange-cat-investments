@@ -167,6 +167,13 @@ spec:
               value: "http://erpnext-service.oci-internal.svc.cluster.local:8000"
             - name: SNIPEIT_URL
               value: "http://snipeit-service.oci-internal.svc.cluster.local:80"
+            - name: MEILISEARCH_URL
+              value: "http://meilisearch-service.oci-core.svc.cluster.local:7700"
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: MEILI_MASTER_KEY
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: TLS_CERT_FILE
