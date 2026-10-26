@@ -74,7 +74,7 @@ jobs:
   deploy-oci-dev:
     name: Deploy Staging Build to oci-dev
     needs: validate-and-test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/planning-next') && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
