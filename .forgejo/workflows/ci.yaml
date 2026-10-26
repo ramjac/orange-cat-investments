@@ -136,12 +136,12 @@ jobs:
           kubectl set image deployment/ops-api ops-api=localhost:32000/ops-api:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/customer-bll customer-bll=localhost:32000/customer-bll:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/internal-bll internal-bll=localhost:32000/internal-bll:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-customer-bff-dev oci-customer-bff=localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-employee-bff-dev oci-employee-bff=localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-customer-portal-dev oci-customer-portal=localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-employee-portal-dev oci-employee-portal=localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-pebble-proxy-dev oci-pebble-proxy=localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/oci-worker-dev oci-worker=localhost:32000/oci-worker:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-customer-bff-dev oci-customer-bff-dev=localhost:32000/oci-customer-bff:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-employee-bff-dev oci-employee-bff-dev=localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-customer-portal-dev oci-customer-portal-dev=localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-employee-portal-dev oci-employee-portal-dev=localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-pebble-proxy-dev oci-pebble-proxy-dev=localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -n oci-dev
+          kubectl set image deployment/oci-worker-dev oci-worker-dev=localhost:32000/oci-worker:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/oci-marketing oci-marketing=localhost:32000/oci-marketing:sha-${COMMIT_SHA} -n oci-dev
 
           echo "Waiting for oci-dev workloads to reach ready state..."
