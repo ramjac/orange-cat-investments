@@ -158,6 +158,12 @@ fi
 
 echo "Connected to Forgejo host: ${FORGEJO_URL}"
 AUTH_HEADER="Authorization: Basic $(echo -n "${ADMIN_USER}:${ADMIN_PASSWORD}" | base64)"
+if ! curl -sf -H "${AUTH_HEADER}" "${FORGEJO_URL}/api/v1/user" >/dev/null 2>&1; then
+    if curl -sf -H "Authorization: Basic $(echo -n "oci-admin:${ADMIN_PASSWORD}" | base64)" "${FORGEJO_URL}/api/v1/user" >/dev/null 2>&1; then
+        ADMIN_USER="oci-admin"
+        AUTH_HEADER="Authorization: Basic $(echo -n "${ADMIN_USER}:${ADMIN_PASSWORD}" | base64)"
+    fi
+fi
 
 # Check Version
 VERSION_INFO=$(curl -sf -H "${AUTH_HEADER}" "${FORGEJO_URL}/api/v1/version" 2>/dev/null || true)
@@ -252,8 +258,17 @@ FORGEJO_HOST=$(echo "${FORGEJO_URL}" | sed -e 's|^[^/]*//||')
 CURRENT_COMMIT=$(git rev-parse HEAD)
 echo "Current HEAD commit: ${CURRENT_COMMIT} (branch: ${TARGET_BRANCH})"
 
+SYNC_TOKEN=$(curl -sf -X POST "${FORGEJO_URL}/api/v1/users/${ADMIN_USER}/tokens" \
+    -H "${AUTH_HEADER}" \
+    -H "Content-Type: application/json" \
+    -d "{\"name\":\"sync-token-$(date +%s)\",\"scopes\":[\"all\"]}" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin).get('sha1', ''))" 2>/dev/null || true)
+
 for REPO_NAME in monorepo orange-cat-investments; do
-    REMOTE_URL="http://${ADMIN_USER}:${ADMIN_PASSWORD}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
+    if [[ -n "${SYNC_TOKEN}" ]]; then
+        REMOTE_URL="http://${SYNC_TOKEN}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
+    else
+        REMOTE_URL="http://${ADMIN_USER}:${ADMIN_PASSWORD}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
+    fi
     echo "Pushing HEAD to ${TARGET_ORG}/${REPO_NAME}:${TARGET_BRANCH}..."
     if git push "${REMOTE_URL}" "HEAD:refs/heads/${TARGET_BRANCH}" --force >/dev/null 2>&1; then
         echo "Successfully pushed to ${TARGET_ORG}/${REPO_NAME}."
