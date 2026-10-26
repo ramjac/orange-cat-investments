@@ -1295,8 +1295,8 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_review_performance_reports",
 				Description: "Audits historical quantitative backtest performance and strategy returns",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/backtesting/runs"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/trade-logs"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1316,16 +1316,16 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_deposit_investment_capital",
 				Description: "Executes steady capital deposit order into OCI Alpha Growth Fund",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "SPY",
 						"side":         "buy",
-						"quantity":     10,
+						"quantity":     10.0,
 						"price":        510.50,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1345,8 +1345,8 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_monitor_feline_stream",
 				Description: "Passively checks optical camera streams to verify feline habitat comfort",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/streams"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/streams"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1366,7 +1366,7 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_schedule_recurring_ach_deposit",
 				Description: "Schedules automated monthly recurring ACH deposit from linked Chase checking account",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/recurring-deposits"
+					endpoint := "/api/v1/customer/deposits"
 					payload := map[string]any{
 						"customer_id":  "cust-longterm-arthur",
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
@@ -1374,7 +1374,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						"frequency":    "monthly",
 						"bank_account": "Chase Checking (****4821)",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1663,8 +1663,8 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_scan_activity_streams",
 				Description: "Scans real-time camera streams for high-activity feline behavioral telemetry",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/streams"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/streams"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1684,16 +1684,15 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_momentum_buy_order",
 				Description: "Executes aggressive momentum buy order on feline zoomies activity spike",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
-						"broker_name":  "Interactive Brokers",
 						"symbol":       "NVDA",
 						"side":         "buy",
-						"quantity":     50,
+						"quantity":     50.0,
 						"price":        125.75,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1713,16 +1712,15 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_take_profit_sell_order",
 				Description: "Executes tactical take-profit sell order as cat activity returns to baseline",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
-						"broker_name":  "Interactive Brokers",
 						"symbol":       "NVDA",
 						"side":         "sell",
-						"quantity":     50,
+						"quantity":     50.0,
 						"price":        131.25,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1742,8 +1740,8 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_audit_execution_log",
 				Description: "Audits real-time trade order execution logs and settlement status",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/trade-logs"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -2002,7 +2000,7 @@ func (r *Registry) createRickPersona() *Persona {
 					endpoint := "/api/v1/webhooks/frappe-hr"
 					payload := map[string]any{
 						"event":         "employee_created",
-						"employee_id":   "emp-human-rick",
+						"employee_id":   "018f3a9a-e005-7000-8000-000000000005",
 						"employee_type": "human",
 						"first_name":    "Rick",
 						"last_name":     "Newhire",
@@ -2278,7 +2276,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"title":           "Habitat Alpha Thermostat Calibration Drift",
 						"body":            "Environmental monitoring sensor reports temperature delta exceeding +3.5C in Habitat Alpha.",
 						"author_username": "emp-human-elise",
-						"category":        "Habitat",
+						"category":        "habitat",
 						"severity":        "urgent",
 						"is_urgent":       true,
 						"forgejo_repo":    "oci-internal/helpdesk",

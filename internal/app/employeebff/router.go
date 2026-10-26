@@ -49,6 +49,9 @@ func (b *EmployeeBFF) RegisterRoutes(mux *http.ServeMux) {
 	// 5. Facilities domain routes (delegating to internal-bll over gRPC)
 	b.RegisterFacilitiesRoutes(mux)
 
+	// 5b. Quant & Core Invest domain routes
+	b.RegisterQuantRoutes(mux)
+
 	// 6. Incident SSE Stream & Broadcast Hub
 	if b.incidentBroker != nil {
 		sessionAuth := SessionAuthMiddleware(b.sessionStore)

@@ -98,11 +98,19 @@ func NewServer(cfg Config) *Server {
 			brokerURL = os.Getenv("ALPACA_BASE_URL")
 		}
 		if brokerURL != "" {
+			apiKey := os.Getenv("APCA_API_KEY_ID")
+			if apiKey == "" {
+				apiKey = "CK_OCI_TEST_KEY_01"
+			}
+			apiSecret := os.Getenv("APCA_API_SECRET_KEY")
+			if apiSecret == "" {
+				apiSecret = "SK_OCI_TEST_SECRET_01"
+			}
 			s.brokerClient = alpaca.NewClient(alpaca.Config{
 				BaseURL:   brokerURL,
 				DataURL:   os.Getenv("ALPACA_DATA_URL"),
-				APIKey:    os.Getenv("APCA_API_KEY_ID"),
-				APISecret: os.Getenv("APCA_API_SECRET_KEY"),
+				APIKey:    apiKey,
+				APISecret: apiSecret,
 			})
 			logger.Info("Customer BLL connected to broker", "broker_url", brokerURL)
 		}
@@ -114,10 +122,18 @@ func NewServer(cfg Config) *Server {
 			bankURL = os.Getenv("PLAID_BASE_URL")
 		}
 		if bankURL != "" {
+			clientID := os.Getenv("PLAID_CLIENT_ID")
+			if clientID == "" {
+				clientID = "client_oci_sim_01"
+			}
+			secret := os.Getenv("PLAID_SECRET")
+			if secret == "" {
+				secret = "sec_oci_sim_test_8829"
+			}
 			s.bankClient = plaid.NewClient(plaid.Config{
 				BaseURL:  bankURL,
-				ClientID: os.Getenv("PLAID_CLIENT_ID"),
-				Secret:   os.Getenv("PLAID_SECRET"),
+				ClientID: clientID,
+				Secret:   secret,
 			})
 			logger.Info("Customer BLL connected to bank", "bank_url", bankURL)
 		}

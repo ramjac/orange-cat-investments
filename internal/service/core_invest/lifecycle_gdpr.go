@@ -105,7 +105,7 @@ func (s *coreInvestService) RegisterCustomer(ctx context.Context, req CustomerRe
 
 	h := sha256.Sum256([]byte(req.Email + ":" + req.FullName))
 	slug := hex.EncodeToString(h[:6])
-	custID := fmt.Sprintf("cust-%s", slug)
+	custID := fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
 	zitadelUserID := fmt.Sprintf("zitadel-usr-%s", hex.EncodeToString(h[6:12]))
 
 	accountName := req.TargetFund

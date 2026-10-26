@@ -389,11 +389,11 @@ func (c *Client) doRequest(ctx context.Context, fullURL, method string, body any
 	return resp, respBytes, nil
 }
 
-// Do executes an HTTP request against either the Server or Employee BFF target URL.
+// Do executes an HTTP request against the Employee BFF target URL.
 func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body any) (*http.Response, []byte, error) {
-	baseURL := c.serverURL
-	if useBFF {
-		baseURL = c.bffURL
+	baseURL := c.bffURL
+	if baseURL == "" {
+		baseURL = c.serverURL
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, nil)
 }
@@ -414,8 +414,8 @@ func (c *Client) DoBroker(ctx context.Context, method, path string, body any) (*
 		baseURL = "http://localhost:8089"
 	}
 	headers := map[string]string{
-		"APCA-API-KEY-ID":     "MOCK_ALPACAKEY",
-		"APCA-API-SECRET-KEY": "MOCK_SECRET",
+		"APCA-API-KEY-ID":     "CK_OCI_TEST_KEY_01",
+		"APCA-API-SECRET-KEY": "SK_OCI_TEST_SECRET_01",
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
@@ -427,8 +427,8 @@ func (c *Client) DoBank(ctx context.Context, method, path string, body any) (*ht
 		baseURL = "http://localhost:8088"
 	}
 	headers := map[string]string{
-		"PLAID-CLIENT-ID": "mock-client-id",
-		"PLAID-SECRET":    "mock-secret",
+		"PLAID-CLIENT-ID": "client_oci_sim_01",
+		"PLAID-SECRET":    "sec_oci_sim_test_8829",
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
@@ -439,8 +439,12 @@ func (c *Client) DoForgejo(ctx context.Context, method, path string, body any) (
 	if baseURL == "" {
 		baseURL = "http://localhost:3000"
 	}
+	token := os.Getenv("FORGEJO_TOKEN")
+	if token == "" {
+		token = "14d90cb21c0fefa3ed3ee3a276159a3fcf99acb6"
+	}
 	headers := map[string]string{
-		"Authorization": "token mock-forgejo-token",
+		"Authorization": "token " + token,
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }

@@ -20,7 +20,7 @@ spec:
       containers:
         - name: oci-customer-bff-dev
           image: localhost:32000/oci-customer-bff:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8083
               name: http
@@ -93,11 +93,30 @@ spec:
     - oci-customer-bff-dev-service
     - oci-customer-bff-dev-service.oci-dev.svc
     - oci-customer-bff-dev-service.oci-dev.svc.cluster.local
+    - oci-customer-bff-service
+    - oci-customer-bff-service.oci-dev.svc
+    - oci-customer-bff-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: oci-customer-bff-dev-service
+  namespace: oci-dev
+  labels:
+    app: oci-customer-bff-dev
+    tier: bff
+spec:
+  ports:
+    - port: 8083
+      targetPort: 8083
+      name: http
+  selector:
+    app: oci-customer-bff-dev
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oci-customer-bff-service
   namespace: oci-dev
   labels:
     app: oci-customer-bff-dev

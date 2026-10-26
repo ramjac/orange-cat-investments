@@ -32,10 +32,20 @@ spec:
               value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
             - name: CORE_INVEST_API_URL
               value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
+            - name: OPS_API_URL
+              value: "https://ops-api-service.oci-dev.svc.cluster.local:50054"
             - name: BROKER_API_BASE_URL
               value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
             - name: BANK_API_BASE_URL
               value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
+            - name: APCA_API_KEY_ID
+              value: "CK_OCI_TEST_KEY_01"
+            - name: APCA_API_SECRET_KEY
+              value: "SK_OCI_TEST_SECRET_01"
+            - name: PLAID_CLIENT_ID
+              value: "client_oci_sim_01"
+            - name: PLAID_SECRET
+              value: "sec_oci_sim_test_8829"
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: DEFAULT_FELINE_ID

@@ -251,7 +251,7 @@ func (s *opsService) CreateITTicket(ctx context.Context, req *CreateITTicketRequ
 	if severity == "" {
 		severity = "medium"
 	}
-	category := req.Category
+	category := strings.ToLower(strings.TrimSpace(req.Category))
 	if category == "" {
 		category = "software"
 	}
@@ -441,7 +441,7 @@ func (s *opsService) CreateCustomerTicket(ctx context.Context, req *CreateCustom
 		return nil, errors.New("customer_id and title are required")
 	}
 
-	category := req.Category
+	category := strings.ToLower(strings.TrimSpace(req.Category))
 	if category == "" {
 		category = "general"
 	}

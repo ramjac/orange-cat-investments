@@ -20,7 +20,7 @@ spec:
       containers:
         - name: oci-worker
           image: localhost:32000/oci-worker:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
               name: health

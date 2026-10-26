@@ -177,6 +177,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("POST /facilities/logs/sync", syncLogs)
 	mux.HandleFunc("POST /api/v1/facilities/logs/sync", syncLogs)
+	mux.HandleFunc("POST /facilities/sync/maintenance-logs", syncLogs)
+	mux.HandleFunc("POST /api/v1/facilities/sync/maintenance-logs", syncLogs)
 
 	// Firmware Releases
 	listFirmware := func(w http.ResponseWriter, r *http.Request) {

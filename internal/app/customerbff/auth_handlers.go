@@ -257,11 +257,6 @@ func (b *CustomerBFF) handleCloseAccount(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if b.sessions != nil {
-		if _, err := b.sessions.PurgeCustomerSessions(sess.CustomerID); err != nil {
-			b.logger.Warn("failed to purge customer sessions on account closure", "customer_id", sess.CustomerID, "error", err)
-		}
-	}
 	if b.cache != nil {
 		_ = b.cache.Delete(r.Context(), cachevalkey.KeyPortfolio(sess.CustomerID), cachevalkey.KeyOrders(sess.CustomerID))
 	}
