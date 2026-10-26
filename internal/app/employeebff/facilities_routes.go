@@ -105,22 +105,26 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		}
 		assetID := r.PathValue("id")
 		var req struct {
-			Title       string `json:"title"`
-			Description string `json:"description"`
-			Priority    string `json:"priority"`
+			Title          string `json:"title"`
+			Description    string `json:"description"`
+			Priority       string `json:"priority"`
+			AuthorUsername string `json:"author_username"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		author := "system"
+		author := req.AuthorUsername
 		if emp := session.EmployeeFromContext(r.Context()); emp != nil {
 			if emp.EmployeeID != "" {
 				author = emp.EmployeeID
 			} else if emp.Name != "" {
 				author = emp.Name
 			}
+		}
+		if author == "" {
+			author = "system"
 		}
 
 		tResp, err := b.bllClient.CreateTicket(r.Context(), &opsv1.CreateTicketRequest{

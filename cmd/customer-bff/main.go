@@ -66,12 +66,12 @@ func main() {
 	}
 
 	conn, err := grpcutil.Dial(context.Background(), bllAddr, clientTLS)
-	if err == nil {
-		bllClient = customerbllv1.NewCustomerBLLServiceClient(conn)
-		logger.Info("connected Customer BFF to Customer BLL upstream via gRPC", "addr", bllAddr)
-	} else {
-		logger.Warn("failed to connect to Customer BLL upstream; running with in-memory fallback", "addr", bllAddr, "error", err)
+	if err != nil {
+		logger.Error("failed to connect to Customer BLL upstream", "addr", bllAddr, "error", err)
+		os.Exit(1)
 	}
+	bllClient = customerbllv1.NewCustomerBLLServiceClient(conn)
+	logger.Info("connected Customer BFF to Customer BLL upstream via gRPC", "addr", bllAddr)
 
 	custBFF := customerbff.NewCustomerBFF(bllClient, logger)
 

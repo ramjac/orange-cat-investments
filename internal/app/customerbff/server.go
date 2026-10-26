@@ -32,13 +32,13 @@ type CustomerBFF struct {
 }
 
 // NewCustomerBFF initializes a new CustomerBFF instance.
-// If bllClient is nil, an in-memory mock client is created for standalone testing.
+// In production code, bllClient is required and cannot be nil.
 func NewCustomerBFF(bllClient customerbllv1.CustomerBLLServiceClient, logger *slog.Logger) *CustomerBFF {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if bllClient == nil {
-		bllClient = newMockCustomerBLLClient()
+		panic("customerbff: bllClient is required and cannot be nil")
 	}
 
 	valkeyAddr := os.Getenv("VALKEY_ADDR")

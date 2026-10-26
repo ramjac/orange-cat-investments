@@ -1,4 +1,4 @@
-package main
+package customerbff
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 )
 
 func TestCustomerBFF_PortfolioCachingAndConditionalETag(t *testing.T) {
-	bff := NewCustomerBFF(nil, nil)
+	bff := NewCustomerBFF(newMockCustomerBLLClient(), nil)
 
 	// Ensure in-memory cache and session store
 	cache := cachevalkey.NewMemoryCache()
@@ -87,7 +87,7 @@ func TestCustomerBFF_PortfolioCachingAndConditionalETag(t *testing.T) {
 }
 
 func TestCustomerBFF_RateLimiting(t *testing.T) {
-	bff := NewCustomerBFF(nil, nil)
+	bff := NewCustomerBFF(newMockCustomerBLLClient(), nil)
 	limiter := cachevalkey.NewRateLimiter(nil, nil)
 	bff.SetRateLimiter(limiter)
 
