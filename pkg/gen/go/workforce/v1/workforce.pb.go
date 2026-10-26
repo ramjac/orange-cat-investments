@@ -21,6 +21,18 @@ type Employee struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+type OnboardingTask struct {
+	ChecklistID string `json:"checklist_id"`
+	EmployeeID  string `json:"employee_id"`
+	TaskName    string `json:"task_name"`
+	Category    string `json:"category"`
+	IsCompleted bool   `json:"is_completed"`
+	CompletedAt string `json:"completed_at"`
+	AssignedTo  string `json:"assigned_to"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
 type GetEmployeeRequest struct {
 	EmployeeID string `json:"employee_id"`
 }
@@ -49,6 +61,41 @@ type CreateEmployeeRequest struct {
 
 type CreateEmployeeResponse struct {
 	Employee *Employee `json:"employee"`
+}
+
+type OnboardEmployeeRequest struct {
+	Employee     *Employee     `json:"employee"`
+	CareSchedule *CareSchedule `json:"care_schedule"`
+}
+
+type OnboardEmployeeResponse struct {
+	Employee *Employee `json:"employee"`
+}
+
+type UpdateEmployeeStatusRequest struct {
+	EmployeeID string `json:"employee_id"`
+	Status     string `json:"status"`
+}
+
+type UpdateEmployeeStatusResponse struct {
+	Employee *Employee `json:"employee"`
+}
+
+type ListOnboardingChecklistRequest struct {
+	EmployeeID string `json:"employee_id"`
+}
+
+type ListOnboardingChecklistResponse struct {
+	Tasks []*OnboardingTask `json:"tasks"`
+}
+
+type UpdateOnboardingTaskRequest struct {
+	ChecklistID string `json:"checklist_id"`
+	IsCompleted bool   `json:"is_completed"`
+}
+
+type UpdateOnboardingTaskResponse struct {
+	Task *OnboardingTask `json:"task"`
 }
 
 type CareSchedule struct {
@@ -118,6 +165,14 @@ type SubmitLeaveResponse struct {
 	LeaveRequest *LeaveRequest `json:"leave_request"`
 }
 
+type GetLeaveRequestRequest struct {
+	LeaveID string `json:"leave_id"`
+}
+
+type GetLeaveRequestResponse struct {
+	LeaveRequest *LeaveRequest `json:"leave_request"`
+}
+
 type ListLeaveRequestsRequest struct {
 	EmployeeID string `json:"employee_id"`
 	Status     string `json:"status"`
@@ -137,34 +192,155 @@ type UpdateLeaveStatusResponse struct {
 }
 
 type ReviewCycle struct {
-	ReviewID     string  `json:"review_id"`
-	EmployeeID   string  `json:"employee_id"`
-	ReviewType   string  `json:"review_type"`
-	ReviewPeriod string  `json:"review_period"`
-	Phase        string  `json:"phase"`
-	ScheduledFor string  `json:"scheduled_for"`
-	Status       string  `json:"status"`
-	Score        float64 `json:"score"`
-	Notes        string  `json:"notes"`
+	ReviewID               string  `json:"review_id"`
+	EmployeeID             string  `json:"employee_id"`
+	ReviewType             string  `json:"review_type"`
+	ReviewPeriod           string  `json:"review_period"`
+	Phase                  string  `json:"phase"`
+	ScheduledFor           string  `json:"scheduled_for"`
+	Status                 string  `json:"status"`
+	ReviewerID             string  `json:"reviewer_id"`
+	Score                  float64 `json:"score"`
+	Notes                  string  `json:"notes"`
+	SelfAppraisal          string  `json:"self_appraisal"`
+	SelfScore              float64 `json:"self_score"`
+	PeerFeedback           string  `json:"peer_feedback"`
+	PeerScore              float64 `json:"peer_score"`
+	PeerReviewerID         string  `json:"peer_reviewer_id"`
+	ManagerAssessment      string  `json:"manager_assessment"`
+	ManagerScore           float64 `json:"manager_score"`
+	KPIRatings             string  `json:"kpi_ratings"`
+	WellnessAuditScore     float64 `json:"wellness_audit_score"`
+	HabitatRecommendations string  `json:"habitat_recommendations"`
+	ClinicalAuditorID      string  `json:"clinical_auditor_id"`
+	VHRRecordID            string  `json:"vhr_record_id"`
+	CompletedAt            string  `json:"completed_at"`
+	CreatedAt              string  `json:"created_at"`
+	UpdatedAt              string  `json:"updated_at"`
 }
 
 type CreateReviewCycleRequest struct {
-	EmployeeID   string `json:"employee_id"`
-	ReviewType   string `json:"review_type"`
-	ReviewPeriod string `json:"review_period"`
-	ScheduledFor string `json:"scheduled_for"`
+	EmployeeID             string  `json:"employee_id"`
+	ReviewType             string  `json:"review_type"`
+	ReviewPeriod           string  `json:"review_period"`
+	ScheduledFor           string  `json:"scheduled_for"`
+	Phase                  string  `json:"phase"`
+	ReviewerID             string  `json:"reviewer_id"`
+	Notes                  string  `json:"notes"`
+	SelfAppraisal          string  `json:"self_appraisal"`
+	SelfScore              float64 `json:"self_score"`
+	HasSelfScore           bool    `json:"has_self_score"`
+	PeerFeedback           string  `json:"peer_feedback"`
+	PeerScore              float64 `json:"peer_score"`
+	HasPeerScore           bool    `json:"has_peer_score"`
+	PeerReviewerID         string  `json:"peer_reviewer_id"`
+	ManagerAssessment      string  `json:"manager_assessment"`
+	ManagerScore           float64 `json:"manager_score"`
+	HasManagerScore        bool    `json:"has_manager_score"`
+	KPIRatings             string  `json:"kpi_ratings"`
+	WellnessAuditScore     float64 `json:"wellness_audit_score"`
+	HasWellnessScore       bool    `json:"has_wellness_score"`
+	HabitatRecommendations string  `json:"habitat_recommendations"`
+	ClinicalAuditorID      string  `json:"clinical_auditor_id"`
+	VHRRecordID            string  `json:"vhr_record_id"`
 }
 
 type CreateReviewCycleResponse struct {
 	ReviewCycle *ReviewCycle `json:"review_cycle"`
 }
 
+type GetReviewCycleRequest struct {
+	ReviewID string `json:"review_id"`
+}
+
+type GetReviewCycleResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
+}
+
 type ListReviewCyclesRequest struct {
 	EmployeeID string `json:"employee_id"`
+	Status     string `json:"status"`
+	ReviewType string `json:"review_type"`
 }
 
 type ListReviewCyclesResponse struct {
 	ReviewCycles []*ReviewCycle `json:"review_cycles"`
+}
+
+type UpdateReviewCycleRequest struct {
+	ReviewID               string  `json:"review_id"`
+	ReviewPeriod           string  `json:"review_period"`
+	Phase                  string  `json:"phase"`
+	Status                 string  `json:"status"`
+	ReviewerID             string  `json:"reviewer_id"`
+	Score                  float64 `json:"score"`
+	HasScore               bool    `json:"has_score"`
+	Notes                  string  `json:"notes"`
+	SelfAppraisal          string  `json:"self_appraisal"`
+	SelfScore              float64 `json:"self_score"`
+	HasSelfScore           bool    `json:"has_self_score"`
+	PeerFeedback           string  `json:"peer_feedback"`
+	PeerScore              float64 `json:"peer_score"`
+	HasPeerScore           bool    `json:"has_peer_score"`
+	PeerReviewerID         string  `json:"peer_reviewer_id"`
+	ManagerAssessment      string  `json:"manager_assessment"`
+	ManagerScore           float64 `json:"manager_score"`
+	HasManagerScore        bool    `json:"has_manager_score"`
+	KPIRatings             string  `json:"kpi_ratings"`
+	WellnessAuditScore     float64 `json:"wellness_audit_score"`
+	HasWellnessScore       bool    `json:"has_wellness_score"`
+	HabitatRecommendations string  `json:"habitat_recommendations"`
+	ClinicalAuditorID      string  `json:"clinical_auditor_id"`
+	VHRRecordID            string  `json:"vhr_record_id"`
+}
+
+type UpdateReviewCycleResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
+}
+
+type SubmitSelfAppraisalRequest struct {
+	ReviewID  string  `json:"review_id"`
+	Appraisal string  `json:"appraisal"`
+	Score     float64 `json:"score"`
+}
+
+type SubmitSelfAppraisalResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
+}
+
+type SubmitPeerFeedbackRequest struct {
+	ReviewID       string  `json:"review_id"`
+	PeerReviewerID string  `json:"peer_reviewer_id"`
+	Feedback       string  `json:"feedback"`
+	Score          float64 `json:"score"`
+}
+
+type SubmitPeerFeedbackResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
+}
+
+type SubmitManagerAssessmentRequest struct {
+	ReviewID   string  `json:"review_id"`
+	ManagerID  string  `json:"manager_id"`
+	Assessment string  `json:"assessment"`
+	Score      float64 `json:"score"`
+	KPIRatings string  `json:"kpi_ratings"`
+}
+
+type SubmitManagerAssessmentResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
+}
+
+type SubmitVeterinaryAuditRequest struct {
+	ReviewID        string  `json:"review_id"`
+	AuditorID       string  `json:"auditor_id"`
+	WellnessScore   float64 `json:"wellness_score"`
+	Recommendations string  `json:"recommendations"`
+	VHRRecordID     string  `json:"vhr_record_id"`
+}
+
+type SubmitVeterinaryAuditResponse struct {
+	ReviewCycle *ReviewCycle `json:"review_cycle"`
 }
 
 type VHRRecord struct {
@@ -239,38 +415,153 @@ type ListIncidentsResponse struct {
 	Incidents []*WorkplaceIncident `json:"incidents"`
 }
 
+type UpdateIncidentStatusRequest struct {
+	IncidentID      string `json:"incident_id"`
+	Status          string `json:"status"`
+	ResolutionNotes string `json:"resolution_notes"`
+}
+
+type UpdateIncidentStatusResponse struct {
+	Incident *WorkplaceIncident `json:"incident"`
+}
+
+type ExecutiveReport struct {
+	ReportID           string  `json:"report_id"`
+	Period             string  `json:"period"`
+	Title              string  `json:"title"`
+	Status             string  `json:"status"`
+	TotalRevenue       float64 `json:"total_revenue"`
+	OperatingExpenses  float64 `json:"operating_expenses"`
+	PayrollExpenses    float64 `json:"payroll_expenses"`
+	NetProfit          float64 `json:"net_profit"`
+	OperationalBurn    float64 `json:"operational_burn"`
+	CashReserves       float64 `json:"cash_reserves"`
+	RunwayMonths       float64 `json:"runway_months"`
+	TotalHeadcount     int32   `json:"total_headcount"`
+	HumanHeadcount     int32   `json:"human_headcount"`
+	FelineHeadcount    int32   `json:"feline_headcount"`
+	AttendanceRate     float64 `json:"attendance_rate"`
+	OvertimeHours      float64 `json:"overtime_hours"`
+	TimesheetsApproved int32   `json:"timesheets_approved"`
+	WebDAVPathPDF      string  `json:"webdav_path_pdf"`
+	WebDAVPathCSV      string  `json:"webdav_path_csv"`
+	CSVContent         string  `json:"csv_content"`
+	PDFContent         []byte  `json:"pdf_content"`
+	GeneratedBy        string  `json:"generated_by"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+}
+
+type CreateExecutiveReportRequest struct {
+	Report *ExecutiveReport `json:"report"`
+}
+
+type CreateExecutiveReportResponse struct {
+	Report *ExecutiveReport `json:"report"`
+}
+
+type GetExecutiveReportRequest struct {
+	ReportID string `json:"report_id"`
+}
+
+type GetExecutiveReportResponse struct {
+	Report *ExecutiveReport `json:"report"`
+}
+
+type GetExecutiveReportByPeriodRequest struct {
+	Period string `json:"period"`
+}
+
+type GetExecutiveReportByPeriodResponse struct {
+	Report *ExecutiveReport `json:"report"`
+}
+
+type ListExecutiveReportsRequest struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type ListExecutiveReportsResponse struct {
+	Reports []*ExecutiveReport `json:"reports"`
+}
+
+type UpdateExecutiveReportStatusRequest struct {
+	ReportID      string `json:"report_id"`
+	Status        string `json:"status"`
+	WebDAVPathPDF string `json:"webdav_path_pdf"`
+	WebDAVPathCSV string `json:"webdav_path_csv"`
+}
+
+type UpdateExecutiveReportStatusResponse struct {
+	Report *ExecutiveReport `json:"report"`
+}
+
 type WorkforceServiceClient interface {
 	GetEmployee(ctx context.Context, in *GetEmployeeRequest) (*GetEmployeeResponse, error)
 	ListEmployees(ctx context.Context, in *ListEmployeesRequest) (*ListEmployeesResponse, error)
 	CreateEmployee(ctx context.Context, in *CreateEmployeeRequest) (*CreateEmployeeResponse, error)
+	OnboardEmployee(ctx context.Context, in *OnboardEmployeeRequest) (*OnboardEmployeeResponse, error)
+	UpdateEmployeeStatus(ctx context.Context, in *UpdateEmployeeStatusRequest) (*UpdateEmployeeStatusResponse, error)
+	ListOnboardingChecklist(ctx context.Context, in *ListOnboardingChecklistRequest) (*ListOnboardingChecklistResponse, error)
+	UpdateOnboardingTask(ctx context.Context, in *UpdateOnboardingTaskRequest) (*UpdateOnboardingTaskResponse, error)
 	GetCareSchedule(ctx context.Context, in *GetCareScheduleRequest) (*GetCareScheduleResponse, error)
 	UpdateCareSchedule(ctx context.Context, in *UpdateCareScheduleRequest) (*UpdateCareScheduleResponse, error)
 	SetMedicalHold(ctx context.Context, in *SetMedicalHoldRequest) (*SetMedicalHoldResponse, error)
 	SubmitLeaveRequest(ctx context.Context, in *SubmitLeaveRequestMessage) (*SubmitLeaveResponse, error)
+	GetLeaveRequest(ctx context.Context, in *GetLeaveRequestRequest) (*GetLeaveRequestResponse, error)
 	ListLeaveRequests(ctx context.Context, in *ListLeaveRequestsRequest) (*ListLeaveRequestsResponse, error)
 	UpdateLeaveStatus(ctx context.Context, in *UpdateLeaveStatusRequest) (*UpdateLeaveStatusResponse, error)
 	CreateReviewCycle(ctx context.Context, in *CreateReviewCycleRequest) (*CreateReviewCycleResponse, error)
+	GetReviewCycle(ctx context.Context, in *GetReviewCycleRequest) (*GetReviewCycleResponse, error)
 	ListReviewCycles(ctx context.Context, in *ListReviewCyclesRequest) (*ListReviewCyclesResponse, error)
+	UpdateReviewCycle(ctx context.Context, in *UpdateReviewCycleRequest) (*UpdateReviewCycleResponse, error)
+	SubmitSelfAppraisal(ctx context.Context, in *SubmitSelfAppraisalRequest) (*SubmitSelfAppraisalResponse, error)
+	SubmitPeerFeedback(ctx context.Context, in *SubmitPeerFeedbackRequest) (*SubmitPeerFeedbackResponse, error)
+	SubmitManagerAssessment(ctx context.Context, in *SubmitManagerAssessmentRequest) (*SubmitManagerAssessmentResponse, error)
+	SubmitVeterinaryAudit(ctx context.Context, in *SubmitVeterinaryAuditRequest) (*SubmitVeterinaryAuditResponse, error)
 	CreateVHRRecord(ctx context.Context, in *CreateVHRRecordRequest) (*CreateVHRRecordResponse, error)
 	ListVHRRecords(ctx context.Context, in *ListVHRRecordsRequest) (*ListVHRRecordsResponse, error)
 	CreateIncident(ctx context.Context, in *CreateIncidentRequest) (*CreateIncidentResponse, error)
 	ListIncidents(ctx context.Context, in *ListIncidentsRequest) (*ListIncidentsResponse, error)
+	UpdateIncidentStatus(ctx context.Context, in *UpdateIncidentStatusRequest) (*UpdateIncidentStatusResponse, error)
+	CreateExecutiveReport(ctx context.Context, in *CreateExecutiveReportRequest) (*CreateExecutiveReportResponse, error)
+	GetExecutiveReport(ctx context.Context, in *GetExecutiveReportRequest) (*GetExecutiveReportResponse, error)
+	GetExecutiveReportByPeriod(ctx context.Context, in *GetExecutiveReportByPeriodRequest) (*GetExecutiveReportByPeriodResponse, error)
+	ListExecutiveReports(ctx context.Context, in *ListExecutiveReportsRequest) (*ListExecutiveReportsResponse, error)
+	UpdateExecutiveReportStatus(ctx context.Context, in *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error)
 }
 
 type WorkforceServiceServer interface {
 	GetEmployee(ctx context.Context, in *GetEmployeeRequest) (*GetEmployeeResponse, error)
 	ListEmployees(ctx context.Context, in *ListEmployeesRequest) (*ListEmployeesResponse, error)
 	CreateEmployee(ctx context.Context, in *CreateEmployeeRequest) (*CreateEmployeeResponse, error)
+	OnboardEmployee(ctx context.Context, in *OnboardEmployeeRequest) (*OnboardEmployeeResponse, error)
+	UpdateEmployeeStatus(ctx context.Context, in *UpdateEmployeeStatusRequest) (*UpdateEmployeeStatusResponse, error)
+	ListOnboardingChecklist(ctx context.Context, in *ListOnboardingChecklistRequest) (*ListOnboardingChecklistResponse, error)
+	UpdateOnboardingTask(ctx context.Context, in *UpdateOnboardingTaskRequest) (*UpdateOnboardingTaskResponse, error)
 	GetCareSchedule(ctx context.Context, in *GetCareScheduleRequest) (*GetCareScheduleResponse, error)
 	UpdateCareSchedule(ctx context.Context, in *UpdateCareScheduleRequest) (*UpdateCareScheduleResponse, error)
 	SetMedicalHold(ctx context.Context, in *SetMedicalHoldRequest) (*SetMedicalHoldResponse, error)
 	SubmitLeaveRequest(ctx context.Context, in *SubmitLeaveRequestMessage) (*SubmitLeaveResponse, error)
+	GetLeaveRequest(ctx context.Context, in *GetLeaveRequestRequest) (*GetLeaveRequestResponse, error)
 	ListLeaveRequests(ctx context.Context, in *ListLeaveRequestsRequest) (*ListLeaveRequestsResponse, error)
 	UpdateLeaveStatus(ctx context.Context, in *UpdateLeaveStatusRequest) (*UpdateLeaveStatusResponse, error)
 	CreateReviewCycle(ctx context.Context, in *CreateReviewCycleRequest) (*CreateReviewCycleResponse, error)
+	GetReviewCycle(ctx context.Context, in *GetReviewCycleRequest) (*GetReviewCycleResponse, error)
 	ListReviewCycles(ctx context.Context, in *ListReviewCyclesRequest) (*ListReviewCyclesResponse, error)
+	UpdateReviewCycle(ctx context.Context, in *UpdateReviewCycleRequest) (*UpdateReviewCycleResponse, error)
+	SubmitSelfAppraisal(ctx context.Context, in *SubmitSelfAppraisalRequest) (*SubmitSelfAppraisalResponse, error)
+	SubmitPeerFeedback(ctx context.Context, in *SubmitPeerFeedbackRequest) (*SubmitPeerFeedbackResponse, error)
+	SubmitManagerAssessment(ctx context.Context, in *SubmitManagerAssessmentRequest) (*SubmitManagerAssessmentResponse, error)
+	SubmitVeterinaryAudit(ctx context.Context, in *SubmitVeterinaryAuditRequest) (*SubmitVeterinaryAuditResponse, error)
 	CreateVHRRecord(ctx context.Context, in *CreateVHRRecordRequest) (*CreateVHRRecordResponse, error)
 	ListVHRRecords(ctx context.Context, in *ListVHRRecordsRequest) (*ListVHRRecordsResponse, error)
 	CreateIncident(ctx context.Context, in *CreateIncidentRequest) (*CreateIncidentResponse, error)
 	ListIncidents(ctx context.Context, in *ListIncidentsRequest) (*ListIncidentsResponse, error)
+	UpdateIncidentStatus(ctx context.Context, in *UpdateIncidentStatusRequest) (*UpdateIncidentStatusResponse, error)
+	CreateExecutiveReport(ctx context.Context, in *CreateExecutiveReportRequest) (*CreateExecutiveReportResponse, error)
+	GetExecutiveReport(ctx context.Context, in *GetExecutiveReportRequest) (*GetExecutiveReportResponse, error)
+	GetExecutiveReportByPeriod(ctx context.Context, in *GetExecutiveReportByPeriodRequest) (*GetExecutiveReportByPeriodResponse, error)
+	ListExecutiveReports(ctx context.Context, in *ListExecutiveReportsRequest) (*ListExecutiveReportsResponse, error)
+	UpdateExecutiveReportStatus(ctx context.Context, in *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error)
 }

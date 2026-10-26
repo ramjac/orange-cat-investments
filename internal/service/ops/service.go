@@ -13,6 +13,13 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
 )
 
+type (
+	ITTicket      = ops.ITTicket
+	TicketComment = ops.TicketComment
+)
+
+var NewMockRepository = ops.NewMockRepository
+
 // AppMessage Dictionary Key Constants for Pebble Watch C SDK
 const (
 	PebbleKeyCmd       uint32 = 0 // Command Type (1 = ALERT, 2 = ACK_CONFIRM)

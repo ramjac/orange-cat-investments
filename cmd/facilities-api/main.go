@@ -64,7 +64,7 @@ func main() {
 	}
 
 	grpcServer := grpcutil.NewServer(tlsConfig)
-	grpcSrv := NewFacilitiesGRPCServer(svc)
+	grpcSrv := NewFacilitiesGRPCServerWithRepo(svc, repo)
 	facilitiesv1.RegisterFacilitiesServiceServer(grpcServer, grpcSrv)
 
 	healthSrv := health.NewServer()

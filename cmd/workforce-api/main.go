@@ -69,7 +69,7 @@ func main() {
 	}
 
 	grpcServer := grpcutil.NewServer(tlsConfig)
-	grpcSrv := NewWorkforceGRPCServer(svc, enableFeline)
+	grpcSrv := NewWorkforceGRPCServerWithRepo(svc, repo, enableFeline)
 	workforcev1.RegisterWorkforceServiceServer(grpcServer, grpcSrv)
 
 	healthSrv := health.NewServer()

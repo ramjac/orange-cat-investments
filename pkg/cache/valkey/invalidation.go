@@ -7,9 +7,35 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 )
+
+// StartAMQPInvalidationListener initializes an AMQP subscriber for the given queuePrefix and starts
+// an event-driven cache invalidation listener if amqpURL is non-empty and reachable.
+func StartAMQPInvalidationListener(ctx context.Context, amqpURL, queuePrefix string, cache Cache, logger *slog.Logger) *InvalidationListener {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if amqpURL == "" || cache == nil {
+		return nil
+	}
+	wmLogger := watermill.NewStdLogger(false, false)
+	amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
+		return queuePrefix + ".cache-invalidation." + topic
+	})
+	amqpSub, err := amqp.NewSubscriber(amqpConfig, wmLogger)
+	if err != nil {
+		logger.Warn("failed to initialize RabbitMQ subscriber for cache invalidation", "prefix", queuePrefix, "error", err)
+		return nil
+	}
+	listener := NewInvalidationListener(cache, amqpSub, logger)
+	listener.Start(ctx)
+	logger.Info("connected to RabbitMQ for event-driven cache invalidation", "prefix", queuePrefix)
+	return listener
+}
 
 // InvalidationListener coordinates event subscriptions to eagerly evict caches.
 type InvalidationListener struct {

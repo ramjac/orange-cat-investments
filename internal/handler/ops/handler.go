@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
@@ -108,7 +107,7 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	source := r.URL.Query().Get("source")
-	var tickets []*opsrepo.ITTicket
+	var tickets []*opssvc.ITTicket
 	var err error
 
 	if source != "" {
@@ -129,7 +128,7 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 
 	filtered := tickets
 	if category != "" || state != "" || severity != "" {
-		filtered = make([]*opsrepo.ITTicket, 0, len(tickets))
+		filtered = make([]*opssvc.ITTicket, 0, len(tickets))
 		for _, t := range tickets {
 			if category != "" && t.Category != category {
 				continue

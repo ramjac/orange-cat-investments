@@ -8,23 +8,41 @@ service WorkforceService {
   rpc GetEmployee (GetEmployeeRequest) returns (GetEmployeeResponse);
   rpc ListEmployees (ListEmployeesRequest) returns (ListEmployeesResponse);
   rpc CreateEmployee (CreateEmployeeRequest) returns (CreateEmployeeResponse);
-  
+  rpc OnboardEmployee (OnboardEmployeeRequest) returns (OnboardEmployeeResponse);
+  rpc UpdateEmployeeStatus (UpdateEmployeeStatusRequest) returns (UpdateEmployeeStatusResponse);
+  rpc ListOnboardingChecklist (ListOnboardingChecklistRequest) returns (ListOnboardingChecklistResponse);
+  rpc UpdateOnboardingTask (UpdateOnboardingTaskRequest) returns (UpdateOnboardingTaskResponse);
+
   rpc GetCareSchedule (GetCareScheduleRequest) returns (GetCareScheduleResponse);
   rpc UpdateCareSchedule (UpdateCareScheduleRequest) returns (UpdateCareScheduleResponse);
   rpc SetMedicalHold (SetMedicalHoldRequest) returns (SetMedicalHoldResponse);
 
   rpc SubmitLeaveRequest (SubmitLeaveRequestMessage) returns (SubmitLeaveResponse);
+  rpc GetLeaveRequest (GetLeaveRequestRequest) returns (GetLeaveRequestResponse);
   rpc ListLeaveRequests (ListLeaveRequestsRequest) returns (ListLeaveRequestsResponse);
   rpc UpdateLeaveStatus (UpdateLeaveStatusRequest) returns (UpdateLeaveStatusResponse);
 
   rpc CreateReviewCycle (CreateReviewCycleRequest) returns (CreateReviewCycleResponse);
+  rpc GetReviewCycle (GetReviewCycleRequest) returns (GetReviewCycleResponse);
   rpc ListReviewCycles (ListReviewCyclesRequest) returns (ListReviewCyclesResponse);
+  rpc UpdateReviewCycle (UpdateReviewCycleRequest) returns (UpdateReviewCycleResponse);
+  rpc SubmitSelfAppraisal (SubmitSelfAppraisalRequest) returns (SubmitSelfAppraisalResponse);
+  rpc SubmitPeerFeedback (SubmitPeerFeedbackRequest) returns (SubmitPeerFeedbackResponse);
+  rpc SubmitManagerAssessment (SubmitManagerAssessmentRequest) returns (SubmitManagerAssessmentResponse);
+  rpc SubmitVeterinaryAudit (SubmitVeterinaryAuditRequest) returns (SubmitVeterinaryAuditResponse);
 
   rpc CreateVHRRecord (CreateVHRRecordRequest) returns (CreateVHRRecordResponse);
   rpc ListVHRRecords (ListVHRRecordsRequest) returns (ListVHRRecordsResponse);
 
   rpc CreateIncident (CreateIncidentRequest) returns (CreateIncidentResponse);
   rpc ListIncidents (ListIncidentsRequest) returns (ListIncidentsResponse);
+  rpc UpdateIncidentStatus (UpdateIncidentStatusRequest) returns (UpdateIncidentStatusResponse);
+
+  rpc CreateExecutiveReport (CreateExecutiveReportRequest) returns (CreateExecutiveReportResponse);
+  rpc GetExecutiveReport (GetExecutiveReportRequest) returns (GetExecutiveReportResponse);
+  rpc GetExecutiveReportByPeriod (GetExecutiveReportByPeriodRequest) returns (GetExecutiveReportByPeriodResponse);
+  rpc ListExecutiveReports (ListExecutiveReportsRequest) returns (ListExecutiveReportsResponse);
+  rpc UpdateExecutiveReportStatus (UpdateExecutiveReportStatusRequest) returns (UpdateExecutiveReportStatusResponse);
 }
 
 message Employee {
@@ -39,6 +57,18 @@ message Employee {
   string hired_at = 9;
   string created_at = 10;
   string updated_at = 11;
+}
+
+message OnboardingTask {
+  string checklist_id = 1;
+  string employee_id = 2;
+  string task_name = 3;
+  string category = 4;
+  bool is_completed = 5;
+  string completed_at = 6;
+  string assigned_to = 7;
+  string created_at = 8;
+  string updated_at = 9;
 }
 
 message GetEmployeeRequest {
@@ -69,6 +99,41 @@ message CreateEmployeeRequest {
 
 message CreateEmployeeResponse {
   Employee employee = 1;
+}
+
+message OnboardEmployeeRequest {
+  Employee employee = 1;
+  CareSchedule care_schedule = 2;
+}
+
+message OnboardEmployeeResponse {
+  Employee employee = 1;
+}
+
+message UpdateEmployeeStatusRequest {
+  string employee_id = 1;
+  string status = 2;
+}
+
+message UpdateEmployeeStatusResponse {
+  Employee employee = 1;
+}
+
+message ListOnboardingChecklistRequest {
+  string employee_id = 1;
+}
+
+message ListOnboardingChecklistResponse {
+  repeated OnboardingTask tasks = 1;
+}
+
+message UpdateOnboardingTaskRequest {
+  string checklist_id = 1;
+  bool is_completed = 2;
+}
+
+message UpdateOnboardingTaskResponse {
+  OnboardingTask task = 1;
 }
 
 message CareSchedule {
@@ -138,6 +203,14 @@ message SubmitLeaveResponse {
   LeaveRequest leave_request = 1;
 }
 
+message GetLeaveRequestRequest {
+  string leave_id = 1;
+}
+
+message GetLeaveRequestResponse {
+  LeaveRequest leave_request = 1;
+}
+
 message ListLeaveRequestsRequest {
   string employee_id = 1;
   string status = 2;
@@ -164,8 +237,24 @@ message ReviewCycle {
   string phase = 5;
   string scheduled_for = 6;
   string status = 7;
-  double score = 8;
-  string notes = 9;
+  string reviewer_id = 8;
+  double score = 9;
+  string notes = 10;
+  string self_appraisal = 11;
+  double self_score = 12;
+  string peer_feedback = 13;
+  double peer_score = 14;
+  string peer_reviewer_id = 15;
+  string manager_assessment = 16;
+  double manager_score = 17;
+  string kpi_ratings = 18;
+  double wellness_audit_score = 19;
+  string habitat_recommendations = 20;
+  string clinical_auditor_id = 21;
+  string vhr_record_id = 22;
+  string completed_at = 23;
+  string created_at = 24;
+  string updated_at = 25;
 }
 
 message CreateReviewCycleRequest {
@@ -173,18 +262,107 @@ message CreateReviewCycleRequest {
   string review_type = 2;
   string review_period = 3;
   string scheduled_for = 4;
+  string phase = 5;
+  string reviewer_id = 6;
+  string notes = 7;
 }
 
 message CreateReviewCycleResponse {
   ReviewCycle review_cycle = 1;
 }
 
+message GetReviewCycleRequest {
+  string review_id = 1;
+}
+
+message GetReviewCycleResponse {
+  ReviewCycle review_cycle = 1;
+}
+
 message ListReviewCyclesRequest {
   string employee_id = 1;
+  string status = 2;
+  string review_type = 3;
 }
 
 message ListReviewCyclesResponse {
   repeated ReviewCycle review_cycles = 1;
+}
+
+message UpdateReviewCycleRequest {
+  string review_id = 1;
+  string review_period = 2;
+  string phase = 3;
+  string status = 4;
+  string reviewer_id = 5;
+  double score = 6;
+  bool has_score = 7;
+  string notes = 8;
+  string self_appraisal = 9;
+  double self_score = 10;
+  bool has_self_score = 11;
+  string peer_feedback = 12;
+  double peer_score = 13;
+  bool has_peer_score = 14;
+  string peer_reviewer_id = 15;
+  string manager_assessment = 16;
+  double manager_score = 17;
+  bool has_manager_score = 18;
+  string kpi_ratings = 19;
+  double wellness_audit_score = 20;
+  bool has_wellness_score = 21;
+  string habitat_recommendations = 22;
+  string clinical_auditor_id = 23;
+  string vhr_record_id = 24;
+}
+
+message UpdateReviewCycleResponse {
+  ReviewCycle review_cycle = 1;
+}
+
+message SubmitSelfAppraisalRequest {
+  string review_id = 1;
+  string appraisal = 2;
+  double score = 3;
+}
+
+message SubmitSelfAppraisalResponse {
+  ReviewCycle review_cycle = 1;
+}
+
+message SubmitPeerFeedbackRequest {
+  string review_id = 1;
+  string peer_reviewer_id = 2;
+  string feedback = 3;
+  double score = 4;
+}
+
+message SubmitPeerFeedbackResponse {
+  ReviewCycle review_cycle = 1;
+}
+
+message SubmitManagerAssessmentRequest {
+  string review_id = 1;
+  string manager_id = 2;
+  string assessment = 3;
+  double score = 4;
+  string kpi_ratings = 5;
+}
+
+message SubmitManagerAssessmentResponse {
+  ReviewCycle review_cycle = 1;
+}
+
+message SubmitVeterinaryAuditRequest {
+  string review_id = 1;
+  string auditor_id = 2;
+  double wellness_score = 3;
+  string recommendations = 4;
+  string vhr_record_id = 5;
+}
+
+message SubmitVeterinaryAuditResponse {
+  ReviewCycle review_cycle = 1;
 }
 
 message VHRRecord {
@@ -257,4 +435,85 @@ message ListIncidentsRequest {
 
 message ListIncidentsResponse {
   repeated WorkplaceIncident incidents = 1;
+}
+
+message UpdateIncidentStatusRequest {
+  string incident_id = 1;
+  string status = 2;
+  string resolution_notes = 3;
+}
+
+message UpdateIncidentStatusResponse {
+  WorkplaceIncident incident = 1;
+}
+
+message ExecutiveReport {
+  string report_id = 1;
+  string period = 2;
+  string title = 3;
+  string status = 4;
+  double total_revenue = 5;
+  double operating_expenses = 6;
+  double payroll_expenses = 7;
+  double net_profit = 8;
+  double operational_burn = 9;
+  double cash_reserves = 10;
+  double runway_months = 11;
+  int32 total_headcount = 12;
+  int32 human_headcount = 13;
+  int32 feline_headcount = 14;
+  double attendance_rate = 15;
+  double overtime_hours = 16;
+  int32 timesheets_approved = 17;
+  string webdav_path_pdf = 18;
+  string webdav_path_csv = 19;
+  string csv_content = 20;
+  bytes pdf_content = 21;
+  string generated_by = 22;
+  string created_at = 23;
+  string updated_at = 24;
+}
+
+message CreateExecutiveReportRequest {
+  ExecutiveReport report = 1;
+}
+
+message CreateExecutiveReportResponse {
+  ExecutiveReport report = 1;
+}
+
+message GetExecutiveReportRequest {
+  string report_id = 1;
+}
+
+message GetExecutiveReportResponse {
+  ExecutiveReport report = 1;
+}
+
+message GetExecutiveReportByPeriodRequest {
+  string period = 1;
+}
+
+message GetExecutiveReportByPeriodResponse {
+  ExecutiveReport report = 1;
+}
+
+message ListExecutiveReportsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListExecutiveReportsResponse {
+  repeated ExecutiveReport reports = 1;
+}
+
+message UpdateExecutiveReportStatusRequest {
+  string report_id = 1;
+  string status = 2;
+  string webdav_path_pdf = 3;
+  string webdav_path_csv = 4;
+}
+
+message UpdateExecutiveReportStatusResponse {
+  ExecutiveReport report = 1;
 }

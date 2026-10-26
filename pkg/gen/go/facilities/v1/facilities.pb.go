@@ -82,6 +82,15 @@ type ListMaintenanceLogsResponse struct {
 	Logs []*MaintenanceLog `json:"logs"`
 }
 
+type SyncOfflineLogsRequest struct {
+	Logs []*MaintenanceLog `json:"logs"`
+}
+
+type SyncOfflineLogsResponse struct {
+	SyncedCount int32             `json:"synced_count"`
+	Logs        []*MaintenanceLog `json:"logs"`
+}
+
 type FirmwareRelease struct {
 	ReleaseID          string `json:"release_id"`
 	DeviceType         string `json:"device_type"`
@@ -91,6 +100,19 @@ type FirmwareRelease struct {
 	MinHardwareVersion string `json:"min_hardware_version"`
 	Status             string `json:"status"`
 	CreatedAt          string `json:"created_at"`
+}
+
+type CreateFirmwareReleaseRequest struct {
+	DeviceType         string `json:"device_type"`
+	Version            string `json:"version"`
+	FileURL            string `json:"file_url"`
+	Checksum           string `json:"checksum"`
+	MinHardwareVersion string `json:"min_hardware_version"`
+	Status             string `json:"status"`
+}
+
+type CreateFirmwareReleaseResponse struct {
+	Release *FirmwareRelease `json:"release"`
 }
 
 type ListFirmwareReleasesRequest struct {
@@ -129,6 +151,16 @@ type ListOTAJobsResponse struct {
 	Jobs []*DeviceOTAJob `json:"jobs"`
 }
 
+type UpdateOTAJobStatusRequest struct {
+	JobID        string `json:"job_id"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"error_message"`
+}
+
+type UpdateOTAJobStatusResponse struct {
+	Job *DeviceOTAJob `json:"job"`
+}
+
 type IngestTelemetryRequest struct {
 	ZoneID              string  `json:"zone_id"`
 	TemperatureC        float64 `json:"temperature_c"`
@@ -157,17 +189,43 @@ type TelemetrySample struct {
 	Timestamp           string  `json:"timestamp"`
 }
 
+type ControlPTZRequest struct {
+	CameraID string  `json:"camera_id"`
+	Pan      float64 `json:"pan"`
+	Tilt     float64 `json:"tilt"`
+	Zoom     float64 `json:"zoom"`
+}
+
+type ControlPTZResponse struct {
+	CameraID string `json:"camera_id"`
+	Status   string `json:"status"`
+}
+
+type CalibrateCameraLensRequest struct {
+	CameraID string `json:"camera_id"`
+}
+
+type CalibrateCameraLensResponse struct {
+	CameraID string `json:"camera_id"`
+	Status   string `json:"status"`
+}
+
 type FacilitiesServiceClient interface {
 	GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error)
 	ListAssets(ctx context.Context, in *ListAssetsRequest) (*ListAssetsResponse, error)
 	CreateAsset(ctx context.Context, in *CreateAssetRequest) (*CreateAssetResponse, error)
 	CreateMaintenanceLog(ctx context.Context, in *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error)
 	ListMaintenanceLogs(ctx context.Context, in *ListMaintenanceLogsRequest) (*ListMaintenanceLogsResponse, error)
+	SyncOfflineLogs(ctx context.Context, in *SyncOfflineLogsRequest) (*SyncOfflineLogsResponse, error)
+	CreateFirmwareRelease(ctx context.Context, in *CreateFirmwareReleaseRequest) (*CreateFirmwareReleaseResponse, error)
 	ListFirmwareReleases(ctx context.Context, in *ListFirmwareReleasesRequest) (*ListFirmwareReleasesResponse, error)
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
+	UpdateOTAJobStatus(ctx context.Context, in *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
 	StreamEnvironmentalTelemetry(ctx context.Context, in *StreamTelemetryRequest) (FacilitiesService_StreamEnvironmentalTelemetryClient, error)
+	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
+	CalibrateCameraLens(ctx context.Context, in *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error)
 }
 
 type FacilitiesServiceServer interface {
@@ -176,11 +234,16 @@ type FacilitiesServiceServer interface {
 	CreateAsset(ctx context.Context, in *CreateAssetRequest) (*CreateAssetResponse, error)
 	CreateMaintenanceLog(ctx context.Context, in *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error)
 	ListMaintenanceLogs(ctx context.Context, in *ListMaintenanceLogsRequest) (*ListMaintenanceLogsResponse, error)
+	SyncOfflineLogs(ctx context.Context, in *SyncOfflineLogsRequest) (*SyncOfflineLogsResponse, error)
+	CreateFirmwareRelease(ctx context.Context, in *CreateFirmwareReleaseRequest) (*CreateFirmwareReleaseResponse, error)
 	ListFirmwareReleases(ctx context.Context, in *ListFirmwareReleasesRequest) (*ListFirmwareReleasesResponse, error)
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
+	UpdateOTAJobStatus(ctx context.Context, in *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
 	StreamEnvironmentalTelemetry(*StreamTelemetryRequest, FacilitiesService_StreamEnvironmentalTelemetryServer) error
+	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
+	CalibrateCameraLens(ctx context.Context, in *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error)
 }
 
 type FacilitiesService_StreamEnvironmentalTelemetryClient interface {

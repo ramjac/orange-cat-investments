@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 	"github.com/stretchr/testify/assert"
 )
@@ -46,9 +45,9 @@ func (m *mockOpsService) ProcessPebbleAck(ctx context.Context, req *opssvc.Pebbl
 	}, nil
 }
 
-func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateITTicketRequest) (*opsrepo.ITTicket, error) {
+func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateITTicketRequest) (*opssvc.ITTicket, error) {
 	bodyPtr := &req.Body
-	return &opsrepo.ITTicket{
+	return &opssvc.ITTicket{
 		TicketID:       "created-ticket-123",
 		ForgejoRepo:    req.ForgejoRepo,
 		Title:          req.Title,
@@ -60,8 +59,8 @@ func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateI
 	}, nil
 }
 
-func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
+func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*opssvc.ITTicket, error) {
+	return &opssvc.ITTicket{
 		TicketID:       ticketID,
 		ForgejoRepo:    "infra/microk8s",
 		Title:          "Sample Ticket",
@@ -70,9 +69,9 @@ func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*ops
 	}, nil
 }
 
-func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32) ([]*opssvc.ITTicket, error) {
 	m.lastLimit = limit
-	return []*opsrepo.ITTicket{
+	return []*opssvc.ITTicket{
 		{
 			TicketID:       "ticket-test-123",
 			ForgejoRepo:    "infra/microk8s",
@@ -83,23 +82,23 @@ func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32)
 	}, nil
 }
 
-func (m *mockOpsService) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+func (m *mockOpsService) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*opssvc.ITTicket, error) {
 	return m.ListITTickets(ctx, limit, offset)
 }
 
-func (m *mockOpsService) ListITTicketsByCustomer(ctx context.Context, customerID string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
+func (m *mockOpsService) ListITTicketsByCustomer(ctx context.Context, customerID string, limit, offset int32) ([]*opssvc.ITTicket, error) {
 	return m.ListITTickets(ctx, limit, offset)
 }
 
-func (m *mockOpsService) UpdateITTicket(ctx context.Context, ticketID string, req *opssvc.UpdateTicketRequest) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
+func (m *mockOpsService) UpdateITTicket(ctx context.Context, ticketID string, req *opssvc.UpdateTicketRequest) (*opssvc.ITTicket, error) {
+	return &opssvc.ITTicket{
 		TicketID: ticketID,
 		State:    req.State,
 	}, nil
 }
 
-func (m *mockOpsService) AddTicketComment(ctx context.Context, ticketID string, req *opssvc.AddCommentRequest) (*opsrepo.TicketComment, error) {
-	return &opsrepo.TicketComment{
+func (m *mockOpsService) AddTicketComment(ctx context.Context, ticketID string, req *opssvc.AddCommentRequest) (*opssvc.TicketComment, error) {
+	return &opssvc.TicketComment{
 		CommentID:      "comm-test-1",
 		TicketID:       ticketID,
 		AuthorUsername: req.AuthorUsername,
@@ -108,8 +107,8 @@ func (m *mockOpsService) AddTicketComment(ctx context.Context, ticketID string, 
 	}, nil
 }
 
-func (m *mockOpsService) ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*opsrepo.TicketComment, error) {
-	return []*opsrepo.TicketComment{
+func (m *mockOpsService) ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*opssvc.TicketComment, error) {
+	return []*opssvc.TicketComment{
 		{
 			CommentID:      "comm-test-1",
 			TicketID:       ticketID,
@@ -120,8 +119,8 @@ func (m *mockOpsService) ListTicketComments(ctx context.Context, ticketID string
 	}, nil
 }
 
-func (m *mockOpsService) CreateCustomerTicket(ctx context.Context, req *opssvc.CreateCustomerTicketRequest) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
+func (m *mockOpsService) CreateCustomerTicket(ctx context.Context, req *opssvc.CreateCustomerTicketRequest) (*opssvc.ITTicket, error) {
+	return &opssvc.ITTicket{
 		TicketID:       "cust-ticket-999",
 		Title:          req.Title,
 		Source:         "customer",
@@ -230,7 +229,7 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, rec.Code)
 
-		var ticket opsrepo.ITTicket
+		var ticket opssvc.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
 		assert.NoError(t, err)
 		assert.Equal(t, "created-ticket-123", ticket.TicketID)
@@ -268,7 +267,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		var ticket opsrepo.ITTicket
+		var ticket opssvc.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
 		assert.NoError(t, err)
 		assert.Equal(t, "ticket-test-123", ticket.TicketID)
@@ -286,7 +285,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec2, req2)
 
 		assert.Equal(t, http.StatusOK, rec2.Code)
-		var updated opsrepo.ITTicket
+		var updated opssvc.ITTicket
 		err = json.Unmarshal(rec2.Body.Bytes(), &updated)
 		assert.NoError(t, err)
 		assert.Equal(t, "resolved", updated.State)
@@ -335,7 +334,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusCreated, rec.Code)
-		var created opsrepo.ITTicket
+		var created opssvc.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &created)
 		assert.NoError(t, err)
 		assert.Equal(t, "cust-ticket-999", created.TicketID)

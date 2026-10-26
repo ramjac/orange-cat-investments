@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/handler"
-	core_invest_handler "github.com/orange-cat-investments/oci/internal/handler/core_invest"
 	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	facilities_repo "github.com/orange-cat-investments/oci/internal/repository/facilities"
@@ -1141,8 +1140,7 @@ func (c *Client) initMockServers() error {
 
 	ciRepo := core_invest_repo.NewMockRepository()
 	ciService := core_invest_svc.NewServiceWithIntegrations(ciRepo, brokerClient, bankClient)
-	ciHandler := core_invest_handler.NewHandler(ciService)
-	ciHandler.RegisterRoutes(serverMux)
+	registerMockCoreInvestRoutes(serverMux, ciService)
 
 	opsRepo := ops_repo.NewMockRepository()
 	opsService := ops_svc.NewService(opsRepo)

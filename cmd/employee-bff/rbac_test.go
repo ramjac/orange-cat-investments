@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
@@ -180,7 +179,7 @@ func TestProtectedOpsRoutes(t *testing.T) {
 		t.Fatalf("failed to create session: %v", err)
 	}
 
-	repo := opsrepo.NewMockRepository()
+	repo := opssvc.NewMockRepository()
 	svc := opssvc.NewService(repo)
 	opsH := opshandler.NewHandler(svc)
 

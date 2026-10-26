@@ -11,6 +11,7 @@ import (
 )
 
 type OpsGRPCServer struct {
+	opsv1.UnimplementedOpsServiceServer
 	svc ops_svc.Service
 }
 
@@ -37,6 +38,14 @@ func toProtoTicket(t *ops.ITTicket) *opsv1.ITTicket {
 	if !t.CreatedAt.IsZero() {
 		created = t.CreatedAt.Format(time.RFC3339)
 	}
+	updated := ""
+	if !t.UpdatedAt.IsZero() {
+		updated = t.UpdatedAt.Format(time.RFC3339)
+	}
+	var issueID int64
+	if t.ForgejoIssueID != nil {
+		issueID = *t.ForgejoIssueID
+	}
 	return &opsv1.ITTicket{
 		TicketID:         t.TicketID,
 		Title:            t.Title,
@@ -52,11 +61,40 @@ func toProtoTicket(t *ops.ITTicket) *opsv1.ITTicket {
 		AcknowledgedBy:   strVal(t.AcknowledgedBy),
 		AcknowledgedAt:   ackAt,
 		CreatedAt:        created,
+		UpdatedAt:        updated,
+		ResolutionNotes:  strVal(t.ResolutionNotes),
+		ForgejoRepo:      t.ForgejoRepo,
+		ForgejoIssueID:   issueID,
+	}
+}
+
+func toProtoComment(c *ops.TicketComment) *opsv1.TicketComment {
+	if c == nil {
+		return nil
+	}
+	created := ""
+	if !c.CreatedAt.IsZero() {
+		created = c.CreatedAt.Format(time.RFC3339)
+	}
+	return &opsv1.TicketComment{
+		CommentID:      c.CommentID,
+		TicketID:       c.TicketID,
+		AuthorUsername: c.AuthorUsername,
+		Comment:        c.Comment,
+		IsInternal:     c.IsInternal,
+		CreatedAt:      created,
 	}
 }
 
 func (s *OpsGRPCServer) CreateTicket(ctx context.Context, in *opsv1.CreateTicketRequest) (*opsv1.CreateTicketResponse, error) {
+	var issueID *int64
+	if in.ForgejoIssueID > 0 {
+		id := in.ForgejoIssueID
+		issueID = &id
+	}
 	ticket, err := s.svc.CreateITTicket(ctx, &ops_svc.CreateITTicketRequest{
+		ForgejoRepo:    in.ForgejoRepo,
+		ForgejoIssueID: issueID,
 		Title:          in.Title,
 		Body:           in.Body,
 		Severity:       in.Severity,
@@ -85,7 +123,13 @@ func (s *OpsGRPCServer) ListTickets(ctx context.Context, in *opsv1.ListTicketsRe
 	if limit <= 0 {
 		limit = 50
 	}
-	tickets, err := s.svc.ListITTickets(ctx, limit, in.Offset)
+	var tickets []*ops.ITTicket
+	var err error
+	if in.Source != "" {
+		tickets, err = s.svc.ListITTicketsBySource(ctx, in.Source, limit, in.Offset)
+	} else {
+		tickets, err = s.svc.ListITTickets(ctx, limit, in.Offset)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +144,18 @@ func (s *OpsGRPCServer) ListTickets(ctx context.Context, in *opsv1.ListTicketsRe
 		out = append(out, toProtoTicket(t))
 	}
 	return &opsv1.ListTicketsResponse{Tickets: out}, nil
+}
+
+func (s *OpsGRPCServer) UpdateTicket(ctx context.Context, in *opsv1.UpdateTicketRequest) (*opsv1.UpdateTicketResponse, error) {
+	ticket, err := s.svc.UpdateITTicket(ctx, in.TicketID, &ops_svc.UpdateTicketRequest{
+		State:            in.State,
+		AssigneeUsername: in.AssigneeUsername,
+		ResolutionNotes:  in.ResolutionNotes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &opsv1.UpdateTicketResponse{Ticket: toProtoTicket(ticket)}, nil
 }
 
 func (s *OpsGRPCServer) AcknowledgeTicket(ctx context.Context, in *opsv1.AcknowledgeTicketRequest) (*opsv1.AcknowledgeTicketResponse, error) {
@@ -133,6 +189,59 @@ func (s *OpsGRPCServer) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRe
 	return &opsv1.CloseTicketResponse{Ticket: toProtoTicket(ticket)}, nil
 }
 
+func (s *OpsGRPCServer) CreateCustomerTicket(ctx context.Context, in *opsv1.CreateCustomerTicketRequest) (*opsv1.CreateCustomerTicketResponse, error) {
+	ticket, err := s.svc.CreateCustomerTicket(ctx, &ops_svc.CreateCustomerTicketRequest{
+		CustomerID: in.CustomerID,
+		Category:   in.Category,
+		Title:      in.Title,
+		Body:       in.Body,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &opsv1.CreateCustomerTicketResponse{Ticket: toProtoTicket(ticket)}, nil
+}
+
+func (s *OpsGRPCServer) ListCustomerTickets(ctx context.Context, in *opsv1.ListCustomerTicketsRequest) (*opsv1.ListCustomerTicketsResponse, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	tickets, err := s.svc.ListITTicketsByCustomer(ctx, in.CustomerID, limit, in.Offset)
+	if err != nil {
+		return nil, err
+	}
+	var out []*opsv1.ITTicket
+	for _, t := range tickets {
+		out = append(out, toProtoTicket(t))
+	}
+	return &opsv1.ListCustomerTicketsResponse{Tickets: out}, nil
+}
+
+func (s *OpsGRPCServer) AddTicketComment(ctx context.Context, in *opsv1.AddTicketCommentRequest) (*opsv1.AddTicketCommentResponse, error) {
+	comment, err := s.svc.AddTicketComment(ctx, in.TicketID, &ops_svc.AddCommentRequest{
+		AuthorUsername: in.AuthorUsername,
+		Comment:        in.Comment,
+		IsInternal:     in.IsInternal,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &opsv1.AddTicketCommentResponse{Comment: toProtoComment(comment)}, nil
+}
+
+func (s *OpsGRPCServer) ListTicketComments(ctx context.Context, in *opsv1.ListTicketCommentsRequest) (*opsv1.ListTicketCommentsResponse, error) {
+	comments, err := s.svc.ListTicketComments(ctx, in.TicketID, in.IncludeInternal)
+	if err != nil {
+		return nil, err
+	}
+	var out []*opsv1.TicketComment
+	for _, c := range comments {
+		out = append(out, toProtoComment(c))
+	}
+	return &opsv1.ListTicketCommentsResponse{Comments: out}, nil
+}
+
 func (s *OpsGRPCServer) ListAlerts(ctx context.Context, in *opsv1.ListAlertsRequest) (*opsv1.ListAlertsResponse, error) {
 	alerts, err := s.svc.GetPendingAlerts(ctx)
 	if err != nil {
@@ -145,6 +254,8 @@ func (s *OpsGRPCServer) ListAlerts(ctx context.Context, in *opsv1.ListAlertsRequ
 			TicketID:     a.TicketID,
 			Title:        a.Title,
 			Severity:     a.Priority,
+			Body:         a.Body,
+			Author:       a.Author,
 			Acknowledged: false,
 			CreatedAt:    a.CreatedAt.Format(time.RFC3339),
 		})
@@ -184,13 +295,39 @@ func (s *OpsGRPCServer) AcknowledgeAlert(ctx context.Context, in *opsv1.Acknowle
 	res, err := s.svc.ProcessPebbleAck(ctx, &ops_svc.PebbleAckRequest{
 		TicketID:       in.AlertID,
 		AcknowledgedBy: in.AcknowledgedBy,
+		WatchID:        in.WatchID,
+		DeviceID:       in.DeviceID,
 		ButtonID:       uint8(in.ButtonID),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &opsv1.AcknowledgeAlertResponse{
-		AlertID: res.TicketID,
-		Status:  fmt.Sprintf("acknowledged (%s)", res.StatusMessage),
+		AlertID:        res.TicketID,
+		Status:         fmt.Sprintf("acknowledged (%s)", res.StatusMessage),
+		State:          res.State,
+		AcknowledgedBy: res.AcknowledgedBy,
+		AcknowledgedAt: res.AcknowledgedAt.Format(time.RFC3339),
+		StatusMessage:  res.StatusMessage,
+	}, nil
+}
+
+func (s *OpsGRPCServer) SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error) {
+	res, err := s.svc.SendPushNotification(ctx, &ops_svc.PushNotificationRequest{
+		Topic:    in.Topic,
+		Title:    in.Title,
+		Message:  in.Message,
+		Priority: in.Priority,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &opsv1.SendPushNotificationResponse{
+		Status:       res.Status,
+		Provider:     res.Provider,
+		Topic:        res.Topic,
+		Title:        res.Title,
+		Message:      res.Message,
+		DispatchedAt: res.DispatchedAt.Format(time.RFC3339),
 	}, nil
 }

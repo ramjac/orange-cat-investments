@@ -1,225 +1,200 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"sync/atomic"
+	"net"
+	"sync"
 	"testing"
-	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/orange-cat-investments/oci/internal/app/internalbll"
+	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 )
 
-func TestInternalBLL_Healthz(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"internal-bll"}`))
+type mockPub struct {
+	mu     sync.Mutex
+	topics []string
+}
+
+func (m *mockPub) Publish(topic string, _ any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.topics = append(m.topics, topic)
+	return nil
+}
+
+type mockWFClient struct {
+	workforcev1.WorkforceServiceClient
+}
+
+func (m *mockWFClient) CreateIncident(_ context.Context, in *workforcev1.CreateIncidentRequest) (*workforcev1.CreateIncidentResponse, error) {
+	return &workforcev1.CreateIncidentResponse{
+		Incident: &workforcev1.WorkplaceIncident{
+			IncidentID:  "inc-test-001",
+			Title:       in.Title,
+			Category:    in.Category,
+			Severity:    in.Severity,
+			Status:      "open",
+			Description: in.Description,
+		},
+	}, nil
+}
+
+func (m *mockWFClient) OnboardEmployee(_ context.Context, in *workforcev1.OnboardEmployeeRequest) (*workforcev1.OnboardEmployeeResponse, error) {
+	return &workforcev1.OnboardEmployeeResponse{
+		Employee: &workforcev1.Employee{
+			EmployeeID:   "emp-test-001",
+			EmployeeType: in.Employee.EmployeeType,
+			FirstName:    in.Employee.FirstName,
+			RoleTitle:    in.Employee.RoleTitle,
+			Department:   in.Employee.Department,
+			Status:       "onboarding",
+		},
+	}, nil
+}
+
+func (m *mockWFClient) UpdateEmployeeStatus(_ context.Context, in *workforcev1.UpdateEmployeeStatusRequest) (*workforcev1.UpdateEmployeeStatusResponse, error) {
+	return &workforcev1.UpdateEmployeeStatusResponse{
+		Employee: &workforcev1.Employee{
+			EmployeeID: in.EmployeeID,
+			Status:     in.Status,
+		},
+	}, nil
+}
+
+func (m *mockWFClient) ListOnboardingChecklist(_ context.Context, _ *workforcev1.ListOnboardingChecklistRequest) (*workforcev1.ListOnboardingChecklistResponse, error) {
+	return &workforcev1.ListOnboardingChecklistResponse{}, nil
+}
+
+func (m *mockWFClient) GetCareSchedule(_ context.Context, _ *workforcev1.GetCareScheduleRequest) (*workforcev1.GetCareScheduleResponse, error) {
+	return &workforcev1.GetCareScheduleResponse{}, nil
+}
+
+func (m *mockWFClient) GetEmployee(_ context.Context, in *workforcev1.GetEmployeeRequest) (*workforcev1.GetEmployeeResponse, error) {
+	return &workforcev1.GetEmployeeResponse{
+		Employee: &workforcev1.Employee{
+			EmployeeID: in.EmployeeID,
+			FirstName:  "Alice",
+			Status:     "onboarding",
+		},
+	}, nil
+}
+
+type mockFacClient struct {
+	facilitiesv1.FacilitiesServiceClient
+}
+
+func (m *mockFacClient) CreateOTAJob(_ context.Context, in *facilitiesv1.CreateOTAJobRequest) (*facilitiesv1.CreateOTAJobResponse, error) {
+	var jobs []*facilitiesv1.DeviceOTAJob
+	for _, aid := range in.AssetIDs {
+		jobs = append(jobs, &facilitiesv1.DeviceOTAJob{
+			JobID:     "ota-job-001",
+			AssetID:   aid,
+			ReleaseID: in.ReleaseID,
+			Status:    "queued",
+		})
+	}
+	return &facilitiesv1.CreateOTAJobResponse{Jobs: jobs}, nil
+}
+
+type mockOpsClient struct {
+	opsv1.OpsServiceClient
+}
+
+func (m *mockOpsClient) CreateTicket(_ context.Context, in *opsv1.CreateTicketRequest) (*opsv1.CreateTicketResponse, error) {
+	return &opsv1.CreateTicketResponse{
+		Ticket: &opsv1.ITTicket{
+			TicketID: "tkt-pebble-001",
+			Title:    in.Title,
+			Severity: in.Severity,
+			IsUrgent: in.IsUrgent,
+		},
+	}, nil
+}
+
+func TestInternalBLLCreateIncidentAndOTA(t *testing.T) {
+	pub := &mockPub{}
+	srv := internalbll.NewServer(&mockWFClient{}, &mockFacClient{}, &mockOpsClient{}, pub, nil)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	grpcSrv := grpcutil.NewServer(nil)
+	internalbllv1.RegisterInternalBLLServiceServer(grpcSrv, srv)
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	conn, err := grpcutil.Dial(context.Background(), lis.Addr().String(), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	client := internalbllv1.NewInternalBLLServiceClient(conn)
+
+	// 1. Create incident & verify event publication
+	incResp, err := client.CreateIncident(context.Background(), &workforcev1.CreateIncidentRequest{
+		Title:       "Unauthorized Perch",
+		Category:    "unauthorized_perch",
+		Severity:    "high",
+		Description: "Biscuit climbed server rack",
 	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"service":"internal-bll"`)
-}
-
-func TestInternalBLL_Incident_CanonicalIDAndAsyncPublish(t *testing.T) {
-	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
-
-	// Subscribe to incident created event
-	eventChan, err := pubSub.Subscribe(context.Background(), "events.workforce.incident_created.v1")
-	require.NoError(t, err)
-
-	// Mock workforce API returning canonical incident_id (Thread 37)
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"incident_id": "inc-canonical-uuid-1234",
-			"status":      "reported",
-		})
-	}))
-	defer mockWorkforceServer.Close()
-
-	bll := &InternalBLLServer{
-		publisher:    pubSub,
-		httpClient:   mockWorkforceServer.Client(),
-		workforceURL: mockWorkforceServer.URL,
+	if err != nil {
+		t.Fatalf("CreateIncident: %v", err)
+	}
+	if incResp.Incident == nil || incResp.Incident.IncidentID != "inc-test-001" {
+		t.Fatalf("unexpected incident response: %+v", incResp)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/internal-bll/incidents", bll.handleCreateIncident)
-
-	incReq := IncidentCreateRequest{
-		Title:       "Water bowl spilled on edge switch",
-		Category:    "hardware_hazard",
-		Severity:    "urgent",
-		RoomZone:    "Zone Alpha (Main Perch)",
-		Description: "Feline tail knocked ceramic water bowl onto top-of-rack networking gear.",
-	}
-	body, _ := json.Marshal(incReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/internal-bll/incidents", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusCreated, rec.Code)
-	var res IncidentCreatedPayload
-	err = json.Unmarshal(rec.Body.Bytes(), &res)
-	require.NoError(t, err)
-	assert.Equal(t, "inc-canonical-uuid-1234", res.IncidentID, "should use canonical incident ID from workforce API")
-	assert.Equal(t, "urgent", res.Severity)
-
-	// Verify asynchronous event was published
-	select {
-	case msg := <-eventChan:
-		msg.Ack()
-		assert.Contains(t, string(msg.Payload), "inc-canonical-uuid-1234")
-	case <-time.After(1 * time.Second):
-		t.Fatal("timed out waiting for incident event publication")
-	}
-}
-
-func TestInternalBLL_Incident_WorkforceFailure(t *testing.T) {
-	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
-
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "internal database failure", http.StatusInternalServerError)
-	}))
-	defer mockWorkforceServer.Close()
-
-	bll := &InternalBLLServer{
-		publisher:    pubSub,
-		httpClient:   mockWorkforceServer.Client(),
-		workforceURL: mockWorkforceServer.URL,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/internal-bll/incidents", bll.handleCreateIncident)
-
-	incReq := IncidentCreateRequest{
-		Title:       "Hardware fault",
-		Severity:    "urgent",
-		Description: "Power fault",
-	}
-	body, _ := json.Marshal(incReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/internal-bll/incidents", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusBadGateway, rec.Code)
-}
-
-func TestInternalBLL_OTATrigger_PerDeviceJobsAndEvents(t *testing.T) {
-	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
-
-	eventChan, err := pubSub.Subscribe(context.Background(), "events.facilities.ota_triggered.v1")
-	require.NoError(t, err)
-
-	var facilitiesCalled atomic.Bool
-	mockFacilitiesServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		facilitiesCalled.Store(true)
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"jobs": []map[string]interface{}{
-				{"job_id": "job-cam-1", "asset_id": "asset-001", "release_id": "rel-v2.1"},
-				{"job_id": "job-cam-2", "asset_id": "asset-002", "release_id": "rel-v2.1"},
-			},
-		})
-	}))
-	defer mockFacilitiesServer.Close()
-
-	bll := &InternalBLLServer{
-		publisher:     pubSub,
-		httpClient:    mockFacilitiesServer.Client(),
-		facilitiesURL: mockFacilitiesServer.URL,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/internal-bll/firmware/ota", bll.handleTriggerOTA)
-
-	otaReq := OTATriggerRequest{
+	// 2. Trigger OTA rollout & verify event publication
+	otaResp, err := client.TriggerOTARollout(context.Background(), &facilitiesv1.CreateOTAJobRequest{
 		AssetIDs:  []string{"asset-001", "asset-002"},
 		ReleaseID: "rel-v2.1",
+	})
+	if err != nil {
+		t.Fatalf("TriggerOTARollout: %v", err)
 	}
-	body, _ := json.Marshal(otaReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/internal-bll/firmware/ota", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.True(t, facilitiesCalled.Load())
-
-	// Verify two distinct worker-compatible events received (one per device) (Thread 14)
-	var receivedCount int
-	for i := 0; i < 2; i++ {
-		select {
-		case msg := <-eventChan:
-			msg.Ack()
-			receivedCount++
-			assert.Contains(t, string(msg.Payload), "asset-00")
-			assert.Contains(t, string(msg.Payload), "edge_camera")
-		case <-time.After(1 * time.Second):
-			t.Fatalf("timed out waiting for OTA event %d", i+1)
-		}
-	}
-	assert.Equal(t, 2, receivedCount)
-}
-
-func TestInternalBLL_TriggerReport(t *testing.T) {
-	watermillLogger := watermill.NewStdLogger(false, false)
-	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
-
-	bll := &InternalBLLServer{
-		publisher:  pubSub,
-		httpClient: &http.Client{Timeout: 2 * time.Second},
+	if len(otaResp.Jobs) != 2 {
+		t.Fatalf("expected 2 OTA jobs, got %d", len(otaResp.Jobs))
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/internal-bll/reports/monthly", bll.handleTriggerReport)
+	// 3. Onboard employee via saga & verify event publication
+	onboardResp, err := client.OnboardEmployee(context.Background(), &internalbllv1.OnboardEmployeeSagaRequest{
+		EmployeeType: "human",
+		FirstName:    "Alice",
+		RoleTitle:    "Engineer",
+		Department:   "IT",
+	})
+	if err != nil {
+		t.Fatalf("OnboardEmployee: %v", err)
+	}
+	if onboardResp.Employee == nil || onboardResp.Employee.EmployeeID != "emp-test-001" {
+		t.Fatalf("unexpected onboard response: %+v", onboardResp)
+	}
 
-	reqBody, _ := json.Marshal(ReportTriggerRequest{Period: "2026-10", GeneratedBy: "test-admin"})
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/internal-bll/reports/monthly", bytes.NewReader(reqBody))
-	mux.ServeHTTP(rec, req)
+	// 4. Broadcast Pebble alert via Ops
+	pebbleResp, err := client.BroadcastPebbleIncidentAlert(context.Background(), &internalbllv1.BroadcastPebbleIncidentAlertRequest{
+		IncidentID:  "inc-test-001",
+		Title:       "Unauthorized Perch",
+		Category:    "unauthorized_perch",
+		Severity:    "high",
+		Description: "Biscuit climbed server rack",
+	})
+	if err != nil {
+		t.Fatalf("BroadcastPebbleIncidentAlert: %v", err)
+	}
+	if pebbleResp.TicketID != "tkt-pebble-001" {
+		t.Fatalf("unexpected pebble ticket_id: %s", pebbleResp.TicketID)
+	}
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.Contains(t, rec.Body.String(), "2026-10")
-}
-
-func TestInternalBLL_EnvironmentalStream_ZoneIDConfig(t *testing.T) {
-	bll := &InternalBLLServer{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/internal-bll/stream/telemetry", bll.handleEnvironmentalStream)
-
-	// Case 1: Missing zone_id and no DEFAULT_ZONE_ID
-	t.Setenv("DEFAULT_ZONE_ID", "")
-	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry", nil)
-	mux.ServeHTTP(rec1, req1)
-	assert.Equal(t, http.StatusBadRequest, rec1.Code)
-	assert.Contains(t, rec1.Body.String(), "DEFAULT_ZONE_ID")
-
-	// Case 2: Configured DEFAULT_ZONE_ID, but nil facClient -> 503
-	t.Setenv("DEFAULT_ZONE_ID", "zone-test")
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry", nil)
-	mux.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusServiceUnavailable, rec2.Code)
-
-	// Case 3: Query param zone_id provided, but nil facClient -> 503
-	rec3 := httptest.NewRecorder()
-	req3 := httptest.NewRequest("GET", "/api/v1/internal-bll/stream/telemetry?zone_id=zone-custom", nil)
-	mux.ServeHTTP(rec3, req3)
-	assert.Equal(t, http.StatusServiceUnavailable, rec3.Code)
+	pub.mu.Lock()
+	topicCount := len(pub.topics)
+	pub.mu.Unlock()
+	if topicCount != 4 {
+		t.Fatalf("expected 4 published events (1 incident + 2 OTA + 1 onboard), got %d", topicCount)
+	}
 }

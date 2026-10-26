@@ -2,22 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
+	"crypto/tls"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"strings"
-	"syscall"
-	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
-	"github.com/orange-cat-investments/oci/pkg/versioning"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/httputil"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
 func main() {
@@ -35,176 +27,43 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8082"
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var dbPool *pgxpool.Pool
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL != "" {
-		pool, err := pgxpool.New(ctx, dbURL)
+	internalBLLURL := os.Getenv("INTERNAL_BLL_URL")
+	if internalBLLURL == "" {
+		internalBLLURL = "internal-bll-service.oci-core.svc.cluster.local:8086"
+	}
+
+	var tlsConfig *tls.Config
+	if os.Getenv("ENABLE_MTLS") == "true" {
+		var err error
+		tlsConfig, err = mtls.NewClientTLSConfig(
+			os.Getenv("TLS_CERT_FILE"),
+			os.Getenv("TLS_KEY_FILE"),
+			os.Getenv("CA_CERT_FILE"),
+		)
 		if err != nil {
-			logger.Warn("failed to connect to postgresql pool, falling back to mock persistence", "error", err)
-		} else {
-			dbPool = pool
-			defer dbPool.Close()
-			logger.Info("connected to postgresql database pool successfully")
+			logger.Warn("could not load client mTLS config for internal-bll, proceeding without TLS", "error", err)
 		}
+	}
+
+	bllConn, err := grpcutil.Dial(ctx, internalBLLURL, tlsConfig)
+	if err != nil {
+		logger.Warn("could not connect to internal-bll gRPC service", "url", internalBLLURL, "error", err)
 	} else {
-		logger.Info("DATABASE_URL not set, running with in-memory persistence fallback")
+		defer bllConn.Close()
+		logger.Info("connected to internal-bll gRPC service", "url", internalBLLURL)
 	}
 
-	repo := opsrepo.NewRepository(dbPool)
-	svc := opssvc.NewService(repo)
-	handler := opshandler.NewHandler(svc)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"pebble-proxy"}`))
-	})
-	handler.RegisterRoutes(mux)
-
-	// Ingest workplace safety incidents into high-priority wearable alerts
-	incidentHandler := requireServiceAuth(handleIncidentAlertBroadcast(repo, logger))
-	mux.HandleFunc("POST /api/v1/ops/pebble/incidents/broadcast", incidentHandler)
-	mux.HandleFunc("POST /ops/pebble/incidents/broadcast", incidentHandler)
-	mux.HandleFunc("POST /ops/pebble/alerts/incident", incidentHandler)
-
-	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
-
-	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      versionedHandler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	var bllClient internalbllv1.InternalBLLServiceClient
+	if bllConn != nil {
+		bllClient = internalbllv1.NewInternalBLLServiceClient(bllConn)
 	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		logger.Info("Pebble companion gateway proxy listening", "port", port)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-stop
-	logger.Info("shutting down Pebble Companion Gateway Proxy...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("failed graceful shutdown", "error", err)
-	}
-
-	logger.Info("Pebble Companion Gateway Proxy stopped gracefully")
+	router := NewRouter(bllClient, logger)
+	httputil.ListenAndServeGraceful("Pebble Companion Gateway Proxy", port, router, logger)
 }
-
-func requireServiceAuth(next http.HandlerFunc) http.HandlerFunc {
-	expectedKey := os.Getenv("INTERNAL_SERVICE_KEY")
-	if expectedKey == "" {
-		expectedKey = "oci-internal-service-secret"
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-Internal-Service-Key")
-		if token == "" {
-			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-		}
-		if token != expectedKey {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error": "unauthorized: valid internal service key required",
-			})
-			return
-		}
-		next(w, r)
-	}
-}
-
-func handleIncidentAlertBroadcast(repo opsrepo.Repository, logger *slog.Logger) http.HandlerFunc {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			IncidentID  string `json:"incident_id"`
-			Title       string `json:"title"`
-			Category    string `json:"category"`
-			Severity    string `json:"severity"`
-			RoomZone    string `json:"room_zone"`
-			Description string `json:"description"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"invalid incident payload"}`, http.StatusBadRequest)
-			return
-		}
-
-		ticketID := req.IncidentID
-		if ticketID == "" {
-			ticketID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
-		}
-
-		title := req.Title
-		if req.RoomZone != "" {
-			title = fmt.Sprintf("🚨 %s (%s)", req.Title, req.RoomZone)
-		} else {
-			title = fmt.Sprintf("🚨 %s", req.Title)
-		}
-
-		severity := req.Severity
-		if severity == "" {
-			severity = "critical"
-		}
-
-		ticketCategory := "habitat"
-		if req.Category == "unauthorized_treat" {
-			ticketCategory = "general"
-		} else if req.Category == "software" || req.Category == "hardware" || req.Category == "trading" {
-			ticketCategory = req.Category
-		}
-
-		desc := req.Description
-		if req.IncidentID != "" {
-			desc = fmt.Sprintf("[Workforce Incident ID: %s] %s", req.IncidentID, req.Description)
-		}
-
-		ticket := &opsrepo.ITTicket{
-			TicketID:       ticketID,
-			Title:          title,
-			Body:           &desc,
-			State:          "open",
-			Severity:       severity,
-			Category:       ticketCategory,
-			Source:         "system",
-			AuthorUsername: "incident-pipeline",
-			IsUrgent:       true,
-			CreatedAt:      time.Now().UTC(),
-			UpdatedAt:      time.Now().UTC(),
-		}
-
-		created, err := repo.CreateITTicket(r.Context(), ticket)
-		if err != nil {
-			logger.Error("failed to create incident alert ticket for pebble", "error", err)
-			http.Error(w, `{"error":"failed to create incident alert"}`, http.StatusInternalServerError)
-			return
-		}
-
-		logger.Info("registered workplace incident alert for Pebble wearable push", "ticket_id", created.TicketID, "severity", severity)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(created)
-	}
-}
-

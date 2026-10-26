@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
 	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
 )
 
@@ -22,7 +21,7 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 	hrSess, _ := store.Create("emp-hr-01", "hr@oci.local", "HR User", "hr", "Human Resources")
 	vetSess, _ := store.Create("emp-vet-01", "vet@oci.local", "Vet User", "veterinary", "Veterinary Medicine")
 
-	repo := opsrepo.NewMockRepository()
+	repo := opssvc.NewMockRepository()
 	svc := opssvc.NewService(repo)
 	opsH := opshandler.NewHandler(svc)
 
@@ -108,7 +107,7 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 			t.Fatalf("expected 201 for creating ticket, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var created opsrepo.ITTicket
+		var created opssvc.ITTicket
 		_ = json.Unmarshal(rec.Body.Bytes(), &created)
 		ticketID := created.TicketID
 
@@ -202,7 +201,7 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 			t.Fatalf("expected 201 for creating customer ticket, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var created opsrepo.ITTicket
+		var created opssvc.ITTicket
 		_ = json.Unmarshal(rec.Body.Bytes(), &created)
 		custTicketID := created.TicketID
 

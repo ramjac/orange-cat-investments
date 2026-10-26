@@ -12,6 +12,7 @@ import (
 )
 
 type mockWorkforceServer struct {
+	UnimplementedWorkforceServiceServer
 	employees map[string]*Employee
 }
 

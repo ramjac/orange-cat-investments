@@ -12,12 +12,8 @@ import (
 	"testing"
 	"time"
 
-	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
-	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
-	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
-	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
-	workforce_repo "github.com/orange-cat-investments/oci/internal/repository/workforce"
-	workforce_svc "github.com/orange-cat-investments/oci/internal/service/workforce"
+	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
@@ -72,27 +68,23 @@ func TestSessionStore_Create_And_GenerateRandomToken(t *testing.T) {
 
 func setupTestBFF() (*CustomerBFF, *http.ServeMux) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	ciRepo := core_invest_repo.NewMockRepository()
-	ciSvc := core_invest_svc.NewService(ciRepo)
-	wfRepo := workforce_repo.NewMockRepository()
-	wfSvc := workforce_svc.NewService(wfRepo)
-
-	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
-	bff.opsSvc = ops_svc.NewService(ops_repo.NewMockRepository())
-	bff.sessions.SetSession(&CustomerSession{
+	bff := NewCustomerBFF(nil, logger)
+	sessStore := sessionvalkey.NewMemoryCustomerSessionStore()
+	sessStore.SetSession(&CustomerSession{
 		SessionID:  "sess-arthur-token",
 		CustomerID: "cust-longterm-arthur",
 		Email:      "arthur@oci.local",
 		Name:       "Arthur Pendelton",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	})
-	bff.sessions.SetSession(&CustomerSession{
+	sessStore.SetSession(&CustomerSession{
 		SessionID:  "sess-chloe-token",
 		CustomerID: "cust-active-chloe",
 		Email:      "chloe@oci.local",
 		Name:       "Chloe Spark",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	})
+	bff.SetSessionStore(sessStore)
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
 	return bff, mux
@@ -615,21 +607,18 @@ func TestCustomerBFF_BankIntegration(t *testing.T) {
 		BaseURL: bankServer.URL,
 	})
 
-	mockRepo := core_invest_repo.NewMockRepository()
-	ciSvc := core_invest_svc.NewServiceWithIntegrations(mockRepo, nil, bankClient)
-	wfRepo := workforce_repo.NewMockRepository()
-	wfSvc := workforce_svc.NewService(wfRepo)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-
-	bff := NewCustomerBFF(ciSvc, wfSvc, logger)
+	bff := NewCustomerBFF(nil, logger)
 	bff.SetBankClient(bankClient)
-	bff.sessions.SetSession(&CustomerSession{
+	sessStore := sessionvalkey.NewMemoryCustomerSessionStore()
+	sessStore.SetSession(&CustomerSession{
 		SessionID:  "sess-arthur-token",
 		CustomerID: "cust-longterm-arthur",
 		Email:      "arthur@oci.local",
 		Name:       "Arthur Pendelton",
 		ExpiresAt:  time.Now().Add(24 * time.Hour),
 	})
+	bff.SetSessionStore(sessStore)
 
 	mux := http.NewServeMux()
 	bff.RegisterRoutes(mux)
@@ -945,19 +934,21 @@ func TestCustomerBFF_CustomerSupport_CommentScrubbing(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createdTicket))
 	ticketID := createdTicket["ticket_id"].(string)
 
-	// Add internal staff comment directly via opsSvc
-	_, err := bff.opsSvc.AddTicketComment(context.Background(), ticketID, &ops_svc.AddCommentRequest{
+	// Add internal staff comment directly via bllClient
+	_, err := bff.BLLClient().AddCustomerTicketComment(context.Background(), &customerbllv1.AddCustomerTicketCommentRequest{
+		CustomerID:     "cust-longterm-arthur",
+		TicketID:       ticketID,
 		AuthorUsername: "frank_infra",
 		Comment:        "INTERNAL ONLY: Database lock contention occurred on server node 3.",
-		IsInternal:     true,
 	})
 	require.NoError(t, err)
 
-	// Add public support response via opsSvc
-	_, err = bff.opsSvc.AddTicketComment(context.Background(), ticketID, &ops_svc.AddCommentRequest{
+	// Add public support response via bllClient
+	_, err = bff.BLLClient().AddCustomerTicketComment(context.Background(), &customerbllv1.AddCustomerTicketCommentRequest{
+		CustomerID:     "cust-longterm-arthur",
+		TicketID:       ticketID,
 		AuthorUsername: "support_agent",
 		Comment:        "Thank you for reporting. Our engineering team is reviewing this.",
-		IsInternal:     false,
 	})
 	require.NoError(t, err)
 
@@ -1075,10 +1066,7 @@ func TestCustomerBFF_Statements_List_Generate_Download(t *testing.T) {
 }
 
 func TestCustomerBFF_AccountClosure_Liquidation(t *testing.T) {
-	bff, mux := setupTestBFF()
-	bank := &core_invest_svc.MockBankClient{AllowTransfer: true}
-	broker := &core_invest_svc.MockBrokerClient{}
-	bff.ciSvc = core_invest_svc.NewServiceWithIntegrations(core_invest_repo.NewMockRepository(), broker, bank)
+	_, mux := setupTestBFF()
 
 	sessToken := "sess-arthur-token"
 	csrfToken := "test-csrf-token"
@@ -1136,7 +1124,7 @@ func TestCustomerBFF_GDPRErasure_And_Certificate(t *testing.T) {
 
 func TestCustomerBFF_Search(t *testing.T) {
 	bff, mux := setupTestBFF()
-	_ = bff.searchClient.IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
+	_ = bff.SearchClient().IndexDocuments(context.Background(), "customer_catalog", []map[string]interface{}{
 		{"id": "fund-alpha", "category": "fund", "symbol": "ALPHA", "title": "OCI Feline Behavioral Alpha Fund", "description": "Dynamic quantitative weighting based on active feline zoomie intervals."},
 	})
 

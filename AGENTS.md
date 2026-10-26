@@ -220,6 +220,7 @@ Before marking any task as complete or submitting code changes, agents must veri
    node scripts/generate-theme.js
    ```
 6. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
+7. **Protocol BUffers** ONly use the .proto files. Ignore the generated *.pb.go and *.pb.gw.go files.
 
 ---
 

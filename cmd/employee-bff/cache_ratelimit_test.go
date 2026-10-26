@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/handler"
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
@@ -18,7 +17,7 @@ import (
 )
 
 func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
-	repo := workforce.NewMockRepository()
+	repo := wfService.NewMockRepository()
 	svc := wfService.NewService(repo)
 	wfHandler := handler.NewWorkforceHandler(svc, nil, nil)
 
@@ -30,7 +29,7 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 	wfHandler.RegisterRoutes(mux)
 
 	// Seed care schedule in mock repo
-	_, err := svc.UpdateCareSchedule(context.Background(), &workforce.CareSchedule{
+	_, err := svc.UpdateCareSchedule(context.Background(), &wfService.CareSchedule{
 		FelineID:    "fel-tom",
 		DietaryPlan: "100% Grain-Free Salmon",
 	})
@@ -46,7 +45,7 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 	assert.NotEmpty(t, etag, "response must have ETag header")
 
 	// Verify cached
-	var cs workforce.CareSchedule
+	var cs wfService.CareSchedule
 	ok, err := cache.Get(context.Background(), cachevalkey.KeyCareSchedule("fel-tom"), &cs)
 	require.NoError(t, err)
 	assert.True(t, ok)
@@ -78,7 +77,7 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 }
 
 func TestEmployeeBFF_NextcloudCOTSCaching(t *testing.T) {
-	repo := workforce.NewMockRepository()
+	repo := wfService.NewMockRepository()
 	svc := wfService.NewService(repo)
 	wfHandler := handler.NewWorkforceHandler(svc, nil, nil)
 

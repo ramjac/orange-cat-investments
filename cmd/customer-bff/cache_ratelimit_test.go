@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
-	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/stretchr/testify/assert"
@@ -16,16 +14,18 @@ import (
 )
 
 func TestCustomerBFF_PortfolioCachingAndConditionalETag(t *testing.T) {
-	ciRepo := core_invest_repo.NewMockRepository()
-	ciSvc := core_invest_svc.NewService(ciRepo)
-	bff := NewCustomerBFF(ciSvc, nil, nil)
+	bff := NewCustomerBFF(nil, nil)
 
 	// Ensure in-memory cache and session store
 	cache := cachevalkey.NewMemoryCache()
 	defer cache.Close()
 	bff.SetCache(cache)
 
-	sess, err := bff.sessions.Create("cust-cache-test", "Cache Tester", "cache@oci.local")
+	sessStore := sessionvalkey.NewMemoryCustomerSessionStore()
+	defer sessStore.Close()
+	bff.SetSessionStore(sessStore)
+
+	sess, err := sessStore.Create("cust-cache-test", "Cache Tester", "cache@oci.local")
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
@@ -87,7 +87,7 @@ func TestCustomerBFF_PortfolioCachingAndConditionalETag(t *testing.T) {
 }
 
 func TestCustomerBFF_RateLimiting(t *testing.T) {
-	bff := NewCustomerBFF(nil, nil, nil)
+	bff := NewCustomerBFF(nil, nil)
 	limiter := cachevalkey.NewRateLimiter(nil, nil)
 	bff.SetRateLimiter(limiter)
 
