@@ -1,3 +1,6 @@
+# ==============================================================================
+# Orange Cat Investments (OCI) - Continuous Integration & Gated Staging Pipeline
+# ==============================================================================
 name: OCI Continuous Integration & Gated Staging Pipeline
 
 on:
