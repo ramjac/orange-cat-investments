@@ -5,6 +5,7 @@ package oci.internal_bll.v1;
 import "oci/workforce/v1/workforce.proto";
 import "oci/facilities/v1/facilities.proto";
 import "oci/ops/v1/ops.proto";
+import "oci/core_invest/v1/core_invest.proto";
 
 option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1;internalbllv1";
 
@@ -88,6 +89,16 @@ service InternalBLLService {
   rpc StreamEnvironmentalTelemetry(oci.facilities.v1.StreamTelemetryRequest) returns (stream oci.facilities.v1.TelemetrySample);
   rpc ControlPTZ(oci.facilities.v1.ControlPTZRequest) returns (oci.facilities.v1.ControlPTZResponse);
   rpc CalibrateCameraLens(oci.facilities.v1.CalibrateCameraLensRequest) returns (oci.facilities.v1.CalibrateCameraLensResponse);
+
+  // Quant & Investment Research (Employee-Facing)
+  rpc ListStreams(oci.core_invest.v1.ListCameraStreamsRequest) returns (oci.core_invest.v1.ListCameraStreamsResponse);
+  rpc RegisterStream(oci.core_invest.v1.RegisterCameraStreamRequest) returns (oci.core_invest.v1.RegisterCameraStreamResponse);
+  rpc ListBrokerageOrders(oci.core_invest.v1.ListOrdersRequest) returns (oci.core_invest.v1.ListOrdersResponse);
+  rpc ExecuteBrokerageOrder(oci.core_invest.v1.CreateOrderRequest) returns (oci.core_invest.v1.CreateOrderResponse);
+  rpc ListBacktestRuns(oci.core_invest.v1.ListBacktestRunsRequest) returns (oci.core_invest.v1.ListBacktestRunsResponse);
+  rpc StartBacktestRun(oci.core_invest.v1.StartBacktestRunRequest) returns (oci.core_invest.v1.StartBacktestRunResponse);
+  rpc ListRecurringDeposits(oci.core_invest.v1.ListRecurringDepositsRequest) returns (oci.core_invest.v1.ListRecurringDepositsResponse);
+  rpc CreateRecurringDeposit(oci.core_invest.v1.CreateRecurringDepositRequest) returns (oci.core_invest.v1.CreateRecurringDepositResponse);
 
   // Ops, Tickets & Pebble Alerts
   rpc CreateTicket(oci.ops.v1.CreateTicketRequest) returns (oci.ops.v1.CreateTicketResponse);

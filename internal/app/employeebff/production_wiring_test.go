@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/orange-cat-investments/oci/internal/app/employeebff"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
@@ -21,6 +22,9 @@ type mockProductionBLLClient struct {
 	listLeaveRequestsCalled bool
 	listAssetsCalled        bool
 	listTicketsCalled       bool
+	listStreamsCalled       bool
+	listOrdersCalled        bool
+	listBacktestsCalled     bool
 }
 
 func (m *mockProductionBLLClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -65,6 +69,33 @@ func (m *mockProductionBLLClient) ListTickets(ctx context.Context, in *opsv1.Lis
 	}, nil
 }
 
+func (m *mockProductionBLLClient) ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
+	m.listStreamsCalled = true
+	return &coreinvestv1.ListCameraStreamsResponse{
+		Streams: []*coreinvestv1.CameraStream{
+			{StreamID: "stream-1", AssetID: "asset-1", Protocol: "rtsp"},
+		},
+	}, nil
+}
+
+func (m *mockProductionBLLClient) ListBrokerageOrders(ctx context.Context, in *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
+	m.listOrdersCalled = true
+	return &coreinvestv1.ListOrdersResponse{
+		Orders: []*coreinvestv1.BrokerageOrder{
+			{OrderID: "ord-1", Symbol: "AAPL", Side: "buy"},
+		},
+	}, nil
+}
+
+func (m *mockProductionBLLClient) ListBacktestRuns(ctx context.Context, in *coreinvestv1.ListBacktestRunsRequest) (*coreinvestv1.ListBacktestRunsResponse, error) {
+	m.listBacktestsCalled = true
+	return &coreinvestv1.ListBacktestRunsResponse{
+		Runs: []*coreinvestv1.BacktestRun{
+			{RunID: "run-1", StrategyName: "alpha-1"},
+		},
+	}, nil
+}
+
 func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	mockBLL := &mockProductionBLLClient{}
 	bff := employeebff.NewEmployeeBFF(mockBLL, nil)
@@ -105,4 +136,25 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	router.ServeHTTP(recTickets, reqTickets)
 	assert.Equal(t, http.StatusOK, recTickets.Code)
 	assert.True(t, mockBLL.listTicketsCalled, "expected ListTickets RPC to be invoked")
+
+	// 5. Quant Streams route
+	reqStreams := httptest.NewRequest(http.MethodGet, "/core-invest/streams", nil)
+	recStreams := httptest.NewRecorder()
+	router.ServeHTTP(recStreams, reqStreams)
+	assert.Equal(t, http.StatusOK, recStreams.Code)
+	assert.True(t, mockBLL.listStreamsCalled, "expected ListStreams RPC to be invoked")
+
+	// 6. Quant Orders route
+	reqOrders := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders", nil)
+	recOrders := httptest.NewRecorder()
+	router.ServeHTTP(recOrders, reqOrders)
+	assert.Equal(t, http.StatusOK, recOrders.Code)
+	assert.True(t, mockBLL.listOrdersCalled, "expected ListBrokerageOrders RPC to be invoked")
+
+	// 7. Quant Backtest Runs route
+	reqBacktests := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs", nil)
+	recBacktests := httptest.NewRecorder()
+	router.ServeHTTP(recBacktests, reqBacktests)
+	assert.Equal(t, http.StatusOK, recBacktests.Code)
+	assert.True(t, mockBLL.listBacktestsCalled, "expected ListBacktestRuns RPC to be invoked")
 }

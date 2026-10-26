@@ -1,92 +1,71 @@
 package employeebff
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"sync"
-	"time"
+
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 )
 
-type quantStore struct {
-	mu        sync.RWMutex
-	streams   []map[string]any
-	orders    []map[string]any
-	backtests []map[string]any
-	deposits  []map[string]any
-}
-
-var globalQuantStore = &quantStore{
-	streams: []map[string]any{
-		{
-			"stream_id":       "stream-018f3a9a-3333-7000-8000-000000000003",
-			"camera_asset_id": "018f3a9a-3333-7000-8000-000000000003",
-			"stream_url":      "rtsp://edge-cam-01.local/live",
-			"protocol":        "rtsp",
-			"status":          "online",
-			"created_at":      time.Now().UTC().Format(time.RFC3339),
-		},
-	},
-	orders: []map[string]any{
-		{
-			"order_id":     "ord-018f3a9a-2222-7000-8000-000000000001",
-			"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
-			"broker_name":  "Interactive Brokers",
-			"symbol":       "AAPL",
-			"side":         "buy",
-			"quantity":     10.0,
-			"price":        225.50,
-			"status":       "filled",
-			"created_at":   time.Now().UTC().Format(time.RFC3339),
-		},
-	},
-	backtests: []map[string]any{
-		{
-			"backtest_id": "backtest-018f3a9a-4444-7000-8000-000000000001",
-			"strategy_id": "018f3a9a-4444-7000-8000-000000000004",
-			"status":      "completed",
-			"alpha_score": 1.42,
-			"created_at":  time.Now().UTC().Format(time.RFC3339),
-		},
-	},
-}
-
-func randomHexID(prefix string) string {
-	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%s-%s", prefix, hex.EncodeToString(b))
-}
-
 // RegisterQuantRoutes registers quant, research, and core-invest employee API routes.
+// Invariant: EmployeeBFF delegates all business logic and domain persistence to Internal BLL over gRPC.
 func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 	// Streams
 	listStreams := func(w http.ResponseWriter, r *http.Request) {
-		globalQuantStore.mu.RLock()
-		defer globalQuantStore.mu.RUnlock()
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		res, err := b.bllClient.ListStreams(r.Context(), &coreinvestv1.ListCameraStreamsRequest{})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(globalQuantStore.streams)
+		if res.Streams == nil {
+			_ = json.NewEncoder(w).Encode([]*coreinvestv1.CameraStream{})
+		} else {
+			_ = json.NewEncoder(w).Encode(res.Streams)
+		}
 	}
+
 	createStream := func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			CameraAssetID string `json:"camera_asset_id"`
+			AssetID       string `json:"asset_id"`
+			FelineID      string `json:"feline_id"`
+			StreamURL     string `json:"stream_url"`
+			Resolution    string `json:"resolution"`
+			Framerate     int32  `json:"framerate"`
+			Protocol      string `json:"protocol"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req["stream_id"] == nil || req["stream_id"] == "" {
-			req["stream_id"] = randomHexID("stream")
+		assetID := req.CameraAssetID
+		if assetID == "" {
+			assetID = req.AssetID
 		}
-		req["status"] = "online"
-		req["created_at"] = time.Now().UTC().Format(time.RFC3339)
-
-		globalQuantStore.mu.Lock()
-		globalQuantStore.streams = append(globalQuantStore.streams, req)
-		globalQuantStore.mu.Unlock()
-
+		res, err := b.bllClient.RegisterStream(r.Context(), &coreinvestv1.RegisterCameraStreamRequest{
+			AssetID:    assetID,
+			FelineID:   req.FelineID,
+			StreamURL:  req.StreamURL,
+			Resolution: req.Resolution,
+			Framerate:  req.Framerate,
+			Protocol:   req.Protocol,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(res.Stream)
 	}
 
 	mux.HandleFunc("GET /core-invest/streams", listStreams)
@@ -96,30 +75,61 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 
 	// Brokerage Orders
 	listOrders := func(w http.ResponseWriter, r *http.Request) {
-		globalQuantStore.mu.RLock()
-		defer globalQuantStore.mu.RUnlock()
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		portfolioID := r.URL.Query().Get("portfolio_id")
+		res, err := b.bllClient.ListBrokerageOrders(r.Context(), &coreinvestv1.ListOrdersRequest{
+			PortfolioID: portfolioID,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(globalQuantStore.orders)
+		if res.Orders == nil {
+			_ = json.NewEncoder(w).Encode([]*coreinvestv1.BrokerageOrder{})
+		} else {
+			_ = json.NewEncoder(w).Encode(res.Orders)
+		}
 	}
+
 	createOrder := func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			PortfolioID string  `json:"portfolio_id"`
+			Symbol      string  `json:"symbol"`
+			Side        string  `json:"side"`
+			Quantity    float64 `json:"quantity"`
+			Price       float64 `json:"price"`
+			OrderType   string  `json:"order_type"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req["order_id"] == nil || req["order_id"] == "" {
-			req["order_id"] = randomHexID("ord")
+		if req.OrderType == "" {
+			req.OrderType = "limit"
 		}
-		req["status"] = "filled"
-		req["created_at"] = time.Now().UTC().Format(time.RFC3339)
-
-		globalQuantStore.mu.Lock()
-		globalQuantStore.orders = append(globalQuantStore.orders, req)
-		globalQuantStore.mu.Unlock()
-
+		res, err := b.bllClient.ExecuteBrokerageOrder(r.Context(), &coreinvestv1.CreateOrderRequest{
+			PortfolioID: req.PortfolioID,
+			Symbol:      req.Symbol,
+			Side:        req.Side,
+			Quantity:    req.Quantity,
+			Price:       req.Price,
+			OrderType:   req.OrderType,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(res.Order)
 	}
 
 	mux.HandleFunc("GET /core-invest/brokerage/orders", listOrders)
@@ -129,31 +139,61 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 
 	// Backtest Runs
 	listBacktests := func(w http.ResponseWriter, r *http.Request) {
-		globalQuantStore.mu.RLock()
-		defer globalQuantStore.mu.RUnlock()
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		res, err := b.bllClient.ListBacktestRuns(r.Context(), &coreinvestv1.ListBacktestRunsRequest{})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(globalQuantStore.backtests)
+		if res.Runs == nil {
+			_ = json.NewEncoder(w).Encode([]*coreinvestv1.BacktestRun{})
+		} else {
+			_ = json.NewEncoder(w).Encode(res.Runs)
+		}
 	}
+
 	createBacktest := func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			ResearcherID   string  `json:"researcher_id"`
+			StrategyName   string  `json:"strategy_name"`
+			StrategyID     string  `json:"strategy_id"`
+			StartDate      string  `json:"start_date"`
+			EndDate        string  `json:"end_date"`
+			InitialCapital float64 `json:"initial_capital"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req["backtest_id"] == nil || req["backtest_id"] == "" {
-			req["backtest_id"] = randomHexID("backtest")
+		strategy := req.StrategyName
+		if strategy == "" {
+			strategy = req.StrategyID
 		}
-		req["status"] = "completed"
-		req["alpha_score"] = 1.45
-		req["created_at"] = time.Now().UTC().Format(time.RFC3339)
-
-		globalQuantStore.mu.Lock()
-		globalQuantStore.backtests = append(globalQuantStore.backtests, req)
-		globalQuantStore.mu.Unlock()
-
+		if req.InitialCapital == 0 {
+			req.InitialCapital = 100000.0
+		}
+		res, err := b.bllClient.StartBacktestRun(r.Context(), &coreinvestv1.StartBacktestRunRequest{
+			ResearcherID:   req.ResearcherID,
+			StrategyName:   strategy,
+			StartDate:      req.StartDate,
+			EndDate:        req.EndDate,
+			InitialCapital: req.InitialCapital,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(res.Run)
 	}
 
 	mux.HandleFunc("GET /core-invest/backtesting/runs", listBacktests)
@@ -163,30 +203,56 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 
 	// Recurring Deposits
 	listDeposits := func(w http.ResponseWriter, r *http.Request) {
-		globalQuantStore.mu.RLock()
-		defer globalQuantStore.mu.RUnlock()
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		customerID := r.URL.Query().Get("customer_id")
+		res, err := b.bllClient.ListRecurringDeposits(r.Context(), &coreinvestv1.ListRecurringDepositsRequest{
+			CustomerID: customerID,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(globalQuantStore.deposits)
+		if res.Deposits == nil {
+			_ = json.NewEncoder(w).Encode([]*coreinvestv1.RecurringDeposit{})
+		} else {
+			_ = json.NewEncoder(w).Encode(res.Deposits)
+		}
 	}
+
 	createDeposit := func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			CustomerID  string  `json:"customer_id"`
+			PortfolioID string  `json:"portfolio_id"`
+			AmountUSD   float64 `json:"amount_usd"`
+			Frequency   string  `json:"frequency"`
+			BankAccount string  `json:"bank_account"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if req["deposit_id"] == nil || req["deposit_id"] == "" {
-			req["deposit_id"] = randomHexID("dep")
+		res, err := b.bllClient.CreateRecurringDeposit(r.Context(), &coreinvestv1.CreateRecurringDepositRequest{
+			CustomerID:  req.CustomerID,
+			PortfolioID: req.PortfolioID,
+			AmountUSD:   req.AmountUSD,
+			Frequency:   req.Frequency,
+			BankAccount: req.BankAccount,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
-		req["status"] = "active"
-		req["created_at"] = time.Now().UTC().Format(time.RFC3339)
-
-		globalQuantStore.mu.Lock()
-		globalQuantStore.deposits = append(globalQuantStore.deposits, req)
-		globalQuantStore.mu.Unlock()
-
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(res.Deposit)
 	}
 
 	mux.HandleFunc("GET /core-invest/recurring-deposits", listDeposits)

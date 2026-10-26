@@ -8,6 +8,7 @@ import (
 
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 // RegisterFacilitiesRoutes mounts Facilities domain endpoints onto the Employee BFF mux.
@@ -113,11 +114,20 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			return
 		}
 
+		author := "system"
+		if emp := session.EmployeeFromContext(r.Context()); emp != nil {
+			if emp.EmployeeID != "" {
+				author = emp.EmployeeID
+			} else if emp.Name != "" {
+				author = emp.Name
+			}
+		}
+
 		tResp, err := b.bllClient.CreateTicket(r.Context(), &opsv1.CreateTicketRequest{
 			ForgejoRepo:    "facilities/assets",
 			Title:          req.Title,
 			Body:           fmt.Sprintf("Asset %s maintenance: %s", assetID, req.Description),
-			AuthorUsername: "emp-human-bob",
+			AuthorUsername: author,
 			Severity:       req.Priority,
 			Category:       "facilities",
 		})

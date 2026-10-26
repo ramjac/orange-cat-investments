@@ -17,6 +17,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
@@ -97,7 +98,24 @@ func main() {
 	}
 	defer opsConn.Close()
 
+	ciAddr := os.Getenv("CORE_INVEST_GRPC_ADDR")
+	if ciAddr == "" {
+		ciAddr = os.Getenv("CORE_INVEST_API_URL")
+	}
+	if ciAddr == "" {
+		ciAddr = "core-invest-api-service.oci-core.svc.cluster.local:50053"
+	}
+	ciConn, err := grpcutil.Dial(context.Background(), ciAddr, clientTLS)
+	if err != nil {
+		logger.Warn("could not connect to core-invest-api", "error", err)
+	} else {
+		defer ciConn.Close()
+	}
+
 	var cfg internalbll.Config
+	if ciConn != nil {
+		cfg.CoreInvestClient = coreinvestv1.NewCoreInvestServiceClient(ciConn)
+	}
 	if frappeURL := os.Getenv("FRAPPE_URL"); frappeURL != "" {
 		cfg.HRClient = wfService.HRClient(frappe.NewClient(frappe.Config{
 			BaseURL:   frappeURL,
