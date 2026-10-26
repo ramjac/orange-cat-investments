@@ -2071,7 +2071,7 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_claim_kanban_card",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Claimed Kanban Card #1 in Forgejo: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),

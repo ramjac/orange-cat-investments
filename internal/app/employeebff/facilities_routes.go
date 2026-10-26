@@ -146,13 +146,15 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		}
 
 		type logEntry struct {
-			ClientLogID  string `json:"client_log_id"`
-			AssetID      string `json:"asset_id"`
-			ActionTaken  string `json:"action_taken"`
-			PerformedBy  string `json:"performed_by"`
-			TechnicianID string `json:"technician_id"`
-			Timestamp    string `json:"timestamp"`
-			CreatedAt    string `json:"created_at"`
+			ClientLogID   string `json:"client_log_id"`
+			AssetID       string `json:"asset_id"`
+			QRCodeScanned string `json:"qr_code_scanned"`
+			ActionTaken   string `json:"action_taken"`
+			PerformedBy   string `json:"performed_by"`
+			TechnicianID  string `json:"technician_id"`
+			Notes         string `json:"notes"`
+			Timestamp     string `json:"timestamp"`
+			CreatedAt     string `json:"created_at"`
 		}
 
 		var entries []logEntry
@@ -179,12 +181,18 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			if syncedAt == "" {
 				syncedAt = l.CreatedAt
 			}
+			qrCode := l.QRCodeScanned
+			if qrCode == "" {
+				qrCode = "QR-" + l.AssetID
+			}
 			pbLogs = append(pbLogs, &facilitiesv1.MaintenanceLog{
-				LogID:        l.ClientLogID,
-				AssetID:      l.AssetID,
-				ActionTaken:  l.ActionTaken,
-				TechnicianID: techID,
-				SyncedAt:     syncedAt,
+				LogID:         l.ClientLogID,
+				AssetID:       l.AssetID,
+				QRCodeScanned: qrCode,
+				ActionTaken:   l.ActionTaken,
+				TechnicianID:  techID,
+				Notes:         l.Notes,
+				SyncedAt:      syncedAt,
 			})
 		}
 
