@@ -183,6 +183,8 @@ spec:
               mountPath: /var/lib/docker
             - name: docker-sock
               mountPath: /var/run
+            - name: runner-data
+              mountPath: /data
       volumes:
         - name: runner-config
           configMap:
