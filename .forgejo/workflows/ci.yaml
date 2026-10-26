@@ -21,19 +21,16 @@ jobs:
         with:
           go-version: '1.25'
           cache: false
+          cache: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python Dependencies
-        run: pip install pyyaml
+      - name: Set up Python & Dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml python3-pip
 
       - name: Validate OpenAPI 3.1 Contract Specification
         run: python3 scripts/validate-openapi.py api/openapi.yaml
@@ -160,6 +157,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache: false
 
       - name: Run Full Persona Live Simulation Suite against oci-dev
         run: |
