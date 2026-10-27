@@ -60,6 +60,8 @@ type stubCoreInvestServer struct {
 	portfolios       map[string]*coreinvestv1.Portfolio
 	streams          []*coreinvestv1.CameraStream
 	failStreams      bool
+	deposits         []*coreinvestv1.RecurringDeposit
+	failListDeposits bool
 }
 
 func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
@@ -75,6 +77,22 @@ func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1
 			Status:      "filled",
 		},
 	}, nil
+}
+
+func (s *stubCoreInvestServer) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+	if s.failListDeposits {
+		return nil, status.Error(codes.Internal, "db query failed")
+	}
+	if in.CustomerID == "" {
+		return &coreinvestv1.ListRecurringDepositsResponse{Deposits: s.deposits}, nil
+	}
+	var matched []*coreinvestv1.RecurringDeposit
+	for _, d := range s.deposits {
+		if d.CustomerID == in.CustomerID {
+			matched = append(matched, d)
+		}
+	}
+	return &coreinvestv1.ListRecurringDepositsResponse{Deposits: matched}, nil
 }
 
 func (s *stubCoreInvestServer) CreateRecurringDeposit(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
@@ -442,4 +460,53 @@ func TestCustomerBLL_GetStreams(t *testing.T) {
 	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, respEmpty.Streams)
+}
+
+func TestCustomerBLL_ListDeposits(t *testing.T) {
+	// Case 1: core-invest client is nil -> returns empty deposits
+	bllNoCI := customerbll.NewServer(customerbll.Config{})
+	clientNoCI := startCustomerBLLTestServer(t, bllNoCI)
+
+	resNil, err := clientNoCI.ListDeposits(t.Context(), &customerbllv1.ListDepositsRequest{CustomerID: "cust-001"})
+	require.NoError(t, err)
+	assert.Empty(t, resNil.Deposits)
+
+	// Case 2: core-invest client configured -> returns deposits list
+	ciStub := &stubCoreInvestServer{
+		deposits: []*coreinvestv1.RecurringDeposit{
+			{
+				DepositID:   "dep-101",
+				CustomerID:  "cust-001",
+				PortfolioID: "port-001",
+				AmountUSD:   250.00,
+				Frequency:   "monthly",
+				Status:      "active",
+			},
+			{
+				DepositID:   "dep-102",
+				CustomerID:  "cust-002",
+				PortfolioID: "port-002",
+				AmountUSD:   100.00,
+				Frequency:   "weekly",
+				Status:      "active",
+			},
+		},
+	}
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	resList, err := client.ListDeposits(t.Context(), &customerbllv1.ListDepositsRequest{CustomerID: "cust-001"})
+	require.NoError(t, err)
+	require.Len(t, resList.Deposits, 1)
+	assert.Equal(t, "dep-101", resList.Deposits[0].DepositID)
+	assert.Equal(t, "cust-001", resList.Deposits[0].CustomerID)
+	assert.Equal(t, 250.00, resList.Deposits[0].AmountUSD)
+
+	// Case 3: core-invest returns error -> ListDeposits fails with Internal status code
+	ciStub.failListDeposits = true
+	_, err = client.ListDeposits(t.Context(), &customerbllv1.ListDepositsRequest{CustomerID: "cust-001"})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Contains(t, err.Error(), "failed to list recurring deposits")
 }
