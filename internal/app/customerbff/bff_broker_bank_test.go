@@ -86,3 +86,43 @@ func TestCustomerBFF_BankAccountsAndDeposits(t *testing.T) {
 	mux.ServeHTTP(badRec, badReq)
 	assert.Equal(t, http.StatusBadRequest, badRec.Code)
 }
+
+func TestCustomerBFF_PortfolioSecurity_IDOR_And_Unauthenticated(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	// 1. Unauthenticated request with customer_id or portfolio_id query params must return 401 Unauthorized
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio?customer_id=cust-active-chloe&portfolio_id=port-cust-active-chloe", nil)
+	unauthRec := httptest.NewRecorder()
+	mux.ServeHTTP(unauthRec, unauthReq)
+	assert.Equal(t, http.StatusUnauthorized, unauthRec.Code)
+
+	// 2. Authenticated request as Arthur attempting to query Chloe's portfolio via query params must ignore params and return Arthur's portfolio
+	authReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio?customer_id=cust-active-chloe&portfolio_id=port-cust-active-chloe", nil)
+	authReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	authRec := httptest.NewRecorder()
+	mux.ServeHTTP(authRec, authReq)
+	assert.Equal(t, http.StatusOK, authRec.Code)
+
+	var portResp map[string]interface{}
+	err := json.Unmarshal(authRec.Body.Bytes(), &portResp)
+	require.NoError(t, err)
+	assert.Equal(t, "cust-longterm-arthur", portResp["customer_id"])
+	assert.Equal(t, "port-cust-longterm-arthur", portResp["portfolio_id"])
+
+	// 3. Verify unauthenticated requests to other sensitive customer endpoints are rejected with 401
+	protectedEndpoints := []string{
+		"/api/v1/customer/deposits?customer_id=cust-active-chloe",
+		"/api/v1/customer/bank-accounts?customer_id=cust-active-chloe",
+		"/api/v1/customer/statements?customer_id=cust-active-chloe",
+		"/api/v1/customer/api-keys?customer_id=cust-active-chloe",
+		"/api/v1/customer/webhooks?customer_id=cust-active-chloe",
+		"/api/v1/customer/support/tickets?customer_id=cust-active-chloe",
+	}
+
+	for _, ep := range protectedEndpoints {
+		req := httptest.NewRequest(http.MethodGet, ep, nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code, "Endpoint %s must return 401 Unauthorized without valid session", ep)
+	}
+}
