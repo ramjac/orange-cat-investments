@@ -30,7 +30,7 @@ type EmployeeBFF struct {
 	enableFelineWorkforce bool
 }
 
-// NewEmployeeBFF creates an EmployeeBFF instance with default in-memory fallbacks.
+// NewEmployeeBFF creates an EmployeeBFF instance backed by the upstream Internal BLL client.
 func NewEmployeeBFF(bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) *EmployeeBFF {
 	if logger == nil {
 		logger = slog.Default()

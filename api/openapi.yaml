@@ -1525,6 +1525,29 @@ paths:
         '400':
           $ref: '#/components/responses/400BadRequest'
 
+  /core-invest/streams/{id}:
+    get:
+      summary: Get Camera Ingestion Stream by ID
+      operationId: getCameraStreamById
+      tags:
+        - Stream Ingestion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Camera stream details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraStream'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /core-invest/brokerage/orders:
     get:
       summary: List Brokerage Orders
@@ -2253,6 +2276,89 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
 
+  /api/v1/customer/webhooks:
+    get:
+      summary: List Registered Webhooks
+      operationId: listCustomerWebhooks
+      tags:
+        - Customer Webhooks
+      responses:
+        '200':
+          description: List of registered webhooks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+    post:
+      summary: Register a Customer Webhook
+      operationId: createCustomerWebhook
+      tags:
+        - Customer Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_url
+              properties:
+                target_url:
+                  type: string
+                  format: uri
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Webhook registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
+  /api/v1/customer/webhooks/{id}:
+    delete:
+      summary: Delete Customer Webhook Subscription
+      operationId: deleteCustomerWebhook
+      tags:
+        - Customer Webhooks
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook subscription successfully deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  webhook_id:
+                    type: string
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
   /employee/search:
     get:
       summary: Global Command+K Typo-Tolerant Full-Text Search across Enterprise Knowledge (Meilisearch)
@@ -2329,6 +2435,40 @@ paths:
 
 components:
   schemas:
+    WebhookSubscription:
+      type: object
+      required:
+        - webhook_id
+        - customer_id
+        - target_url
+        - events
+        - status
+        - created_at
+      properties:
+        webhook_id:
+          type: string
+          format: uuid
+        customer_id:
+          type: string
+        target_url:
+          type: string
+          format: uri
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        secret:
+          type: string
+        status:
+          type: string
+          enum: [active, paused, revoked]
+        created_at:
+          type: string
+          format: date-time
+
     HardwareAsset:
       type: object
       required:
