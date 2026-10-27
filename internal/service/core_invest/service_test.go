@@ -297,6 +297,62 @@ func TestCoreInvestService(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotEmpty(t, list)
 	})
+
+	t.Run("GenerateMonthlyStatement_ParseNumericCoverage", func(t *testing.T) {
+		portID := "port-parse-numeric-test"
+		custID := "cust-parse-numeric-test"
+		p := &repo.Portfolio{
+			PortfolioID:     portID,
+			CustomerID:      custID,
+			AccountName:     "Numeric Types Test Portfolio",
+			TotalBalanceUSD: 1000.0,
+			Holdings: []map[string]interface{}{
+				{
+					"symbol":               "F32",
+					"quantity":             float32(10.0),
+					"avg_price":            float32(50.0),
+					"current_price":        float32(60.0),
+					"market_value":         float32(600.0),
+					"cost_basis":           float32(500.0),
+					"unrealized_gain":      float32(100.0),
+					"unrealized_gain_pct":  float32(20.0),
+				},
+				{
+					"symbol":               "INT",
+					"quantity":             int(5),
+					"avg_price":            int(100),
+					"current_price":        int(120),
+					"market_value":         int(600),
+					"cost_basis":           int(500),
+					"unrealized_gain":      int(100),
+					"unrealized_gain_pct":  int(20),
+				},
+				{
+					"symbol":               "INT32_64",
+					"quantity":             int32(2),
+					"avg_price":            int64(200),
+					"current_price":        int64(250),
+					"market_value":         int32(500),
+					"cost_basis":           int64(400),
+					"unrealized_gain":      int32(100),
+					"unrealized_gain_pct":  int64(25),
+				},
+				{
+					"symbol":               "UNHANDLED",
+					"quantity":             "invalid_string_type",
+					"avg_price":            nil,
+					"current_price":        struct{}{},
+				},
+			},
+		}
+		_, err := repository.CreatePortfolio(ctx, p)
+		require.NoError(t, err)
+
+		stmt, pdfBytes, err := svc.GenerateMonthlyStatement(ctx, custID, portID, 2026, 3)
+		require.NoError(t, err)
+		assert.NotNil(t, stmt)
+		assert.NotEmpty(t, pdfBytes)
+	})
 }
 
 func TestCoreInvestService_WithBankIntegration(t *testing.T) {
