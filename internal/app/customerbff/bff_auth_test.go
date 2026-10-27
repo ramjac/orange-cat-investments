@@ -148,6 +148,42 @@ func TestCustomerBFF_ContextPropagation_Chloe(t *testing.T) {
 	assert.Equal(t, "port-cust-active-chloe", orderResp["portfolio_id"])
 }
 
+func TestCustomerBFF_IDOR_QueryParamsIgnored(t *testing.T) {
+	_, mux := setupTestBFF()
+
+	// Arthur attempts to view Chloe's portfolio by passing ?customer_id=cust-active-chloe
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio?customer_id=cust-active-chloe", nil)
+	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var portResp map[string]interface{}
+	err := json.Unmarshal(rec.Body.Bytes(), &portResp)
+	require.NoError(t, err)
+	// Must return Arthur's portfolio, ignoring the query parameter override attempt
+	assert.Equal(t, "cust-longterm-arthur", portResp["customer_id"])
+
+	// Check other query param override endpoints as Arthur
+	endpoints := []string{
+		"/api/v1/customer/deposits?customer_id=cust-active-chloe",
+		"/api/v1/customer/bank-accounts?customer_id=cust-active-chloe",
+		"/api/v1/customer/statements?customer_id=cust-active-chloe",
+		"/api/v1/customer/statements/stmt-123/download?customer_id=cust-active-chloe",
+		"/api/v1/customer/api-keys?customer_id=cust-active-chloe",
+		"/api/v1/customer/webhooks?customer_id=cust-active-chloe",
+		"/api/v1/customer/support/tickets?customer_id=cust-active-chloe",
+	}
+
+	for _, endpoint := range endpoints {
+		req := httptest.NewRequest(http.MethodGet, endpoint, nil)
+		req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.NotEqual(t, http.StatusUnauthorized, rec.Code, "endpoint %s failed auth", endpoint)
+	}
+}
+
 func TestCustomerBFF_LoginAndSessionFlow(t *testing.T) {
 	_, mux := setupTestBFF()
 
