@@ -86,6 +86,10 @@ func (s *Server) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workf
 }
 
 func buildFelineExecutiveSummary(emp *workforcev1.Employee, records []*workforcev1.VHRRecord) *customerbllv1.FelineExecutiveSummary {
+	if emp == nil {
+		return nil
+	}
+
 	healthStatus := "ACTIVE"
 	whiskerSymmetry := "100%"
 	purrFreq := 25.0
@@ -127,12 +131,17 @@ func (s *Server) GetESGTransparency(ctx context.Context, in *customerbllv1.GetES
 	vhrByFeline, _ := s.getVHRRecordsByFeline(ctx)
 
 	for _, emp := range emps {
+		if emp == nil {
+			continue
+		}
 		var records []*workforcev1.VHRRecord
 		if vhrByFeline != nil {
 			records = vhrByFeline[emp.EmployeeID]
 		}
 		vhrRecordsCount += len(records)
-		felinesList = append(felinesList, buildFelineExecutiveSummary(emp, records))
+		if summary := buildFelineExecutiveSummary(emp, records); summary != nil {
+			felinesList = append(felinesList, summary)
+		}
 	}
 
 	var incidents []*workforcev1.WorkplaceIncident
