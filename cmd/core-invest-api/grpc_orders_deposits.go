@@ -29,13 +29,13 @@ func (s *CoreInvestGRPCServer) CreateOrder(ctx context.Context, in *coreinvestv1
 				Side:        in.Side,
 				Quantity:    in.Quantity,
 				Price:       in.Price,
-				Status:      "filled",
+				Status:      "executed",
 			})
 			if repoErr != nil {
 				return nil, repoErr
 			}
 			now := time.Now().UTC()
-			if updated, uErr := s.repo.UpdateBrokerageOrderStatus(ctx, created.OrderID, "filled", &now); uErr == nil && updated != nil {
+			if updated, uErr := s.repo.UpdateBrokerageOrderStatus(ctx, created.OrderID, "executed", &now); uErr == nil && updated != nil {
 				created = updated
 			}
 			order = created

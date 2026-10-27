@@ -115,14 +115,14 @@ func main() {
 	if ciConn != nil {
 		cfg.CoreInvestClient = coreinvestv1.NewCoreInvestServiceClient(ciConn)
 	}
-	if frappeURL := os.Getenv("FRAPPE_URL"); frappeURL != "" {
+	if frappeURL := os.Getenv("FRAPPE_URL"); frappeURL != "" && os.Getenv("FRAPPE_API_KEY") != "" {
 		cfg.HRClient = wfService.HRClient(frappe.NewClient(frappe.Config{
 			BaseURL:   frappeURL,
 			APIKey:    os.Getenv("FRAPPE_API_KEY"),
 			APISecret: os.Getenv("FRAPPE_API_SECRET"),
 		}))
 	}
-	if ncURL := os.Getenv("NEXTCLOUD_URL"); ncURL != "" {
+	if ncURL := os.Getenv("NEXTCLOUD_URL"); ncURL != "" && os.Getenv("NEXTCLOUD_ADMIN_USER") != "" {
 		cfg.WorkspaceClient = wfService.WorkspaceClient(nextcloud.NewClient(nextcloud.Config{
 			BaseURL:       ncURL,
 			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
