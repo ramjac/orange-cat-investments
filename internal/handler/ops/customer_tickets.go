@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 type createCustomerTicketRequest struct {
@@ -21,13 +22,16 @@ type addCustomerCommentRequest struct {
 }
 
 func extractCustomerID(r *http.Request) string {
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		return sess.CustomerID
+	}
+	if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
+		return custID
+	}
 	if custID := r.Header.Get("X-Customer-ID"); custID != "" {
 		return custID
 	}
 	if custID := r.URL.Query().Get("customer_id"); custID != "" {
-		return custID
-	}
-	if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
 		return custID
 	}
 	return ""
@@ -69,9 +73,15 @@ func (h *Handler) CreateCustomerTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.CustomerID == "" {
-		req.CustomerID = extractCustomerID(r)
+	extractedID := extractCustomerID(r)
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		req.CustomerID = sess.CustomerID
+	} else if ctxID, ok := r.Context().Value("customer_id").(string); ok && ctxID != "" {
+		req.CustomerID = ctxID
+	} else if req.CustomerID == "" {
+		req.CustomerID = extractedID
 	}
+
 	if req.CustomerID == "" {
 		http.Error(w, "customer_id is required", http.StatusUnauthorized)
 		return
@@ -175,9 +185,14 @@ func (h *Handler) AddCustomerTicketComment(w http.ResponseWriter, r *http.Reques
 	}
 
 	author := req.AuthorUsername
-	if author == "" {
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		author = sess.CustomerID
+	} else if ctxID, ok := r.Context().Value("customer_id").(string); ok && ctxID != "" {
+		author = ctxID
+	} else if author == "" {
 		author = extractCustomerID(r)
 	}
+
 	resp, err := h.bllClient.AddTicketComment(r.Context(), &opsv1.AddTicketCommentRequest{
 		TicketID:       id,
 		AuthorUsername: author,

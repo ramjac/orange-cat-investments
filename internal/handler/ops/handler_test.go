@@ -12,12 +12,16 @@ import (
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/pebble"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockInternalBLLClient struct {
 	internalbllv1.InternalBLLServiceClient
-	lastLimit int32
+	lastLimit           int32
+	lastListCustomerID  string
+	lastCreateCustID    string
+	lastAddAuthorCustID string
 }
 
 func (m *mockInternalBLLClient) ListAlerts(ctx context.Context, in *opsv1.ListAlertsRequest) (*opsv1.ListAlertsResponse, error) {
@@ -89,6 +93,7 @@ func (m *mockInternalBLLClient) ListTickets(ctx context.Context, in *opsv1.ListT
 }
 
 func (m *mockInternalBLLClient) ListCustomerTickets(ctx context.Context, in *opsv1.ListCustomerTicketsRequest) (*opsv1.ListCustomerTicketsResponse, error) {
+	m.lastListCustomerID = in.CustomerID
 	return &opsv1.ListCustomerTicketsResponse{
 		Tickets: []*opsv1.ITTicket{
 			{
@@ -115,6 +120,7 @@ func (m *mockInternalBLLClient) UpdateTicket(ctx context.Context, in *opsv1.Upda
 }
 
 func (m *mockInternalBLLClient) AddTicketComment(ctx context.Context, in *opsv1.AddTicketCommentRequest) (*opsv1.AddTicketCommentResponse, error) {
+	m.lastAddAuthorCustID = in.AuthorUsername
 	return &opsv1.AddTicketCommentResponse{
 		Comment: &opsv1.TicketComment{
 			CommentID:      "comm-test-1",
@@ -141,6 +147,7 @@ func (m *mockInternalBLLClient) ListTicketComments(ctx context.Context, in *opsv
 }
 
 func (m *mockInternalBLLClient) CreateCustomerTicket(ctx context.Context, in *opsv1.CreateCustomerTicketRequest) (*opsv1.CreateCustomerTicketResponse, error) {
+	m.lastCreateCustID = in.CustomerID
 	return &opsv1.CreateCustomerTicketResponse{
 		Ticket: &opsv1.ITTicket{
 			TicketID:       "cust-ticket-999",
@@ -389,5 +396,62 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(recReply, reqReply)
 
 		assert.Equal(t, http.StatusCreated, recReply.Code)
+	})
+
+	t.Run("Customer Tickets Authentication Context Precedence & Anti-Spoofing", func(t *testing.T) {
+		// 1. Unauthenticated List Request with no headers or query params -> 401 Unauthorized
+		unauthReq := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+		recUnauth := httptest.NewRecorder()
+		mux.ServeHTTP(recUnauth, unauthReq)
+		assert.Equal(t, http.StatusUnauthorized, recUnauth.Code)
+
+		// 2. CustomerSession in Context takes precedence over spoofed X-Customer-ID header & query param
+		sess := &session.CustomerSession{
+			SessionID:  "sess-authenticated-123",
+			CustomerID: "cust-real-alice",
+		}
+		reqList := httptest.NewRequest("GET", "/api/v1/customer/support/tickets?customer_id=cust-spoofed-bob", nil)
+		reqList.Header.Set("X-Customer-ID", "cust-spoofed-charlie")
+		ctxWithSess := session.WithCustomerSession(reqList.Context(), sess)
+		reqList = reqList.WithContext(ctxWithSess)
+
+		recList := httptest.NewRecorder()
+		mux.ServeHTTP(recList, reqList)
+		assert.Equal(t, http.StatusOK, recList.Code)
+		assert.Equal(t, "cust-real-alice", mockBLL.lastListCustomerID)
+
+		// 3. CustomerSession in Context overrides spoofed customer_id in CreateCustomerTicket body
+		custBody := map[string]any{
+			"customer_id": "cust-spoofed-attacker",
+			"category":    "billing",
+			"title":       "Fake billing discrepancy",
+			"body":        "Attempting to log ticket as victim",
+		}
+		bodyData, _ := json.Marshal(custBody)
+		reqCreate := httptest.NewRequest("POST", "/api/v1/customer/support/tickets", bytes.NewReader(bodyData))
+		reqCreate.Header.Set("Content-Type", "application/json")
+		reqCreate.Header.Set("X-Customer-ID", "cust-spoofed-attacker")
+		reqCreate = reqCreate.WithContext(ctxWithSess)
+
+		recCreate := httptest.NewRecorder()
+		mux.ServeHTTP(recCreate, reqCreate)
+		assert.Equal(t, http.StatusCreated, recCreate.Code)
+		assert.Equal(t, "cust-real-alice", mockBLL.lastCreateCustID)
+
+		// 4. CustomerSession in Context overrides spoofed author_username in AddCustomerTicketComment body
+		commentBody := map[string]any{
+			"author_username": "cust-spoofed-attacker",
+			"comment":         "I agree with this change!",
+		}
+		commData, _ := json.Marshal(commentBody)
+		reqComm := httptest.NewRequest("POST", "/api/v1/customer/support/tickets/cust-ticket-999/comments", bytes.NewReader(commData))
+		reqComm.Header.Set("Content-Type", "application/json")
+		reqComm.Header.Set("X-Customer-ID", "cust-spoofed-attacker")
+		reqComm = reqComm.WithContext(ctxWithSess)
+
+		recComm := httptest.NewRecorder()
+		mux.ServeHTTP(recComm, reqComm)
+		assert.Equal(t, http.StatusCreated, recComm.Code)
+		assert.Equal(t, "cust-real-alice", mockBLL.lastAddAuthorCustID)
 	})
 }
