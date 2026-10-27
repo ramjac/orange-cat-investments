@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -168,7 +169,13 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 	})
 
 	t.Run("List Salary Slips for Employee", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil)
+		bobSession := &session.EmployeeSession{
+			EmployeeID: "emp-human-bob",
+			Role:       "staff",
+		}
+
+		ctx := session.WithEmployeeSession(httptest.NewRequest("GET", "/", nil).Context(), bobSession)
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil).WithContext(ctx)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -183,14 +190,14 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		assert.Equal(t, "emp-human-bob", resp.Items[0].EmployeeID)
 
 		// Test employee BFF path alias
-		aliasReq := httptest.NewRequest("GET", "/api/v1/employee/payroll/slips?employee_id=emp-human-bob", nil)
+		aliasReq := httptest.NewRequest("GET", "/api/v1/employee/payroll/slips?employee_id=emp-human-bob", nil).WithContext(ctx)
 		aliasRec := httptest.NewRecorder()
 		mux.ServeHTTP(aliasRec, aliasReq)
 		assert.Equal(t, http.StatusOK, aliasRec.Code)
 
 		// Get specific salary slip by ID
 		slipID := resp.Items[0].SalarySlipID
-		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/"+slipID, nil)
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/"+slipID, nil).WithContext(ctx)
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
@@ -200,5 +207,55 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, slipID, slip.SalarySlipID)
 		assert.Equal(t, 5000.00, slip.GrossPay)
+	})
+
+	t.Run("Salary Slips Unauthenticated - 401 Unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/slip-bob-1", nil)
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+		assert.Equal(t, http.StatusUnauthorized, getRec.Code)
+	})
+
+	t.Run("Salary Slips Unauthorized Access - 403 Forbidden", func(t *testing.T) {
+		aliceSession := &session.EmployeeSession{
+			EmployeeID: "emp-human-alice",
+			Role:       "staff",
+		}
+		ctx := session.WithEmployeeSession(httptest.NewRequest("GET", "/", nil).Context(), aliceSession)
+
+		// Alice trying to list Bob's slips
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+
+		// Alice trying to get Bob's specific slip
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/slip-bob-1", nil).WithContext(ctx)
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+		assert.Equal(t, http.StatusForbidden, getRec.Code)
+	})
+
+	t.Run("Salary Slips Privileged Access - 200 OK for HR", func(t *testing.T) {
+		hrSession := &session.EmployeeSession{
+			EmployeeID: "emp-human-hr-lead",
+			Role:       "hr",
+		}
+		ctx := session.WithEmployeeSession(httptest.NewRequest("GET", "/", nil).Context(), hrSession)
+
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/slip-bob-1", nil).WithContext(ctx)
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+		assert.Equal(t, http.StatusOK, getRec.Code)
 	})
 }

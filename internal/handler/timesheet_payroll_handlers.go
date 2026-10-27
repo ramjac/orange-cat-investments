@@ -7,6 +7,7 @@ import (
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
@@ -150,8 +151,30 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 	}
 }
 
+func isPrivilegedPayrollRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	switch r {
+	case "hr", "admin", "ops", "payroll":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	employeeID := r.URL.Query().Get("employee_id")
+	if employeeID == "" {
+		employeeID = sess.EmployeeID
+	} else if employeeID != sess.EmployeeID && !isPrivilegedPayrollRole(sess.Role) {
+		writeError(w, http.StatusForbidden, "forbidden: insufficient permissions to view other employee salary slips")
+		return
+	}
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
@@ -174,6 +197,12 @@ func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "salary slip id parameter is required")
@@ -190,6 +219,12 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
+	if resp.SalarySlip != nil && resp.SalarySlip.EmployeeID != sess.EmployeeID && !isPrivilegedPayrollRole(sess.Role) {
+		writeError(w, http.StatusForbidden, "forbidden: insufficient permissions to view this salary slip")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, resp.SalarySlip)
 }
 
