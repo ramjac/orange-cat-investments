@@ -123,6 +123,48 @@ func TestVersioningMiddleware(t *testing.T) {
 			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
 		}
 	})
+
+	t.Run("Multi-version config negotiation picks higher quality factor", func(t *testing.T) {
+		multiCfg := Config{
+			DefaultVersion:    "v1",
+			SupportedVersions: []string{"v1", "v2"},
+		}
+		multiHandler := Middleware(multiCfg)(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("Accept", "application/vnd.oci.v1+json;q=0.4, application/vnd.oci.v2+json;q=0.8")
+		rec := httptest.NewRecorder()
+
+		multiHandler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v2" {
+			t.Errorf("expected X-API-Version 'v2', got '%s'", v)
+		}
+	})
+
+	t.Run("Normalize version format variations", func(t *testing.T) {
+		multiCfg := Config{
+			DefaultVersion:    "1",
+			SupportedVersions: []string{"1", "V2"},
+		}
+		multiHandler := Middleware(multiCfg)(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("X-API-Version", " 2 ")
+		rec := httptest.NewRecorder()
+
+		multiHandler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v2" {
+			t.Errorf("expected X-API-Version 'v2', got '%s'", v)
+		}
+	})
 }
 
 
