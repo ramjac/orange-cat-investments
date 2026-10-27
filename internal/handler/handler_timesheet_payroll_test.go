@@ -8,8 +8,81 @@ import (
 	"testing"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestListTimesheets_ScopedToSession(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("Standard Employee Cannot Query Other Employees Timesheets", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-alice-01", nil)
+		sess := &session.EmployeeSession{
+			EmployeeID: "emp-bob-01",
+			Role:       "veterinary",
+		}
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), sess))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			Items []*frappe.Timesheet `json:"items"`
+			Total int                 `json:"total"`
+		}
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		// Since emp-bob-01 has 0 timesheets in mock repository, total should be 0 instead of matching emp-alice-01
+		for _, ts := range resp.Items {
+			assert.Equal(t, "emp-bob-01", ts.EmployeeID)
+		}
+	})
+
+	t.Run("Admin Employee Can Query Other Employees Timesheets", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-bob-01", nil)
+		sess := &session.EmployeeSession{
+			EmployeeID: "emp-admin-01",
+			Role:       "admin",
+		}
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), sess))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			Items []*frappe.Timesheet `json:"items"`
+			Total int                 `json:"total"`
+		}
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+	})
+}
+
+func TestListSalarySlips_ScopedToSession(t *testing.T) {
+	mux := setupTestServer()
+
+	t.Run("Standard Employee Scoped To Own Salary Slips", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-alice", nil)
+		sess := &session.EmployeeSession{
+			EmployeeID: "emp-human-bob",
+			Role:       "veterinary",
+		}
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), sess))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var resp struct {
+			Items []frappe.SalarySlip `json:"items"`
+			Total int                 `json:"total"`
+		}
+		err := json.Unmarshal(rec.Body.Bytes(), &resp)
+		assert.NoError(t, err)
+		for _, slip := range resp.Items {
+			assert.Equal(t, "emp-human-bob", slip.EmployeeID)
+		}
+	})
+}
 
 func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 	mux := setupTestServer()

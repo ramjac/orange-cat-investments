@@ -7,6 +7,7 @@ import (
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
@@ -15,6 +16,18 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	fromDate := r.URL.Query().Get("from_date")
 	toDate := r.URL.Query().Get("to_date")
 	taskCode := r.URL.Query().Get("task_code")
+
+	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		role := strings.ToLower(strings.TrimSpace(sess.Role))
+		switch role {
+		case "admin", "hr", "ops", "engineering", "staff":
+			if empID == "" {
+				empID = sess.EmployeeID
+			}
+		default:
+			empID = sess.EmployeeID
+		}
+	}
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
@@ -47,6 +60,18 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&ts); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
+	}
+
+	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		role := strings.ToLower(strings.TrimSpace(sess.Role))
+		switch role {
+		case "admin", "hr", "ops", "engineering", "staff":
+			if ts.EmployeeID == "" {
+				ts.EmployeeID = sess.EmployeeID
+			}
+		default:
+			ts.EmployeeID = sess.EmployeeID
+		}
 	}
 
 	if h.bllClient == nil {
@@ -105,11 +130,15 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
+	sess := session.EmployeeFromContext(r.Context())
 	switch strings.ToLower(req.Status) {
 	case "approved":
 		approver := req.ApproverID
 		if approver == "" {
 			approver = req.ReviewerID
+		}
+		if approver == "" && sess != nil && sess.EmployeeID != "" {
+			approver = sess.EmployeeID
 		}
 		if approver == "" {
 			writeError(w, http.StatusBadRequest, "approver_id is required for approval")
@@ -132,6 +161,9 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 		if reviewer == "" {
 			reviewer = req.ApproverID
 		}
+		if reviewer == "" && sess != nil && sess.EmployeeID != "" {
+			reviewer = sess.EmployeeID
+		}
 
 		resp, err := h.bllClient.RejectTimesheet(r.Context(), &internalbllv1.RejectTimesheetRequest{
 			TimesheetID: id,
@@ -152,6 +184,18 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
+
+	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		role := strings.ToLower(strings.TrimSpace(sess.Role))
+		switch role {
+		case "admin", "hr", "ops", "engineering", "staff":
+			if employeeID == "" {
+				employeeID = sess.EmployeeID
+			}
+		default:
+			employeeID = sess.EmployeeID
+		}
+	}
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
