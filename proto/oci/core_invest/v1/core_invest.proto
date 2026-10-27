@@ -6,21 +6,53 @@ option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/core_inves
 
 service CoreInvestService {
   rpc GetPortfolio (GetPortfolioRequest) returns (GetPortfolioResponse);
+  rpc ListPortfolios (ListPortfoliosRequest) returns (ListPortfoliosResponse);
+  rpc CreatePortfolio (CreatePortfolioRequest) returns (CreatePortfolioResponse);
+  rpc UpdatePortfolio (UpdatePortfolioRequest) returns (UpdatePortfolioResponse);
   rpc ListHoldings (ListHoldingsRequest) returns (ListHoldingsResponse);
+  rpc UpsertHolding (UpsertHoldingRequest) returns (UpsertHoldingResponse);
   rpc UpdatePortfolioBalance (UpdatePortfolioBalanceRequest) returns (UpdatePortfolioBalanceResponse);
 
+  rpc RegisterCustomer (RegisterCustomerRequest) returns (RegisterCustomerResponse);
+  rpc CloseAndLiquidateAccount (CloseAndLiquidateAccountRequest) returns (CloseAndLiquidateAccountResponse);
+  rpc ExecuteGDPRErasure (ExecuteGDPRErasureRequest) returns (ExecuteGDPRErasureResponse);
+  rpc GetGDPRErasureCertificate (GetGDPRErasureCertificateRequest) returns (GetGDPRErasureCertificateResponse);
+
+  rpc CreateAPIKey (CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc ListAPIKeys (ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc RevokeAPIKey (RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+  rpc CreateWebhook (CreateWebhookRequest) returns (CreateWebhookResponse);
+  rpc ListWebhooks (ListWebhooksRequest) returns (ListWebhooksResponse);
+  rpc DeleteWebhook (DeleteWebhookRequest) returns (DeleteWebhookResponse);
+
   rpc CreateOrder (CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder (GetOrderRequest) returns (GetOrderResponse);
   rpc ListOrders (ListOrdersRequest) returns (ListOrdersResponse);
 
+  rpc RegisterCameraStream (RegisterCameraStreamRequest) returns (RegisterCameraStreamResponse);
+  rpc GetCameraStream (GetCameraStreamRequest) returns (GetCameraStreamResponse);
+  rpc ListCameraStreams (ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
   rpc IngestObservation (IngestObservationRequest) returns (IngestObservationResponse);
   rpc ListObservations (ListObservationsRequest) returns (ListObservationsResponse);
+
+  rpc StartBacktestRun (StartBacktestRunRequest) returns (StartBacktestRunResponse);
+  rpc GetBacktestRun (GetBacktestRunRequest) returns (GetBacktestRunResponse);
+  rpc ListBacktestRuns (ListBacktestRunsRequest) returns (ListBacktestRunsResponse);
+  rpc CompleteBacktestRun (CompleteBacktestRunRequest) returns (CompleteBacktestRunResponse);
+  rpc ListMLModels (ListMLModelsRequest) returns (ListMLModelsResponse);
+  rpc LogModelDrift (LogModelDriftRequest) returns (LogModelDriftResponse);
 
   rpc CreateRecurringDeposit (CreateRecurringDepositRequest) returns (CreateRecurringDepositResponse);
   rpc ListRecurringDeposits (ListRecurringDepositsRequest) returns (ListRecurringDepositsResponse);
   rpc AdvanceRecurringDeposit (AdvanceRecurringDepositRequest) returns (AdvanceRecurringDepositResponse);
+  rpc ClaimDueRecurringDeposits (ClaimDueRecurringDepositsRequest) returns (ClaimDueRecurringDepositsResponse);
 
-  rpc ListPortfolios (ListPortfoliosRequest) returns (ListPortfoliosResponse);
   rpc GenerateStatement (GenerateStatementRequest) returns (GenerateStatementResponse);
+  rpc ListStatements (ListStatementsRequest) returns (ListStatementsResponse);
+  rpc GetStatement (GetStatementRequest) returns (GetStatementResponse);
+  rpc GenerateMonthlyStatement (GenerateMonthlyStatementRequest) returns (GenerateMonthlyStatementResponse);
+  rpc GenerateForm1099B (GenerateForm1099BRequest) returns (GenerateForm1099BResponse);
+  rpc GetStatementDocument (GetStatementDocumentRequest) returns (GetStatementDocumentResponse);
 
   rpc StreamPortfolioValuation (StreamPortfolioValuationRequest) returns (stream PortfolioValuationEvent);
 }
@@ -55,12 +87,36 @@ message GetPortfolioResponse {
   repeated PortfolioHolding holdings = 2;
 }
 
+message CreatePortfolioRequest {
+  Portfolio portfolio = 1;
+}
+
+message CreatePortfolioResponse {
+  Portfolio portfolio = 1;
+}
+
+message UpdatePortfolioRequest {
+  Portfolio portfolio = 1;
+}
+
+message UpdatePortfolioResponse {
+  Portfolio portfolio = 1;
+}
+
 message ListHoldingsRequest {
   string portfolio_id = 1;
 }
 
 message ListHoldingsResponse {
   repeated PortfolioHolding holdings = 1;
+}
+
+message UpsertHoldingRequest {
+  PortfolioHolding holding = 1;
+}
+
+message UpsertHoldingResponse {
+  PortfolioHolding holding = 1;
 }
 
 message UpdatePortfolioBalanceRequest {
@@ -74,6 +130,143 @@ message UpdatePortfolioBalanceResponse {
   double updated_cash_balance_usd = 2;
   double updated_total_balance_usd = 3;
   string status = 4;
+}
+
+message RegisterCustomerRequest {
+  string customer_id = 1;
+  string email = 2;
+  string name = 3;
+  double initial_cash_usd = 4;
+}
+
+message RegisterCustomerResponse {
+  string customer_id = 1;
+  string email = 2;
+  string name = 3;
+  string portfolio_id = 4;
+  double cash_balance = 5;
+  string status = 6;
+  string created_at = 7;
+}
+
+message CloseAndLiquidateAccountRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+}
+
+message CloseAndLiquidateAccountResponse {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  int32 liquidated_orders = 3;
+  double liquidated_proceeds = 4;
+  double final_cash_withdrawn = 5;
+  string ach_withdrawal_transfer = 6;
+  int32 cancelled_dca_schedules = 7;
+  string account_status = 8;
+  string closed_at = 9;
+}
+
+message GDPRErasureCertificate {
+  string certificate_id = 1;
+  string customer_id = 2;
+  string erased_at = 3;
+  repeated string anonymized_tables = 4;
+  repeated string retained_records = 5;
+  string compliance_hash = 6;
+  string status = 7;
+}
+
+message ExecuteGDPRErasureRequest {
+  string customer_id = 1;
+}
+
+message ExecuteGDPRErasureResponse {
+  GDPRErasureCertificate certificate = 1;
+  bytes pdf_bytes = 2;
+}
+
+message GetGDPRErasureCertificateRequest {
+  string customer_id = 1;
+}
+
+message GetGDPRErasureCertificateResponse {
+  GDPRErasureCertificate certificate = 1;
+  bytes pdf_bytes = 2;
+}
+
+message CustomerAPIKey {
+  string key_id = 1;
+  string customer_id = 2;
+  string label = 3;
+  string key_prefix = 4;
+  repeated string scopes = 5;
+  string status = 6;
+  string created_at = 7;
+}
+
+message CreateAPIKeyRequest {
+  string customer_id = 1;
+  string label = 2;
+  repeated string scopes = 3;
+}
+
+message CreateAPIKeyResponse {
+  CustomerAPIKey api_key = 1;
+  string raw_secret = 2;
+}
+
+message ListAPIKeysRequest {
+  string customer_id = 1;
+}
+
+message ListAPIKeysResponse {
+  repeated CustomerAPIKey api_keys = 1;
+}
+
+message RevokeAPIKeyRequest {
+  string key_id = 1;
+  string customer_id = 2;
+}
+
+message RevokeAPIKeyResponse {
+  string status = 1;
+}
+
+message CustomerWebhook {
+  string webhook_id = 1;
+  string customer_id = 2;
+  string target_url = 3;
+  repeated string event_types = 4;
+  string secret = 5;
+  string status = 6;
+  string created_at = 7;
+}
+
+message CreateWebhookRequest {
+  string customer_id = 1;
+  string target_url = 2;
+  repeated string event_types = 3;
+}
+
+message CreateWebhookResponse {
+  CustomerWebhook webhook = 1;
+}
+
+message ListWebhooksRequest {
+  string customer_id = 1;
+}
+
+message ListWebhooksResponse {
+  repeated CustomerWebhook webhooks = 1;
+}
+
+message DeleteWebhookRequest {
+  string webhook_id = 1;
+  string customer_id = 2;
+}
+
+message DeleteWebhookResponse {
+  string status = 1;
 }
 
 message BrokerageOrder {
@@ -101,6 +294,14 @@ message CreateOrderResponse {
   BrokerageOrder order = 1;
 }
 
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  BrokerageOrder order = 1;
+}
+
 message ListOrdersRequest {
   string portfolio_id = 1;
   int32 limit = 2;
@@ -108,6 +309,47 @@ message ListOrdersRequest {
 
 message ListOrdersResponse {
   repeated BrokerageOrder orders = 1;
+}
+
+message CameraStream {
+  string stream_id = 1;
+  string asset_id = 2;
+  string feline_id = 3;
+  string stream_url = 4;
+  string resolution = 5;
+  int32 framerate = 6;
+  string protocol = 7;
+  string status = 8;
+  string created_at = 9;
+}
+
+message RegisterCameraStreamRequest {
+  string asset_id = 1;
+  string feline_id = 2;
+  string stream_url = 3;
+  string resolution = 4;
+  int32 framerate = 5;
+  string protocol = 6;
+}
+
+message RegisterCameraStreamResponse {
+  CameraStream stream = 1;
+}
+
+message GetCameraStreamRequest {
+  string stream_id = 1;
+}
+
+message GetCameraStreamResponse {
+  CameraStream stream = 1;
+}
+
+message ListCameraStreamsRequest {
+  string status = 1;
+}
+
+message ListCameraStreamsResponse {
+  repeated CameraStream streams = 1;
 }
 
 message ObservationEvent {
@@ -138,6 +380,87 @@ message ListObservationsRequest {
 
 message ListObservationsResponse {
   repeated ObservationEvent observations = 1;
+}
+
+message BacktestRun {
+  string run_id = 1;
+  string researcher_id = 2;
+  string strategy_name = 3;
+  string start_date = 4;
+  string end_date = 5;
+  double initial_capital = 6;
+  double final_capital = 7;
+  double sharpe_ratio = 8;
+  double max_drawdown = 9;
+  string status = 10;
+  string created_at = 11;
+}
+
+message StartBacktestRunRequest {
+  string researcher_id = 1;
+  string strategy_name = 2;
+  string start_date = 3;
+  string end_date = 4;
+  double initial_capital = 5;
+}
+
+message StartBacktestRunResponse {
+  BacktestRun run = 1;
+}
+
+message GetBacktestRunRequest {
+  string run_id = 1;
+}
+
+message GetBacktestRunResponse {
+  BacktestRun run = 1;
+}
+
+message ListBacktestRunsRequest {
+  string researcher_id = 1;
+}
+
+message ListBacktestRunsResponse {
+  repeated BacktestRun runs = 1;
+}
+
+message CompleteBacktestRunRequest {
+  string run_id = 1;
+  string status = 2;
+  string results = 3;
+}
+
+message CompleteBacktestRunResponse {
+  BacktestRun run = 1;
+}
+
+message MLModelInfo {
+  string model_id = 1;
+  string name = 2;
+  string version = 3;
+  string framework = 4;
+  string status = 5;
+  double accuracy = 6;
+}
+
+message ListMLModelsRequest {}
+
+message ListMLModelsResponse {
+  repeated MLModelInfo models = 1;
+}
+
+message LogModelDriftRequest {
+  string model_id = 1;
+  double psi_score = 2;
+  double accuracy_delta = 3;
+  string notes = 4;
+}
+
+message LogModelDriftResponse {
+  string drift_id = 1;
+  string model_id = 2;
+  string status = 3;
+  string logged_at = 4;
 }
 
 message RecurringDeposit {
@@ -180,6 +503,14 @@ message AdvanceRecurringDepositResponse {
   string status = 1;
 }
 
+message ClaimDueRecurringDepositsRequest {
+  int32 batch_size = 1;
+}
+
+message ClaimDueRecurringDepositsResponse {
+  repeated RecurringDeposit deposits = 1;
+}
+
 message ListPortfoliosRequest {
   int32 limit = 1;
   int32 offset = 2;
@@ -187,6 +518,22 @@ message ListPortfoliosRequest {
 
 message ListPortfoliosResponse {
   repeated Portfolio portfolios = 1;
+}
+
+message CustomerStatement {
+  string statement_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  string statement_type = 4;
+  string period = 5;
+  double starting_balance_usd = 6;
+  double ending_balance_usd = 7;
+  double total_deposits_usd = 8;
+  double total_withdrawals_usd = 9;
+  double realized_gain_loss_usd = 10;
+  int32 trade_count = 11;
+  string status = 12;
+  string generated_at = 13;
 }
 
 message GenerateStatementRequest {
@@ -202,6 +549,56 @@ message GenerateStatementResponse {
   string statement_type = 4;
   string period = 5;
   string status = 6;
+}
+
+message ListStatementsRequest {
+  string customer_id = 1;
+  string statement_type = 2;
+}
+
+message ListStatementsResponse {
+  repeated CustomerStatement statements = 1;
+}
+
+message GetStatementRequest {
+  string statement_id = 1;
+}
+
+message GetStatementResponse {
+  CustomerStatement statement = 1;
+}
+
+message GenerateMonthlyStatementRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  int32 year = 3;
+  int32 month = 4;
+}
+
+message GenerateMonthlyStatementResponse {
+  CustomerStatement statement = 1;
+  bytes pdf_bytes = 2;
+}
+
+message GenerateForm1099BRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  int32 tax_year = 3;
+}
+
+message GenerateForm1099BResponse {
+  CustomerStatement statement = 1;
+  bytes pdf_bytes = 2;
+}
+
+message GetStatementDocumentRequest {
+  string customer_id = 1;
+  string statement_id = 2;
+}
+
+message GetStatementDocumentResponse {
+  CustomerStatement statement = 1;
+  bytes pdf_bytes = 2;
 }
 
 message StreamPortfolioValuationRequest {

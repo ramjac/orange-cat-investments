@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/handler"
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
-	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/stretchr/testify/assert"
@@ -18,9 +17,8 @@ import (
 )
 
 func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
-	repo := workforce.NewMockRepository()
-	svc := wfService.NewService(repo)
-	wfHandler := handler.NewWorkforceHandler(svc, nil, nil)
+	bllClient := newMockInternalBLLClient()
+	wfHandler := handler.NewWorkforceHandler(bllClient)
 
 	cache := cachevalkey.NewMemoryCache()
 	defer cache.Close()
@@ -29,8 +27,8 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 	mux := http.NewServeMux()
 	wfHandler.RegisterRoutes(mux)
 
-	// Seed care schedule in mock repo
-	_, err := svc.UpdateCareSchedule(context.Background(), &workforce.CareSchedule{
+	// Seed care schedule in mock client
+	_, err := bllClient.UpdateCareSchedule(context.Background(), &workforcev1.UpdateCareScheduleRequest{
 		FelineID:    "fel-tom",
 		DietaryPlan: "100% Grain-Free Salmon",
 	})
@@ -46,7 +44,7 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 	assert.NotEmpty(t, etag, "response must have ETag header")
 
 	// Verify cached
-	var cs workforce.CareSchedule
+	var cs workforcev1.CareSchedule
 	ok, err := cache.Get(context.Background(), cachevalkey.KeyCareSchedule("fel-tom"), &cs)
 	require.NoError(t, err)
 	assert.True(t, ok)
@@ -78,9 +76,8 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 }
 
 func TestEmployeeBFF_NextcloudCOTSCaching(t *testing.T) {
-	repo := workforce.NewMockRepository()
-	svc := wfService.NewService(repo)
-	wfHandler := handler.NewWorkforceHandler(svc, nil, nil)
+	bllClient := newMockInternalBLLClient()
+	wfHandler := handler.NewWorkforceHandler(bllClient)
 
 	cache := cachevalkey.NewMemoryCache()
 	defer cache.Close()

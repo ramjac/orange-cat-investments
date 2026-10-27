@@ -8,12 +8,19 @@ service OpsService {
   rpc CreateTicket (CreateTicketRequest) returns (CreateTicketResponse);
   rpc GetTicket (GetTicketRequest) returns (GetTicketResponse);
   rpc ListTickets (ListTicketsRequest) returns (ListTicketsResponse);
+  rpc UpdateTicket (UpdateTicketRequest) returns (UpdateTicketResponse);
   rpc AcknowledgeTicket (AcknowledgeTicketRequest) returns (AcknowledgeTicketResponse);
   rpc CloseTicket (CloseTicketRequest) returns (CloseTicketResponse);
+
+  rpc CreateCustomerTicket (CreateCustomerTicketRequest) returns (CreateCustomerTicketResponse);
+  rpc ListCustomerTickets (ListCustomerTicketsRequest) returns (ListCustomerTicketsResponse);
+  rpc AddTicketComment (AddTicketCommentRequest) returns (AddTicketCommentResponse);
+  rpc ListTicketComments (ListTicketCommentsRequest) returns (ListTicketCommentsResponse);
 
   rpc ListAlerts (ListAlertsRequest) returns (ListAlertsResponse);
   rpc CreateAlert (CreateAlertRequest) returns (CreateAlertResponse);
   rpc AcknowledgeAlert (AcknowledgeAlertRequest) returns (AcknowledgeAlertResponse);
+  rpc SendPushNotification (SendPushNotificationRequest) returns (SendPushNotificationResponse);
 }
 
 message ITTicket {
@@ -31,6 +38,19 @@ message ITTicket {
   string acknowledged_by = 12;
   string acknowledged_at = 13;
   string created_at = 14;
+  string updated_at = 15;
+  string resolution_notes = 16;
+  string forgejo_repo = 17;
+  int64 forgejo_issue_id = 18;
+}
+
+message TicketComment {
+  string comment_id = 1;
+  string ticket_id = 2;
+  string author_username = 3;
+  string comment = 4;
+  bool is_internal = 5;
+  string created_at = 6;
 }
 
 message CreateTicketRequest {
@@ -42,6 +62,8 @@ message CreateTicketRequest {
   string customer_id = 6;
   string author_username = 7;
   bool is_urgent = 8;
+  string forgejo_repo = 9;
+  int64 forgejo_issue_id = 10;
 }
 
 message CreateTicketResponse {
@@ -61,10 +83,22 @@ message ListTicketsRequest {
   string category = 2;
   int32 limit = 3;
   int32 offset = 4;
+  string source = 5;
 }
 
 message ListTicketsResponse {
   repeated ITTicket tickets = 1;
+}
+
+message UpdateTicketRequest {
+  string ticket_id = 1;
+  string state = 2;
+  string assignee_username = 3;
+  string resolution_notes = 4;
+}
+
+message UpdateTicketResponse {
+  ITTicket ticket = 1;
 }
 
 message AcknowledgeTicketRequest {
@@ -85,6 +119,47 @@ message CloseTicketResponse {
   ITTicket ticket = 1;
 }
 
+message CreateCustomerTicketRequest {
+  string customer_id = 1;
+  string category = 2;
+  string title = 3;
+  string body = 4;
+}
+
+message CreateCustomerTicketResponse {
+  ITTicket ticket = 1;
+}
+
+message ListCustomerTicketsRequest {
+  string customer_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListCustomerTicketsResponse {
+  repeated ITTicket tickets = 1;
+}
+
+message AddTicketCommentRequest {
+  string ticket_id = 1;
+  string author_username = 2;
+  string comment = 3;
+  bool is_internal = 4;
+}
+
+message AddTicketCommentResponse {
+  TicketComment comment = 1;
+}
+
+message ListTicketCommentsRequest {
+  string ticket_id = 1;
+  bool include_internal = 2;
+}
+
+message ListTicketCommentsResponse {
+  repeated TicketComment comments = 1;
+}
+
 message PebbleAlert {
   string alert_id = 1;
   string ticket_id = 2;
@@ -93,6 +168,8 @@ message PebbleAlert {
   string room_zone = 5;
   bool acknowledged = 6;
   string created_at = 7;
+  string body = 8;
+  string author = 9;
 }
 
 message ListAlertsRequest {
@@ -118,9 +195,31 @@ message AcknowledgeAlertRequest {
   string alert_id = 1;
   string acknowledged_by = 2;
   int32 button_id = 3;
+  string watch_id = 4;
+  string device_id = 5;
 }
 
 message AcknowledgeAlertResponse {
   string alert_id = 1;
   string status = 2;
+  string state = 3;
+  string acknowledged_by = 4;
+  string acknowledged_at = 5;
+  string status_message = 6;
+}
+
+message SendPushNotificationRequest {
+  string topic = 1;
+  string title = 2;
+  string message = 3;
+  string priority = 4;
+}
+
+message SendPushNotificationResponse {
+  string status = 1;
+  string provider = 2;
+  string topic = 3;
+  string title = 4;
+  string message = 5;
+  string dispatched_at = 6;
 }

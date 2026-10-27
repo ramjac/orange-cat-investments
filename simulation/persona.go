@@ -31,8 +31,89 @@ type Persona struct {
 	Type          string // "human", "feline", or "customer"
 	RoleTitle     string
 	Department    string
+	Role          string
+	Email         string
 	ActivityLevel float64
 	Actions       []Action
+}
+
+// AuthRole returns the persona's role used for authentication and RBAC checks.
+func (p *Persona) AuthRole() string {
+	if p == nil {
+		return "staff"
+	}
+	if p.Role != "" {
+		return p.Role
+	}
+	if p.Type == "customer" {
+		return "customer"
+	}
+	switch p.ID {
+	case "emp-feline-garfield":
+		return "admin"
+	case "emp-feline-barneby":
+		return "staff"
+	case "emp-human-alice":
+		return "hr"
+	case "emp-human-bob":
+		return "facilities"
+	case "emp-human-carol":
+		return "investment"
+	case "emp-human-david":
+		return "investment"
+	case "emp-human-elena":
+		return "veterinary"
+	case "emp-human-frank":
+		return "ops"
+	case "emp-human-rick":
+		return "staff"
+	case "emp-human-elise":
+		return "engineering"
+	case "emp-human-marcus":
+		return "engineering"
+	default:
+		return "staff"
+	}
+}
+
+// AuthEmail returns the persona's email used for authentication handshakes.
+func (p *Persona) AuthEmail() string {
+	if p == nil {
+		return ""
+	}
+	if p.Email != "" {
+		return p.Email
+	}
+	switch p.ID {
+	case "emp-feline-garfield":
+		return "garfield@oci.local"
+	case "emp-feline-barneby":
+		return "barneby@oci.local"
+	case "emp-human-alice":
+		return "alice.vance@oci.local"
+	case "emp-human-bob":
+		return "bob.builder@oci.local"
+	case "emp-human-carol":
+		return "carol.danvers@oci.local"
+	case "emp-human-david":
+		return "david.quant@oci.local"
+	case "emp-human-elena":
+		return "elena.rostova@oci.local"
+	case "emp-human-frank":
+		return "frank.ops@oci.local"
+	case "emp-human-rick":
+		return "rick.newhire@oci.local"
+	case "emp-human-elise":
+		return "elise.dev@oci.local"
+	case "emp-human-marcus":
+		return "marcus.lead@oci.local"
+	case "cust-longterm-arthur":
+		return "arthur@oci.local"
+	case "cust-active-chloe":
+		return "chloe@oci.local"
+	default:
+		return "user@oci.local"
+	}
 }
 
 // Registry stores all registered OCI personas available for simulation.

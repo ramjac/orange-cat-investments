@@ -159,6 +159,57 @@ type CreatePullRequestOption struct {
 	Base  string `json:"base"`
 }
 
+// Organization represents a Forgejo organization.
+type Organization struct {
+	ID          int64  `json:"id"`
+	UserName    string `json:"username"`
+	FullName    string `json:"full_name"`
+	Description string `json:"description"`
+	Visibility  string `json:"visibility"`
+}
+
+// CreateOrgOption defines parameters for creating an organization.
+type CreateOrgOption struct {
+	UserName    string `json:"username"`
+	FullName    string `json:"full_name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Visibility  string `json:"visibility,omitempty"`
+}
+
+// Repository represents a Forgejo git repository.
+type Repository struct {
+	ID            int64  `json:"id"`
+	Owner         *User  `json:"owner,omitempty"`
+	Name          string `json:"name"`
+	FullName      string `json:"full_name"`
+	Description   string `json:"description"`
+	Private       bool   `json:"private"`
+	DefaultBranch string `json:"default_branch"`
+	HasActions    bool   `json:"has_actions"`
+	HasIssues     bool   `json:"has_issues"`
+	HasPull       bool   `json:"has_pull_requests"`
+	CloneURL      string `json:"clone_url"`
+	SSHURL        string `json:"ssh_url"`
+}
+
+// CreateRepoOption defines parameters for creating a new repository.
+type CreateRepoOption struct {
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Private       bool   `json:"private"`
+	AutoInit      bool   `json:"auto_init"`
+	DefaultBranch string `json:"default_branch,omitempty"`
+}
+
+// UpdateRepoOption defines parameters for updating an existing repository.
+type UpdateRepoOption struct {
+	Description *string `json:"description,omitempty"`
+	Private     *bool   `json:"private,omitempty"`
+	HasActions  *bool   `json:"has_actions,omitempty"`
+	HasIssues   *bool   `json:"has_issues,omitempty"`
+	HasPull     *bool   `json:"has_pull_requests,omitempty"`
+}
+
 // CreatePullReviewOption defines parameters for reviewing a PR.
 type CreatePullReviewOption struct {
 	Event string `json:"event"`
@@ -699,5 +750,153 @@ func (c *Client) MergePullRequest(ctx context.Context, owner, repo string, index
 		return nil, fmt.Errorf("failed to decode Forgejo merge response: %w", err)
 	}
 	return result, nil
+}
+
+// CreateOrganization creates a new organization in Forgejo.
+func (c *Client) CreateOrganization(ctx context.Context, opt CreateOrgOption) (*Organization, error) {
+	if opt.UserName == "" {
+		return nil, errors.New("organization username is required")
+	}
+
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/v1/orgs", opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateOrganization request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateOrganization returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var org Organization
+	if err := json.Unmarshal(bodyBytes, &org); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo organization response: %w", err)
+	}
+	return &org, nil
+}
+
+// GetOrganization retrieves an organization by name.
+func (c *Client) GetOrganization(ctx context.Context, orgName string) (*Organization, error) {
+	if orgName == "" {
+		return nil, errors.New("organization name cannot be empty")
+	}
+
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/v1/orgs/"+orgName, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo GetOrganization request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo GetOrganization returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var org Organization
+	if err := json.Unmarshal(bodyBytes, &org); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo organization response: %w", err)
+	}
+	return &org, nil
+}
+
+// CreateOrgRepository creates a new repository under an organization.
+func (c *Client) CreateOrgRepository(ctx context.Context, orgName string, opt CreateRepoOption) (*Repository, error) {
+	if orgName == "" || opt.Name == "" {
+		return nil, errors.New("organization name and repository name are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/orgs/%s/repos", orgName)
+	req, err := c.newRequest(ctx, http.MethodPost, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo CreateOrgRepository request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo CreateOrgRepository returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var repo Repository
+	if err := json.Unmarshal(bodyBytes, &repo); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo repository response: %w", err)
+	}
+	return &repo, nil
+}
+
+// GetRepository retrieves repository metadata by owner and name.
+func (c *Client) GetRepository(ctx context.Context, owner, repoName string) (*Repository, error) {
+	if owner == "" || repoName == "" {
+		return nil, errors.New("owner and repo name are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s", owner, repoName)
+	req, err := c.newRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo GetRepository request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo GetRepository returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var repo Repository
+	if err := json.Unmarshal(bodyBytes, &repo); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo repository response: %w", err)
+	}
+	return &repo, nil
+}
+
+// UpdateRepository updates repository settings (such as enabling actions, issues, PRs).
+func (c *Client) UpdateRepository(ctx context.Context, owner, repoName string, opt UpdateRepoOption) (*Repository, error) {
+	if owner == "" || repoName == "" {
+		return nil, errors.New("owner and repo name are required")
+	}
+
+	path := fmt.Sprintf("/api/v1/repos/%s/%s", owner, repoName)
+	req, err := c.newRequest(ctx, http.MethodPatch, path, opt)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute Forgejo UpdateRepository request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("forgejo UpdateRepository returned status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var repo Repository
+	if err := json.Unmarshal(bodyBytes, &repo); err != nil {
+		return nil, fmt.Errorf("failed to decode Forgejo repository response: %w", err)
+	}
+	return &repo, nil
 }
 

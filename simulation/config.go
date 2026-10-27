@@ -28,8 +28,7 @@ type Config struct {
 	ForgejoURL string
 
 	// Mode determines how simulation actions are executed:
-	// "mock"       - runs against embedded mock server handlers without external dependencies.
-	// "live"       - sends HTTP requests to real running OCI stack services.
+	// "live"       - sends HTTP requests to real running OCI stack services (default).
 	// "step"       - runs a single iteration of each persona's actions and prints results.
 	// "continuous" - continuously loops persona daily actions until context cancellation.
 	Mode string
@@ -56,7 +55,7 @@ func DefaultConfig() *Config {
 		BrokerURL:      "http://localhost:8089",
 		BankURL:        "http://localhost:8088",
 		ForgejoURL:     "http://localhost:3000",
-		Mode:           "mock",
+		Mode:           "live",
 		TargetPersona:  "all",
 		Iterations:     1,
 		ActionDelay:    100 * time.Millisecond,
@@ -68,10 +67,6 @@ func DefaultConfig() *Config {
 // The simulation suite is strictly restricted to oci-dev (e.g. dev.api.oci.local, oci-dev cluster services,
 // or local development/testing endpoints). The production namespace (oci-core) must remain clean.
 func (c *Config) ValidateTarget() error {
-	if c.Mode == "mock" {
-		return nil
-	}
-
 	targets := []struct {
 		name string
 		url  string

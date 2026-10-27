@@ -124,9 +124,19 @@ func TestRandomAction(t *testing.T) {
 }
 
 func TestGarfieldSleepInHallwayAction_Branches(t *testing.T) {
-	client, err := NewClient(&Config{Mode: "mock"})
-	require.NoError(t, err)
-	defer client.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","ticket_id":"ticket-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"items":[]}`))
+	}))
+	defer srv.Close()
+
+	client := &Client{serverURL: srv.URL, bffURL: srv.URL, httpClient: srv.Client()}
 
 	r := NewRegistry()
 	garfield, ok := r.Get("emp-feline-garfield")
@@ -258,9 +268,26 @@ func TestAliceApproveTimesheetAction_Paths(t *testing.T) {
 	}
 
 	// 1. Path A: Fallback creation when no submitted timesheets exist
-	client1, err := NewClient(&Config{Mode: "mock"})
-	require.NoError(t, err)
-	defer client1.Close()
+	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"items":[]}`))
+			return
+		}
+		if r.Method == "POST" {
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"timesheet_id":"ts-new-001"}`))
+			return
+		}
+		if r.Method == "PUT" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"timesheet_id":"ts-new-001","status":"approved"}`))
+			return
+		}
+	}))
+	defer srv1.Close()
+
+	client1 := &Client{bffURL: srv1.URL, httpClient: srv1.Client()}
 
 	res1, err := approveAction.Execute(context.Background(), client1)
 	require.NoError(t, err)
@@ -363,10 +390,18 @@ func TestAliceApproveTimesheetAction_Errors(t *testing.T) {
 }
 
 func TestAliceGenerateExecutiveReportAction_Paths(t *testing.T) {
-	// Success path tested via mock client
-	client, err := NewClient(&Config{Mode: "mock"})
-	require.NoError(t, err)
-	defer client.Close()
+	// Success path tested via test server
+	succServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if r.Method == "POST" {
+			w.Write([]byte(`{"report_id":"rep-001","status":"generated"}`))
+			return
+		}
+		w.Write([]byte(`{"reports":[]}`))
+	}))
+	defer succServer.Close()
+
+	client := &Client{bffURL: succServer.URL, httpClient: succServer.Client()}
 
 	r := NewRegistry()
 	alice, _ := r.Get("emp-human-alice")

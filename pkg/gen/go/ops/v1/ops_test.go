@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockOpsServer struct{}
+type mockOpsServer struct {
+	UnimplementedOpsServiceServer
+}
 
 func (m *mockOpsServer) CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error) {
 	return &CreateTicketResponse{Ticket: &ITTicket{TicketID: "tkt-01", Title: in.Title, Severity: in.Severity}}, nil

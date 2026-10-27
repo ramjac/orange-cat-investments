@@ -22,7 +22,7 @@ func main() {
 		forgejoURL   = flag.String("forgejo-url", "", "Base URL for Forgejo Git repository host (overrides -url)")
 		brokerURL    = flag.String("broker-url", "", "Base URL for Mock Broker API (overrides -url)")
 		bankURL      = flag.String("bank-url", "", "Base URL for Mock Bank API (overrides -url)")
-		mode         = flag.String("mode", "mock", "Simulation mode: 'mock', 'live', 'step', 'continuous'")
+		mode         = flag.String("mode", "live", "Simulation mode: 'live', 'step', 'continuous'")
 		persona      = flag.String("persona", "all", "Target persona ID or Name (or 'all')")
 		iterations   = flag.Int("iterations", 1, "Number of daily simulation loops to perform")
 		delayMs      = flag.Int("delay", 100, "Pause delay between actions in milliseconds")

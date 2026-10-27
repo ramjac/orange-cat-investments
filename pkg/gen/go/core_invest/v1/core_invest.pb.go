@@ -8,9 +8,9 @@ import (
 )
 
 type Portfolio struct {
-	PortfolioID     string `json:"portfolio_id"`
-	CustomerID      string `json:"customer_id"`
-	AccountName     string `json:"account_name"`
+	PortfolioID     string  `json:"portfolio_id"`
+	CustomerID      string  `json:"customer_id"`
+	AccountName     string  `json:"account_name"`
 	TotalBalanceUSD float64 `json:"total_balance_usd"`
 	CashBalanceUSD  float64 `json:"cash_balance_usd"`
 	Status          string  `json:"status"`
@@ -37,12 +37,36 @@ type GetPortfolioResponse struct {
 	Holdings  []*PortfolioHolding `json:"holdings"`
 }
 
+type CreatePortfolioRequest struct {
+	Portfolio *Portfolio `json:"portfolio"`
+}
+
+type CreatePortfolioResponse struct {
+	Portfolio *Portfolio `json:"portfolio"`
+}
+
+type UpdatePortfolioRequest struct {
+	Portfolio *Portfolio `json:"portfolio"`
+}
+
+type UpdatePortfolioResponse struct {
+	Portfolio *Portfolio `json:"portfolio"`
+}
+
 type ListHoldingsRequest struct {
 	PortfolioID string `json:"portfolio_id"`
 }
 
 type ListHoldingsResponse struct {
 	Holdings []*PortfolioHolding `json:"holdings"`
+}
+
+type UpsertHoldingRequest struct {
+	Holding *PortfolioHolding `json:"holding"`
+}
+
+type UpsertHoldingResponse struct {
+	Holding *PortfolioHolding `json:"holding"`
 }
 
 type UpdatePortfolioBalanceRequest struct {
@@ -56,6 +80,160 @@ type UpdatePortfolioBalanceResponse struct {
 	UpdatedCashBalanceUSD  float64 `json:"updated_cash_balance_usd"`
 	UpdatedTotalBalanceUSD float64 `json:"updated_total_balance_usd"`
 	Status                 string  `json:"status"`
+}
+
+type RegisterCustomerRequest struct {
+	CustomerID      string  `json:"customer_id"`
+	Email           string  `json:"email"`
+	Name            string  `json:"name"`
+	Password        string  `json:"password"`
+	BankPublicToken string  `json:"bank_public_token"`
+	TargetFund      string  `json:"target_fund"`
+	InitialCashUSD  float64 `json:"initial_cash_usd"`
+}
+
+type RegisterCustomerResponse struct {
+	CustomerID      string  `json:"customer_id"`
+	Email           string  `json:"email"`
+	Name            string  `json:"name"`
+	ZitadelUserID   string  `json:"zitadel_user_id"`
+	PortfolioID     string  `json:"portfolio_id"`
+	LinkedBankAccID string  `json:"linked_bank_account_id"`
+	CashBalance     float64 `json:"cash_balance"`
+	Status          string  `json:"status"`
+	Message         string  `json:"message"`
+	CreatedAt       string  `json:"created_at"`
+}
+
+type CloseAndLiquidateAccountRequest struct {
+	CustomerID           string `json:"customer_id"`
+	PortfolioID          string `json:"portfolio_id"`
+	DestinationAccountID string `json:"destination_bank_account_id"`
+}
+
+type CloseAndLiquidateAccountResponse struct {
+	CustomerID            string  `json:"customer_id"`
+	PortfolioID           string  `json:"portfolio_id"`
+	LiquidatedOrders      int32   `json:"liquidated_orders"`
+	LiquidatedProceeds    float64 `json:"liquidated_proceeds"`
+	FinalCashWithdrawn    float64 `json:"final_cash_withdrawn"`
+	ACHWithdrawalTransfer string  `json:"ach_withdrawal_transfer"`
+	DestinationAccountID  string  `json:"destination_bank_account_id"`
+	CancelledDCASchedules int32   `json:"cancelled_dca_schedules"`
+	AccountStatus         string  `json:"account_status"`
+	Message               string  `json:"message"`
+	ClosedAt              string  `json:"closed_at"`
+}
+
+type GDPRErasureCertificate struct {
+	CertificateID        string   `json:"certificate_id"`
+	CustomerID           string   `json:"customer_id"`
+	CustomerIDHash       string   `json:"customer_id_hash"`
+	CustomerEmailHash    string   `json:"customer_email_hash"`
+	ErasedAt             string   `json:"erased_at"`
+	LegalBasis           string   `json:"legal_basis"`
+	SupervisoryAuthority string   `json:"supervisory_authority"`
+	AnonymizedTables     []string `json:"anonymized_tables"`
+	RetainedRecords      []string `json:"retained_records"`
+	SessionsPurgedCount  int32    `json:"sessions_purged_count"`
+	RecordsScrubbedCount int32    `json:"records_scrubbed_count"`
+	ComplianceHash       string   `json:"compliance_hash"`
+	ComplianceStatement  string   `json:"compliance_statement"`
+	Status               string   `json:"status"`
+}
+
+type ExecuteGDPRErasureRequest struct {
+	CustomerID string `json:"customer_id"`
+	Email      string `json:"email"`
+}
+
+type ExecuteGDPRErasureResponse struct {
+	Certificate *GDPRErasureCertificate `json:"certificate"`
+	PDFBytes    []byte                  `json:"pdf_bytes"`
+}
+
+type GetGDPRErasureCertificateRequest struct {
+	CustomerID string `json:"customer_id"`
+}
+
+type GetGDPRErasureCertificateResponse struct {
+	Certificate *GDPRErasureCertificate `json:"certificate"`
+	PDFBytes    []byte                  `json:"pdf_bytes"`
+}
+
+type CustomerAPIKey struct {
+	KeyID      string   `json:"key_id"`
+	CustomerID string   `json:"customer_id"`
+	Label      string   `json:"label"`
+	KeyPrefix  string   `json:"key_prefix"`
+	Scopes     []string `json:"scopes"`
+	Status     string   `json:"status"`
+	CreatedAt  string   `json:"created_at"`
+}
+
+type CreateAPIKeyRequest struct {
+	CustomerID string   `json:"customer_id"`
+	Label      string   `json:"label"`
+	Scopes     []string `json:"scopes"`
+}
+
+type CreateAPIKeyResponse struct {
+	APIKey    *CustomerAPIKey `json:"api_key"`
+	RawSecret string          `json:"raw_secret"`
+}
+
+type ListAPIKeysRequest struct {
+	CustomerID string `json:"customer_id"`
+}
+
+type ListAPIKeysResponse struct {
+	APIKeys []*CustomerAPIKey `json:"api_keys"`
+}
+
+type RevokeAPIKeyRequest struct {
+	KeyID      string `json:"key_id"`
+	CustomerID string `json:"customer_id"`
+}
+
+type RevokeAPIKeyResponse struct {
+	Status string `json:"status"`
+}
+
+type CustomerWebhook struct {
+	WebhookID  string   `json:"webhook_id"`
+	CustomerID string   `json:"customer_id"`
+	TargetURL  string   `json:"target_url"`
+	EventTypes []string `json:"event_types"`
+	Secret     string   `json:"secret"`
+	Status     string   `json:"status"`
+	CreatedAt  string   `json:"created_at"`
+}
+
+type CreateWebhookRequest struct {
+	CustomerID string   `json:"customer_id"`
+	TargetURL  string   `json:"target_url"`
+	EventTypes []string `json:"event_types"`
+}
+
+type CreateWebhookResponse struct {
+	Webhook *CustomerWebhook `json:"webhook"`
+}
+
+type ListWebhooksRequest struct {
+	CustomerID string `json:"customer_id"`
+}
+
+type ListWebhooksResponse struct {
+	Webhooks []*CustomerWebhook `json:"webhooks"`
+}
+
+type DeleteWebhookRequest struct {
+	WebhookID  string `json:"webhook_id"`
+	CustomerID string `json:"customer_id"`
+}
+
+type DeleteWebhookResponse struct {
+	Status string `json:"status"`
 }
 
 type BrokerageOrder struct {
@@ -83,6 +261,14 @@ type CreateOrderResponse struct {
 	Order *BrokerageOrder `json:"order"`
 }
 
+type GetOrderRequest struct {
+	OrderID string `json:"order_id"`
+}
+
+type GetOrderResponse struct {
+	Order *BrokerageOrder `json:"order"`
+}
+
 type ListOrdersRequest struct {
 	PortfolioID string `json:"portfolio_id"`
 	Limit       int32  `json:"limit"`
@@ -90,6 +276,47 @@ type ListOrdersRequest struct {
 
 type ListOrdersResponse struct {
 	Orders []*BrokerageOrder `json:"orders"`
+}
+
+type CameraStream struct {
+	StreamID   string `json:"stream_id"`
+	AssetID    string `json:"asset_id"`
+	FelineID   string `json:"feline_id"`
+	StreamURL  string `json:"stream_url"`
+	Resolution string `json:"resolution"`
+	Framerate  int32  `json:"framerate"`
+	Protocol   string `json:"protocol"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type RegisterCameraStreamRequest struct {
+	AssetID    string `json:"asset_id"`
+	FelineID   string `json:"feline_id"`
+	StreamURL  string `json:"stream_url"`
+	Resolution string `json:"resolution"`
+	Framerate  int32  `json:"framerate"`
+	Protocol   string `json:"protocol"`
+}
+
+type RegisterCameraStreamResponse struct {
+	Stream *CameraStream `json:"stream"`
+}
+
+type GetCameraStreamRequest struct {
+	StreamID string `json:"stream_id"`
+}
+
+type GetCameraStreamResponse struct {
+	Stream *CameraStream `json:"stream"`
+}
+
+type ListCameraStreamsRequest struct {
+	Status string `json:"status"`
+}
+
+type ListCameraStreamsResponse struct {
+	Streams []*CameraStream `json:"streams"`
 }
 
 type ObservationEvent struct {
@@ -120,6 +347,87 @@ type ListObservationsRequest struct {
 
 type ListObservationsResponse struct {
 	Observations []*ObservationEvent `json:"observations"`
+}
+
+type BacktestRun struct {
+	RunID          string  `json:"run_id"`
+	ResearcherID   string  `json:"researcher_id"`
+	StrategyName   string  `json:"strategy_name"`
+	StartDate      string  `json:"start_date"`
+	EndDate        string  `json:"end_date"`
+	InitialCapital float64 `json:"initial_capital"`
+	FinalCapital   float64 `json:"final_capital"`
+	SharpeRatio    float64 `json:"sharpe_ratio"`
+	MaxDrawdown    float64 `json:"max_drawdown"`
+	Status         string  `json:"status"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+type StartBacktestRunRequest struct {
+	ResearcherID   string  `json:"researcher_id"`
+	StrategyName   string  `json:"strategy_name"`
+	StartDate      string  `json:"start_date"`
+	EndDate        string  `json:"end_date"`
+	InitialCapital float64 `json:"initial_capital"`
+}
+
+type StartBacktestRunResponse struct {
+	Run *BacktestRun `json:"run"`
+}
+
+type GetBacktestRunRequest struct {
+	RunID string `json:"run_id"`
+}
+
+type GetBacktestRunResponse struct {
+	Run *BacktestRun `json:"run"`
+}
+
+type ListBacktestRunsRequest struct {
+	ResearcherID string `json:"researcher_id"`
+}
+
+type ListBacktestRunsResponse struct {
+	Runs []*BacktestRun `json:"runs"`
+}
+
+type CompleteBacktestRunRequest struct {
+	RunID   string `json:"run_id"`
+	Status  string `json:"status"`
+	Results string `json:"results"`
+}
+
+type CompleteBacktestRunResponse struct {
+	Run *BacktestRun `json:"run"`
+}
+
+type MLModelInfo struct {
+	ModelID   string  `json:"model_id"`
+	Name      string  `json:"name"`
+	Version   string  `json:"version"`
+	Framework string  `json:"framework"`
+	Status    string  `json:"status"`
+	Accuracy  float64 `json:"accuracy"`
+}
+
+type ListMLModelsRequest struct{}
+
+type ListMLModelsResponse struct {
+	Models []*MLModelInfo `json:"models"`
+}
+
+type LogModelDriftRequest struct {
+	ModelID       string  `json:"model_id"`
+	PSIScore      float64 `json:"psi_score"`
+	AccuracyDelta float64 `json:"accuracy_delta"`
+	Notes         string  `json:"notes"`
+}
+
+type LogModelDriftResponse struct {
+	DriftID  string `json:"drift_id"`
+	ModelID  string `json:"model_id"`
+	Status   string `json:"status"`
+	LoggedAt string `json:"logged_at"`
 }
 
 type RecurringDeposit struct {
@@ -162,6 +470,14 @@ type AdvanceRecurringDepositResponse struct {
 	Status string `json:"status"`
 }
 
+type ClaimDueRecurringDepositsRequest struct {
+	BatchSize int32 `json:"batch_size"`
+}
+
+type ClaimDueRecurringDepositsResponse struct {
+	Deposits []*RecurringDeposit `json:"deposits"`
+}
+
 type ListPortfoliosRequest struct {
 	Limit  int32 `json:"limit"`
 	Offset int32 `json:"offset"`
@@ -169,6 +485,22 @@ type ListPortfoliosRequest struct {
 
 type ListPortfoliosResponse struct {
 	Portfolios []*Portfolio `json:"portfolios"`
+}
+
+type CustomerStatement struct {
+	StatementID         string  `json:"statement_id"`
+	CustomerID          string  `json:"customer_id"`
+	PortfolioID         string  `json:"portfolio_id"`
+	StatementType       string  `json:"statement_type"`
+	Period              string  `json:"period"`
+	StartingBalanceUSD  float64 `json:"starting_balance_usd"`
+	EndingBalanceUSD    float64 `json:"ending_balance_usd"`
+	TotalDepositsUSD    float64 `json:"total_deposits_usd"`
+	TotalWithdrawalsUSD float64 `json:"total_withdrawals_usd"`
+	RealizedGainLossUSD float64 `json:"realized_gain_loss_usd"`
+	TradeCount          int32   `json:"trade_count"`
+	Status              string  `json:"status"`
+	GeneratedAt         string  `json:"generated_at"`
 }
 
 type GenerateStatementRequest struct {
@@ -184,6 +516,56 @@ type GenerateStatementResponse struct {
 	StatementType string `json:"statement_type"`
 	Period        string `json:"period"`
 	Status        string `json:"status"`
+}
+
+type ListStatementsRequest struct {
+	CustomerID    string `json:"customer_id"`
+	StatementType string `json:"statement_type"`
+}
+
+type ListStatementsResponse struct {
+	Statements []*CustomerStatement `json:"statements"`
+}
+
+type GetStatementRequest struct {
+	StatementID string `json:"statement_id"`
+}
+
+type GetStatementResponse struct {
+	Statement *CustomerStatement `json:"statement"`
+}
+
+type GenerateMonthlyStatementRequest struct {
+	CustomerID  string `json:"customer_id"`
+	PortfolioID string `json:"portfolio_id"`
+	Year        int32  `json:"year"`
+	Month       int32  `json:"month"`
+}
+
+type GenerateMonthlyStatementResponse struct {
+	Statement *CustomerStatement `json:"statement"`
+	PDFBytes  []byte             `json:"pdf_bytes"`
+}
+
+type GenerateForm1099BRequest struct {
+	CustomerID  string `json:"customer_id"`
+	PortfolioID string `json:"portfolio_id"`
+	TaxYear     int32  `json:"tax_year"`
+}
+
+type GenerateForm1099BResponse struct {
+	Statement *CustomerStatement `json:"statement"`
+	PDFBytes  []byte             `json:"pdf_bytes"`
+}
+
+type GetStatementDocumentRequest struct {
+	CustomerID  string `json:"customer_id"`
+	StatementID string `json:"statement_id"`
+}
+
+type GetStatementDocumentResponse struct {
+	Statement *CustomerStatement `json:"statement"`
+	PDFBytes  []byte             `json:"pdf_bytes"`
 }
 
 type StreamPortfolioValuationRequest struct {
@@ -202,33 +584,91 @@ type PortfolioValuationEvent struct {
 
 type CoreInvestServiceClient interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
+	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	CreatePortfolio(ctx context.Context, in *CreatePortfolioRequest) (*CreatePortfolioResponse, error)
+	UpdatePortfolio(ctx context.Context, in *UpdatePortfolioRequest) (*UpdatePortfolioResponse, error)
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest) (*ListHoldingsResponse, error)
+	UpsertHolding(ctx context.Context, in *UpsertHoldingRequest) (*UpsertHoldingResponse, error)
 	UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error)
+	RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error)
+	CloseAndLiquidateAccount(ctx context.Context, in *CloseAndLiquidateAccountRequest) (*CloseAndLiquidateAccountResponse, error)
+	ExecuteGDPRErasure(ctx context.Context, in *ExecuteGDPRErasureRequest) (*ExecuteGDPRErasureResponse, error)
+	GetGDPRErasureCertificate(ctx context.Context, in *GetGDPRErasureCertificateRequest) (*GetGDPRErasureCertificateResponse, error)
+	CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error)
+	ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest) (*ListAPIKeysResponse, error)
+	RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest) (*RevokeAPIKeyResponse, error)
+	CreateWebhook(ctx context.Context, in *CreateWebhookRequest) (*CreateWebhookResponse, error)
+	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
+	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest) (*CreateOrderResponse, error)
+	GetOrder(ctx context.Context, in *GetOrderRequest) (*GetOrderResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest) (*ListOrdersResponse, error)
+	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
+	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
+	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
+	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
+	GetBacktestRun(ctx context.Context, in *GetBacktestRunRequest) (*GetBacktestRunResponse, error)
+	ListBacktestRuns(ctx context.Context, in *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
+	ListMLModels(ctx context.Context, in *ListMLModelsRequest) (*ListMLModelsResponse, error)
+	LogModelDrift(ctx context.Context, in *LogModelDriftRequest) (*LogModelDriftResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
 	ListRecurringDeposits(ctx context.Context, in *ListRecurringDepositsRequest) (*ListRecurringDepositsResponse, error)
 	AdvanceRecurringDeposit(ctx context.Context, in *AdvanceRecurringDepositRequest) (*AdvanceRecurringDepositResponse, error)
-	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	ClaimDueRecurringDeposits(ctx context.Context, in *ClaimDueRecurringDepositsRequest) (*ClaimDueRecurringDepositsResponse, error)
 	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)
+	ListStatements(ctx context.Context, in *ListStatementsRequest) (*ListStatementsResponse, error)
+	GetStatement(ctx context.Context, in *GetStatementRequest) (*GetStatementResponse, error)
+	GenerateMonthlyStatement(ctx context.Context, in *GenerateMonthlyStatementRequest) (*GenerateMonthlyStatementResponse, error)
+	GenerateForm1099B(ctx context.Context, in *GenerateForm1099BRequest) (*GenerateForm1099BResponse, error)
+	GetStatementDocument(ctx context.Context, in *GetStatementDocumentRequest) (*GetStatementDocumentResponse, error)
 	StreamPortfolioValuation(ctx context.Context, in *StreamPortfolioValuationRequest) (CoreInvestService_StreamPortfolioValuationClient, error)
 }
 
 type CoreInvestServiceServer interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
+	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	CreatePortfolio(ctx context.Context, in *CreatePortfolioRequest) (*CreatePortfolioResponse, error)
+	UpdatePortfolio(ctx context.Context, in *UpdatePortfolioRequest) (*UpdatePortfolioResponse, error)
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest) (*ListHoldingsResponse, error)
+	UpsertHolding(ctx context.Context, in *UpsertHoldingRequest) (*UpsertHoldingResponse, error)
 	UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error)
+	RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error)
+	CloseAndLiquidateAccount(ctx context.Context, in *CloseAndLiquidateAccountRequest) (*CloseAndLiquidateAccountResponse, error)
+	ExecuteGDPRErasure(ctx context.Context, in *ExecuteGDPRErasureRequest) (*ExecuteGDPRErasureResponse, error)
+	GetGDPRErasureCertificate(ctx context.Context, in *GetGDPRErasureCertificateRequest) (*GetGDPRErasureCertificateResponse, error)
+	CreateAPIKey(ctx context.Context, in *CreateAPIKeyRequest) (*CreateAPIKeyResponse, error)
+	ListAPIKeys(ctx context.Context, in *ListAPIKeysRequest) (*ListAPIKeysResponse, error)
+	RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest) (*RevokeAPIKeyResponse, error)
+	CreateWebhook(ctx context.Context, in *CreateWebhookRequest) (*CreateWebhookResponse, error)
+	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
+	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest) (*CreateOrderResponse, error)
+	GetOrder(ctx context.Context, in *GetOrderRequest) (*GetOrderResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest) (*ListOrdersResponse, error)
+	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
+	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
+	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
+	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
+	GetBacktestRun(ctx context.Context, in *GetBacktestRunRequest) (*GetBacktestRunResponse, error)
+	ListBacktestRuns(ctx context.Context, in *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
+	ListMLModels(ctx context.Context, in *ListMLModelsRequest) (*ListMLModelsResponse, error)
+	LogModelDrift(ctx context.Context, in *LogModelDriftRequest) (*LogModelDriftResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
 	ListRecurringDeposits(ctx context.Context, in *ListRecurringDepositsRequest) (*ListRecurringDepositsResponse, error)
 	AdvanceRecurringDeposit(ctx context.Context, in *AdvanceRecurringDepositRequest) (*AdvanceRecurringDepositResponse, error)
-	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
+	ClaimDueRecurringDeposits(ctx context.Context, in *ClaimDueRecurringDepositsRequest) (*ClaimDueRecurringDepositsResponse, error)
 	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)
+	ListStatements(ctx context.Context, in *ListStatementsRequest) (*ListStatementsResponse, error)
+	GetStatement(ctx context.Context, in *GetStatementRequest) (*GetStatementResponse, error)
+	GenerateMonthlyStatement(ctx context.Context, in *GenerateMonthlyStatementRequest) (*GenerateMonthlyStatementResponse, error)
+	GenerateForm1099B(ctx context.Context, in *GenerateForm1099BRequest) (*GenerateForm1099BResponse, error)
+	GetStatementDocument(ctx context.Context, in *GetStatementDocumentRequest) (*GetStatementDocumentResponse, error)
 	StreamPortfolioValuation(*StreamPortfolioValuationRequest, CoreInvestService_StreamPortfolioValuationServer) error
 }
 

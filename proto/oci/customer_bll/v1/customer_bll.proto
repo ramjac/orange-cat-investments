@@ -1,0 +1,492 @@
+syntax = "proto3";
+
+package oci.customer_bll.v1;
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1;customerbllv1";
+
+import "oci/core_invest/v1/core_invest.proto";
+import "oci/ops/v1/ops.proto";
+import "oci/workforce/v1/workforce.proto";
+
+service CustomerBLLService {
+  rpc GetPortfolio(GetPortfolioRequest) returns (GetPortfolioResponse);
+  rpc GetPortfolioMetrics(GetPortfolioMetricsRequest) returns (GetPortfolioMetricsResponse);
+  rpc StreamPortfolioValuation(oci.core_invest.v1.StreamPortfolioValuationRequest) returns (stream oci.core_invest.v1.ValuationEvent);
+
+  rpc RegisterCustomer(RegisterCustomerRequest) returns (RegisterCustomerResponse);
+  rpc CloseAccount(CloseAccountRequest) returns (CloseAccountResponse);
+  rpc ExecuteGDPRErasure(ExecuteGDPRErasureRequest) returns (ExecuteGDPRErasureResponse);
+  rpc GetGDPRCertificate(GetGDPRCertificateRequest) returns (GetGDPRCertificateResponse);
+
+  rpc ValidateAndExecuteOrder(ValidateAndExecuteOrderRequest) returns (ValidateAndExecuteOrderResponse);
+  rpc ListTradeOrders(ListTradeOrdersRequest) returns (ListTradeOrdersResponse);
+  rpc GetTickerSnapshot(GetTickerSnapshotRequest) returns (GetTickerSnapshotResponse);
+  rpc GetZoomieIndex(GetZoomieIndexRequest) returns (GetZoomieIndexResponse);
+
+  rpc InitiateACHDeposit(InitiateACHDepositRequest) returns (InitiateACHDepositResponse);
+  rpc ListDeposits(ListDepositsRequest) returns (ListDepositsResponse);
+  rpc ListBankAccounts(ListBankAccountsRequest) returns (ListBankAccountsResponse);
+  rpc SettleACHTransfer(SettleACHTransferRequest) returns (SettleACHTransferResponse);
+  rpc ClaimDueRecurringDeposits(ClaimDueRecurringDepositsRequest) returns (ClaimDueRecurringDepositsResponse);
+
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse);
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse);
+  rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
+  rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse);
+  rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse);
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (DeleteWebhookResponse);
+
+  rpc GetESGTransparency(GetESGTransparencyRequest) returns (GetESGTransparencyResponse);
+  rpc ListCameraStreams(ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
+  rpc CompleteBacktestRun(CompleteBacktestRunRequest) returns (CompleteBacktestRunResponse);
+
+  rpc ListStatements(ListStatementsRequest) returns (ListStatementsResponse);
+  rpc GenerateStatement(GenerateStatementRequest) returns (GenerateStatementResponse);
+  rpc DownloadStatement(DownloadStatementRequest) returns (DownloadStatementResponse);
+  rpc GenerateBatchStatements(GenerateBatchStatementsRequest) returns (GenerateBatchStatementsResponse);
+
+  rpc ListCustomerTickets(ListCustomerTicketsRequest) returns (ListCustomerTicketsResponse);
+  rpc CreateCustomerTicket(CreateCustomerTicketRequest) returns (CreateCustomerTicketResponse);
+  rpc GetCustomerTicket(GetCustomerTicketRequest) returns (GetCustomerTicketResponse);
+  rpc ListCustomerTicketComments(ListCustomerTicketCommentsRequest) returns (ListCustomerTicketCommentsResponse);
+  rpc AddCustomerTicketComment(AddCustomerTicketCommentRequest) returns (AddCustomerTicketCommentResponse);
+}
+
+message ValuationPoint {
+  string date = 1;
+  double valuation = 2;
+}
+
+message GetPortfolioRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  string customer_name = 3;
+}
+
+message GetPortfolioResponse {
+  string portfolio_id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string account_name = 4;
+  double total_balance_usd = 5;
+  double cash_balance_usd = 6;
+  string status = 7;
+  repeated oci.core_invest.v1.PortfolioHolding holdings = 8;
+  repeated ValuationPoint historical_performance = 9;
+}
+
+message GetPortfolioMetricsRequest {
+  string portfolio_id = 1;
+}
+
+message GetPortfolioMetricsResponse {
+  string portfolio_id = 1;
+  string customer_id = 2;
+  double cash_balance = 3;
+  double invested_balance = 4;
+  double total_value = 5;
+  double sharpe_ratio = 6;
+  double sortino_ratio = 7;
+  double ytd_return_pct = 8;
+  double beta_to_sp500 = 9;
+  double alpha = 10;
+  double max_drawdown = 11;
+  double feline_telemetry_correlation = 12;
+  string calculated_at = 13;
+}
+
+message RegisterCustomerRequest {
+  string full_name = 1;
+  string email = 2;
+  string password = 3;
+  string bank_public_token = 4;
+  string target_fund = 5;
+}
+
+message RegisterCustomerResponse {
+  oci.core_invest.v1.RegisterCustomerResponse result = 1;
+}
+
+message CloseAccountRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  string destination_bank_account_id = 3;
+}
+
+message CloseAccountResponse {
+  oci.core_invest.v1.CloseAndLiquidateAccountResponse result = 1;
+}
+
+message ExecuteGDPRErasureRequest {
+  string customer_id = 1;
+  string email = 2;
+}
+
+message ExecuteGDPRErasureResponse {
+  oci.core_invest.v1.GDPRErasureCertificate certificate = 1;
+}
+
+message GetGDPRCertificateRequest {
+  string certificate_id = 1;
+  string customer_id = 2;
+  string email = 3;
+}
+
+message GetGDPRCertificateResponse {
+  oci.core_invest.v1.GDPRErasureCertificate certificate = 1;
+  bytes pdf_bytes = 2;
+}
+
+message ValidateAndExecuteOrderRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  string feline_id = 3;
+  string symbol = 4;
+  string side = 5;
+  double quantity = 6;
+  string order_type = 7;
+  double limit_price = 8;
+  double stop_loss = 9;
+  double take_profit = 10;
+}
+
+message ValidateAndExecuteOrderResponse {
+  string order_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  string broker_name = 4;
+  string symbol = 5;
+  string side = 6;
+  double quantity = 7;
+  double price = 8;
+  string status = 9;
+  string executed_at = 10;
+}
+
+message ListTradeOrdersRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message ListTradeOrdersResponse {
+  repeated oci.core_invest.v1.BrokerageOrder orders = 1;
+}
+
+message TickerQuote {
+  string symbol = 1;
+  double price = 2;
+  double change_pct = 3;
+  int64 volume = 4;
+}
+
+message GetTickerSnapshotRequest {
+  repeated string symbols = 1;
+}
+
+message GetTickerSnapshotResponse {
+  repeated TickerQuote quotes = 1;
+}
+
+message GetZoomieIndexRequest {}
+
+message GetZoomieIndexResponse {
+  double zoomie_index_score = 1;
+  double zoomie_index = 2;
+  string momentum_level = 3;
+  string feline_leader = 4;
+  int32 active_pounces_cnt = 5;
+  string current_activity = 6;
+  double confidence_score = 7;
+  string trading_signal = 8;
+  string last_updated = 9;
+  double recommended_multiplier = 10;
+  int32 felines_active = 11;
+  int32 vhr_sample_count = 12;
+  string status = 13;
+  string calculated_at = 14;
+}
+
+message InitiateACHDepositRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  string bank_account = 3;
+  string account_id = 4;
+  double amount_usd = 5;
+  string frequency = 6;
+  int32 day_of_month = 7;
+}
+
+message InitiateACHDepositResponse {
+  string transfer_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  double amount_usd = 4;
+  string frequency = 5;
+  string status = 6;
+  string requested_at = 7;
+  oci.core_invest.v1.RecurringDeposit deposit = 8;
+}
+
+message ListDepositsRequest {
+  string customer_id = 1;
+}
+
+message ListDepositsResponse {
+  repeated oci.core_invest.v1.RecurringDeposit deposits = 1;
+}
+
+message LinkedBankAccount {
+  string account_id = 1;
+  string institution_name = 2;
+  string account_number = 3;
+  string name = 4;
+  string type = 5;
+  string subtype = 6;
+  double available_balance = 7;
+  double current_balance = 8;
+}
+
+message ListBankAccountsRequest {
+  string customer_id = 1;
+}
+
+message ListBankAccountsResponse {
+  repeated LinkedBankAccount accounts = 1;
+}
+
+message SettleACHTransferRequest {
+  string transfer_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  string bank_account = 4;
+  double amount_usd = 5;
+  string transfer_type = 6;
+}
+
+message SettleACHTransferResponse {
+  string transfer_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  double amount_usd = 4;
+  string status = 5;
+  string settled_at = 6;
+}
+
+message RecurringDepositSummary {
+  string deposit_id = 1;
+  string customer_id = 2;
+  string portfolio_id = 3;
+  double amount_usd = 4;
+  string frequency = 5;
+  string bank_account = 6;
+  string status = 7;
+  string next_charge_at = 8;
+}
+
+message ClaimDueRecurringDepositsRequest {}
+
+message ClaimDueRecurringDepositsResponse {
+  repeated RecurringDepositSummary due_deposits = 1;
+}
+
+message ListAPIKeysRequest {
+  string customer_id = 1;
+}
+
+message ListAPIKeysResponse {
+  repeated oci.core_invest.v1.CustomerAPIKey keys = 1;
+}
+
+message CreateAPIKeyRequest {
+  string customer_id = 1;
+  string name = 2;
+  string key_prefix = 3;
+  string api_key = 4;
+  repeated string permissions = 5;
+}
+
+message CreateAPIKeyResponse {
+  oci.core_invest.v1.CustomerAPIKey key = 1;
+  string raw_secret = 2;
+}
+
+message RevokeAPIKeyRequest {
+  string customer_id = 1;
+  string key_id = 2;
+}
+
+message RevokeAPIKeyResponse {
+  string status = 1;
+}
+
+message ListWebhooksRequest {
+  string customer_id = 1;
+}
+
+message ListWebhooksResponse {
+  repeated oci.core_invest.v1.CustomerWebhook subscriptions = 1;
+}
+
+message CreateWebhookRequest {
+  string customer_id = 1;
+  string target_url = 2;
+  repeated string events = 3;
+  string secret = 4;
+}
+
+message CreateWebhookResponse {
+  oci.core_invest.v1.CustomerWebhook subscription = 1;
+}
+
+message DeleteWebhookRequest {
+  string customer_id = 1;
+  string webhook_id = 2;
+}
+
+message DeleteWebhookResponse {
+  bool success = 1;
+  string status = 2;
+}
+
+message FelineExecutiveSummary {
+  string employee_id = 1;
+  string name = 2;
+  string role = 3;
+  string health_status = 4;
+  string whisker_symmetry = 5;
+  double purr_frequency_hz = 6;
+  string preferred_sunbeam = 7;
+  int32 vhr_records_cnt = 8;
+}
+
+message GetESGTransparencyRequest {}
+
+message GetESGTransparencyResponse {
+  double overall_welfare_score = 1;
+  double veterinary_adherence_pct = 2;
+  string nutritional_compliance = 3;
+  double avg_daily_nap_hours = 4;
+  string perch_comfort_rating = 5;
+  int32 workplace_incidents_cnt = 6;
+  int32 medical_holds_issued_ytd = 7;
+  repeated FelineExecutiveSummary feline_executives = 8;
+  repeated oci.workforce.v1.WorkplaceIncident incidents = 9;
+}
+
+message ListCameraStreamsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListCameraStreamsResponse {
+  repeated oci.core_invest.v1.CameraStream streams = 1;
+}
+
+message CompleteBacktestRunRequest {
+  string run_id = 1;
+  string status = 2;
+  string results = 3;
+}
+
+message CompleteBacktestRunResponse {
+  oci.core_invest.v1.BacktestRun run = 1;
+}
+
+message ListStatementsRequest {
+  string customer_id = 1;
+}
+
+message ListStatementsResponse {
+  repeated oci.core_invest.v1.CustomerStatement statements = 1;
+}
+
+message GenerateStatementRequest {
+  string customer_id = 1;
+  string portfolio_id = 2;
+  string type = 3;
+  int32 year = 4;
+  int32 month = 5;
+}
+
+message GenerateStatementResponse {
+  oci.core_invest.v1.CustomerStatement statement = 1;
+  bytes pdf_bytes = 2;
+}
+
+message DownloadStatementRequest {
+  string customer_id = 1;
+  string statement_id = 2;
+}
+
+message DownloadStatementResponse {
+  oci.core_invest.v1.CustomerStatement statement = 1;
+  bytes pdf_bytes = 2;
+  string content_type = 3;
+  string file_name = 4;
+}
+
+message GenerateBatchStatementsRequest {
+  int32 year = 1;
+  int32 month = 2;
+  string period = 3;
+}
+
+message GenerateBatchStatementsResponse {
+  string period = 1;
+  int32 total_portfolios = 2;
+  string status = 3;
+  string generated_at = 4;
+}
+
+message ListCustomerTicketsRequest {
+  string customer_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListCustomerTicketsResponse {
+  repeated oci.ops.v1.ITTicket tickets = 1;
+}
+
+message CreateCustomerTicketRequest {
+  string customer_id = 1;
+  string category = 2;
+  string title = 3;
+  string body = 4;
+  string severity = 5;
+}
+
+message CreateCustomerTicketResponse {
+  oci.ops.v1.ITTicket ticket = 1;
+}
+
+message GetCustomerTicketRequest {
+  string customer_id = 1;
+  string ticket_id = 2;
+}
+
+message GetCustomerTicketResponse {
+  oci.ops.v1.ITTicket ticket = 1;
+}
+
+message ListCustomerTicketCommentsRequest {
+  string customer_id = 1;
+  string ticket_id = 2;
+}
+
+message ListCustomerTicketCommentsResponse {
+  repeated oci.ops.v1.TicketComment comments = 1;
+}
+
+message AddCustomerTicketCommentRequest {
+  string customer_id = 1;
+  string ticket_id = 2;
+  string author_username = 3;
+  string comment = 4;
+}
+
+message AddCustomerTicketCommentResponse {
+  oci.ops.v1.TicketComment comment = 1;
+}

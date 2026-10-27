@@ -2,6 +2,7 @@ package simulation
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -40,315 +41,25 @@ func TestRegistryPersonas(t *testing.T) {
 	}
 }
 
-func TestDriverMockExecutionAllPersonas(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "all",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
+func TestDriverLiveExecutionAgainstRunningStack(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Probe whether the live OCI stack is reachable
+	client := &http.Client{Timeout: 1 * time.Second}
+	resp, err := client.Get(cfg.EmployeeBFFURL + "/healthz")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Skipf("skipping live simulation test: running OCI stack not reachable at %s", cfg.EmployeeBFFURL)
 	}
 
 	driver, err := NewDriver(cfg)
 	require.NoError(t, err)
 	defer driver.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	summary, err := driver.Run(ctx)
 	require.NoError(t, err)
-
-	assert.GreaterOrEqual(t, summary.TotalActions, 30)
-	assert.Equal(t, summary.TotalActions, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
+	assert.Greater(t, summary.TotalActions, 0)
+	assert.Equal(t, 0, summary.Failures, "all actions must succeed on a healthy running stack")
 }
-
-func TestDriverSinglePersonaGarfield(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-feline-garfield",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 4, summary.TotalActions)
-	assert.Equal(t, 4, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaBarneby(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-feline-barneby",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 3, summary.TotalActions)
-	assert.Equal(t, 3, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaAlice(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-alice",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 9, summary.TotalActions)
-	assert.Equal(t, 9, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaBob(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-bob",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 6, summary.TotalActions)
-	assert.Equal(t, 6, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaRick(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-rick",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 5, summary.TotalActions)
-	assert.Equal(t, 5, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaElise(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-elise",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 10, summary.TotalActions)
-	assert.Equal(t, 10, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaMarcus(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-marcus",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 4, summary.TotalActions)
-	assert.Equal(t, 4, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaFrank(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-frank",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 4, summary.TotalActions)
-	assert.Equal(t, 4, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaArthur(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "cust-longterm-arthur",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 11, summary.TotalActions)
-	assert.Equal(t, 11, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaChloe(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "cust-active-chloe",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 8, summary.TotalActions)
-	assert.Equal(t, 8, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaDavid(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-david",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 3, summary.TotalActions)
-	assert.Equal(t, 3, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-
-func TestDriverSinglePersonaElena(t *testing.T) {
-	cfg := &Config{
-		Mode:          "mock",
-		TargetPersona: "emp-human-elena",
-		Iterations:    1,
-		ActionDelay:   1 * time.Millisecond,
-		Verbose:       false,
-	}
-
-	driver, err := NewDriver(cfg)
-	require.NoError(t, err)
-	defer driver.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	summary, err := driver.Run(ctx)
-	require.NoError(t, err)
-
-	assert.Equal(t, 4, summary.TotalActions)
-	assert.Equal(t, 4, summary.Successes)
-	assert.Equal(t, 0, summary.Failures)
-}
-

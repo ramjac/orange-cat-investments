@@ -2,87 +2,61 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
+	"crypto/tls"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
-	"github.com/orange-cat-investments/oci/internal/handler"
-	ops_handler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	ops_repo "github.com/orange-cat-investments/oci/internal/repository/ops"
-	"github.com/orange-cat-investments/oci/internal/repository/workforce"
-	"github.com/orange-cat-investments/oci/internal/saga"
-	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
-	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/internal/app/employeebff"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
-	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
-	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
-	"github.com/orange-cat-investments/oci/pkg/cots/nextcloud"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/httputil"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
-	"github.com/orange-cat-investments/oci/pkg/versioning"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	logger.Info("Starting OCI Employee BFF API Server...")
 
-	// Pure BFF: Zero direct database connections (Invariant from AGENTS.md & Section 7.16)
-	// Employee BFF acts as presentation/session proxy delegating business orchestration to Internal BLL.
-	repo := workforce.NewRepository(nil)
-
-	var hrClient wfService.HRClient
-	hrURL := os.Getenv("HR_SYSTEM_URL")
-	if hrURL == "" {
-		hrURL = os.Getenv("FRAPPE_HR_URL")
-	}
-	if hrURL != "" {
-		hrClient = frappe.NewClient(frappe.Config{
-			BaseURL:   hrURL,
-			APIKey:    os.Getenv("FRAPPE_API_KEY"),
-			APISecret: os.Getenv("FRAPPE_API_SECRET"),
-		})
-		logger.Info("connected Employee BFF to HR management system", "url", hrURL)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
 	}
 
-	var workspaceClient wfService.WorkspaceClient
-	workspaceURL := os.Getenv("WORKSPACE_URL")
-	if workspaceURL == "" {
-		workspaceURL = os.Getenv("NEXTCLOUD_URL")
-	}
-	if workspaceURL != "" {
-		workspaceClient = nextcloud.NewClient(nextcloud.Config{
-			BaseURL:       workspaceURL,
-			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
-			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASSWORD"),
-		})
-		logger.Info("Workspace intranet client initialized", "url", workspaceURL)
+	bllURL := os.Getenv("INTERNAL_BLL_URL")
+	if bllURL == "" {
+		bllURL = "internal-bll-service.oci-core.svc.cluster.local:8086"
 	}
 
-	var wfSvc wfService.Service
-	if hrClient != nil || workspaceClient != nil {
-		wfSvc = wfService.NewServiceWithIntegrations(repo, nil, hrClient, workspaceClient)
-	} else {
-		wfSvc = wfService.NewService(repo)
+	tlsCert := os.Getenv("TLS_CERT_FILE")
+	tlsKey := os.Getenv("TLS_KEY_FILE")
+	caCert := os.Getenv("CA_CERT_FILE")
+	if caCert == "" {
+		caCert = os.Getenv("CLIENT_CA_FILE")
 	}
-	onboardingSaga := saga.NewOnboardingSaga(wfSvc, nil, logger)
-	offboardingEng := saga.NewOffboardingEngine(wfSvc, nil, logger)
 
-	wfHandler := handler.NewWorkforceHandler(wfSvc, onboardingSaga, offboardingEng)
-	enableFeline := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
-	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
-		enableFeline = false
+	var clientTLS *tls.Config
+	if tlsCert != "" && tlsKey != "" && caCert != "" {
+		var err error
+		clientTLS, err = mtls.NewClientTLSConfig(tlsCert, tlsKey, caCert)
+		if err != nil {
+			logger.Error("employee-bff fatal: failed to initialize mTLS config for Internal BLL upstream", "error", err)
+			os.Exit(1)
+		}
 	}
-	wfHandler.EnableFelineWorkforce = enableFeline
 
-	mux := http.NewServeMux()
+	conn, err := grpcutil.Dial(context.Background(), bllURL, clientTLS)
+	if err != nil {
+		logger.Error("employee-bff fatal: failed to connect to Internal BLL upstream", "addr", bllURL, "error", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+	bllClient := internalbllv1.NewInternalBLLServiceClient(conn)
+	logger.Info("connected Employee BFF to Internal BLL upstream via gRPC", "addr", bllURL)
+
+	bff := employeebff.NewEmployeeBFF(bllClient, logger)
 
 	valkeyAddr := os.Getenv("VALKEY_ADDR")
 	valkeyPass := os.Getenv("VALKEY_PASSWORD")
@@ -90,67 +64,26 @@ func main() {
 	sessionStore := sessionvalkey.NewEmployeeSessionStore(valkeyAddr, valkeyPass, 0, logger)
 	cache := cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger)
 	rateLimiter := cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger)
-	wfHandler.SetCache(cache)
 
-	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
+	bff.SetSessionStore(sessionStore)
+	bff.SetCache(cache)
+	bff.SetRateLimiter(rateLimiter)
 
 	issueTrackerURL := os.Getenv("FORGEJO_URL")
 	if issueTrackerURL == "" {
 		issueTrackerURL = os.Getenv("ISSUE_TRACKER_URL")
 	}
+	bff.SetIssueTrackerURL(issueTrackerURL)
 
-	authHandler := NewAuthHandler(sessionStore, issueTrackerURL, isProd)
-	authHandler.RegisterAuthRoutes(mux)
-	wfHandler.RegisterRoutes(mux)
+	isProd := os.Getenv("ENV") == "production" || os.Getenv("OCI_ENV") == "production"
+	bff.SetIsProd(isProd)
 
-	opsRepo := ops_repo.NewRepository(nil)
-
-	var issueTracker ops_svc.IssueTrackerClient
-	if issueTrackerURL != "" {
-		issueTracker = forgejo.NewClient(forgejo.Config{
-			BaseURL: issueTrackerURL,
-			Token:   os.Getenv("FORGEJO_TOKEN"),
-		})
-		logger.Info("connected Employee BFF to Forgejo issue tracker", "url", issueTrackerURL)
+	enableFeline := os.Getenv("ENABLE_FELINE_WORKFORCE") != "false"
+	if os.Getenv("ENABLE_SMALL_BUSINESS_MODE") == "true" && os.Getenv("ENABLE_FELINE_WORKFORCE") == "" {
+		enableFeline = false
 	}
+	bff.SetEnableFelineWorkforce(enableFeline)
 
-	var opsSvc ops_svc.Service
-	if issueTracker != nil {
-		opsSvc = ops_svc.NewServiceWithIssueTracker(opsRepo, issueTracker)
-	} else {
-		opsSvc = ops_svc.NewService(opsRepo)
-	}
-	opsH := ops_handler.NewHandler(opsSvc)
-	registerProtectedOpsRoutes(mux, opsH, sessionStore, rateLimiter)
-
-	amqpURL := os.Getenv("RABBITMQ_URL")
-	if amqpURL != "" {
-		watermillLogger := watermill.NewStdLogger(false, false)
-		amqpConfig := amqp.NewDurablePubSubConfig(amqpURL, func(topic string) string {
-			return "employee-bff.cache-invalidation." + topic
-		})
-		amqpSub, err := amqp.NewSubscriber(amqpConfig, watermillLogger)
-		if err == nil {
-			listener := cachevalkey.NewInvalidationListener(cache, amqpSub, logger)
-			listener.Start(context.Background())
-			defer listener.Stop()
-			logger.Info("connected Employee BFF to RabbitMQ for event-driven cache invalidation")
-		} else {
-			logger.Warn("failed to initialize RabbitMQ subscriber for cache invalidation", "error", err)
-		}
-	}
-
-	// Incident Alert Real-Time SSE Stream & Broadcast Hub
-	incidentBroker := NewIncidentBroker(logger)
-	sessionAuth := SessionAuthMiddleware(sessionStore)
-	serviceAuth := InternalServiceAuthMiddleware()
-
-	mux.Handle("GET /api/v1/employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
-	mux.Handle("GET /employee/incidents/stream", sessionAuth(http.HandlerFunc(incidentBroker.HandleStream)))
-	mux.Handle("POST /api/v1/employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
-	mux.Handle("POST /employee/incidents/broadcast", serviceAuth(http.HandlerFunc(incidentBroker.HandleBroadcast)))
-
-	// Command+K Typo-Tolerant Search API via Meilisearch
 	meiliURL := os.Getenv("MEILISEARCH_URL")
 	if meiliURL == "" {
 		meiliURL = "http://localhost:7700"
@@ -158,70 +91,16 @@ func main() {
 	meiliKey := os.Getenv("MEILI_MASTER_KEY")
 	meiliClient := meilisearch.NewClient(meiliURL, meiliKey)
 	_ = meiliClient.EnsureIndex(context.Background(), "employee_knowledge", "id")
+	bff.SetSearchClient(meiliClient)
 
-	searchHandler := func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query().Get("q")
-		category := r.URL.Query().Get("category")
-		filter := ""
-		if category != "" {
-			filter = fmt.Sprintf("category = '%s'", category)
-		}
-		res, err := meiliClient.Search(r.Context(), "employee_knowledge", q, meilisearch.SearchOptions{
-			Filter: filter,
-			Limit:  25,
-		})
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(res)
+	// Event-driven cache invalidation listener
+	amqpURL := os.Getenv("RABBITMQ_URL")
+	if amqpURL == "" {
+		amqpURL = os.Getenv("AMQP_URL")
+	}
+	if amqpURL != "" {
+		cachevalkey.StartAMQPInvalidationListener(context.Background(), amqpURL, "employee-bff", cache, logger)
 	}
 
-	mux.Handle("GET /api/v1/employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
-	mux.Handle("GET /employee/search", sessionAuth(http.HandlerFunc(searchHandler)))
-
-	// Health check endpoint
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8081"
-	}
-
-	versionedHandler := versioning.Middleware(versioning.DefaultConfig())(mux)
-
-	server := &http.Server{
-		Addr:         ":" + port,
-		Handler:      versionedHandler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	go func() {
-		logger.Info("Employee BFF listening", "port", port)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("Employee BFF HTTP server error", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-stop
-	logger.Info("shutting down Employee BFF API Server...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error("failed graceful shutdown", "error", err)
-	}
-
-	logger.Info("Employee BFF stopped gracefully")
+	httputil.ListenAndServeGraceful("employee-bff", port, bff.SetupRouter(), logger)
 }

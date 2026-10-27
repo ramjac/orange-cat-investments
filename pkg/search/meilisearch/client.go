@@ -226,3 +226,28 @@ func (c *Client) Health(ctx context.Context) (bool, error) {
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK, nil
 }
+
+// NewSearchHandler returns a reusable HTTP handler that executes typo-tolerant search against indexUID.
+func (c *Client) NewSearchHandler(indexUID string, limit int) http.HandlerFunc {
+	if limit <= 0 {
+		limit = 25
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		category := r.URL.Query().Get("category")
+		filter := ""
+		if category != "" {
+			filter = fmt.Sprintf("category = '%s'", category)
+		}
+		res, err := c.Search(r.Context(), indexUID, q, SearchOptions{
+			Filter: filter,
+			Limit:  limit,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"search failed: %v"}`, err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+	}
+}

@@ -1,4 +1,38 @@
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forgejo-runner-sa
+  namespace: oci-internal
+  labels:
+    app: forgejo-runner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: forgejo-runner-deployer
+  labels:
+    app: forgejo-runner
+rules:
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: forgejo-runner-deployer-binding
+  labels:
+    app: forgejo-runner
+subjects:
+  - kind: ServiceAccount
+    name: forgejo-runner-sa
+    namespace: oci-internal
+roleRef:
+  kind: ClusterRole
+  name: forgejo-runner-deployer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: forgejo-runner-config
@@ -19,6 +53,15 @@ data:
         - "docker:docker://docker:dind"
       envs:
         DOCKER_HOST: tcp://localhost:2375
+    container:
+      network: "host"
+      privileged: true
+      options: "-v /tmp:/tmp -v /data:/data"
+      valid_volumes:
+        - "/var/run/docker.sock"
+        - "/var/run/secrets/kubernetes.io/serviceaccount"
+        - "/tmp"
+        - "/data"
     host:
       workdir: /tmp/runner/workspace
 ---
@@ -39,6 +82,46 @@ spec:
       labels:
         app: forgejo-runner
     spec:
+      serviceAccountName: forgejo-runner-sa
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+        - name: init-kubeconfig
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /data
+              if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+                TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                CA_DATA=$(base64 -w 0 < /var/run/secrets/kubernetes.io/serviceaccount/ca.crt 2>/dev/null || base64 < /var/run/secrets/kubernetes.io/serviceaccount/ca.crt | tr -d '\n')
+                cat <<EOF > /data/kubeconfig
+              apiVersion: v1
+              kind: Config
+              clusters:
+              - name: in-cluster
+                cluster:
+                  certificate-authority-data: ${CA_DATA}
+                  server: https://kubernetes.default.svc.cluster.local:443
+              contexts:
+              - name: in-cluster
+                context:
+                  cluster: in-cluster
+                  namespace: oci-internal
+                  user: runner-sa
+              current-context: in-cluster
+              users:
+              - name: runner-sa
+                user:
+                  token: ${TOKEN}
+              EOF
+                chmod 644 /data/kubeconfig
+                echo "Generated in-cluster /data/kubeconfig successfully."
+              fi
+          volumeMounts:
+            - name: runner-data
+              mountPath: /data
       containers:
         - name: runner
           image: gitea/act_runner:latest
@@ -71,6 +154,8 @@ spec:
               mountPath: /config
             - name: runner-data
               mountPath: /data
+            - name: docker-sock
+              mountPath: /var/run
         # Docker-in-Docker sidecar engine providing Docker daemon for container jobs
         - name: daemon
           image: docker:26-dind
@@ -79,6 +164,8 @@ spec:
             - --host=tcp://0.0.0.0:2375
             - --host=unix:///var/run/docker.sock
             - --insecure-registry=localhost:32000
+            - --insecure-registry=127.0.0.1:32000
+            - --insecure-registry=container-registry.kube-system.svc.cluster.local:5000
           securityContext:
             privileged: true
           env:
@@ -94,6 +181,10 @@ spec:
           volumeMounts:
             - name: docker-storage
               mountPath: /var/lib/docker
+            - name: docker-sock
+              mountPath: /var/run
+            - name: runner-data
+              mountPath: /data
       volumes:
         - name: runner-config
           configMap:
@@ -102,4 +193,5 @@ spec:
           emptyDir: {}
         - name: docker-storage
           emptyDir: {}
-
+        - name: docker-sock
+          emptyDir: {}

@@ -12,10 +12,10 @@ The simulator architecture mirrors OCI's Domain-Driven Design (DDD) model:
 simulation/
 ├── config.go            # Configuration flags (URLs, modes, iteration, delays)
 ├── persona.go           # Persona and Action interface definitions & Registry
-├── client.go            # HTTP client abstraction supporting live & mock HTTP servers
+├── client.go            # HTTP client abstraction driving running OCI stack services
 ├── actions.go           # Persona action suites for all 13 OCI personas
 ├── driver.go            # Orchestration engine for running simulation workflows
-├── driver_test.go       # Unit tests verifying mock simulation execution
+├── driver_test.go       # Tests verifying simulation execution
 └── cmd/
     └── simulator/       # Runnable CLI entrypoint (`go run ./simulation/cmd/simulator`)
         └── main.go
@@ -116,10 +116,9 @@ The simulator uses the 13 official OCI personas defined in `personas/` to execut
 
 The simulator supports four execution modes:
 
-1. **`mock` (Default)**: Spins up embedded Go in-memory HTTP handlers (`httptest.Server`). Runs complete persona daily workflows without requiring any pre-spun local services or database dependencies. Ideal for offline development and local testing.
-2. **`live`**: Connects directly to deployed or running OCI stack services (API Server on port `8080` and Employee BFF on port `8081` by default, or via unified staging URL `-url https://dev.api.oci.local`).
-3. **`step`**: Runs a single step-by-step pass through each registered persona's actions and prints action results.
-4. **`continuous`**: Loops persona daily action lists continuously with configured action delays (`-delay`), simulating real-time continuous business operations until interrupted (`Ctrl+C`).
+1. **`live` (Default)**: Connects directly to deployed or running OCI stack services (e.g. Employee BFF on port `8081` and Customer BFF on port `8083`, or via unified staging URL `-url https://dev.api.oci.local`). Acts as a true end-to-end integration test catching runtime defects.
+2. **`step`**: Runs a single step-by-step pass through each registered persona's actions and prints action results.
+3. **`continuous`**: Loops persona daily action lists continuously with configured action delays (`-delay`), simulating real-time continuous business operations until interrupted (`Ctrl+C`).
 
 ---
 
@@ -130,9 +129,9 @@ The simulator supports four execution modes:
 go run ./simulation/cmd/simulator -list-personas
 ```
 
-### 2. Run Standalone Mock Simulation Drive (Default)
+### 2. Run Simulation Drive Against Running Stack (Default)
 ```bash
-go run ./simulation/cmd/simulator -mode mock
+go run ./simulation/cmd/simulator
 ```
 
 ### 3. Target a Specific Persona (e.g., Garfield or Rick)
@@ -141,7 +140,7 @@ go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
 ### 4. Drive Live Local / MicroK8s OCI Stack
-Spin up the OCI backend services (e.g. `go run ./cmd/workforce-api` and `go run ./cmd/employee-bff`) or target staging directly via unified URL:
+Target staging or local cluster directly via unified URL:
 ```bash
 # Target Kubernetes oci-dev staging environment with smart URL routing
 go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
@@ -159,7 +158,7 @@ go run ./simulation/cmd/simulator \
 | Flag | Default | Description |
 |---|---|---|
 | `-url` | `""` | Unified base URL or staging domain (e.g., `https://dev.api.oci.local`), automatically routing API and BFF endpoints |
-| `-mode` | `mock` | Execution mode: `mock`, `live`, `step`, or `continuous` |
+| `-mode` | `live` | Execution mode: `live`, `step`, or `continuous` |
 | `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-marcus`, etc.) or `all` |
 | `-server-url` | `""` | Target URL for OCI Domain API Server (overrides `-url`) |
 | `-bff-url` | `""` | Target URL for OCI Employee BFF (overrides `-url`) |

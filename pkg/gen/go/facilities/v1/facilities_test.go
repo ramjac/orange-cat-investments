@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockFacilitiesServer struct{}
+type mockFacilitiesServer struct {
+	UnimplementedFacilitiesServiceServer
+}
 
 func (m *mockFacilitiesServer) GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error) {
 	return &GetAssetResponse{Asset: &HardwareAsset{AssetID: in.AssetID, Model: "OCI-Cam-4K"}}, nil

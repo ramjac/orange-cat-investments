@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockCoreInvestServer struct{}
+type mockCoreInvestServer struct {
+	UnimplementedCoreInvestServiceServer
+}
 
 func (m *mockCoreInvestServer) GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error) {
 	return &GetPortfolioResponse{

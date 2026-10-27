@@ -35,7 +35,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
     * **Scheduled Batch Schedulers:** Cron runners for recurring ACH DCA deposits and automated end-of-month PDF statements.
     * **Wearable Gateway Proxy (`cmd/pebble-proxy` :8082):** Bridges Bluetooth/HTTP Pebble watch companion app requests with IT helpdesk operations and pub/sub real-time incident alerting.
 * **Simulation Driver:**
-  * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all 12 personas across corporate staff, feline executives, and retail investors in mock or live execution modes.
+  * **OCI Platform Simulator (`simulation/cmd/simulator`):** CLI and automation engine to exercise all personas across corporate staff, feline executives, and retail investors against the running OCI stack.
 
 ### Kubernetes Namespace Architecture:
 * **`oci-core`:** Collocates all custom OCI applications (BFFs, BLLs, Domain APIs, `oci-pebble-proxy`, `oci-worker`, `oci-customer-portal`, `oci-employee-portal`) together with external customer identity (**ZITADEL**) and core operational infrastructure (`valkey`, `rabbitmq`, `meilisearch`, and dedicated database **`postgres-core`**).
@@ -76,7 +76,7 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 │   ├── mock-bank/         # Isolated mock Plaid/bank API (external-sim)
 │   └── mock-broker/       # Isolated mock Alpaca/broker API (external-sim)
 ├── simulation/            # Full platform simulation driver & persona action suites
-│   └── cmd/simulator/     # Standalone simulation CLI (`-mode live|mock`)
+│   └── cmd/simulator/     # Standalone simulation CLI (`-mode live|step|continuous`)
 ├── web/                   # Frontend applications
 │   ├── customer-portal/   # Vue 3 SPA for retail investors and customers (:5174)
 │   ├── employee-portal/   # Vue 3 SPA for employee and feline care management (:5173)
@@ -148,9 +148,9 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
      - **End-User/Caretaker Persona:** Interacts with legitimate OCI endpoints on the BFFs (`customer-bff`, `employee-bff`) as an authentic user would.
    * **Purpose of Simulation:** The objective is to verify that the persona has sufficient permissions and that the underlying infrastructure (e.g., Forgejo, Nextcloud, K8s runners) correctly supports the complete end-to-end workflow (e.g., from Kanban card to feature branch to code review and merge), without requiring OCI production services to act as an intermediary.
 
-3. **Dual-Mode Simulation Architecture (`-mode mock` vs `-mode live`):**
-   * **Mock Mode (`simulation/mock_*.go`):** Fast, standalone local testing without external dependencies. Standalone in-memory HTTP servers (e.g., `MockForgejoServer` in `simulation/mock_forgejo.go`, or stateless mock broker/bank in `external-sim`) emulate the third-party or COTS API contracts.
-   * **Live Mode:** The simulation client routes HTTP calls directly to the live internal COTS service (e.g., `http://forgejo-service.oci-internal.svc:3000` or `https://forgejo.oci.local`) or development endpoints in `oci-dev`. Simulations must NEVER target the production `oci-core` namespace.
+3. **Simulation Execution Architecture:**
+   * The platform simulation driver acts as a true end-to-end integration test driving persona workflows against an actual running instance of the OCI stack (e.g. dev staging at `https://dev.api.oci.local` or a running local development stack).
+   * In-process mock simulation mode is eliminated: the simulator communicates exclusively over network HTTP boundaries to authentic services, verifying end-to-end permissions, routing, session stores, CSRF enforcement, and business workflows to ensure runtime defects are reliably caught. Simulations must NEVER target the production `oci-core` namespace.
 
 4. **Simulation Execution Location Standard (External Workstation vs. Test Server Host):**
    * The platform simulation driver (`simulation/cmd/simulator`) must **NOT typically be run directly on the test server host** (e.g. `thinker`).
@@ -209,10 +209,9 @@ Before marking any task as complete or submitting code changes, agents must veri
    go vet ./...
    ```
 4. **Platform Simulation Driver Validation:**
-   Run the 12-persona simulation test suite and driver to verify end-to-end integration:
+   Run the simulation test suite:
    ```bash
    go test -v ./simulation/...
-   go run ./simulation/cmd/simulator -mode mock
    ```
 5. **Frontend Theme & Design Token Compilation:**
    Verify `scripts/generate-theme.js` compiles CSS variables from `config/branding.yaml`:
@@ -220,6 +219,7 @@ Before marking any task as complete or submitting code changes, agents must veri
    node scripts/generate-theme.js
    ```
 6. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
+7. **Protocol BUffers** ONly use the .proto files. Ignore the generated *.pb.go and *.pb.gw.go files.
 
 ---
 

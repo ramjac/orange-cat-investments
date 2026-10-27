@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
@@ -13,6 +12,7 @@ import (
 )
 
 type CoreInvestGRPCServer struct {
+	coreinvestv1.UnimplementedCoreInvestServiceServer
 	svc  core_invest_svc.Service
 	repo core_invest_repo.Repository
 }
@@ -40,6 +40,78 @@ func toProtoPortfolio(p *core_invest_repo.Portfolio) *coreinvestv1.Portfolio {
 	}
 }
 
+func toProtoHolding(h *core_invest_repo.PortfolioHolding) *coreinvestv1.PortfolioHolding {
+	if h == nil {
+		return nil
+	}
+	return &coreinvestv1.PortfolioHolding{
+		HoldingID:       h.HoldingID,
+		PortfolioID:     h.PortfolioID,
+		Symbol:          h.Symbol,
+		Quantity:        h.Quantity,
+		AvgPriceUSD:     h.AvgPriceUSD,
+		CurrentPriceUSD: h.CurrentPriceUSD,
+		MarketValueUSD:  h.MarketValueUSD,
+	}
+}
+
+func toProtoStatement(st *core_invest_repo.InvestmentStatement) *coreinvestv1.CustomerStatement {
+	if st == nil {
+		return nil
+	}
+	gen := ""
+	if !st.CreatedAt.IsZero() {
+		gen = st.CreatedAt.Format(time.RFC3339)
+	}
+	return &coreinvestv1.CustomerStatement{
+		StatementID:         st.StatementID,
+		CustomerID:          st.CustomerID,
+		PortfolioID:         st.PortfolioID,
+		StatementType:       st.StatementType,
+		Period:              st.Period,
+		EndingBalanceUSD:    st.TotalProceedsUSD,
+		RealizedGainLossUSD: st.NetGainUSD,
+		Status:              st.Status,
+		GeneratedAt:         gen,
+	}
+}
+
+func toProtoCameraStream(cs *core_invest_repo.CameraStream) *coreinvestv1.CameraStream {
+	if cs == nil {
+		return nil
+	}
+	created := ""
+	if !cs.CreatedAt.IsZero() {
+		created = cs.CreatedAt.Format(time.RFC3339)
+	}
+	return &coreinvestv1.CameraStream{
+		StreamID:  cs.StreamID,
+		AssetID:   cs.CameraAssetID,
+		StreamURL: cs.StreamURL,
+		Protocol:  cs.Protocol,
+		Status:    cs.Status,
+		CreatedAt: created,
+	}
+}
+
+func toProtoBacktestRun(run *core_invest_repo.BacktestRun) *coreinvestv1.BacktestRun {
+	if run == nil {
+		return nil
+	}
+	created := ""
+	if !run.CreatedAt.IsZero() {
+		created = run.CreatedAt.Format(time.RFC3339)
+	}
+	return &coreinvestv1.BacktestRun{
+		RunID:        run.BacktestID,
+		StrategyName: run.StrategyID,
+		StartDate:    run.StartDate.Format("2006-01-02"),
+		EndDate:      run.EndDate.Format("2006-01-02"),
+		Status:       run.Status,
+		CreatedAt:    created,
+	}
+}
+
 func (s *CoreInvestGRPCServer) GetPortfolio(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
 	id := in.PortfolioID
 	if id == "" {
@@ -55,15 +127,7 @@ func (s *CoreInvestGRPCServer) GetPortfolio(ctx context.Context, in *coreinvestv
 		repoHoldings, err := s.repo.GetHoldingsByPortfolioID(ctx, p.PortfolioID)
 		if err == nil {
 			for _, h := range repoHoldings {
-				holdings = append(holdings, &coreinvestv1.PortfolioHolding{
-					HoldingID:       h.HoldingID,
-					PortfolioID:     h.PortfolioID,
-					Symbol:          h.Symbol,
-					Quantity:        h.Quantity,
-					AvgPriceUSD:     h.AvgPriceUSD,
-					CurrentPriceUSD: h.CurrentPriceUSD,
-					MarketValueUSD:  h.MarketValueUSD,
-				})
+				holdings = append(holdings, toProtoHolding(h))
 			}
 		}
 	}
@@ -74,6 +138,57 @@ func (s *CoreInvestGRPCServer) GetPortfolio(ctx context.Context, in *coreinvestv
 	}, nil
 }
 
+func (s *CoreInvestGRPCServer) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+	ports, err := s.svc.ListPortfolios(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []*coreinvestv1.Portfolio
+	for _, p := range ports {
+		out = append(out, toProtoPortfolio(p))
+	}
+	return &coreinvestv1.ListPortfoliosResponse{Portfolios: out}, nil
+}
+
+func (s *CoreInvestGRPCServer) CreatePortfolio(ctx context.Context, in *coreinvestv1.CreatePortfolioRequest) (*coreinvestv1.CreatePortfolioResponse, error) {
+	if in.Portfolio == nil {
+		return nil, status.Error(codes.InvalidArgument, "portfolio is required")
+	}
+	created, err := s.svc.CreatePortfolio(ctx, &core_invest_repo.Portfolio{
+		PortfolioID:     in.Portfolio.PortfolioID,
+		CustomerID:      in.Portfolio.CustomerID,
+		AccountName:     in.Portfolio.AccountName,
+		TotalBalanceUSD: in.Portfolio.TotalBalanceUSD,
+		CashBalanceUSD:  in.Portfolio.CashBalanceUSD,
+		Status:          in.Portfolio.Status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &coreinvestv1.CreatePortfolioResponse{Portfolio: toProtoPortfolio(created)}, nil
+}
+
+func (s *CoreInvestGRPCServer) UpdatePortfolio(ctx context.Context, in *coreinvestv1.UpdatePortfolioRequest) (*coreinvestv1.UpdatePortfolioResponse, error) {
+	if in.Portfolio == nil {
+		return nil, status.Error(codes.InvalidArgument, "portfolio is required")
+	}
+	if s.repo == nil {
+		return nil, status.Error(codes.Unavailable, "repository not configured")
+	}
+	updated, err := s.repo.UpdatePortfolio(ctx, &core_invest_repo.Portfolio{
+		PortfolioID:     in.Portfolio.PortfolioID,
+		CustomerID:      in.Portfolio.CustomerID,
+		AccountName:     in.Portfolio.AccountName,
+		TotalBalanceUSD: in.Portfolio.TotalBalanceUSD,
+		CashBalanceUSD:  in.Portfolio.CashBalanceUSD,
+		Status:          in.Portfolio.Status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &coreinvestv1.UpdatePortfolioResponse{Portfolio: toProtoPortfolio(updated)}, nil
+}
+
 func (s *CoreInvestGRPCServer) ListHoldings(ctx context.Context, in *coreinvestv1.ListHoldingsRequest) (*coreinvestv1.ListHoldingsResponse, error) {
 	var holdings []*coreinvestv1.PortfolioHolding
 	if s.repo != nil {
@@ -82,18 +197,32 @@ func (s *CoreInvestGRPCServer) ListHoldings(ctx context.Context, in *coreinvestv
 			return nil, err
 		}
 		for _, h := range repoHoldings {
-			holdings = append(holdings, &coreinvestv1.PortfolioHolding{
-				HoldingID:       h.HoldingID,
-				PortfolioID:     h.PortfolioID,
-				Symbol:          h.Symbol,
-				Quantity:        h.Quantity,
-				AvgPriceUSD:     h.AvgPriceUSD,
-				CurrentPriceUSD: h.CurrentPriceUSD,
-				MarketValueUSD:  h.MarketValueUSD,
-			})
+			holdings = append(holdings, toProtoHolding(h))
 		}
 	}
 	return &coreinvestv1.ListHoldingsResponse{Holdings: holdings}, nil
+}
+
+func (s *CoreInvestGRPCServer) UpsertHolding(ctx context.Context, in *coreinvestv1.UpsertHoldingRequest) (*coreinvestv1.UpsertHoldingResponse, error) {
+	if in.Holding == nil {
+		return nil, status.Error(codes.InvalidArgument, "holding is required")
+	}
+	if s.repo == nil {
+		return nil, status.Error(codes.Unavailable, "repository not configured")
+	}
+	upserted, err := s.repo.UpsertHolding(ctx, &core_invest_repo.PortfolioHolding{
+		HoldingID:       in.Holding.HoldingID,
+		PortfolioID:     in.Holding.PortfolioID,
+		Symbol:          in.Holding.Symbol,
+		Quantity:        in.Holding.Quantity,
+		AvgPriceUSD:     in.Holding.AvgPriceUSD,
+		CurrentPriceUSD: in.Holding.CurrentPriceUSD,
+		MarketValueUSD:  in.Holding.MarketValueUSD,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &coreinvestv1.UpsertHoldingResponse{Holding: toProtoHolding(upserted)}, nil
 }
 
 func (s *CoreInvestGRPCServer) UpdatePortfolioBalance(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error) {
@@ -119,223 +248,50 @@ func (s *CoreInvestGRPCServer) UpdatePortfolioBalance(ctx context.Context, in *c
 	}, nil
 }
 
-func (s *CoreInvestGRPCServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
-	order, err := s.svc.ExecuteBrokerageOrder(ctx, core_invest_svc.ExecuteBrokerageOrderOpts{
-		PortfolioID: in.PortfolioID,
-		BrokerName:  "OCI Smart Execution Router",
-		Symbol:      in.Symbol,
-		Side:        in.Side,
-		Quantity:    in.Quantity,
-		Price:       in.Price,
+func (s *CoreInvestGRPCServer) RegisterCustomer(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
+	res, err := s.svc.RegisterCustomer(ctx, core_invest_svc.CustomerRegistrationRequest{
+		FullName:        in.Name,
+		Email:           in.Email,
+		Password:        in.Password,
+		BankPublicToken: in.BankPublicToken,
+		TargetFund:      in.TargetFund,
 	})
 	if err != nil {
 		return nil, err
 	}
-	executed := ""
-	if order.ExecutedAt != nil {
-		executed = order.ExecutedAt.Format(time.RFC3339)
-	}
-	return &coreinvestv1.CreateOrderResponse{
-		Order: &coreinvestv1.BrokerageOrder{
-			OrderID:     order.OrderID,
-			PortfolioID: order.PortfolioID,
-			Symbol:      order.Symbol,
-			Side:        order.Side,
-			Quantity:    order.Quantity,
-			Price:       order.Price,
-			Status:      order.Status,
-			BrokerName:  order.BrokerName,
-			ExecutedAt:  executed,
-		},
+	return &coreinvestv1.RegisterCustomerResponse{
+		CustomerID:      res.CustomerID,
+		Email:           res.Email,
+		Name:            res.CustomerName,
+		ZitadelUserID:   res.ZitadelUserID,
+		PortfolioID:     res.PortfolioID,
+		LinkedBankAccID: res.LinkedBankAccID,
+		CashBalance:     res.StartingBalance,
+		Status:          "active",
+		Message:         res.Message,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 
-func (s *CoreInvestGRPCServer) ListOrders(ctx context.Context, in *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
-	limit := in.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	orders, err := s.svc.ListBrokerageOrders(ctx, limit, 0)
-	if err != nil {
-		return nil, err
-	}
-	var out []*coreinvestv1.BrokerageOrder
-	for _, o := range orders {
-		if in.PortfolioID != "" && o.PortfolioID != in.PortfolioID {
-			continue
-		}
-		executed := ""
-		if o.ExecutedAt != nil {
-			executed = o.ExecutedAt.Format(time.RFC3339)
-		}
-		out = append(out, &coreinvestv1.BrokerageOrder{
-			OrderID:     o.OrderID,
-			PortfolioID: o.PortfolioID,
-			Symbol:      o.Symbol,
-			Side:        o.Side,
-			Quantity:    o.Quantity,
-			Price:       o.Price,
-			Status:      o.Status,
-			BrokerName:  o.BrokerName,
-			ExecutedAt:  executed,
-		})
-	}
-	return &coreinvestv1.ListOrdersResponse{Orders: out}, nil
-}
-
-func (s *CoreInvestGRPCServer) IngestObservation(ctx context.Context, in *coreinvestv1.IngestObservationRequest) (*coreinvestv1.IngestObservationResponse, error) {
-	return &coreinvestv1.IngestObservationResponse{
-		EventID: fmt.Sprintf("obs-%d", time.Now().UnixNano()),
-		Status:  "ingested",
-	}, nil
-}
-
-func (s *CoreInvestGRPCServer) ListObservations(ctx context.Context, in *coreinvestv1.ListObservationsRequest) (*coreinvestv1.ListObservationsResponse, error) {
-	return &coreinvestv1.ListObservationsResponse{}, nil
-}
-
-func (s *CoreInvestGRPCServer) CreateRecurringDeposit(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
-	dep, err := s.svc.CreateRecurringDeposit(ctx, core_invest_svc.CreateRecurringDepositOpts{
-		CustomerID:  in.CustomerID,
-		PortfolioID: in.PortfolioID,
-		AmountUSD:   in.AmountUSD,
-		Frequency:   in.Frequency,
-		BankAccount: in.BankAccount,
+func (s *CoreInvestGRPCServer) CloseAndLiquidateAccount(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error) {
+	res, err := s.svc.CloseAndLiquidateAccount(ctx, core_invest_svc.CloseAccountRequest{
+		CustomerID:           in.CustomerID,
+		PortfolioID:          in.PortfolioID,
+		DestinationAccountID: in.DestinationAccountID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	nextCharge := ""
-	if !dep.NextChargeAt.IsZero() {
-		nextCharge = dep.NextChargeAt.Format(time.RFC3339)
-	}
-	return &coreinvestv1.CreateRecurringDepositResponse{
-		Deposit: &coreinvestv1.RecurringDeposit{
-			DepositID:    dep.DepositID,
-			CustomerID:   dep.CustomerID,
-			PortfolioID:  dep.PortfolioID,
-			AmountUSD:    dep.AmountUSD,
-			Frequency:    dep.Frequency,
-			BankAccount:  dep.BankAccount,
-			Status:       dep.Status,
-			NextChargeAt: nextCharge,
-		},
+	return &coreinvestv1.CloseAndLiquidateAccountResponse{
+		CustomerID:            res.CustomerID,
+		PortfolioID:           res.PortfolioID,
+		LiquidatedOrders:      int32(res.LiquidatedPositions),
+		LiquidatedProceeds:    res.GrossProceedsUSD,
+		FinalCashWithdrawn:    res.TransferredToBankUSD,
+		ACHWithdrawalTransfer: res.TransferID,
+		DestinationAccountID:  res.DestinationAccountID,
+		AccountStatus:         res.AccountStatus,
+		Message:               res.Message,
+		ClosedAt:              res.SettlementDate.Format(time.RFC3339),
 	}, nil
-}
-
-func (s *CoreInvestGRPCServer) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
-	deps, err := s.svc.ListRecurringDeposits(ctx, in.CustomerID)
-	if err != nil {
-		return nil, err
-	}
-	var out []*coreinvestv1.RecurringDeposit
-	for _, d := range deps {
-		nextCharge := ""
-		if !d.NextChargeAt.IsZero() {
-			nextCharge = d.NextChargeAt.Format(time.RFC3339)
-		}
-		out = append(out, &coreinvestv1.RecurringDeposit{
-			DepositID:    d.DepositID,
-			CustomerID:   d.CustomerID,
-			PortfolioID:  d.PortfolioID,
-			AmountUSD:    d.AmountUSD,
-			Frequency:    d.Frequency,
-			BankAccount:  d.BankAccount,
-			Status:       d.Status,
-			NextChargeAt: nextCharge,
-		})
-	}
-	return &coreinvestv1.ListRecurringDepositsResponse{Deposits: out}, nil
-}
-
-func (s *CoreInvestGRPCServer) AdvanceRecurringDeposit(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error) {
-	nextTime, err := time.Parse(time.RFC3339, in.NextChargeAt)
-	if err != nil {
-		nextTime = time.Now().AddDate(0, 1, 0)
-	}
-	if err := s.svc.AdvanceRecurringDepositSchedule(ctx, in.DepositID, nextTime); err != nil {
-		return nil, err
-	}
-	return &coreinvestv1.AdvanceRecurringDepositResponse{Status: "advanced"}, nil
-}
-
-func (s *CoreInvestGRPCServer) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
-	ports, err := s.svc.ListPortfolios(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out []*coreinvestv1.Portfolio
-	for _, p := range ports {
-		out = append(out, toProtoPortfolio(p))
-	}
-	return &coreinvestv1.ListPortfoliosResponse{Portfolios: out}, nil
-}
-
-func (s *CoreInvestGRPCServer) GenerateStatement(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error) {
-	yr := int(in.Year)
-	if yr == 0 {
-		yr = time.Now().Year()
-	}
-	stmt, err := s.svc.GenerateStatement(ctx, in.PortfolioID, yr)
-	if err != nil {
-		return nil, err
-	}
-	stmtID, _ := stmt["statement_id"].(string)
-	pID, _ := stmt["portfolio_id"].(string)
-	docName, _ := stmt["document_name"].(string)
-	return &coreinvestv1.GenerateStatementResponse{
-		StatementID:   stmtID,
-		PortfolioID:   pID,
-		Year:          int32(yr),
-		StatementType: "1099_b",
-		Period:        docName,
-		Status:        "generated",
-	}, nil
-}
-
-func (s *CoreInvestGRPCServer) StreamPortfolioValuation(req *coreinvestv1.StreamPortfolioValuationRequest, stream coreinvestv1.CoreInvestService_StreamPortfolioValuationServer) error {
-	if req.PortfolioID == "" {
-		return status.Error(codes.InvalidArgument, "portfolio_id is required")
-	}
-
-	p, err := s.svc.GetPortfolio(stream.Context(), req.PortfolioID)
-	if err != nil || p == nil {
-		return status.Errorf(codes.NotFound, "portfolio %s not found: %v", req.PortfolioID, err)
-	}
-
-	count := req.UpdateCount
-	if count <= 0 {
-		count = 5
-	}
-
-	invested := p.TotalBalanceUSD - p.CashBalanceUSD
-	changePct := 0.0
-	if p.TotalBalanceUSD > 0 && invested > 0 {
-		changePct = (invested / p.TotalBalanceUSD) * 100.0
-	}
-
-	for i := 0; i < int(count); i++ {
-		if i > 0 {
-			if latest, err := s.svc.GetPortfolio(stream.Context(), req.PortfolioID); err == nil && latest != nil {
-				p = latest
-				invested = p.TotalBalanceUSD - p.CashBalanceUSD
-				if p.TotalBalanceUSD > 0 && invested > 0 {
-					changePct = (invested / p.TotalBalanceUSD) * 100.0
-				}
-			}
-		}
-
-		err := stream.Send(&coreinvestv1.PortfolioValuationEvent{
-			PortfolioID:        p.PortfolioID,
-			TotalBalanceUSD:    p.TotalBalanceUSD,
-			CashBalanceUSD:     p.CashBalanceUSD,
-			InvestedBalanceUSD: invested,
-			ChangePct:          changePct,
-			Timestamp:          time.Now().UTC().Format(time.RFC3339),
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

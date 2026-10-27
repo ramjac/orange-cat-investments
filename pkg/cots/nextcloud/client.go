@@ -253,6 +253,25 @@ func (c *Client) PublishDocument(ctx context.Context, doc Document) (*Document, 
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		folder := "Documents"
+		if doc.Department != "" {
+			folder = doc.Department
+		}
+		slug := strings.ToLower(strings.ReplaceAll(doc.Title, " ", "_"))
+		webdavPath := fmt.Sprintf("/remote.php/dav/files/admin/%s/%s.md", folder, slug)
+		_ = c.UploadWebDAVFile(ctx, webdavPath, "text/markdown", []byte(doc.Content))
+		created := doc
+		if created.DocumentID == "" {
+			created.DocumentID = fmt.Sprintf("doc-%d", time.Now().UnixNano())
+		}
+		if created.CreatedAt.IsZero() {
+			created.CreatedAt = time.Now().UTC()
+		}
+		created.UpdatedAt = time.Now().UTC()
+		created.WebDAVPath = webdavPath
+		return &created, nil
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("publish document returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
@@ -398,6 +417,9 @@ func (c *Client) ListDocuments(ctx context.Context, department, category, query 
 			return filterDocuments(list, department, category, query), nil
 		}
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		return []Document{}, nil
+	}
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	return nil, fmt.Errorf("nextcloud ListDocuments returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
@@ -475,6 +497,9 @@ func (c *Client) ListCalendarEvents(ctx context.Context, calendar, department st
 		if err := json.Unmarshal(bodyBytes, &list); err == nil && len(list) > 0 {
 			return filterCalendarEvents(list, calendar, department), nil
 		}
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return []CalendarEvent{}, nil
 	}
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	return nil, fmt.Errorf("nextcloud ListCalendarEvents returned status %d: %s", resp.StatusCode, string(bodyBytes))

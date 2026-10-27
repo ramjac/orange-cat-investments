@@ -424,7 +424,7 @@ spec:
   selector:
     app: ops-api
 ---
-# NetworkPolicy: Restrict Ingress to Domain APIs to BLL, batch jobs, Worker, and Ingress
+# NetworkPolicy: Restrict Ingress to Domain APIs strictly to BLL pods
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -441,12 +441,6 @@ spec:
         - podSelector:
             matchLabels:
               tier: bll
-        - podSelector:
-            matchLabels:
-              tier: batch
-        - podSelector:
-            matchLabels:
-              app: oci-worker-dev
       ports:
         - protocol: TCP
           port: 50051

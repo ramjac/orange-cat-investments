@@ -1,0 +1,411 @@
+syntax = "proto3";
+
+package oci.internal_bll.v1;
+
+import "oci/workforce/v1/workforce.proto";
+import "oci/facilities/v1/facilities.proto";
+import "oci/ops/v1/ops.proto";
+import "oci/core_invest/v1/core_invest.proto";
+
+option go_package = "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1;internalbllv1";
+
+service InternalBLLService {
+  // Workforce & Corporate Sagas
+  rpc GetEmployee(oci.workforce.v1.GetEmployeeRequest) returns (oci.workforce.v1.GetEmployeeResponse);
+  rpc ListEmployees(oci.workforce.v1.ListEmployeesRequest) returns (oci.workforce.v1.ListEmployeesResponse);
+  rpc OnboardEmployee(OnboardEmployeeSagaRequest) returns (OnboardEmployeeSagaResponse);
+  rpc OffboardEmployee(OffboardEmployeeSagaRequest) returns (OffboardEmployeeSagaResponse);
+  rpc GetEmployeeLifecycle(GetEmployeeLifecycleRequest) returns (GetEmployeeLifecycleResponse);
+  rpc HandleHRWebhook(HandleHRWebhookRequest) returns (HandleHRWebhookResponse);
+
+  // Veterinary & Feline Care
+  rpc GetCareSchedule(oci.workforce.v1.GetCareScheduleRequest) returns (oci.workforce.v1.GetCareScheduleResponse);
+  rpc UpdateCareSchedule(oci.workforce.v1.UpdateCareScheduleRequest) returns (oci.workforce.v1.UpdateCareScheduleResponse);
+  rpc SetMedicalHold(oci.workforce.v1.SetMedicalHoldRequest) returns (oci.workforce.v1.SetMedicalHoldResponse);
+  rpc CreateVHRRecord(oci.workforce.v1.CreateVHRRecordRequest) returns (oci.workforce.v1.CreateVHRRecordResponse);
+  rpc ListVHRRecords(oci.workforce.v1.ListVHRRecordsRequest) returns (oci.workforce.v1.ListVHRRecordsResponse);
+
+  // Leave & Performance Reviews
+  rpc SubmitLeaveRequest(oci.workforce.v1.SubmitLeaveRequestMessage) returns (oci.workforce.v1.SubmitLeaveResponse);
+  rpc GetLeaveRequest(oci.workforce.v1.GetLeaveRequestRequest) returns (oci.workforce.v1.GetLeaveRequestResponse);
+  rpc ListLeaveRequests(oci.workforce.v1.ListLeaveRequestsRequest) returns (oci.workforce.v1.ListLeaveRequestsResponse);
+  rpc UpdateLeaveStatus(oci.workforce.v1.UpdateLeaveStatusRequest) returns (oci.workforce.v1.UpdateLeaveStatusResponse);
+  rpc CreateReviewCycle(oci.workforce.v1.CreateReviewCycleRequest) returns (oci.workforce.v1.CreateReviewCycleResponse);
+  rpc GetReviewCycle(oci.workforce.v1.GetReviewCycleRequest) returns (oci.workforce.v1.GetReviewCycleResponse);
+  rpc ListReviewCycles(oci.workforce.v1.ListReviewCyclesRequest) returns (oci.workforce.v1.ListReviewCyclesResponse);
+  rpc UpdateReviewCycle(oci.workforce.v1.UpdateReviewCycleRequest) returns (oci.workforce.v1.UpdateReviewCycleResponse);
+  rpc SubmitSelfAppraisal(oci.workforce.v1.SubmitSelfAppraisalRequest) returns (oci.workforce.v1.SubmitSelfAppraisalResponse);
+  rpc SubmitPeerFeedback(oci.workforce.v1.SubmitPeerFeedbackRequest) returns (oci.workforce.v1.SubmitPeerFeedbackResponse);
+  rpc SubmitManagerAssessment(oci.workforce.v1.SubmitManagerAssessmentRequest) returns (oci.workforce.v1.SubmitManagerAssessmentResponse);
+  rpc SubmitVeterinaryAudit(oci.workforce.v1.SubmitVeterinaryAuditRequest) returns (oci.workforce.v1.SubmitVeterinaryAuditResponse);
+
+  // Workplace Incidents
+  rpc CreateIncident(oci.workforce.v1.CreateIncidentRequest) returns (oci.workforce.v1.CreateIncidentResponse);
+  rpc ListIncidents(oci.workforce.v1.ListIncidentsRequest) returns (oci.workforce.v1.ListIncidentsResponse);
+  rpc UpdateIncidentStatus(oci.workforce.v1.UpdateIncidentStatusRequest) returns (oci.workforce.v1.UpdateIncidentStatusResponse);
+  rpc BroadcastPebbleIncidentAlert(BroadcastPebbleIncidentAlertRequest) returns (BroadcastPebbleIncidentAlertResponse);
+
+  // COTS Timesheets, Payroll & Intranet
+  rpc ListTimesheets(ListTimesheetsRequest) returns (ListTimesheetsResponse);
+  rpc SubmitTimesheet(SubmitTimesheetRequest) returns (SubmitTimesheetResponse);
+  rpc GetTimesheet(GetTimesheetRequest) returns (GetTimesheetResponse);
+  rpc ApproveTimesheet(ApproveTimesheetRequest) returns (ApproveTimesheetResponse);
+  rpc RejectTimesheet(RejectTimesheetRequest) returns (RejectTimesheetResponse);
+  rpc ListSalarySlips(ListSalarySlipsRequest) returns (ListSalarySlipsResponse);
+  rpc GetSalarySlip(GetSalarySlipRequest) returns (GetSalarySlipResponse);
+  rpc ProcessPayrollRun(ProcessPayrollRunRequest) returns (ProcessPayrollRunResponse);
+  rpc ListGroupFolders(ListGroupFoldersRequest) returns (ListGroupFoldersResponse);
+  rpc CreateGroupFolder(CreateGroupFolderRequest) returns (CreateGroupFolderResponse);
+  rpc ListDocuments(ListDocumentsRequest) returns (ListDocumentsResponse);
+  rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+  rpc PublishDocument(PublishDocumentRequest) returns (PublishDocumentResponse);
+  rpc ListCalendarEvents(ListCalendarEventsRequest) returns (ListCalendarEventsResponse);
+  rpc CreateCalendarEvent(CreateCalendarEventRequest) returns (CreateCalendarEventResponse);
+
+  // Executive BI & Reports
+  rpc GetBIMetrics(GetBIMetricsRequest) returns (GetBIMetricsResponse);
+  rpc TriggerMonthlyReport(TriggerMonthlyReportRequest) returns (TriggerMonthlyReportResponse);
+  rpc GenerateMonthlyReport(GenerateMonthlyReportRequest) returns (GenerateMonthlyReportResponse);
+  rpc ListExecutiveReports(oci.workforce.v1.ListExecutiveReportsRequest) returns (oci.workforce.v1.ListExecutiveReportsResponse);
+  rpc GetExecutiveReport(oci.workforce.v1.GetExecutiveReportRequest) returns (oci.workforce.v1.GetExecutiveReportResponse);
+  rpc GetExecutiveReportByPeriod(oci.workforce.v1.GetExecutiveReportByPeriodRequest) returns (oci.workforce.v1.GetExecutiveReportByPeriodResponse);
+  rpc DownloadExecutiveReport(DownloadExecutiveReportRequest) returns (DownloadExecutiveReportResponse);
+  rpc CheckExecutiveReport(CheckExecutiveReportRequest) returns (CheckExecutiveReportResponse);
+  rpc GetFelineTarget(GetFelineTargetRequest) returns (GetFelineTargetResponse);
+
+  // Facilities & Edge OTA
+  rpc GetAsset(oci.facilities.v1.GetAssetRequest) returns (oci.facilities.v1.GetAssetResponse);
+  rpc ListAssets(oci.facilities.v1.ListAssetsRequest) returns (oci.facilities.v1.ListAssetsResponse);
+  rpc CreateAsset(oci.facilities.v1.CreateAssetRequest) returns (oci.facilities.v1.CreateAssetResponse);
+  rpc CreateMaintenanceLog(oci.facilities.v1.CreateMaintenanceLogRequest) returns (oci.facilities.v1.CreateMaintenanceLogResponse);
+  rpc ListMaintenanceLogs(oci.facilities.v1.ListMaintenanceLogsRequest) returns (oci.facilities.v1.ListMaintenanceLogsResponse);
+  rpc SyncOfflineLogs(oci.facilities.v1.SyncOfflineLogsRequest) returns (oci.facilities.v1.SyncOfflineLogsResponse);
+  rpc CreateFirmwareRelease(oci.facilities.v1.CreateFirmwareReleaseRequest) returns (oci.facilities.v1.CreateFirmwareReleaseResponse);
+  rpc ListFirmwareReleases(oci.facilities.v1.ListFirmwareReleasesRequest) returns (oci.facilities.v1.ListFirmwareReleasesResponse);
+  rpc TriggerOTARollout(oci.facilities.v1.CreateOTAJobRequest) returns (oci.facilities.v1.CreateOTAJobResponse);
+  rpc ListOTAJobs(oci.facilities.v1.ListOTAJobsRequest) returns (oci.facilities.v1.ListOTAJobsResponse);
+  rpc UpdateOTAJobStatus(oci.facilities.v1.UpdateOTAJobStatusRequest) returns (oci.facilities.v1.UpdateOTAJobStatusResponse);
+  rpc IngestEnvironmentalTelemetry(oci.facilities.v1.IngestTelemetryRequest) returns (oci.facilities.v1.IngestTelemetryResponse);
+  rpc StreamEnvironmentalTelemetry(oci.facilities.v1.StreamTelemetryRequest) returns (stream oci.facilities.v1.TelemetrySample);
+  rpc ControlPTZ(oci.facilities.v1.ControlPTZRequest) returns (oci.facilities.v1.ControlPTZResponse);
+  rpc CalibrateCameraLens(oci.facilities.v1.CalibrateCameraLensRequest) returns (oci.facilities.v1.CalibrateCameraLensResponse);
+
+  // Quant & Investment Research (Employee-Facing)
+  rpc ListStreams(oci.core_invest.v1.ListCameraStreamsRequest) returns (oci.core_invest.v1.ListCameraStreamsResponse);
+  rpc GetStream(oci.core_invest.v1.GetCameraStreamRequest) returns (oci.core_invest.v1.GetCameraStreamResponse);
+  rpc GetCameraStream(oci.core_invest.v1.GetCameraStreamRequest) returns (oci.core_invest.v1.GetCameraStreamResponse);
+  rpc RegisterStream(oci.core_invest.v1.RegisterCameraStreamRequest) returns (oci.core_invest.v1.RegisterCameraStreamResponse);
+  rpc ListBrokerageOrders(oci.core_invest.v1.ListOrdersRequest) returns (oci.core_invest.v1.ListOrdersResponse);
+  rpc GetBrokerageOrder(oci.core_invest.v1.GetOrderRequest) returns (oci.core_invest.v1.GetOrderResponse);
+  rpc ExecuteBrokerageOrder(oci.core_invest.v1.CreateOrderRequest) returns (oci.core_invest.v1.CreateOrderResponse);
+  rpc ListBacktestRuns(oci.core_invest.v1.ListBacktestRunsRequest) returns (oci.core_invest.v1.ListBacktestRunsResponse);
+  rpc GetBacktestRun(oci.core_invest.v1.GetBacktestRunRequest) returns (oci.core_invest.v1.GetBacktestRunResponse);
+  rpc StartBacktestRun(oci.core_invest.v1.StartBacktestRunRequest) returns (oci.core_invest.v1.StartBacktestRunResponse);
+  rpc ListMLModels(oci.core_invest.v1.ListMLModelsRequest) returns (oci.core_invest.v1.ListMLModelsResponse);
+  rpc LogModelDrift(oci.core_invest.v1.LogModelDriftRequest) returns (oci.core_invest.v1.LogModelDriftResponse);
+  rpc ListRecurringDeposits(oci.core_invest.v1.ListRecurringDepositsRequest) returns (oci.core_invest.v1.ListRecurringDepositsResponse);
+  rpc CreateRecurringDeposit(oci.core_invest.v1.CreateRecurringDepositRequest) returns (oci.core_invest.v1.CreateRecurringDepositResponse);
+
+  // Ops, Tickets & Pebble Alerts
+  rpc CreateTicket(oci.ops.v1.CreateTicketRequest) returns (oci.ops.v1.CreateTicketResponse);
+  rpc GetTicket(oci.ops.v1.GetTicketRequest) returns (oci.ops.v1.GetTicketResponse);
+  rpc ListTickets(oci.ops.v1.ListTicketsRequest) returns (oci.ops.v1.ListTicketsResponse);
+  rpc UpdateTicket(oci.ops.v1.UpdateTicketRequest) returns (oci.ops.v1.UpdateTicketResponse);
+  rpc AcknowledgeTicket(oci.ops.v1.AcknowledgeTicketRequest) returns (oci.ops.v1.AcknowledgeTicketResponse);
+  rpc CloseTicket(oci.ops.v1.CloseTicketRequest) returns (oci.ops.v1.CloseTicketResponse);
+  rpc CreateCustomerTicket(oci.ops.v1.CreateCustomerTicketRequest) returns (oci.ops.v1.CreateCustomerTicketResponse);
+  rpc ListCustomerTickets(oci.ops.v1.ListCustomerTicketsRequest) returns (oci.ops.v1.ListCustomerTicketsResponse);
+  rpc AddTicketComment(oci.ops.v1.AddTicketCommentRequest) returns (oci.ops.v1.AddTicketCommentResponse);
+  rpc ListTicketComments(oci.ops.v1.ListTicketCommentsRequest) returns (oci.ops.v1.ListTicketCommentsResponse);
+  rpc ListAlerts(oci.ops.v1.ListAlertsRequest) returns (oci.ops.v1.ListAlertsResponse);
+  rpc CreateAlert(oci.ops.v1.CreateAlertRequest) returns (oci.ops.v1.CreateAlertResponse);
+  rpc AcknowledgeAlert(oci.ops.v1.AcknowledgeAlertRequest) returns (oci.ops.v1.AcknowledgeAlertResponse);
+  rpc SendPushNotification(oci.ops.v1.SendPushNotificationRequest) returns (oci.ops.v1.SendPushNotificationResponse);
+}
+
+message OnboardEmployeeSagaRequest {
+  string employee_type = 1;
+  string first_name = 2;
+  string last_name = 3;
+  string email = 4;
+  string role_title = 5;
+  string department = 6;
+  oci.workforce.v1.CareSchedule care_schedule = 7;
+  repeated string simulate_failure_at = 8;
+}
+
+message OnboardEmployeeSagaResponse {
+  oci.workforce.v1.Employee employee = 1;
+  bytes saga_result_json = 2;
+}
+
+message OffboardEmployeeSagaRequest {
+  string employee_id = 1;
+  string reason = 2;
+  string effective_date = 3;
+  string initiated_by = 4;
+  string nextcloud_user_id = 5;
+  string forgejo_username = 6;
+}
+
+message OffboardEmployeeSagaResponse {
+  bytes saga_result_json = 1;
+}
+
+message GetEmployeeLifecycleRequest {
+  string employee_id = 1;
+}
+
+message GetEmployeeLifecycleResponse {
+  oci.workforce.v1.Employee employee = 1;
+  repeated oci.workforce.v1.OnboardingTask checklist = 2;
+  bytes lifecycle_audit_json = 3;
+}
+
+message HandleHRWebhookRequest {
+  string event = 1;
+  string doctype = 2;
+  string employee_id = 3;
+  string first_name = 4;
+  string last_name = 5;
+  string email = 6;
+  string department = 7;
+  string designation = 8;
+  string status = 9;
+  string reason = 10;
+}
+
+message HandleHRWebhookResponse {
+  string status = 1;
+  string action = 2;
+  string employee_id = 3;
+  bytes result_json = 4;
+}
+
+message BroadcastPebbleIncidentAlertRequest {
+  string incident_id = 1;
+  string title = 2;
+  string category = 3;
+  string severity = 4;
+  string status = 5;
+  string description = 6;
+  string involved_feline_id = 7;
+  string involved_human_id = 8;
+}
+
+message BroadcastPebbleIncidentAlertResponse {
+  string ticket_id = 1;
+  string status = 2;
+}
+
+message ListTimesheetsRequest {
+  string employee_id = 1;
+  string status = 2;
+  string from_date = 3;
+  string to_date = 4;
+  string task_code = 5;
+}
+
+message ListTimesheetsResponse {
+  bytes timesheets_json = 1;
+}
+
+message SubmitTimesheetRequest {
+  bytes timesheet_json = 1;
+}
+
+message SubmitTimesheetResponse {
+  bytes timesheet_json = 1;
+}
+
+message GetTimesheetRequest {
+  string timesheet_id = 1;
+}
+
+message GetTimesheetResponse {
+  bytes timesheet_json = 1;
+}
+
+message ApproveTimesheetRequest {
+  string timesheet_id = 1;
+  string approver_id = 2;
+}
+
+message ApproveTimesheetResponse {
+  bytes timesheet_json = 1;
+}
+
+message RejectTimesheetRequest {
+  string timesheet_id = 1;
+  string reviewer_id = 2;
+  string reason = 3;
+}
+
+message RejectTimesheetResponse {
+  bytes timesheet_json = 1;
+}
+
+message ListSalarySlipsRequest {
+  string employee_id = 1;
+}
+
+message ListSalarySlipsResponse {
+  bytes salary_slips_json = 1;
+}
+
+message GetSalarySlipRequest {
+  string slip_id = 1;
+}
+
+message GetSalarySlipResponse {
+  bytes salary_slip_json = 1;
+}
+
+message ProcessPayrollRunRequest {
+  bytes payroll_entry_json = 1;
+}
+
+message ProcessPayrollRunResponse {
+  bytes payroll_entry_json = 1;
+}
+
+message ListGroupFoldersRequest {}
+
+message ListGroupFoldersResponse {
+  bytes group_folders_json = 1;
+}
+
+message CreateGroupFolderRequest {
+  string mount_point = 1;
+  repeated string groups = 2;
+  string quota = 3;
+}
+
+message CreateGroupFolderResponse {
+  bytes group_folder_json = 1;
+}
+
+message ListDocumentsRequest {
+  string department = 1;
+  string category = 2;
+  string query = 3;
+}
+
+message ListDocumentsResponse {
+  bytes documents_json = 1;
+}
+
+message GetDocumentRequest {
+  string document_id = 1;
+}
+
+message GetDocumentResponse {
+  bytes document_json = 1;
+}
+
+message PublishDocumentRequest {
+  bytes document_json = 1;
+}
+
+message PublishDocumentResponse {
+  bytes document_json = 1;
+}
+
+message ListCalendarEventsRequest {
+  string calendar = 1;
+  string department = 2;
+  string from_date = 3;
+  string to_date = 4;
+}
+
+message ListCalendarEventsResponse {
+  bytes events_json = 1;
+}
+
+message CreateCalendarEventRequest {
+  bytes event_json = 1;
+}
+
+message CreateCalendarEventResponse {
+  bytes event_json = 1;
+}
+
+message GetBIMetricsRequest {
+  string period = 1;
+}
+
+message GetBIMetricsResponse {
+  string period = 1;
+  bytes financial_metrics_json = 2;
+  bytes workforce_metrics_json = 3;
+  string generated_at = 4;
+}
+
+message TriggerMonthlyReportRequest {
+  string period = 1;
+  string requested_by = 2;
+}
+
+message TriggerMonthlyReportResponse {
+  string status = 1;
+  string period = 2;
+  string requested_by = 3;
+  string message = 4;
+  oci.workforce.v1.ExecutiveReport report = 5;
+}
+
+message GenerateMonthlyReportRequest {
+  string period = 1;
+  string generated_by = 2;
+}
+
+message ExecutiveReportSummary {
+  string report_id = 1;
+  string period = 2;
+  string title = 3;
+  string status = 4;
+  string webdav_path_pdf = 5;
+  string webdav_path_csv = 6;
+  double net_profit = 7;
+  double operational_burn = 8;
+  double cash_reserves = 9;
+  int32 total_headcount = 10;
+}
+
+message GenerateMonthlyReportResponse {
+  ExecutiveReportSummary report = 1;
+}
+
+message DownloadExecutiveReportRequest {
+  string report_id = 1;
+  string format = 2;
+}
+
+message DownloadExecutiveReportResponse {
+  string filename = 1;
+  string content_type = 2;
+  bytes content = 3;
+}
+
+message CheckExecutiveReportRequest {
+  string period = 1;
+}
+
+message CheckExecutiveReportResponse {
+  bool exists = 1;
+  string report_id = 2;
+  string period = 3;
+  string status = 4;
+  string webdav_path_pdf = 5;
+  string webdav_path_csv = 6;
+  double net_profit = 7;
+  double operational_burn = 8;
+  double cash_reserves = 9;
+  int32 headcount = 10;
+}
+
+message GetFelineTargetRequest {}
+
+message GetFelineTargetResponse {
+  string feline_id = 1;
+}

@@ -8,8 +8,7 @@ import (
 	"testing"
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 )
 
 func TestRegisterProtectedOpsRoutes(t *testing.T) {
@@ -22,9 +21,8 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 	hrSess, _ := store.Create("emp-hr-01", "hr@oci.local", "HR User", "hr", "Human Resources")
 	vetSess, _ := store.Create("emp-vet-01", "vet@oci.local", "Vet User", "veterinary", "Veterinary Medicine")
 
-	repo := opsrepo.NewMockRepository()
-	svc := opssvc.NewService(repo)
-	opsH := opshandler.NewHandler(svc)
+	bllClient := newMockInternalBLLClient()
+	opsH := opshandler.NewHandler(bllClient)
 
 	mux := http.NewServeMux()
 	registerProtectedOpsRoutes(mux, opsH, store)
@@ -108,7 +106,7 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 			t.Fatalf("expected 201 for creating ticket, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var created opsrepo.ITTicket
+		var created opsv1.ITTicket
 		_ = json.Unmarshal(rec.Body.Bytes(), &created)
 		ticketID := created.TicketID
 
@@ -202,7 +200,7 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 			t.Fatalf("expected 201 for creating customer ticket, got %d (body: %s)", rec.Code, rec.Body.String())
 		}
 
-		var created opsrepo.ITTicket
+		var created opsv1.ITTicket
 		_ = json.Unmarshal(rec.Body.Bytes(), &created)
 		custTicketID := created.TicketID
 

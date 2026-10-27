@@ -67,18 +67,15 @@ kubectl cluster-info --request-timeout=3s
 
 ## Step 3: Run the Simulator
 
-Validate persona interactions and multi-tier platform flows with the simulator driver:
+Validate persona interactions and multi-tier platform flows with the simulator driver against the running OCI stack:
 
 * **If Kubernetes was deployed and reachable:**
   Run against the staging ingress:
   ```bash
   go run ./simulation/cmd/simulator -mode live -url http://dev.api.oci.local
   ```
-* **If cluster is unavailable (or for standalone verification):**
-  Run in mock mode:
-  ```bash
-  go run ./simulation/cmd/simulator -mode mock -iterations 1
-  ```
+* **If cluster is unavailable:**
+  Note that cluster/stack is unreachable and simulation execution is skipped. In-process mock simulation has been removed so that the simulator acts exclusively as a true integration test against running services.
 
 ### Verify Results
 Confirm that all 12 corporate, caretaker, investor, and developer personas execute their scheduled actions cleanly without runtime panics or unexpected errors.

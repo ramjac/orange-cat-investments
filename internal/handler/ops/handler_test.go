@@ -9,142 +9,164 @@ import (
 	"testing"
 	"time"
 
-	opsrepo "github.com/orange-cat-investments/oci/internal/repository/ops"
-	opssvc "github.com/orange-cat-investments/oci/internal/service/ops"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/pebble"
 	"github.com/stretchr/testify/assert"
 )
 
-type mockOpsService struct {
+type mockInternalBLLClient struct {
+	internalbllv1.InternalBLLServiceClient
 	lastLimit int32
 }
 
-func (m *mockOpsService) GetPendingAlerts(ctx context.Context) ([]*opssvc.PebbleAlertPayload, error) {
-	return []*opssvc.PebbleAlertPayload{
-		{
-			TicketID:  "ticket-test-123",
-			Title:     "Pod OOMKilled Warning",
-			Priority:  "HIGH",
-			Body:      "Memory usage exceeded threshold",
-			Author:    "emp-human-frank",
-			CreatedAt: time.Now().UTC(),
-			AppMessageDict: map[uint32]string{
-				opssvc.PebbleKeyCmd:      "1",
-				opssvc.PebbleKeyTicketID: "ticket-test-123",
-				opssvc.PebbleKeyTitle:    "Pod OOMKilled Warning",
+func (m *mockInternalBLLClient) ListAlerts(ctx context.Context, in *opsv1.ListAlertsRequest) (*opsv1.ListAlertsResponse, error) {
+	return &opsv1.ListAlertsResponse{
+		Alerts: []*opsv1.PebbleAlert{
+			{
+				AlertID:  "ticket-test-123",
+				TicketID: "ticket-test-123",
+				Title:    "Pod OOMKilled Warning",
+				Severity: "HIGH",
+				Body:     "Memory usage exceeded threshold",
+				Author:   "emp-human-frank",
 			},
 		},
 	}, nil
 }
 
-func (m *mockOpsService) ProcessPebbleAck(ctx context.Context, req *opssvc.PebbleAckRequest) (*opssvc.PebbleAckResponse, error) {
-	return &opssvc.PebbleAckResponse{
-		TicketID:       req.TicketID,
+func (m *mockInternalBLLClient) AcknowledgeAlert(ctx context.Context, in *opsv1.AcknowledgeAlertRequest) (*opsv1.AcknowledgeAlertResponse, error) {
+	return &opsv1.AcknowledgeAlertResponse{
+		AlertID:        in.AlertID,
 		State:          "acknowledged",
-		AcknowledgedAt: time.Now().UTC(),
-		AcknowledgedBy: req.AcknowledgedBy,
+		AcknowledgedBy: in.AcknowledgedBy,
+		AcknowledgedAt: time.Now().UTC().Format(time.RFC3339),
 		StatusMessage:  "Ticket acknowledged via Pebble Watch",
 	}, nil
 }
 
-func (m *mockOpsService) CreateITTicket(ctx context.Context, req *opssvc.CreateITTicketRequest) (*opsrepo.ITTicket, error) {
-	bodyPtr := &req.Body
-	return &opsrepo.ITTicket{
-		TicketID:       "created-ticket-123",
-		ForgejoRepo:    req.ForgejoRepo,
-		Title:          req.Title,
-		Body:           bodyPtr,
-		State:          "open",
-		AuthorUsername: req.AuthorUsername,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
+func (m *mockInternalBLLClient) CreateTicket(ctx context.Context, in *opsv1.CreateTicketRequest) (*opsv1.CreateTicketResponse, error) {
+	return &opsv1.CreateTicketResponse{
+		Ticket: &opsv1.ITTicket{
+			TicketID:       "created-ticket-123",
+			ForgejoRepo:    in.ForgejoRepo,
+			Title:          in.Title,
+			Body:           in.Body,
+			State:          "open",
+			AuthorUsername: in.AuthorUsername,
+			Severity:       in.Severity,
+			Category:       in.Category,
+			Source:         in.Source,
+		},
 	}, nil
 }
 
-func (m *mockOpsService) GetITTicket(ctx context.Context, ticketID string) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
-		TicketID:       ticketID,
-		ForgejoRepo:    "infra/microk8s",
-		Title:          "Sample Ticket",
-		State:          "open",
-		AuthorUsername: "emp-human-frank",
-	}, nil
-}
-
-func (m *mockOpsService) ListITTickets(ctx context.Context, limit, offset int32) ([]*opsrepo.ITTicket, error) {
-	m.lastLimit = limit
-	return []*opsrepo.ITTicket{
-		{
-			TicketID:       "ticket-test-123",
+func (m *mockInternalBLLClient) GetTicket(ctx context.Context, in *opsv1.GetTicketRequest) (*opsv1.GetTicketResponse, error) {
+	return &opsv1.GetTicketResponse{
+		Ticket: &opsv1.ITTicket{
+			TicketID:       in.TicketID,
 			ForgejoRepo:    "infra/microk8s",
-			Title:          "Pod OOMKilled Warning",
+			Title:          "Sample Ticket",
 			State:          "open",
 			AuthorUsername: "emp-human-frank",
 		},
 	}, nil
 }
 
-func (m *mockOpsService) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
-	return m.ListITTickets(ctx, limit, offset)
-}
-
-func (m *mockOpsService) ListITTicketsByCustomer(ctx context.Context, customerID string, limit, offset int32) ([]*opsrepo.ITTicket, error) {
-	return m.ListITTickets(ctx, limit, offset)
-}
-
-func (m *mockOpsService) UpdateITTicket(ctx context.Context, ticketID string, req *opssvc.UpdateTicketRequest) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
-		TicketID: ticketID,
-		State:    req.State,
-	}, nil
-}
-
-func (m *mockOpsService) AddTicketComment(ctx context.Context, ticketID string, req *opssvc.AddCommentRequest) (*opsrepo.TicketComment, error) {
-	return &opsrepo.TicketComment{
-		CommentID:      "comm-test-1",
-		TicketID:       ticketID,
-		AuthorUsername: req.AuthorUsername,
-		Comment:        req.Comment,
-		IsInternal:     req.IsInternal,
-	}, nil
-}
-
-func (m *mockOpsService) ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*opsrepo.TicketComment, error) {
-	return []*opsrepo.TicketComment{
-		{
-			CommentID:      "comm-test-1",
-			TicketID:       ticketID,
-			AuthorUsername: "emp-human-elise",
-			Comment:        "Sample comment",
-			IsInternal:     false,
+func (m *mockInternalBLLClient) ListTickets(ctx context.Context, in *opsv1.ListTicketsRequest) (*opsv1.ListTicketsResponse, error) {
+	m.lastLimit = in.Limit
+	return &opsv1.ListTicketsResponse{
+		Tickets: []*opsv1.ITTicket{
+			{
+				TicketID:       "ticket-test-123",
+				ForgejoRepo:    "infra/microk8s",
+				Title:          "Pod OOMKilled Warning",
+				State:          "open",
+				AuthorUsername: "emp-human-frank",
+			},
 		},
 	}, nil
 }
 
-func (m *mockOpsService) CreateCustomerTicket(ctx context.Context, req *opssvc.CreateCustomerTicketRequest) (*opsrepo.ITTicket, error) {
-	return &opsrepo.ITTicket{
-		TicketID:       "cust-ticket-999",
-		Title:          req.Title,
-		Source:         "customer",
-		CustomerID:     &req.CustomerID,
-		AuthorUsername: req.CustomerID,
-		State:          "open",
+func (m *mockInternalBLLClient) ListCustomerTickets(ctx context.Context, in *opsv1.ListCustomerTicketsRequest) (*opsv1.ListCustomerTicketsResponse, error) {
+	return &opsv1.ListCustomerTicketsResponse{
+		Tickets: []*opsv1.ITTicket{
+			{
+				TicketID:       "cust-ticket-999",
+				Title:          "Sample Customer Ticket",
+				Source:         "customer",
+				CustomerID:     in.CustomerID,
+				AuthorUsername: in.CustomerID,
+				State:          "open",
+			},
+		},
 	}, nil
 }
 
-func (m *mockOpsService) SendPushNotification(ctx context.Context, req *opssvc.PushNotificationRequest) (*opssvc.PushNotificationResponse, error) {
-	return &opssvc.PushNotificationResponse{
+func (m *mockInternalBLLClient) UpdateTicket(ctx context.Context, in *opsv1.UpdateTicketRequest) (*opsv1.UpdateTicketResponse, error) {
+	return &opsv1.UpdateTicketResponse{
+		Ticket: &opsv1.ITTicket{
+			TicketID:         in.TicketID,
+			State:            in.State,
+			AssigneeUsername: in.AssigneeUsername,
+			ResolutionNotes:  in.ResolutionNotes,
+		},
+	}, nil
+}
+
+func (m *mockInternalBLLClient) AddTicketComment(ctx context.Context, in *opsv1.AddTicketCommentRequest) (*opsv1.AddTicketCommentResponse, error) {
+	return &opsv1.AddTicketCommentResponse{
+		Comment: &opsv1.TicketComment{
+			CommentID:      "comm-test-1",
+			TicketID:       in.TicketID,
+			AuthorUsername: in.AuthorUsername,
+			Comment:        in.Comment,
+			IsInternal:     in.IsInternal,
+		},
+	}, nil
+}
+
+func (m *mockInternalBLLClient) ListTicketComments(ctx context.Context, in *opsv1.ListTicketCommentsRequest) (*opsv1.ListTicketCommentsResponse, error) {
+	return &opsv1.ListTicketCommentsResponse{
+		Comments: []*opsv1.TicketComment{
+			{
+				CommentID:      "comm-test-1",
+				TicketID:       in.TicketID,
+				AuthorUsername: "emp-human-elise",
+				Comment:        "Sample comment",
+				IsInternal:     false,
+			},
+		},
+	}, nil
+}
+
+func (m *mockInternalBLLClient) CreateCustomerTicket(ctx context.Context, in *opsv1.CreateCustomerTicketRequest) (*opsv1.CreateCustomerTicketResponse, error) {
+	return &opsv1.CreateCustomerTicketResponse{
+		Ticket: &opsv1.ITTicket{
+			TicketID:       "cust-ticket-999",
+			Title:          in.Title,
+			Source:         "customer",
+			CustomerID:     in.CustomerID,
+			AuthorUsername: in.CustomerID,
+			State:          "open",
+		},
+	}, nil
+}
+
+func (m *mockInternalBLLClient) SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error) {
+	return &opsv1.SendPushNotificationResponse{
 		Status:       "dispatched",
 		Provider:     "ntfy",
-		Topic:        req.Topic,
-		Title:        req.Title,
-		Message:      req.Message,
-		DispatchedAt: time.Now().UTC(),
+		Topic:        in.Topic,
+		Title:        in.Title,
+		Message:      in.Message,
+		DispatchedAt: time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 
 func TestOpsHandler(t *testing.T) {
-	svc := &mockOpsService{}
-	handler := NewHandler(svc)
+	mockBLL := &mockInternalBLLClient{}
+	handler := NewHandler(mockBLL)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -158,7 +180,7 @@ func TestOpsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-		var alerts []*opssvc.PebbleAlertPayload
+		var alerts []*opsv1.PebbleAlert
 		err := json.Unmarshal(rec.Body.Bytes(), &alerts)
 		assert.NoError(t, err)
 		assert.Len(t, alerts, 1)
@@ -166,7 +188,7 @@ func TestOpsHandler(t *testing.T) {
 	})
 
 	t.Run("POST /api/v1/ops/pebble/ack", func(t *testing.T) {
-		payload := opssvc.PebbleAckRequest{
+		payload := pebble.PebbleAckRequest{
 			TicketID:       "ticket-test-123",
 			AcknowledgedBy: "emp-human-frank",
 			ButtonID:       1,
@@ -181,10 +203,10 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		var resp opssvc.PebbleAckResponse
+		var resp opsv1.AcknowledgeAlertResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &resp)
 		assert.NoError(t, err)
-		assert.Equal(t, "ticket-test-123", resp.TicketID)
+		assert.Equal(t, "ticket-test-123", resp.AlertID)
 		assert.Equal(t, "acknowledged", resp.State)
 	})
 
@@ -195,7 +217,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, int32(10), svc.lastLimit)
+		assert.Equal(t, int32(10), mockBLL.lastLimit)
 
 		var result map[string]any
 		err := json.Unmarshal(rec.Body.Bytes(), &result)
@@ -210,7 +232,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Equal(t, int32(100), svc.lastLimit)
+		assert.Equal(t, int32(100), mockBLL.lastLimit)
 	})
 
 	t.Run("POST /api/v1/ops/tickets", func(t *testing.T) {
@@ -230,7 +252,7 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, rec.Code)
 
-		var ticket opsrepo.ITTicket
+		var ticket opsv1.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
 		assert.NoError(t, err)
 		assert.Equal(t, "created-ticket-123", ticket.TicketID)
@@ -253,7 +275,7 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		var resp opssvc.PushNotificationResponse
+		var resp opsv1.SendPushNotificationResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &resp)
 		assert.NoError(t, err)
 		assert.Equal(t, "dispatched", resp.Status)
@@ -268,7 +290,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		var ticket opsrepo.ITTicket
+		var ticket opsv1.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &ticket)
 		assert.NoError(t, err)
 		assert.Equal(t, "ticket-test-123", ticket.TicketID)
@@ -286,7 +308,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec2, req2)
 
 		assert.Equal(t, http.StatusOK, rec2.Code)
-		var updated opsrepo.ITTicket
+		var updated opsv1.ITTicket
 		err = json.Unmarshal(rec2.Body.Bytes(), &updated)
 		assert.NoError(t, err)
 		assert.Equal(t, "resolved", updated.State)
@@ -335,7 +357,7 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(rec, req)
 
 		assert.Equal(t, http.StatusCreated, rec.Code)
-		var created opsrepo.ITTicket
+		var created opsv1.ITTicket
 		err := json.Unmarshal(rec.Body.Bytes(), &created)
 		assert.NoError(t, err)
 		assert.Equal(t, "cust-ticket-999", created.TicketID)

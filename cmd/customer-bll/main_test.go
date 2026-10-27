@@ -1,82 +1,200 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"github.com/orange-cat-investments/oci/internal/app/customerbll"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
+	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
-func TestCustomerBLL_Healthz(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"customer-bll"}`))
-	})
+type stubWorkforceServer struct {
+	workforcev1.UnimplementedWorkforceServiceServer
+	medicalHold     bool
+	failCareSched   bool
+	queriedFelineID string
+	employees       []*workforcev1.Employee
+}
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
-	mux.ServeHTTP(rec, req)
+func (s *stubWorkforceServer) GetCareSchedule(ctx context.Context, in *workforcev1.GetCareScheduleRequest) (*workforcev1.GetCareScheduleResponse, error) {
+	s.queriedFelineID = in.FelineID
+	if s.failCareSched {
+		return nil, errors.New("workforce care schedule database failure")
+	}
+	return &workforcev1.GetCareScheduleResponse{
+		CareSchedule: &workforcev1.CareSchedule{
+			FelineID:             in.FelineID,
+			EmergencyMedicalHold: s.medicalHold,
+		},
+	}, nil
+}
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"service":"customer-bll"`)
+func (s *stubWorkforceServer) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
+	return &workforcev1.ListEmployeesResponse{
+		Employees: s.employees,
+	}, nil
+}
+
+type stubCoreInvestServer struct {
+	coreinvestv1.UnimplementedCoreInvestServiceServer
+	orderPersisted   atomic.Bool
+	recurringCreated atomic.Bool
+	portfolios       map[string]*coreinvestv1.Portfolio
+	streams          []*coreinvestv1.CameraStream
+	failStreams      bool
+}
+
+func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
+	s.orderPersisted.Store(true)
+	return &coreinvestv1.CreateOrderResponse{
+		Order: &coreinvestv1.BrokerageOrder{
+			OrderID:     "ord-persisted-1",
+			PortfolioID: in.PortfolioID,
+			Symbol:      in.Symbol,
+			Side:        in.Side,
+			Quantity:    in.Quantity,
+			Price:       in.Price,
+			Status:      "filled",
+		},
+	}, nil
+}
+
+func (s *stubCoreInvestServer) CreateRecurringDeposit(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
+	if in.Frequency != "one_time" {
+		s.recurringCreated.Store(true)
+	}
+	return &coreinvestv1.CreateRecurringDepositResponse{
+		Deposit: &coreinvestv1.RecurringDeposit{
+			DepositID:   "dep-01",
+			CustomerID:  in.CustomerID,
+			PortfolioID: in.PortfolioID,
+			AmountUSD:   in.AmountUSD,
+			Frequency:   in.Frequency,
+			Status:      "active",
+		},
+	}, nil
+}
+
+func (s *stubCoreInvestServer) GetPortfolio(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
+	if s.portfolios != nil {
+		if p, ok := s.portfolios[in.PortfolioID]; ok {
+			return &coreinvestv1.GetPortfolioResponse{Portfolio: p}, nil
+		}
+	}
+	return nil, status.Error(codes.NotFound, "portfolio not found")
+}
+
+func (s *stubCoreInvestServer) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
+	if s.failStreams {
+		return nil, status.Error(codes.Unavailable, "core-invest unavailable")
+	}
+	return &coreinvestv1.ListCameraStreamsResponse{Streams: s.streams}, nil
+}
+
+func (s *stubCoreInvestServer) StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func startCustomerBLLTestServer(t *testing.T, srv *customerbll.Server) customerbllv1.CustomerBLLServiceClient {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lis.Close() })
+
+	grpcSrv := grpcutil.NewServer(nil)
+	customerbllv1.RegisterCustomerBLLServiceServer(grpcSrv, srv)
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcSrv, healthSrv)
+
+	go func() { _ = grpcSrv.Serve(lis) }()
+	t.Cleanup(func() { grpcSrv.Stop() })
+
+	conn, err := grpcutil.Dial(t.Context(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	return customerbllv1.NewCustomerBLLServiceClient(conn)
+}
+
+func TestCustomerBLL_GRPCHealth(t *testing.T) {
+	srv := customerbll.NewServer(customerbll.Config{})
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	grpcSrv := grpcutil.NewServer(nil)
+	customerbllv1.RegisterCustomerBLLServiceServer(grpcSrv, srv)
+	healthSrv := health.NewServer()
+	healthSrv.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcSrv, healthSrv)
+
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	conn, err := grpcutil.Dial(t.Context(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	hc := grpc_health_v1.NewHealthClient(conn)
+	res, err := hc.Check(t.Context(), &grpc_health_v1.HealthCheckRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, res.Status)
 }
 
 func TestCustomerBLL_OrderExecution_Validations(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	bll := &CustomerBLLServer{
-		publisher:  pubSub,
-		httpClient: &http.Client{Timeout: 2 * time.Second},
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+	bll := customerbll.NewServer(customerbll.Config{Publisher: pubSub})
+	client := startCustomerBLLTestServer(t, bll)
 
 	// 1. Missing fields
-	reqBody, _ := json.Marshal(map[string]interface{}{"portfolio_id": ""})
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(reqBody)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	_, err := client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{PortfolioID: ""})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	// 2. Invalid side (Thread 6)
-	reqBody, _ = json.Marshal(TradeOrderRequest{
+	// 2. Invalid side
+	_, err = client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		Symbol:      "AAPL",
 		Side:        "hold",
 		Quantity:    10,
 	})
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(reqBody)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "side must be 'buy' or 'sell'")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "side must be 'buy' or 'sell'")
 
-	// 3. Unsupported order type (Thread 8)
-	reqBody, _ = json.Marshal(TradeOrderRequest{
+	// 3. Unsupported order type
+	_, err = client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		Symbol:      "AAPL",
 		Side:        "buy",
 		Quantity:    10,
 		OrderType:   "bracket",
 	})
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(reqBody)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "unsupported order type")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported order type")
 
-	// 4. Limit order with price <= 0 (Thread 8)
-	reqBody, _ = json.Marshal(TradeOrderRequest{
+	// 4. Limit order with price <= 0
+	_, err = client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		Symbol:      "AAPL",
 		Side:        "buy",
@@ -84,27 +202,17 @@ func TestCustomerBLL_OrderExecution_Validations(t *testing.T) {
 		OrderType:   "limit",
 		LimitPrice:  0,
 	})
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(reqBody)))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "limit order requires limit_price > 0")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limit order requires limit_price > 0")
 }
 
 func TestCustomerBLL_OrderExecution_NormalAndMedicalHold(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	// Mock workforce service
-	medicalHoldStatus := false
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"feline_id":              "emp-feline-garfield",
-			"emergency_medical_hold": medicalHoldStatus,
-		})
-	}))
-	defer mockWorkforceServer.Close()
+	wfStub := &stubWorkforceServer{medicalHold: false}
+	ciStub := &stubCoreInvestServer{}
 
-	// Mock broker service
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		price := 182.50
 		_ = json.NewEncoder(w).Encode(alpaca.Order{
@@ -116,31 +224,17 @@ func TestCustomerBLL_OrderExecution_NormalAndMedicalHold(t *testing.T) {
 	}))
 	defer mockBrokerServer.Close()
 
-	var orderPersisted atomic.Bool
-	mockCoreInvestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/brokerage/orders") {
-			orderPersisted.Store(true)
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "persisted"})
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer mockCoreInvestServer.Close()
+	bll := customerbll.NewServer(customerbll.Config{
+		Publisher:    pubSub,
+		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
+	})
+	bll.SetWorkforceClient(wfStub)
+	bll.SetCoreInvestClient(ciStub)
 
-	bll := &CustomerBLLServer{
-		publisher:     pubSub,
-		httpClient:    mockWorkforceServer.Client(),
-		brokerClient:  alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
-		workforceURL:  mockWorkforceServer.URL,
-		coreInvestURL: mockCoreInvestServer.URL,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+	client := startCustomerBLLTestServer(t, bll)
 
 	// Case 1: Medical hold false -> Order executes successfully and persists to core-invest
-	orderReq := TradeOrderRequest{
+	orderReq := &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		FelineID:    "emp-feline-garfield",
 		Symbol:      "AAPL",
@@ -148,321 +242,204 @@ func TestCustomerBLL_OrderExecution_NormalAndMedicalHold(t *testing.T) {
 		Quantity:    10.0,
 		OrderType:   "market",
 	}
-	body, _ := json.Marshal(orderReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	var res TradeOrderResult
-	err := json.Unmarshal(rec.Body.Bytes(), &res)
+	res, err := client.ValidateAndExecuteOrder(t.Context(), orderReq)
 	require.NoError(t, err)
 	assert.Equal(t, "filled", res.Status)
 	assert.Equal(t, "AAPL", res.Symbol)
 	assert.Equal(t, 182.50, res.Price)
-	assert.True(t, orderPersisted.Load(), "order must be persisted via core-invest-api")
+	assert.True(t, ciStub.orderPersisted.Load(), "order must be persisted via core-invest-api")
 
 	// Case 2: Medical hold active -> Order rejected
-	medicalHoldStatus = true
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
-	mux.ServeHTTP(rec2, req2)
-
-	assert.Equal(t, http.StatusConflict, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "emergency medical hold active")
+	wfStub.medicalHold = true
+	_, err = client.ValidateAndExecuteOrder(t.Context(), orderReq)
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Contains(t, err.Error(), "emergency medical hold active")
 }
 
 func TestCustomerBLL_OrderExecution_MedicalHoldFailClosed(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	// Workforce returns 500 error
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer mockWorkforceServer.Close()
+	wfStub := &stubWorkforceServer{failCareSched: true}
+	bll := customerbll.NewServer(customerbll.Config{
+		Publisher:       pubSub,
+		DefaultFelineID: "emp-feline-felix",
+	})
+	bll.SetWorkforceClient(wfStub)
 
-	bll := &CustomerBLLServer{
-		publisher:       pubSub,
-		httpClient:      mockWorkforceServer.Client(),
-		workforceURL:    mockWorkforceServer.URL,
-		defaultFelineID: "emp-feline-felix",
-	}
+	client := startCustomerBLLTestServer(t, bll)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
-
-	orderReq := TradeOrderRequest{
+	_, err := client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		Symbol:      "AAPL",
 		Side:        "buy",
 		Quantity:    5.0,
-	}
-	body, _ := json.Marshal(orderReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.Contains(t, rec.Body.String(), "feline medical hold safety check unavailable; failing closed")
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Contains(t, err.Error(), "feline medical hold safety check unavailable; failing closed")
 }
 
 func TestCustomerBLL_DefaultFeline_FromConfiguration(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	var queriedFelineID string
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		queriedFelineID = r.URL.Path
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"emergency_medical_hold": false,
-		})
-	}))
-	defer mockWorkforceServer.Close()
-
+	wfStub := &stubWorkforceServer{medicalHold: false}
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(alpaca.Order{ID: "ord-1", Status: "submitted"})
 	}))
 	defer mockBrokerServer.Close()
 
-	// Setting default employee via configuration
-	bll := &CustomerBLLServer{
-		publisher:       pubSub,
-		httpClient:      mockWorkforceServer.Client(),
-		brokerClient:    alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
-		workforceURL:    mockWorkforceServer.URL,
-		defaultFelineID: "emp-configured-cat-42",
-	}
+	bll := customerbll.NewServer(customerbll.Config{
+		Publisher:       pubSub,
+		BrokerClient:    alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
+		DefaultFelineID: "emp-configured-cat-42",
+	})
+	bll.SetWorkforceClient(wfStub)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+	client := startCustomerBLLTestServer(t, bll)
 
-	// Order request has NO FelineID
-	orderReq := TradeOrderRequest{
+	res, err := client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-001",
 		Symbol:      "MSFT",
 		Side:        "buy",
 		Quantity:    5.0,
 		OrderType:   "market",
-	}
-	body, _ := json.Marshal(orderReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, queriedFelineID, "emp-configured-cat-42")
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", res.Status)
+	assert.Equal(t, "emp-configured-cat-42", wfStub.queriedFelineID)
 }
 
 func TestCustomerBLL_DefaultFeline_FromWorkforceDatabase(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	var queriedCareSchedulePath string
-	mockWorkforceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/workforce/employees" {
-			// Emulate database returning active feline employee roster in {items, total} envelope (Thread 11)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"items": []map[string]interface{}{
-					{"employee_id": "emp-db-feline-alpha", "first_name": "Barnaby", "employee_type": "feline", "status": "active"},
-				},
-				"total": 1,
-			})
-			return
-		}
-		queriedCareSchedulePath = r.URL.Path
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"emergency_medical_hold": false,
-		})
-	}))
-	defer mockWorkforceServer.Close()
+	wfStub := &stubWorkforceServer{
+		medicalHold: false,
+		employees: []*workforcev1.Employee{
+			{EmployeeID: "emp-db-feline-alpha", FirstName: "Barnaby", EmployeeType: "feline", Status: "active"},
+		},
+	}
 
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(alpaca.Order{ID: "ord-2", Status: "submitted"})
 	}))
 	defer mockBrokerServer.Close()
 
-	// defaultFelineID is NOT configured, must query database data from workforce API
-	bll := &CustomerBLLServer{
-		publisher:    pubSub,
-		httpClient:   mockWorkforceServer.Client(),
-		brokerClient: alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
-		workforceURL: mockWorkforceServer.URL,
-	}
+	bll := customerbll.NewServer(customerbll.Config{
+		Publisher:    pubSub,
+		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
+	})
+	bll.SetWorkforceClient(wfStub)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/orders", bll.handleValidateAndExecuteOrder)
+	client := startCustomerBLLTestServer(t, bll)
 
-	// Order request has NO FelineID
-	orderReq := TradeOrderRequest{
+	res, err := client.ValidateAndExecuteOrder(t.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
 		PortfolioID: "port-002",
 		Symbol:      "GOOGL",
 		Side:        "buy",
 		Quantity:    2.0,
 		OrderType:   "market",
-	}
-	body, _ := json.Marshal(orderReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/customer-bll/orders", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, queriedCareSchedulePath, "emp-db-feline-alpha")
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "submitted", res.Status)
+	assert.Equal(t, "emp-db-feline-alpha", wfStub.queriedFelineID)
 }
 
 func TestCustomerBLL_ACHDeposit_OneTimeAndRecurring(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
-	var recurringCreated atomic.Bool
-	mockCoreInvestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/recurring-deposits") {
-			recurringCreated.Store(true)
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "created"})
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer mockCoreInvestServer.Close()
+	ciStub := &stubCoreInvestServer{}
+	bll := customerbll.NewServer(customerbll.Config{Publisher: pubSub})
+	bll.SetCoreInvestClient(ciStub)
 
-	bll := &CustomerBLLServer{
-		publisher:     pubSub,
-		httpClient:    mockCoreInvestServer.Client(),
-		coreInvestURL: mockCoreInvestServer.URL,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /api/v1/customer-bll/deposits", bll.handleACHDeposit)
+	client := startCustomerBLLTestServer(t, bll)
 
 	// Case 1: One-time deposit
-	depositReq := ACHDepositRequest{
+	res, err := client.InitiateACHDeposit(t.Context(), &customerbllv1.InitiateACHDepositRequest{
 		CustomerID:  "cust-123",
 		PortfolioID: "port-123",
 		BankAccount: "act-456",
 		AmountUSD:   500.0,
 		Frequency:   "one_time",
-	}
-	body, _ := json.Marshal(depositReq)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/v1/customer-bll/deposits", bytes.NewReader(body))
-	mux.ServeHTTP(rec, req)
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "pending_settlement", res.Status)
+	assert.False(t, ciStub.recurringCreated.Load())
 
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-	assert.False(t, recurringCreated.Load())
-
-	// Case 2: Recurring monthly deposit (Thread 33)
-	depositReq.Frequency = "monthly"
-	body2, _ := json.Marshal(depositReq)
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("POST", "/api/v1/customer-bll/deposits", bytes.NewReader(body2))
-	mux.ServeHTTP(rec2, req2)
-
-	assert.Equal(t, http.StatusAccepted, rec2.Code)
-	assert.True(t, recurringCreated.Load(), "recurring schedule should be persisted to core-invest-api")
+	// Case 2: Recurring monthly deposit
+	res2, err := client.InitiateACHDeposit(t.Context(), &customerbllv1.InitiateACHDepositRequest{
+		CustomerID:  "cust-123",
+		PortfolioID: "port-123",
+		BankAccount: "act-456",
+		AmountUSD:   500.0,
+		Frequency:   "monthly",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "pending_settlement", res2.Status)
+	assert.True(t, ciStub.recurringCreated.Load(), "recurring schedule should be persisted to core-invest-api")
 }
 
 func TestCustomerBLL_PortfolioMetrics_Validation(t *testing.T) {
-	mockCoreInvestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/portfolios/port-existing") {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"portfolio_id":     "port-existing",
-				"customer_id":      "cust-test-01",
-				"cash_balance":     2500.50,
-				"invested_balance": 15000.0,
-			})
-			return
-		}
-		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
-	}))
-	defer mockCoreInvestServer.Close()
-
-	bll := &CustomerBLLServer{
-		httpClient:    mockCoreInvestServer.Client(),
-		coreInvestURL: mockCoreInvestServer.URL,
+	ciStub := &stubCoreInvestServer{
+		portfolios: map[string]*coreinvestv1.Portfolio{
+			"port-existing": {
+				PortfolioID:     "port-existing",
+				CustomerID:      "cust-test-01",
+				CashBalanceUSD:  2500.50,
+				TotalBalanceUSD: 17500.50,
+			},
+		},
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/customer-bll/portfolio/metrics", bll.handlePortfolioMetrics)
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
 
 	// Case 1: Missing portfolio_id
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/v1/customer-bll/portfolio/metrics", nil)
-	mux.ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	_, err := client.GetPortfolioMetrics(t.Context(), &customerbllv1.GetPortfolioMetricsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	// Case 2: Nonexistent portfolio (Thread 34)
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("GET", "/api/v1/customer-bll/portfolio/metrics?portfolio_id=port-nonexistent", nil)
-	mux.ServeHTTP(rec2, req2)
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
+	// Case 2: Nonexistent portfolio
+	_, err = client.GetPortfolioMetrics(t.Context(), &customerbllv1.GetPortfolioMetricsRequest{PortfolioID: "port-nonexistent"})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
 
 	// Case 3: Existing portfolio -> metrics returned with actual balances
-	rec3 := httptest.NewRecorder()
-	req3 := httptest.NewRequest("GET", "/api/v1/customer-bll/portfolio/metrics?portfolio_id=port-existing", nil)
-	mux.ServeHTTP(rec3, req3)
-	assert.Equal(t, http.StatusOK, rec3.Code)
-	var metrics map[string]interface{}
-	err := json.Unmarshal(rec3.Body.Bytes(), &metrics)
+	metrics, err := client.GetPortfolioMetrics(t.Context(), &customerbllv1.GetPortfolioMetricsRequest{PortfolioID: "port-existing"})
 	require.NoError(t, err)
-	assert.Equal(t, "port-existing", metrics["portfolio_id"])
-	assert.Equal(t, 2500.50, metrics["cash_balance"])
-	assert.Equal(t, 17500.50, metrics["total_value"])
+	assert.Equal(t, "port-existing", metrics.PortfolioID)
+	assert.Equal(t, 2500.50, metrics.CashBalance)
+	assert.Equal(t, 17500.50, metrics.TotalValue)
 }
 
 func TestCustomerBLL_GetStreams(t *testing.T) {
-	// Case 1: core-invest returns active streams
-	mockCoreInvestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/core-invest/streams" {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
-				{
-					"stream_id":  "stream-01",
-					"stream_url": "webrtc://streams.oci.local/live/test-cam",
-					"protocol":   "webrtc",
-					"status":     "active",
-				},
-			})
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer mockCoreInvestServer.Close()
-
-	bll := &CustomerBLLServer{
-		httpClient:    mockCoreInvestServer.Client(),
-		coreInvestURL: mockCoreInvestServer.URL,
+	ciStub := &stubCoreInvestServer{
+		streams: []*coreinvestv1.CameraStream{
+			{
+				StreamID:  "stream-01",
+				StreamURL: "webrtc://streams.oci.local/live/test-cam",
+				Protocol:  "webrtc",
+				Status:    "active",
+			},
+		},
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/customer-bll/streams", bll.handleGetStreams)
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/v1/customer-bll/streams", nil)
-	mux.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	var resp map[string]interface{}
-	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	resp, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, float64(1), resp["total"])
+	assert.Len(t, resp.Streams, 1)
 
-	// Case 2: core-invest is unavailable
-	bllEmpty := &CustomerBLLServer{
-		httpClient:    http.DefaultClient,
-		coreInvestURL: "http://127.0.0.1:54321", // non-existent
-	}
-	muxEmpty := http.NewServeMux()
-	muxEmpty.HandleFunc("GET /api/v1/customer-bll/streams", bllEmpty.handleGetStreams)
-
-	recEmpty := httptest.NewRecorder()
-	reqEmpty := httptest.NewRequest("GET", "/api/v1/customer-bll/streams", nil)
-	muxEmpty.ServeHTTP(recEmpty, reqEmpty)
-
-	assert.Equal(t, http.StatusOK, recEmpty.Code)
-	var respEmpty map[string]interface{}
-	err = json.Unmarshal(recEmpty.Body.Bytes(), &respEmpty)
+	// Case 2: core-invest is unavailable -> returns empty slice gracefully
+	ciStub.failStreams = true
+	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
-	assert.Equal(t, float64(0), respEmpty["total"])
+	assert.Empty(t, respEmpty.Streams)
 }

@@ -22,6 +22,19 @@ type ITTicket struct {
 	AcknowledgedBy   string `json:"acknowledged_by"`
 	AcknowledgedAt   string `json:"acknowledged_at"`
 	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+	ResolutionNotes  string `json:"resolution_notes"`
+	ForgejoRepo      string `json:"forgejo_repo"`
+	ForgejoIssueID   int64  `json:"forgejo_issue_id"`
+}
+
+type TicketComment struct {
+	CommentID      string `json:"comment_id"`
+	TicketID       string `json:"ticket_id"`
+	AuthorUsername string `json:"author_username"`
+	Comment        string `json:"comment"`
+	IsInternal     bool   `json:"is_internal"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type CreateTicketRequest struct {
@@ -33,6 +46,8 @@ type CreateTicketRequest struct {
 	CustomerID     string `json:"customer_id"`
 	AuthorUsername string `json:"author_username"`
 	IsUrgent       bool   `json:"is_urgent"`
+	ForgejoRepo    string `json:"forgejo_repo"`
+	ForgejoIssueID int64  `json:"forgejo_issue_id"`
 }
 
 type CreateTicketResponse struct {
@@ -52,10 +67,22 @@ type ListTicketsRequest struct {
 	Category string `json:"category"`
 	Limit    int32  `json:"limit"`
 	Offset   int32  `json:"offset"`
+	Source   string `json:"source"`
 }
 
 type ListTicketsResponse struct {
 	Tickets []*ITTicket `json:"tickets"`
+}
+
+type UpdateTicketRequest struct {
+	TicketID         string `json:"ticket_id"`
+	State            string `json:"state"`
+	AssigneeUsername string `json:"assignee_username"`
+	ResolutionNotes  string `json:"resolution_notes"`
+}
+
+type UpdateTicketResponse struct {
+	Ticket *ITTicket `json:"ticket"`
 }
 
 type AcknowledgeTicketRequest struct {
@@ -76,6 +103,47 @@ type CloseTicketResponse struct {
 	Ticket *ITTicket `json:"ticket"`
 }
 
+type CreateCustomerTicketRequest struct {
+	CustomerID string `json:"customer_id"`
+	Category   string `json:"category"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+}
+
+type CreateCustomerTicketResponse struct {
+	Ticket *ITTicket `json:"ticket"`
+}
+
+type ListCustomerTicketsRequest struct {
+	CustomerID string `json:"customer_id"`
+	Limit      int32  `json:"limit"`
+	Offset     int32  `json:"offset"`
+}
+
+type ListCustomerTicketsResponse struct {
+	Tickets []*ITTicket `json:"tickets"`
+}
+
+type AddTicketCommentRequest struct {
+	TicketID       string `json:"ticket_id"`
+	AuthorUsername string `json:"author_username"`
+	Comment        string `json:"comment"`
+	IsInternal     bool   `json:"is_internal"`
+}
+
+type AddTicketCommentResponse struct {
+	Comment *TicketComment `json:"comment"`
+}
+
+type ListTicketCommentsRequest struct {
+	TicketID        string `json:"ticket_id"`
+	IncludeInternal bool   `json:"include_internal"`
+}
+
+type ListTicketCommentsResponse struct {
+	Comments []*TicketComment `json:"comments"`
+}
+
 type PebbleAlert struct {
 	AlertID      string `json:"alert_id"`
 	TicketID     string `json:"ticket_id"`
@@ -84,6 +152,8 @@ type PebbleAlert struct {
 	RoomZone     string `json:"room_zone"`
 	Acknowledged bool   `json:"acknowledged"`
 	CreatedAt    string `json:"created_at"`
+	Body         string `json:"body"`
+	Author       string `json:"author"`
 }
 
 type ListAlertsRequest struct {
@@ -109,31 +179,65 @@ type AcknowledgeAlertRequest struct {
 	AlertID        string `json:"alert_id"`
 	AcknowledgedBy string `json:"acknowledged_by"`
 	ButtonID       int32  `json:"button_id"`
+	WatchID        string `json:"watch_id"`
+	DeviceID       string `json:"device_id"`
 }
 
 type AcknowledgeAlertResponse struct {
-	AlertID string `json:"alert_id"`
-	Status  string `json:"status"`
+	AlertID        string `json:"alert_id"`
+	Status         string `json:"status"`
+	State          string `json:"state"`
+	AcknowledgedBy string `json:"acknowledged_by"`
+	AcknowledgedAt string `json:"acknowledged_at"`
+	StatusMessage  string `json:"status_message"`
+}
+
+type SendPushNotificationRequest struct {
+	Topic    string `json:"topic"`
+	Title    string `json:"title"`
+	Message  string `json:"message"`
+	Priority string `json:"priority"`
+}
+
+type SendPushNotificationResponse struct {
+	Status       string `json:"status"`
+	Provider     string `json:"provider"`
+	Topic        string `json:"topic"`
+	Title        string `json:"title"`
+	Message      string `json:"message"`
+	DispatchedAt string `json:"dispatched_at"`
 }
 
 type OpsServiceClient interface {
 	CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *GetTicketRequest) (*GetTicketResponse, error)
 	ListTickets(ctx context.Context, in *ListTicketsRequest) (*ListTicketsResponse, error)
+	UpdateTicket(ctx context.Context, in *UpdateTicketRequest) (*UpdateTicketResponse, error)
 	AcknowledgeTicket(ctx context.Context, in *AcknowledgeTicketRequest) (*AcknowledgeTicketResponse, error)
 	CloseTicket(ctx context.Context, in *CloseTicketRequest) (*CloseTicketResponse, error)
+	CreateCustomerTicket(ctx context.Context, in *CreateCustomerTicketRequest) (*CreateCustomerTicketResponse, error)
+	ListCustomerTickets(ctx context.Context, in *ListCustomerTicketsRequest) (*ListCustomerTicketsResponse, error)
+	AddTicketComment(ctx context.Context, in *AddTicketCommentRequest) (*AddTicketCommentResponse, error)
+	ListTicketComments(ctx context.Context, in *ListTicketCommentsRequest) (*ListTicketCommentsResponse, error)
 	ListAlerts(ctx context.Context, in *ListAlertsRequest) (*ListAlertsResponse, error)
 	CreateAlert(ctx context.Context, in *CreateAlertRequest) (*CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
+	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
 }
 
 type OpsServiceServer interface {
 	CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *GetTicketRequest) (*GetTicketResponse, error)
 	ListTickets(ctx context.Context, in *ListTicketsRequest) (*ListTicketsResponse, error)
+	UpdateTicket(ctx context.Context, in *UpdateTicketRequest) (*UpdateTicketResponse, error)
 	AcknowledgeTicket(ctx context.Context, in *AcknowledgeTicketRequest) (*AcknowledgeTicketResponse, error)
 	CloseTicket(ctx context.Context, in *CloseTicketRequest) (*CloseTicketResponse, error)
+	CreateCustomerTicket(ctx context.Context, in *CreateCustomerTicketRequest) (*CreateCustomerTicketResponse, error)
+	ListCustomerTickets(ctx context.Context, in *ListCustomerTicketsRequest) (*ListCustomerTicketsResponse, error)
+	AddTicketComment(ctx context.Context, in *AddTicketCommentRequest) (*AddTicketCommentResponse, error)
+	ListTicketComments(ctx context.Context, in *ListTicketCommentsRequest) (*ListTicketCommentsResponse, error)
 	ListAlerts(ctx context.Context, in *ListAlertsRequest) (*ListAlertsResponse, error)
 	CreateAlert(ctx context.Context, in *CreateAlertRequest) (*CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
+	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
 }

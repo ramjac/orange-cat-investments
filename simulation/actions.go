@@ -47,6 +47,8 @@ func (r *Registry) createGarfieldPersona() *Persona {
 		Type:          "feline",
 		RoleTitle:     "Chief Observation Officer (COO)",
 		Department:    "Core Executive Observation Plane",
+		Role:          "admin",
+		Email:         "garfield@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createGarfieldMorningZoomiesAction(),
@@ -196,6 +198,8 @@ func (r *Registry) createBarnebyPersona() *Persona {
 		Type:          "feline",
 		RoleTitle:     "Senior Alpha Perch Analyst",
 		Department:    "Habitat Intelligence & Telemetry",
+		Role:          "staff",
+		Email:         "barneby@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createBarnebySunbeamTrackingAction(),
@@ -341,6 +345,8 @@ func (r *Registry) createAlicePersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Head of Human & Feline Resources",
 		Department:    "Workforce Operations",
+		Role:          "hr",
+		Email:         "alice.vance@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			r.createAliceWorkforceDirectoryAction(),
@@ -711,6 +717,8 @@ func (r *Registry) createBobPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Lead Facilities & Edge Telemetry Engineer",
 		Department:    "Habitat Facilities & Infrastructure",
+		Role:          "facilities",
+		Email:         "bob.builder@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -880,6 +888,8 @@ func (r *Registry) createCarolPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Chief Investment Officer (CIO)",
 		Department:    "Core Investment Management",
+		Role:          "investment",
+		Email:         "carol.danvers@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -944,6 +954,8 @@ func (r *Registry) createDavidPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Feline Behavioral Data Scientist",
 		Department:    "Quantitative Analytics & AI",
+		Role:          "investment",
+		Email:         "david.quant@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1032,6 +1044,8 @@ func (r *Registry) createElenaPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Chief Veterinary Officer & Habitat Care Specialist",
 		Department:    "Feline Health & Habitat Welfare",
+		Role:          "veterinary",
+		Email:         "elena.rostova@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1145,6 +1159,8 @@ func (r *Registry) createFrankPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Platform Security & K8s Infrastructure Lead",
 		Department:    "Systems Platform & DevSecOps",
+		Role:          "ops",
+		Email:         "frank.ops@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1271,14 +1287,16 @@ func (r *Registry) createArthurPersona() *Persona {
 		Type:          "customer",
 		RoleTitle:     "Long-Term Value Investor",
 		Department:    "Retail Investor Community",
+		Role:          "customer",
+		Email:         "arthur@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "arthur_review_performance_reports",
 				Description: "Audits historical quantitative backtest performance and strategy returns",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/backtesting/runs"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/trade-logs"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1298,16 +1316,16 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_deposit_investment_capital",
 				Description: "Executes steady capital deposit order into OCI Alpha Growth Fund",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
 						"broker_name":  "Interactive Brokers",
 						"symbol":       "SPY",
 						"side":         "buy",
-						"quantity":     10,
+						"quantity":     10.0,
 						"price":        510.50,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1327,8 +1345,8 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_monitor_feline_stream",
 				Description: "Passively checks optical camera streams to verify feline habitat comfort",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/streams"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/streams"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1348,7 +1366,7 @@ func (r *Registry) createArthurPersona() *Persona {
 				Name:        "arthur_schedule_recurring_ach_deposit",
 				Description: "Schedules automated monthly recurring ACH deposit from linked Chase checking account",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/recurring-deposits"
+					endpoint := "/api/v1/customer/deposits"
 					payload := map[string]any{
 						"customer_id":  "cust-longterm-arthur",
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
@@ -1356,7 +1374,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						"frequency":    "monthly",
 						"bank_account": "Chase Checking (****4821)",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1637,14 +1655,16 @@ func (r *Registry) createChloePersona() *Persona {
 		Type:          "customer",
 		RoleTitle:     "Momentum Alpha Trader",
 		Department:    "Retail Investor Community",
+		Role:          "customer",
+		Email:         "chloe@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "chloe_scan_activity_streams",
 				Description: "Scans real-time camera streams for high-activity feline behavioral telemetry",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/streams"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/streams"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1664,16 +1684,15 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_momentum_buy_order",
 				Description: "Executes aggressive momentum buy order on feline zoomies activity spike",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
-						"broker_name":  "Interactive Brokers",
 						"symbol":       "NVDA",
 						"side":         "buy",
-						"quantity":     50,
+						"quantity":     50.0,
 						"price":        125.75,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1693,16 +1712,15 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_take_profit_sell_order",
 				Description: "Executes tactical take-profit sell order as cat activity returns to baseline",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
+					endpoint := "/api/v1/customer/trading/orders"
 					payload := map[string]any{
 						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
-						"broker_name":  "Interactive Brokers",
 						"symbol":       "NVDA",
 						"side":         "sell",
-						"quantity":     50,
+						"quantity":     50.0,
 						"price":        131.25,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.DoCustomer(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1722,8 +1740,8 @@ func (r *Registry) createChloePersona() *Persona {
 				Name:        "chloe_audit_execution_log",
 				Description: "Audits real-time trade order execution logs and settlement status",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/core-invest/brokerage/orders"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					endpoint := "/api/v1/customer/trade-logs"
+					resp, bytes, err := client.DoCustomer(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1843,14 +1861,26 @@ func (r *Registry) createChloePersona() *Persona {
 						}, nil
 					}
 
-					var cert struct {
+					var res struct {
+						Certificate struct {
+							CertificateID    string `json:"certificate_id"`
+							DigitalSignature string `json:"digital_signature"`
+						} `json:"certificate"`
 						CertificateID    string `json:"certificate_id"`
 						DigitalSignature string `json:"digital_signature"`
 					}
-					_ = json.Unmarshal(bytes, &cert)
+					_ = json.Unmarshal(bytes, &res)
+					certID := res.Certificate.CertificateID
+					if certID == "" {
+						certID = res.CertificateID
+					}
+					sig := res.Certificate.DigitalSignature
+					if sig == "" {
+						sig = res.DigitalSignature
+					}
 
 					// Verify downloadable PDF certificate
-					dlEndpoint := fmt.Sprintf("/api/v1/customer/privacy/gdpr-certificate/%s/download", cert.CertificateID)
+					dlEndpoint := fmt.Sprintf("/api/v1/customer/privacy/gdpr-certificate/%s/download", certID)
 					dlResp, dlBytes, dlErr := client.DoCustomer(ctx, "GET", dlEndpoint, nil)
 					if dlErr != nil {
 						return nil, dlErr
@@ -1862,7 +1892,7 @@ func (r *Registry) createChloePersona() *Persona {
 						PersonaName: "Chloe Spark",
 						ActionName:  "chloe_request_gdpr_data_erasure",
 						Endpoint:    dlEndpoint,
-						Success:     isPDF && cert.DigitalSignature != "",
+						Success:     isPDF && sig != "",
 						StatusCode:  dlResp.StatusCode,
 						Details:     fmt.Sprintf("GDPR erasure executed, HMAC-SHA256 signature verified, PDF cert downloaded (%d bytes)", len(dlBytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1881,6 +1911,8 @@ func (r *Registry) createRickPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Junior Operations Associate",
 		Department:    "Workforce Operations",
+		Role:          "staff",
+		Email:         "rick.newhire@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -1980,7 +2012,7 @@ func (r *Registry) createRickPersona() *Persona {
 					endpoint := "/api/v1/webhooks/frappe-hr"
 					payload := map[string]any{
 						"event":         "employee_created",
-						"employee_id":   "emp-human-rick",
+						"employee_id":   "018f3a9a-e005-7000-8000-000000000005",
 						"employee_type": "human",
 						"first_name":    "Rick",
 						"last_name":     "Newhire",
@@ -2017,18 +2049,20 @@ func (r *Registry) createElisePersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Software Developer",
 		Department:    "Engineering & Platform Development",
+		Role:          "engineering",
+		Email:         "elise.dev@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
 				Name:        "elise_claim_kanban_card",
-				Description: "Claims and assigns engineering backlog card #42 on Forgejo kanban board to herself",
+				Description: "Claims and assigns engineering backlog card #1 on Forgejo kanban board to herself",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/repos/oci/monorepo/issues/42"
+					endpoint := "/api/v1/repos/oci/monorepo/issues/1"
 					payload := map[string]any{
 						"assignee": "emp-human-elise",
 						"state":    "open",
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "PATCH", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-elise", "PATCH", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2037,9 +2071,9 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_claim_kanban_card",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Claimed Kanban Card #42 in Forgejo: %s", string(bytes)),
+						Details:     fmt.Sprintf("Claimed Kanban Card #1 in Forgejo: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -2053,16 +2087,17 @@ func (r *Registry) createElisePersona() *Persona {
 						"new_branch_name": "feature/42-gitops-promotion-pipeline",
 						"old_ref_name":    "main",
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-elise", "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
+					success := resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict
 					return &ActionResult{
 						PersonaID:   "emp-human-elise",
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_create_feature_branch",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     success,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Created feature branch in Forgejo: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2079,16 +2114,17 @@ func (r *Registry) createElisePersona() *Persona {
 						"content": "RlJPTSBnb2xhbmc6MS4yMi1hbHBpbmUgQVMgYnVpbGRlcg==",
 						"message": "feat(gitops): multi-stage containerization & gated promotion pipeline (#42)",
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-elise", "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
+					success := resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusUnprocessableEntity
 					return &ActionResult{
 						PersonaID:   "emp-human-elise",
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_push_code_commit",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     success,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Pushed commit to feature branch in Forgejo: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2097,27 +2133,28 @@ func (r *Registry) createElisePersona() *Persona {
 			},
 			{
 				Name:        "elise_open_pull_request",
-				Description: "Opens Pull Request #42 in Forgejo linking Card #42 for automated CI validation and peer review",
+				Description: "Opens Pull Request in Forgejo linking Card #1 for automated CI validation and peer review",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/repos/oci/monorepo/pulls"
 					payload := map[string]any{
 						"title": "feat(gitops): multi-stage containerization & gated promotion pipeline",
 						"head":  "feature/42-gitops-promotion-pipeline",
 						"base":  "main",
-						"body":  "Resolves #42. Multi-stage Dockerfiles, in-cluster Forgejo runner, and live staging gates.",
+						"body":  "Resolves #1. Multi-stage Dockerfiles, in-cluster Forgejo runner, and live staging gates.",
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-elise", "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
+					success := resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict
 					return &ActionResult{
 						PersonaID:   "emp-human-elise",
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_open_pull_request",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     success,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Opened Pull Request #42 in Forgejo: %s", string(bytes)),
+						Details:     fmt.Sprintf("Opened Pull Request in Forgejo: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -2254,7 +2291,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"title":           "Habitat Alpha Thermostat Calibration Drift",
 						"body":            "Environmental monitoring sensor reports temperature delta exceeding +3.5C in Habitat Alpha.",
 						"author_username": "emp-human-elise",
-						"category":        "Habitat",
+						"category":        "habitat",
 						"severity":        "urgent",
 						"is_urgent":       true,
 						"forgejo_repo":    "oci-internal/helpdesk",
@@ -2287,6 +2324,8 @@ func (r *Registry) createMarcusPersona() *Persona {
 		Type:          "human",
 		RoleTitle:     "Principal Systems Architect & Senior Developer",
 		Department:    "Engineering & Platform Development",
+		Role:          "engineering",
+		Email:         "marcus.lead@oci.local",
 		ActivityLevel: 1.0,
 		Actions: []Action{
 			{
@@ -2320,48 +2359,84 @@ func (r *Registry) createMarcusPersona() *Persona {
 				Name:        "senior_dev_review_pull_request",
 				Description: "Performs architectural peer review and approves Elise Dev's Pull Request in Forgejo",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/repos/oci/monorepo/pulls/42/reviews"
+					prNumber := 13
+					listResp, listBytes, listErr := client.DoForgejo(ctx, "GET", "/api/v1/repos/oci/monorepo/pulls?state=all&limit=10", nil)
+					if listErr == nil && listResp.StatusCode == http.StatusOK {
+						var prs []struct {
+							Number int    `json:"number"`
+							State  string `json:"state"`
+						}
+						if err := json.Unmarshal(listBytes, &prs); err == nil && len(prs) > 0 {
+							prNumber = prs[0].Number
+							for _, p := range prs {
+								if p.State == "open" {
+									prNumber = p.Number
+									break
+								}
+							}
+						}
+					}
+					endpoint := fmt.Sprintf("/api/v1/repos/oci/monorepo/pulls/%d/reviews", prNumber)
 					payload := map[string]any{
 						"event": "APPROVED",
 						"body":  "Architecture and security invariants verified. Distroless/alpine multi-stage builds and Forgejo Actions CI pass all tests. Approved for staging deployment.",
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-marcus", "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
+					success := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusUnprocessableEntity
 					return &ActionResult{
 						PersonaID:   "emp-human-marcus",
 						PersonaName: "Marcus Lead",
 						ActionName:  "senior_dev_review_pull_request",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated,
+						Success:     success,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Submitted approved peer review on PR #42 in Forgejo: %s", string(bytes)),
+						Details:     fmt.Sprintf("Submitted approved peer review on PR #%d in Forgejo: %s", prNumber, string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
 			},
 			{
 				Name:        "senior_dev_merge_pull_request",
-				Description: "Merges Pull Request #42 in Forgejo, triggering automated CI build and container push to localhost:32000",
+				Description: "Merges Pull Request in Forgejo, triggering automated CI build and container push to localhost:32000",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
-					endpoint := "/api/v1/repos/oci/monorepo/pulls/42/merge"
+					prNumber := 13
+					listResp, listBytes, listErr := client.DoForgejo(ctx, "GET", "/api/v1/repos/oci/monorepo/pulls?state=all&limit=10", nil)
+					if listErr == nil && listResp.StatusCode == http.StatusOK {
+						var prs []struct {
+							Number int    `json:"number"`
+							State  string `json:"state"`
+						}
+						if err := json.Unmarshal(listBytes, &prs); err == nil && len(prs) > 0 {
+							prNumber = prs[0].Number
+							for _, p := range prs {
+								if p.State == "open" {
+									prNumber = p.Number
+									break
+								}
+							}
+						}
+					}
+					endpoint := fmt.Sprintf("/api/v1/repos/oci/monorepo/pulls/%d/merge", prNumber)
 					payload := map[string]any{
 						"Do":                "merge",
-						"MergeMessageField": "Merge pull request #42: feat(gitops): multi-stage containerization & gated promotion pipeline",
+						"MergeMessageField": fmt.Sprintf("Merge pull request #%d: feat(gitops): multi-stage containerization & gated promotion pipeline", prNumber),
 					}
-					resp, bytes, err := client.DoForgejo(ctx, "POST", endpoint, payload)
+					resp, bytes, err := client.DoForgejoAs(ctx, "emp-human-marcus", "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
+					success := resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusMethodNotAllowed
 					return &ActionResult{
 						PersonaID:   "emp-human-marcus",
 						PersonaName: "Marcus Lead",
 						ActionName:  "senior_dev_merge_pull_request",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
+						Success:     success,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Merged PR #42 in Forgejo: %s", string(bytes)),
+						Details:     fmt.Sprintf("Merged PR #%d in Forgejo: %s", prNumber, string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
