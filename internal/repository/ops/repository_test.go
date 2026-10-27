@@ -243,3 +243,53 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+type recordingDB struct {
+	lastSQL  string
+	lastArgs []any
+}
+
+func (r *recordingDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	r.lastSQL = sql
+	r.lastArgs = args
+	return &mockRow{err: pgx.ErrNoRows}
+}
+
+func (r *recordingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	r.lastSQL = sql
+	r.lastArgs = args
+	return nil, errors.New("query executed")
+}
+
+func TestOpsPgxRepositoryParameterizedQueries(t *testing.T) {
+	db := &recordingDB{}
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	t.Run("GetITTicketByID parameterized", func(t *testing.T) {
+		ticketID := "ticket-test-123' OR '1'='1"
+		_, _ = repo.GetITTicketByID(ctx, ticketID)
+		assert.Contains(t, db.lastSQL, "WHERE ticket_id = $1")
+		assert.NotContains(t, db.lastSQL, ticketID)
+		require.Len(t, db.lastArgs, 1)
+		assert.Equal(t, ticketID, db.lastArgs[0])
+	})
+
+	t.Run("ListITTicketsBySource parameterized", func(t *testing.T) {
+		source := "customer' UNION SELECT 1--"
+		_, _ = repo.ListITTicketsBySource(ctx, source, 10, 0)
+		assert.Contains(t, db.lastSQL, "WHERE source = $1")
+		assert.NotContains(t, db.lastSQL, source)
+		require.Len(t, db.lastArgs, 3)
+		assert.Equal(t, source, db.lastArgs[0])
+	})
+
+	t.Run("ListITTicketsByCustomer parameterized", func(t *testing.T) {
+		customerID := "cust-123'; DROP TABLE ops.it_tickets;--"
+		_, _ = repo.ListITTicketsByCustomer(ctx, customerID, 10, 0)
+		assert.Contains(t, db.lastSQL, "WHERE customer_id = $1")
+		assert.NotContains(t, db.lastSQL, customerID)
+		require.Len(t, db.lastArgs, 3)
+		assert.Equal(t, customerID, db.lastArgs[0])
+	})
+}
