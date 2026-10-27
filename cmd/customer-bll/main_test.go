@@ -58,6 +58,7 @@ type stubCoreInvestServer struct {
 	orderPersisted   atomic.Bool
 	recurringCreated atomic.Bool
 	portfolios       map[string]*coreinvestv1.Portfolio
+	statements       map[string][]*coreinvestv1.CustomerStatement
 	streams          []*coreinvestv1.CameraStream
 	failStreams      bool
 }
@@ -111,6 +112,15 @@ func (s *stubCoreInvestServer) ListCameraStreams(ctx context.Context, in *corein
 
 func (s *stubCoreInvestServer) StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (s *stubCoreInvestServer) ListStatements(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+	if s.statements != nil {
+		if stmts, ok := s.statements[in.CustomerID]; ok {
+			return &coreinvestv1.ListStatementsResponse{Statements: stmts}, nil
+		}
+	}
+	return &coreinvestv1.ListStatementsResponse{Statements: []*coreinvestv1.CustomerStatement{}}, nil
 }
 
 func startCustomerBLLTestServer(t *testing.T, srv *customerbll.Server) customerbllv1.CustomerBLLServiceClient {
@@ -442,4 +452,36 @@ func TestCustomerBLL_GetStreams(t *testing.T) {
 	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, respEmpty.Streams)
+}
+
+func TestCustomerBLL_ListStatements(t *testing.T) {
+	ciStub := &stubCoreInvestServer{
+		statements: map[string][]*coreinvestv1.CustomerStatement{
+			"cust-777": {
+				{
+					StatementID:   "stmt-777-1",
+					CustomerID:    "cust-777",
+					PortfolioID:   "port-777",
+					StatementType: "monthly",
+					Period:        "2026-03",
+					Status:        "generated",
+				},
+			},
+		},
+	}
+
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	// Case 1: Existing statements for customer
+	resp, err := client.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{CustomerID: "cust-777"})
+	require.NoError(t, err)
+	assert.Len(t, resp.Statements, 1)
+	assert.Equal(t, "stmt-777-1", resp.Statements[0].StatementID)
+
+	// Case 2: No statements for customer
+	respEmpty, err := client.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{CustomerID: "cust-unknown"})
+	require.NoError(t, err)
+	assert.Empty(t, respEmpty.Statements)
 }
