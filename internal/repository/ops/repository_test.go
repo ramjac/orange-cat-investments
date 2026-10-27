@@ -243,3 +243,94 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+type recordingDB struct {
+	lastSQL  string
+	lastArgs []any
+}
+
+func (r *recordingDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	r.lastSQL = sql
+	r.lastArgs = args
+	return &mockRow{err: pgx.ErrNoRows}
+}
+
+func (r *recordingDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	r.lastSQL = sql
+	r.lastArgs = args
+	return nil, pgx.ErrNoRows
+}
+
+func TestPgxRepositoryStaticQueries(t *testing.T) {
+	ctx := context.Background()
+	rec := &recordingDB{}
+	repo := NewRepository(rec)
+
+	t.Run("GetITTicketByID query string", func(t *testing.T) {
+		_, _ = repo.GetITTicketByID(ctx, "ticket-123")
+		assert.Contains(t, rec.lastSQL, "WHERE ticket_id = $1")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{"ticket-123"}, rec.lastArgs)
+	})
+
+	t.Run("ListOpenITTickets query string", func(t *testing.T) {
+		_, _ = repo.ListOpenITTickets(ctx, 20, 5)
+		assert.Contains(t, rec.lastSQL, "WHERE state = 'open'")
+		assert.Contains(t, rec.lastSQL, "LIMIT $1 OFFSET $2")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{int32(20), int32(5)}, rec.lastArgs)
+	})
+
+	t.Run("ListITTickets query string", func(t *testing.T) {
+		_, _ = repo.ListITTickets(ctx, 15, 0)
+		assert.Contains(t, rec.lastSQL, "LIMIT $1 OFFSET $2")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{int32(15), int32(0)}, rec.lastArgs)
+	})
+
+	t.Run("ListITTicketsBySource query string", func(t *testing.T) {
+		_, _ = repo.ListITTicketsBySource(ctx, "customer", 10, 0)
+		assert.Contains(t, rec.lastSQL, "WHERE source = $1")
+		assert.Contains(t, rec.lastSQL, "LIMIT $2 OFFSET $3")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{"customer", int32(10), int32(0)}, rec.lastArgs)
+	})
+
+	t.Run("ListITTicketsByCustomer query string", func(t *testing.T) {
+		_, _ = repo.ListITTicketsByCustomer(ctx, "cust-1", 10, 0)
+		assert.Contains(t, rec.lastSQL, "WHERE customer_id = $1")
+		assert.Contains(t, rec.lastSQL, "LIMIT $2 OFFSET $3")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{"cust-1", int32(10), int32(0)}, rec.lastArgs)
+	})
+
+	t.Run("CreateITTicket query string", func(t *testing.T) {
+		_, _ = repo.CreateITTicket(ctx, &ITTicket{Title: "Issue", AuthorUsername: "user1"})
+		assert.Contains(t, rec.lastSQL, "INSERT INTO ops.it_tickets")
+		assert.Contains(t, rec.lastSQL, "RETURNING ticket_id")
+		assert.NotContains(t, rec.lastSQL, "%s")
+	})
+
+	t.Run("UpdateITTicket query string", func(t *testing.T) {
+		_, _ = repo.UpdateITTicket(ctx, &ITTicket{TicketID: "ticket-123", State: "closed"})
+		assert.Contains(t, rec.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, rec.lastSQL, "RETURNING ticket_id")
+		assert.NotContains(t, rec.lastSQL, "%s")
+	})
+
+	t.Run("AcknowledgeITTicket query string", func(t *testing.T) {
+		_, _ = repo.AcknowledgeITTicket(ctx, "ticket-123", "admin")
+		assert.Contains(t, rec.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, rec.lastSQL, "WHERE ticket_id = $1")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{"ticket-123", "admin"}, rec.lastArgs)
+	})
+
+	t.Run("CloseITTicket query string", func(t *testing.T) {
+		_, _ = repo.CloseITTicket(ctx, "ticket-123")
+		assert.Contains(t, rec.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, rec.lastSQL, "WHERE ticket_id = $1")
+		assert.NotContains(t, rec.lastSQL, "%s")
+		assert.Equal(t, []any{"ticket-123"}, rec.lastArgs)
+	})
+}
