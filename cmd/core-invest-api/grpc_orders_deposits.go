@@ -62,6 +62,30 @@ func (s *CoreInvestGRPCServer) CreateOrder(ctx context.Context, in *coreinvestv1
 	}, nil
 }
 
+func (s *CoreInvestGRPCServer) GetOrder(ctx context.Context, in *coreinvestv1.GetOrderRequest) (*coreinvestv1.GetOrderResponse, error) {
+	order, err := s.svc.GetBrokerageOrder(ctx, in.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	executed := ""
+	if order.ExecutedAt != nil {
+		executed = order.ExecutedAt.Format(time.RFC3339)
+	}
+	return &coreinvestv1.GetOrderResponse{
+		Order: &coreinvestv1.BrokerageOrder{
+			OrderID:     order.OrderID,
+			PortfolioID: order.PortfolioID,
+			Symbol:      order.Symbol,
+			Side:        order.Side,
+			Quantity:    order.Quantity,
+			Price:       order.Price,
+			Status:      order.Status,
+			BrokerName:  order.BrokerName,
+			ExecutedAt:  executed,
+		},
+	}, nil
+}
+
 func (s *CoreInvestGRPCServer) ListOrders(ctx context.Context, in *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
 	limit := in.Limit
 	if limit <= 0 {

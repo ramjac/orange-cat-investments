@@ -34,6 +34,7 @@ service CustomerBLLService {
   rpc RevokeAPIKey(RevokeAPIKeyRequest) returns (RevokeAPIKeyResponse);
   rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse);
   rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse);
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (DeleteWebhookResponse);
 
   rpc GetESGTransparency(GetESGTransparencyRequest) returns (GetESGTransparencyResponse);
   rpc ListCameraStreams(ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
@@ -337,6 +338,16 @@ message CreateWebhookRequest {
 
 message CreateWebhookResponse {
   oci.core_invest.v1.CustomerWebhook subscription = 1;
+}
+
+message DeleteWebhookRequest {
+  string customer_id = 1;
+  string webhook_id = 2;
+}
+
+message DeleteWebhookResponse {
+  bool success = 1;
+  string status = 2;
 }
 
 message FelineExecutiveSummary {

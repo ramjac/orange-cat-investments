@@ -300,6 +300,16 @@ type CreateWebhookResponse struct {
 	Subscription *coreinvestv1.CustomerWebhook `json:"subscription"`
 }
 
+type DeleteWebhookRequest struct {
+	CustomerID string `json:"customer_id"`
+	WebhookID  string `json:"webhook_id"`
+}
+
+type DeleteWebhookResponse struct {
+	Success bool   `json:"success"`
+	Status  string `json:"status"`
+}
+
 type FelineExecutiveSummary struct {
 	EmployeeID       string  `json:"employee_id"`
 	Name             string  `json:"name"`
@@ -477,6 +487,7 @@ type CustomerBLLServiceClient interface {
 	RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest) (*RevokeAPIKeyResponse, error)
 	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
 	CreateWebhook(ctx context.Context, in *CreateWebhookRequest) (*CreateWebhookResponse, error)
+	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 
 	GetESGTransparency(ctx context.Context, in *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
@@ -520,6 +531,7 @@ type CustomerBLLServiceServer interface {
 	RevokeAPIKey(ctx context.Context, in *RevokeAPIKeyRequest) (*RevokeAPIKeyResponse, error)
 	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
 	CreateWebhook(ctx context.Context, in *CreateWebhookRequest) (*CreateWebhookResponse, error)
+	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 
 	GetESGTransparency(ctx context.Context, in *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)

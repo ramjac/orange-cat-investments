@@ -163,4 +163,19 @@ func TestCustomerBFF_Webhooks(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, 70, len(secretStr), "webhook secret should be prefix 'whsec_' (6 chars) + 64 hex chars (32 bytes = 256 bits entropy)")
 	assert.True(t, secretStr[:6] == "whsec_")
+
+	// 3. DELETE /api/v1/customer/webhooks/{id} deletes the webhook subscription
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/customer/webhooks/sub-018f-1111", nil)
+	delReq.Header.Set("X-CSRF-Token", csrfVal)
+	delReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	delReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+	delRec := httptest.NewRecorder()
+	mux.ServeHTTP(delRec, delReq)
+	assert.Equal(t, http.StatusOK, delRec.Code)
+
+	var delResp map[string]interface{}
+	err = json.Unmarshal(delRec.Body.Bytes(), &delResp)
+	require.NoError(t, err)
+	assert.Equal(t, true, delResp["success"])
+	assert.Equal(t, "sub-018f-1111", delResp["webhook_id"])
 }

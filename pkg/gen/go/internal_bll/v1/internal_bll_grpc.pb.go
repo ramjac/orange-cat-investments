@@ -267,11 +267,20 @@ func (c *internalBLLServiceClient) CalibrateCameraLens(ctx context.Context, in *
 func (c *internalBLLServiceClient) ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
 	return invokeUnary[coreinvestv1.ListCameraStreamsRequest, coreinvestv1.ListCameraStreamsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListStreams", in)
 }
+func (c *internalBLLServiceClient) GetStream(ctx context.Context, in *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	return invokeUnary[coreinvestv1.GetCameraStreamRequest, coreinvestv1.GetCameraStreamResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/GetStream", in)
+}
+func (c *internalBLLServiceClient) GetCameraStream(ctx context.Context, in *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	return invokeUnary[coreinvestv1.GetCameraStreamRequest, coreinvestv1.GetCameraStreamResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/GetCameraStream", in)
+}
 func (c *internalBLLServiceClient) RegisterStream(ctx context.Context, in *coreinvestv1.RegisterCameraStreamRequest) (*coreinvestv1.RegisterCameraStreamResponse, error) {
 	return invokeUnary[coreinvestv1.RegisterCameraStreamRequest, coreinvestv1.RegisterCameraStreamResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/RegisterStream", in)
 }
 func (c *internalBLLServiceClient) ListBrokerageOrders(ctx context.Context, in *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
 	return invokeUnary[coreinvestv1.ListOrdersRequest, coreinvestv1.ListOrdersResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListBrokerageOrders", in)
+}
+func (c *internalBLLServiceClient) GetBrokerageOrder(ctx context.Context, in *coreinvestv1.GetOrderRequest) (*coreinvestv1.GetOrderResponse, error) {
+	return invokeUnary[coreinvestv1.GetOrderRequest, coreinvestv1.GetOrderResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/GetBrokerageOrder", in)
 }
 func (c *internalBLLServiceClient) ExecuteBrokerageOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
 	return invokeUnary[coreinvestv1.CreateOrderRequest, coreinvestv1.CreateOrderResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ExecuteBrokerageOrder", in)
@@ -279,8 +288,17 @@ func (c *internalBLLServiceClient) ExecuteBrokerageOrder(ctx context.Context, in
 func (c *internalBLLServiceClient) ListBacktestRuns(ctx context.Context, in *coreinvestv1.ListBacktestRunsRequest) (*coreinvestv1.ListBacktestRunsResponse, error) {
 	return invokeUnary[coreinvestv1.ListBacktestRunsRequest, coreinvestv1.ListBacktestRunsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListBacktestRuns", in)
 }
+func (c *internalBLLServiceClient) GetBacktestRun(ctx context.Context, in *coreinvestv1.GetBacktestRunRequest) (*coreinvestv1.GetBacktestRunResponse, error) {
+	return invokeUnary[coreinvestv1.GetBacktestRunRequest, coreinvestv1.GetBacktestRunResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/GetBacktestRun", in)
+}
 func (c *internalBLLServiceClient) StartBacktestRun(ctx context.Context, in *coreinvestv1.StartBacktestRunRequest) (*coreinvestv1.StartBacktestRunResponse, error) {
 	return invokeUnary[coreinvestv1.StartBacktestRunRequest, coreinvestv1.StartBacktestRunResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/StartBacktestRun", in)
+}
+func (c *internalBLLServiceClient) ListMLModels(ctx context.Context, in *coreinvestv1.ListMLModelsRequest) (*coreinvestv1.ListMLModelsResponse, error) {
+	return invokeUnary[coreinvestv1.ListMLModelsRequest, coreinvestv1.ListMLModelsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListMLModels", in)
+}
+func (c *internalBLLServiceClient) LogModelDrift(ctx context.Context, in *coreinvestv1.LogModelDriftRequest) (*coreinvestv1.LogModelDriftResponse, error) {
+	return invokeUnary[coreinvestv1.LogModelDriftRequest, coreinvestv1.LogModelDriftResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/LogModelDrift", in)
 }
 func (c *internalBLLServiceClient) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
 	return invokeUnary[coreinvestv1.ListRecurringDepositsRequest, coreinvestv1.ListRecurringDepositsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListRecurringDeposits", in)
@@ -604,11 +622,20 @@ func (UnimplementedInternalBLLServiceServer) SendPushNotification(context.Contex
 func (UnimplementedInternalBLLServiceServer) ListStreams(context.Context, *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListStreams not implemented")
 }
+func (UnimplementedInternalBLLServiceServer) GetStream(context.Context, *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStream not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) GetCameraStream(context.Context, *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCameraStream not implemented")
+}
 func (UnimplementedInternalBLLServiceServer) RegisterStream(context.Context, *coreinvestv1.RegisterCameraStreamRequest) (*coreinvestv1.RegisterCameraStreamResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterStream not implemented")
 }
 func (UnimplementedInternalBLLServiceServer) ListBrokerageOrders(context.Context, *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBrokerageOrders not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) GetBrokerageOrder(context.Context, *coreinvestv1.GetOrderRequest) (*coreinvestv1.GetOrderResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBrokerageOrder not implemented")
 }
 func (UnimplementedInternalBLLServiceServer) ExecuteBrokerageOrder(context.Context, *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteBrokerageOrder not implemented")
@@ -616,8 +643,17 @@ func (UnimplementedInternalBLLServiceServer) ExecuteBrokerageOrder(context.Conte
 func (UnimplementedInternalBLLServiceServer) ListBacktestRuns(context.Context, *coreinvestv1.ListBacktestRunsRequest) (*coreinvestv1.ListBacktestRunsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBacktestRuns not implemented")
 }
+func (UnimplementedInternalBLLServiceServer) GetBacktestRun(context.Context, *coreinvestv1.GetBacktestRunRequest) (*coreinvestv1.GetBacktestRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBacktestRun not implemented")
+}
 func (UnimplementedInternalBLLServiceServer) StartBacktestRun(context.Context, *coreinvestv1.StartBacktestRunRequest) (*coreinvestv1.StartBacktestRunResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartBacktestRun not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) ListMLModels(context.Context, *coreinvestv1.ListMLModelsRequest) (*coreinvestv1.ListMLModelsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMLModels not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) LogModelDrift(context.Context, *coreinvestv1.LogModelDriftRequest) (*coreinvestv1.LogModelDriftResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LogModelDrift not implemented")
 }
 func (UnimplementedInternalBLLServiceServer) ListRecurringDeposits(context.Context, *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListRecurringDeposits not implemented")
@@ -886,11 +922,20 @@ var InternalBLLService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListStreams", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListStreams", InternalBLLServiceServer.ListStreams)
 		}},
+		{MethodName: "GetStream", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/GetStream", InternalBLLServiceServer.GetStream)
+		}},
+		{MethodName: "GetCameraStream", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/GetCameraStream", InternalBLLServiceServer.GetCameraStream)
+		}},
 		{MethodName: "RegisterStream", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/RegisterStream", InternalBLLServiceServer.RegisterStream)
 		}},
 		{MethodName: "ListBrokerageOrders", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListBrokerageOrders", InternalBLLServiceServer.ListBrokerageOrders)
+		}},
+		{MethodName: "GetBrokerageOrder", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/GetBrokerageOrder", InternalBLLServiceServer.GetBrokerageOrder)
 		}},
 		{MethodName: "ExecuteBrokerageOrder", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ExecuteBrokerageOrder", InternalBLLServiceServer.ExecuteBrokerageOrder)
@@ -898,8 +943,17 @@ var InternalBLLService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListBacktestRuns", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListBacktestRuns", InternalBLLServiceServer.ListBacktestRuns)
 		}},
+		{MethodName: "GetBacktestRun", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/GetBacktestRun", InternalBLLServiceServer.GetBacktestRun)
+		}},
 		{MethodName: "StartBacktestRun", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/StartBacktestRun", InternalBLLServiceServer.StartBacktestRun)
+		}},
+		{MethodName: "ListMLModels", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListMLModels", InternalBLLServiceServer.ListMLModels)
+		}},
+		{MethodName: "LogModelDrift", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/LogModelDrift", InternalBLLServiceServer.LogModelDrift)
 		}},
 		{MethodName: "ListRecurringDeposits", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListRecurringDeposits", InternalBLLServiceServer.ListRecurringDeposits)

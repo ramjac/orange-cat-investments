@@ -42,6 +42,20 @@ func (m *mockCustomerBLLClient) CreateWebhook(ctx context.Context, in *customerb
 	}, nil
 }
 
+func (m *mockCustomerBLLClient) DeleteWebhook(ctx context.Context, in *customerbllv1.DeleteWebhookRequest) (*customerbllv1.DeleteWebhookResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	hooks := m.webhooks[in.CustomerID]
+	updated := make([]*coreinvestv1.CustomerWebhook, 0, len(hooks))
+	for _, h := range hooks {
+		if h.WebhookID != in.WebhookID {
+			updated = append(updated, h)
+		}
+	}
+	m.webhooks[in.CustomerID] = updated
+	return &customerbllv1.DeleteWebhookResponse{Success: true}, nil
+}
+
 func (m *mockCustomerBLLClient) GetESGTransparency(ctx context.Context, in *customerbllv1.GetESGTransparencyRequest) (*customerbllv1.GetESGTransparencyResponse, error) {
 	return &customerbllv1.GetESGTransparencyResponse{
 		OverallWelfareScore:    98.2,

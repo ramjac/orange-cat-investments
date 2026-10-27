@@ -101,6 +101,9 @@ func (c *coreInvestServiceClient) DeleteWebhook(ctx context.Context, in *DeleteW
 func (c *coreInvestServiceClient) CreateOrder(ctx context.Context, in *CreateOrderRequest) (*CreateOrderResponse, error) {
 	return invokeUnary[CreateOrderRequest, CreateOrderResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/CreateOrder", in)
 }
+func (c *coreInvestServiceClient) GetOrder(ctx context.Context, in *GetOrderRequest) (*GetOrderResponse, error) {
+	return invokeUnary[GetOrderRequest, GetOrderResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/GetOrder", in)
+}
 func (c *coreInvestServiceClient) ListOrders(ctx context.Context, in *ListOrdersRequest) (*ListOrdersResponse, error) {
 	return invokeUnary[ListOrdersRequest, ListOrdersResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListOrders", in)
 }
@@ -251,6 +254,9 @@ func (UnimplementedCoreInvestServiceServer) DeleteWebhook(context.Context, *Dele
 func (UnimplementedCoreInvestServiceServer) CreateOrder(context.Context, *CreateOrderRequest) (*CreateOrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateOrder not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) GetOrder(context.Context, *GetOrderRequest) (*GetOrderResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOrder not implemented")
+}
 func (UnimplementedCoreInvestServiceServer) ListOrders(context.Context, *ListOrdersRequest) (*ListOrdersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListOrders not implemented")
 }
@@ -394,6 +400,9 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CreateOrder", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/CreateOrder", CoreInvestServiceServer.CreateOrder)
+		}},
+		{MethodName: "GetOrder", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/GetOrder", CoreInvestServiceServer.GetOrder)
 		}},
 		{MethodName: "ListOrders", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListOrders", CoreInvestServiceServer.ListOrders)

@@ -23,8 +23,11 @@ type mockProductionBLLClient struct {
 	listAssetsCalled        bool
 	listTicketsCalled       bool
 	listStreamsCalled       bool
+	getStreamCalled         bool
 	listOrdersCalled        bool
+	getOrderCalled          bool
 	listBacktestsCalled     bool
+	getBacktestCalled       bool
 }
 
 func (m *mockProductionBLLClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -78,6 +81,13 @@ func (m *mockProductionBLLClient) ListStreams(ctx context.Context, in *coreinves
 	}, nil
 }
 
+func (m *mockProductionBLLClient) GetCameraStream(ctx context.Context, in *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	m.getStreamCalled = true
+	return &coreinvestv1.GetCameraStreamResponse{
+		Stream: &coreinvestv1.CameraStream{StreamID: in.StreamID, AssetID: "asset-1"},
+	}, nil
+}
+
 func (m *mockProductionBLLClient) ListBrokerageOrders(ctx context.Context, in *coreinvestv1.ListOrdersRequest) (*coreinvestv1.ListOrdersResponse, error) {
 	m.listOrdersCalled = true
 	return &coreinvestv1.ListOrdersResponse{
@@ -87,12 +97,26 @@ func (m *mockProductionBLLClient) ListBrokerageOrders(ctx context.Context, in *c
 	}, nil
 }
 
+func (m *mockProductionBLLClient) GetBrokerageOrder(ctx context.Context, in *coreinvestv1.GetOrderRequest) (*coreinvestv1.GetOrderResponse, error) {
+	m.getOrderCalled = true
+	return &coreinvestv1.GetOrderResponse{
+		Order: &coreinvestv1.BrokerageOrder{OrderID: in.OrderID, Symbol: "AAPL"},
+	}, nil
+}
+
 func (m *mockProductionBLLClient) ListBacktestRuns(ctx context.Context, in *coreinvestv1.ListBacktestRunsRequest) (*coreinvestv1.ListBacktestRunsResponse, error) {
 	m.listBacktestsCalled = true
 	return &coreinvestv1.ListBacktestRunsResponse{
 		Runs: []*coreinvestv1.BacktestRun{
 			{RunID: "run-1", StrategyName: "alpha-1"},
 		},
+	}, nil
+}
+
+func (m *mockProductionBLLClient) GetBacktestRun(ctx context.Context, in *coreinvestv1.GetBacktestRunRequest) (*coreinvestv1.GetBacktestRunResponse, error) {
+	m.getBacktestCalled = true
+	return &coreinvestv1.GetBacktestRunResponse{
+		Run: &coreinvestv1.BacktestRun{RunID: in.RunID, StrategyName: "alpha-1"},
 	}, nil
 }
 
@@ -157,4 +181,25 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	router.ServeHTTP(recBacktests, reqBacktests)
 	assert.Equal(t, http.StatusOK, recBacktests.Code)
 	assert.True(t, mockBLL.listBacktestsCalled, "expected ListBacktestRuns RPC to be invoked")
+
+	// 8. Quant Stream detail route
+	reqStreamDetail := httptest.NewRequest(http.MethodGet, "/core-invest/streams/stream-1", nil)
+	recStreamDetail := httptest.NewRecorder()
+	router.ServeHTTP(recStreamDetail, reqStreamDetail)
+	assert.Equal(t, http.StatusOK, recStreamDetail.Code)
+	assert.True(t, mockBLL.getStreamCalled, "expected GetCameraStream RPC to be invoked")
+
+	// 9. Quant Order detail route
+	reqOrderDetail := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders/ord-1", nil)
+	recOrderDetail := httptest.NewRecorder()
+	router.ServeHTTP(recOrderDetail, reqOrderDetail)
+	assert.Equal(t, http.StatusOK, recOrderDetail.Code)
+	assert.True(t, mockBLL.getOrderCalled, "expected GetBrokerageOrder RPC to be invoked")
+
+	// 10. Quant Backtest Run detail route
+	reqBacktestDetail := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs/run-1", nil)
+	recBacktestDetail := httptest.NewRecorder()
+	router.ServeHTTP(recBacktestDetail, reqBacktestDetail)
+	assert.Equal(t, http.StatusOK, recBacktestDetail.Code)
+	assert.True(t, mockBLL.getBacktestCalled, "expected GetBacktestRun RPC to be invoked")
 }

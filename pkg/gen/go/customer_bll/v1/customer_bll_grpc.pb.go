@@ -115,6 +115,9 @@ func (c *customerBLLServiceClient) ListWebhooks(ctx context.Context, in *ListWeb
 func (c *customerBLLServiceClient) CreateWebhook(ctx context.Context, in *CreateWebhookRequest) (*CreateWebhookResponse, error) {
 	return invokeUnary[CreateWebhookRequest, CreateWebhookResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/CreateWebhook", in)
 }
+func (c *customerBLLServiceClient) DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error) {
+	return invokeUnary[DeleteWebhookRequest, DeleteWebhookResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/DeleteWebhook", in)
+}
 func (c *customerBLLServiceClient) GetESGTransparency(ctx context.Context, in *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error) {
 	return invokeUnary[GetESGTransparencyRequest, GetESGTransparencyResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetESGTransparency", in)
 }
@@ -216,6 +219,9 @@ func (UnimplementedCustomerBLLServiceServer) ListWebhooks(context.Context, *List
 }
 func (UnimplementedCustomerBLLServiceServer) CreateWebhook(context.Context, *CreateWebhookRequest) (*CreateWebhookResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateWebhook not implemented")
+}
+func (UnimplementedCustomerBLLServiceServer) DeleteWebhook(context.Context, *DeleteWebhookRequest) (*DeleteWebhookResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteWebhook not implemented")
 }
 func (UnimplementedCustomerBLLServiceServer) GetESGTransparency(context.Context, *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetESGTransparency not implemented")
@@ -359,6 +365,9 @@ var CustomerBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CreateWebhook", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/CreateWebhook", CustomerBLLServiceServer.CreateWebhook)
+		}},
+		{MethodName: "DeleteWebhook", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/DeleteWebhook", CustomerBLLServiceServer.DeleteWebhook)
 		}},
 		{MethodName: "GetESGTransparency", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/GetESGTransparency", CustomerBLLServiceServer.GetESGTransparency)

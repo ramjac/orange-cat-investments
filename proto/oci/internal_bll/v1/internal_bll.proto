@@ -92,11 +92,17 @@ service InternalBLLService {
 
   // Quant & Investment Research (Employee-Facing)
   rpc ListStreams(oci.core_invest.v1.ListCameraStreamsRequest) returns (oci.core_invest.v1.ListCameraStreamsResponse);
+  rpc GetStream(oci.core_invest.v1.GetCameraStreamRequest) returns (oci.core_invest.v1.GetCameraStreamResponse);
+  rpc GetCameraStream(oci.core_invest.v1.GetCameraStreamRequest) returns (oci.core_invest.v1.GetCameraStreamResponse);
   rpc RegisterStream(oci.core_invest.v1.RegisterCameraStreamRequest) returns (oci.core_invest.v1.RegisterCameraStreamResponse);
   rpc ListBrokerageOrders(oci.core_invest.v1.ListOrdersRequest) returns (oci.core_invest.v1.ListOrdersResponse);
+  rpc GetBrokerageOrder(oci.core_invest.v1.GetOrderRequest) returns (oci.core_invest.v1.GetOrderResponse);
   rpc ExecuteBrokerageOrder(oci.core_invest.v1.CreateOrderRequest) returns (oci.core_invest.v1.CreateOrderResponse);
   rpc ListBacktestRuns(oci.core_invest.v1.ListBacktestRunsRequest) returns (oci.core_invest.v1.ListBacktestRunsResponse);
+  rpc GetBacktestRun(oci.core_invest.v1.GetBacktestRunRequest) returns (oci.core_invest.v1.GetBacktestRunResponse);
   rpc StartBacktestRun(oci.core_invest.v1.StartBacktestRunRequest) returns (oci.core_invest.v1.StartBacktestRunResponse);
+  rpc ListMLModels(oci.core_invest.v1.ListMLModelsRequest) returns (oci.core_invest.v1.ListMLModelsResponse);
+  rpc LogModelDrift(oci.core_invest.v1.LogModelDriftRequest) returns (oci.core_invest.v1.LogModelDriftResponse);
   rpc ListRecurringDeposits(oci.core_invest.v1.ListRecurringDepositsRequest) returns (oci.core_invest.v1.ListRecurringDepositsResponse);
   rpc CreateRecurringDeposit(oci.core_invest.v1.CreateRecurringDepositRequest) returns (oci.core_invest.v1.CreateRecurringDepositResponse);
 

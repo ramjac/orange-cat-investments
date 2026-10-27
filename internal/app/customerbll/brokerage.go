@@ -259,3 +259,21 @@ func (s *Server) CreateWebhook(ctx context.Context, in *customerbllv1.CreateWebh
 		},
 	}, nil
 }
+
+func (s *Server) DeleteWebhook(ctx context.Context, in *customerbllv1.DeleteWebhookRequest) (*customerbllv1.DeleteWebhookResponse, error) {
+	if s.ciClient != nil {
+		res, err := s.ciClient.DeleteWebhook(ctx, &coreinvestv1.DeleteWebhookRequest{
+			CustomerID: in.CustomerID,
+			WebhookID:  in.WebhookID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		status := "deleted"
+		if res != nil && res.Status != "" {
+			status = res.Status
+		}
+		return &customerbllv1.DeleteWebhookResponse{Success: true, Status: status}, nil
+	}
+	return &customerbllv1.DeleteWebhookResponse{Success: true, Status: "deleted"}, nil
+}

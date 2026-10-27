@@ -261,6 +261,14 @@ type CreateOrderResponse struct {
 	Order *BrokerageOrder `json:"order"`
 }
 
+type GetOrderRequest struct {
+	OrderID string `json:"order_id"`
+}
+
+type GetOrderResponse struct {
+	Order *BrokerageOrder `json:"order"`
+}
+
 type ListOrdersRequest struct {
 	PortfolioID string `json:"portfolio_id"`
 	Limit       int32  `json:"limit"`
@@ -593,6 +601,7 @@ type CoreInvestServiceClient interface {
 	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
 	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest) (*CreateOrderResponse, error)
+	GetOrder(ctx context.Context, in *GetOrderRequest) (*GetOrderResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest) (*ListOrdersResponse, error)
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
@@ -637,6 +646,7 @@ type CoreInvestServiceServer interface {
 	ListWebhooks(ctx context.Context, in *ListWebhooksRequest) (*ListWebhooksResponse, error)
 	DeleteWebhook(ctx context.Context, in *DeleteWebhookRequest) (*DeleteWebhookResponse, error)
 	CreateOrder(ctx context.Context, in *CreateOrderRequest) (*CreateOrderResponse, error)
+	GetOrder(ctx context.Context, in *GetOrderRequest) (*GetOrderResponse, error)
 	ListOrders(ctx context.Context, in *ListOrdersRequest) (*ListOrdersResponse, error)
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)

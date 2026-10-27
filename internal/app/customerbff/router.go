@@ -87,6 +87,7 @@ func (b *CustomerBFF) Routes() http.Handler {
 		pw.Post("/api/v1/customer/api-keys", b.handleCreateAPIKey)
 		pw.Delete("/api/v1/customer/api-keys/{id}", b.handleRevokeAPIKey)
 		pw.Post("/api/v1/customer/webhooks", b.handleCreateWebhook)
+		pw.Delete("/api/v1/customer/webhooks/{id}", b.handleDeleteWebhook)
 		pw.Post("/api/v1/customer/support/tickets", b.handleCreateCustomerTicket)
 		pw.Post("/api/v1/customer/support/tickets/{id}/comments", b.handleAddCustomerTicketComment)
 		pw.Post("/api/v1/customer/account/close", b.handleCloseAccount)

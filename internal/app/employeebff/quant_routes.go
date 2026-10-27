@@ -73,6 +73,26 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /core-invest/streams", createStream)
 	mux.HandleFunc("POST /api/v1/core-invest/streams", createStream)
 
+	getStream := func(w http.ResponseWriter, r *http.Request) {
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.PathValue("id")
+		res, err := b.bllClient.GetCameraStream(r.Context(), &coreinvestv1.GetCameraStreamRequest{
+			StreamID: id,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Stream)
+	}
+
+	mux.HandleFunc("GET /core-invest/streams/{id}", getStream)
+	mux.HandleFunc("GET /api/v1/core-invest/streams/{id}", getStream)
+
 	// Brokerage Orders
 	listOrders := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -137,6 +157,26 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /core-invest/brokerage/orders", createOrder)
 	mux.HandleFunc("POST /api/v1/core-invest/brokerage/orders", createOrder)
 
+	getOrder := func(w http.ResponseWriter, r *http.Request) {
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.PathValue("id")
+		res, err := b.bllClient.GetBrokerageOrder(r.Context(), &coreinvestv1.GetOrderRequest{
+			OrderID: id,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Order)
+	}
+
+	mux.HandleFunc("GET /core-invest/brokerage/orders/{id}", getOrder)
+	mux.HandleFunc("GET /api/v1/core-invest/brokerage/orders/{id}", getOrder)
+
 	// Backtest Runs
 	listBacktests := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -200,6 +240,26 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs", listBacktests)
 	mux.HandleFunc("POST /core-invest/backtesting/runs", createBacktest)
 	mux.HandleFunc("POST /api/v1/core-invest/backtesting/runs", createBacktest)
+
+	getBacktest := func(w http.ResponseWriter, r *http.Request) {
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := r.PathValue("id")
+		res, err := b.bllClient.GetBacktestRun(r.Context(), &coreinvestv1.GetBacktestRunRequest{
+			RunID: id,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res.Run)
+	}
+
+	mux.HandleFunc("GET /core-invest/backtesting/runs/{id}", getBacktest)
+	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs/{id}", getBacktest)
 
 	// Recurring Deposits
 	listDeposits := func(w http.ResponseWriter, r *http.Request) {

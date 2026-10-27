@@ -409,3 +409,36 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		"created_at":      wh.CreatedAt,
 	})
 }
+
+func (b *CustomerBFF) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
+	session := CustomerFromContext(r.Context())
+	if session == nil {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "webhook id is required")
+		return
+	}
+
+	if b.bllClient == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
+		return
+	}
+
+	resp, err := b.bllClient.DeleteWebhook(r.Context(), &customerbllv1.DeleteWebhookRequest{
+		CustomerID: session.CustomerID,
+		WebhookID:  id,
+	})
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":    resp.Success,
+		"webhook_id": id,
+	})
+}

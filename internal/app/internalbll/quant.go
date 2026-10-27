@@ -22,6 +22,24 @@ func (s *Server) ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStr
 	return res, nil
 }
 
+// GetCameraStream returns a specific camera stream by ID from core-invest-api.
+func (s *Server) GetCameraStream(ctx context.Context, in *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest service client not configured")
+	}
+	res, err := s.ciClient.GetCameraStream(ctx, in)
+	if err != nil {
+		s.logger.Error("failed to get camera stream from core-invest-api", "error", err)
+		return nil, status.Errorf(codes.NotFound, "stream not found: %v", err)
+	}
+	return res, nil
+}
+
+// GetStream is an alias for GetCameraStream.
+func (s *Server) GetStream(ctx context.Context, in *coreinvestv1.GetCameraStreamRequest) (*coreinvestv1.GetCameraStreamResponse, error) {
+	return s.GetCameraStream(ctx, in)
+}
+
 // RegisterStream registers a new camera stream in core-invest-api.
 func (s *Server) RegisterStream(ctx context.Context, in *coreinvestv1.RegisterCameraStreamRequest) (*coreinvestv1.RegisterCameraStreamResponse, error) {
 	if s.ciClient == nil {
@@ -48,6 +66,19 @@ func (s *Server) ListBrokerageOrders(ctx context.Context, in *coreinvestv1.ListO
 	return res, nil
 }
 
+// GetBrokerageOrder retrieves a specific trade order by ID from core-invest-api.
+func (s *Server) GetBrokerageOrder(ctx context.Context, in *coreinvestv1.GetOrderRequest) (*coreinvestv1.GetOrderResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest service client not configured")
+	}
+	res, err := s.ciClient.GetOrder(ctx, in)
+	if err != nil {
+		s.logger.Error("failed to get order from core-invest-api", "error", err)
+		return nil, status.Errorf(codes.NotFound, "order not found: %v", err)
+	}
+	return res, nil
+}
+
 // ExecuteBrokerageOrder places a brokerage trade order via core-invest-api.
 func (s *Server) ExecuteBrokerageOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
 	if s.ciClient == nil {
@@ -70,6 +101,19 @@ func (s *Server) ListBacktestRuns(ctx context.Context, in *coreinvestv1.ListBack
 	if err != nil {
 		s.logger.Error("failed to list backtest runs from core-invest-api", "error", err)
 		return nil, status.Errorf(codes.Internal, "core-invest list backtest runs failed: %v", err)
+	}
+	return res, nil
+}
+
+// GetBacktestRun retrieves a specific backtest run by ID from core-invest-api.
+func (s *Server) GetBacktestRun(ctx context.Context, in *coreinvestv1.GetBacktestRunRequest) (*coreinvestv1.GetBacktestRunResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest service client not configured")
+	}
+	res, err := s.ciClient.GetBacktestRun(ctx, in)
+	if err != nil {
+		s.logger.Error("failed to get backtest run from core-invest-api", "error", err)
+		return nil, status.Errorf(codes.NotFound, "backtest run not found: %v", err)
 	}
 	return res, nil
 }
@@ -111,4 +155,20 @@ func (s *Server) CreateRecurringDeposit(ctx context.Context, in *coreinvestv1.Cr
 		return nil, fmt.Errorf("core-invest create recurring deposit failed: %w", err)
 	}
 	return res, nil
+}
+
+// ListMLModels retrieves available computer vision and quantitative ML models from core-invest-api.
+func (s *Server) ListMLModels(ctx context.Context, in *coreinvestv1.ListMLModelsRequest) (*coreinvestv1.ListMLModelsResponse, error) {
+	if s.ciClient == nil {
+		return &coreinvestv1.ListMLModelsResponse{Models: []*coreinvestv1.MLModelInfo{}}, nil
+	}
+	return s.ciClient.ListMLModels(ctx, in)
+}
+
+// LogModelDrift logs model performance and observation drift metrics into core-invest-api.
+func (s *Server) LogModelDrift(ctx context.Context, in *coreinvestv1.LogModelDriftRequest) (*coreinvestv1.LogModelDriftResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest service client not configured")
+	}
+	return s.ciClient.LogModelDrift(ctx, in)
 }

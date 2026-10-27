@@ -26,6 +26,7 @@ service CoreInvestService {
   rpc DeleteWebhook (DeleteWebhookRequest) returns (DeleteWebhookResponse);
 
   rpc CreateOrder (CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder (GetOrderRequest) returns (GetOrderResponse);
   rpc ListOrders (ListOrdersRequest) returns (ListOrdersResponse);
 
   rpc RegisterCameraStream (RegisterCameraStreamRequest) returns (RegisterCameraStreamResponse);
@@ -290,6 +291,14 @@ message CreateOrderRequest {
 }
 
 message CreateOrderResponse {
+  BrokerageOrder order = 1;
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
   BrokerageOrder order = 1;
 }
 
