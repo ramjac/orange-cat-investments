@@ -28,6 +28,7 @@ type mockProductionBLLClient struct {
 	getOrderCalled          bool
 	listBacktestsCalled     bool
 	getBacktestCalled       bool
+	listDepositsCalled      bool
 }
 
 func (m *mockProductionBLLClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -120,6 +121,15 @@ func (m *mockProductionBLLClient) GetBacktestRun(ctx context.Context, in *corein
 	}, nil
 }
 
+func (m *mockProductionBLLClient) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+	m.listDepositsCalled = true
+	return &coreinvestv1.ListRecurringDepositsResponse{
+		Deposits: []*coreinvestv1.RecurringDeposit{
+			{DepositID: "dep-1", CustomerID: in.CustomerID, AmountUSD: 500.0},
+		},
+	}, nil
+}
+
 func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	mockBLL := &mockProductionBLLClient{}
 	bff := employeebff.NewEmployeeBFF(mockBLL, nil)
@@ -161,45 +171,131 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recTickets.Code)
 	assert.True(t, mockBLL.listTicketsCalled, "expected ListTickets RPC to be invoked")
 
-	// 5. Quant Streams route
+	// 5. Quant Streams route (requires authenticated employee session)
 	reqStreams := httptest.NewRequest(http.MethodGet, "/core-invest/streams", nil)
+	reqStreams.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recStreams := httptest.NewRecorder()
 	router.ServeHTTP(recStreams, reqStreams)
 	assert.Equal(t, http.StatusOK, recStreams.Code)
 	assert.True(t, mockBLL.listStreamsCalled, "expected ListStreams RPC to be invoked")
 
-	// 6. Quant Orders route
+	// 6. Quant Orders route (requires authenticated employee session)
 	reqOrders := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders", nil)
+	reqOrders.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recOrders := httptest.NewRecorder()
 	router.ServeHTTP(recOrders, reqOrders)
 	assert.Equal(t, http.StatusOK, recOrders.Code)
 	assert.True(t, mockBLL.listOrdersCalled, "expected ListBrokerageOrders RPC to be invoked")
 
-	// 7. Quant Backtest Runs route
+	// 7. Quant Backtest Runs route (requires authenticated employee session)
 	reqBacktests := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs", nil)
+	reqBacktests.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recBacktests := httptest.NewRecorder()
 	router.ServeHTTP(recBacktests, reqBacktests)
 	assert.Equal(t, http.StatusOK, recBacktests.Code)
 	assert.True(t, mockBLL.listBacktestsCalled, "expected ListBacktestRuns RPC to be invoked")
 
-	// 8. Quant Stream detail route
+	// 8. Quant Stream detail route (requires authenticated employee session)
 	reqStreamDetail := httptest.NewRequest(http.MethodGet, "/core-invest/streams/stream-1", nil)
+	reqStreamDetail.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recStreamDetail := httptest.NewRecorder()
 	router.ServeHTTP(recStreamDetail, reqStreamDetail)
 	assert.Equal(t, http.StatusOK, recStreamDetail.Code)
 	assert.True(t, mockBLL.getStreamCalled, "expected GetCameraStream RPC to be invoked")
 
-	// 9. Quant Order detail route
+	// 9. Quant Order detail route (requires authenticated employee session)
 	reqOrderDetail := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders/ord-1", nil)
+	reqOrderDetail.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recOrderDetail := httptest.NewRecorder()
 	router.ServeHTTP(recOrderDetail, reqOrderDetail)
 	assert.Equal(t, http.StatusOK, recOrderDetail.Code)
 	assert.True(t, mockBLL.getOrderCalled, "expected GetBrokerageOrder RPC to be invoked")
 
-	// 10. Quant Backtest Run detail route
+	// 10. Quant Backtest Run detail route (requires authenticated employee session)
 	reqBacktestDetail := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs/run-1", nil)
+	reqBacktestDetail.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recBacktestDetail := httptest.NewRecorder()
 	router.ServeHTTP(recBacktestDetail, reqBacktestDetail)
 	assert.Equal(t, http.StatusOK, recBacktestDetail.Code)
 	assert.True(t, mockBLL.getBacktestCalled, "expected GetBacktestRun RPC to be invoked")
+
+	// 11. Quant Recurring Deposits route (requires authenticated employee session)
+	reqDeposits := httptest.NewRequest(http.MethodGet, "/core-invest/recurring-deposits?customer_id=cust-123", nil)
+	reqDeposits.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
+	recDeposits := httptest.NewRecorder()
+	router.ServeHTTP(recDeposits, reqDeposits)
+	assert.Equal(t, http.StatusOK, recDeposits.Code)
+	assert.True(t, mockBLL.listDepositsCalled, "expected ListRecurringDeposits RPC to be invoked")
+}
+
+func TestQuantRoutes_SecurityAuthentication(t *testing.T) {
+	mockBLL := &mockProductionBLLClient{}
+	bff := employeebff.NewEmployeeBFF(mockBLL, nil)
+	router := bff.SetupRouter()
+
+	quantEndpoints := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/core-invest/streams"},
+		{http.MethodGet, "/api/v1/core-invest/streams"},
+		{http.MethodGet, "/core-invest/streams/stream-1"},
+		{http.MethodGet, "/core-invest/brokerage/orders"},
+		{http.MethodGet, "/core-invest/brokerage/orders/ord-1"},
+		{http.MethodGet, "/core-invest/backtesting/runs"},
+		{http.MethodGet, "/core-invest/backtesting/runs/run-1"},
+		{http.MethodGet, "/core-invest/recurring-deposits?customer_id=cust-123"},
+		{http.MethodGet, "/api/v1/core-invest/recurring-deposits?customer_id=cust-123"},
+		{http.MethodPost, "/core-invest/recurring-deposits"},
+		{http.MethodPost, "/core-invest/brokerage/orders"},
+		{http.MethodPost, "/core-invest/streams"},
+		{http.MethodPost, "/core-invest/backtesting/runs"},
+	}
+
+	t.Run("Unauthenticated requests are rejected with 401", func(t *testing.T) {
+		for _, ep := range quantEndpoints {
+			req := httptest.NewRequest(ep.method, ep.path, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "endpoint %s %s should require authentication", ep.method, ep.path)
+		}
+	})
+
+	t.Run("Authenticated requests with valid session succeed", func(t *testing.T) {
+		sessStore := bff.SessionStore()
+		sess, err := sessStore.Create("emp-quant-1", "quant@oci.local", "Quant User", "investment", "Investment")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/core-invest/recurring-deposits?customer_id=cust-456", nil)
+		req.AddCookie(&http.Cookie{
+			Name:  "__Host-employee-session",
+			Value: sess.SessionID,
+		})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.True(t, mockBLL.listDepositsCalled)
+	})
 }
