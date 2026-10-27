@@ -61,7 +61,14 @@ func TestDoForgejoAs_TokensFromEnv(t *testing.T) {
 	assert.Equal(t, "token elise-secret-token-456", capturedAuth)
 
 	// 3. Fallback to default FORGEJO_TOKEN when generic user or user token not specified
+	os.Unsetenv("FORGEJO_MARCUS_TOKEN")
 	t.Setenv("FORGEJO_TOKEN", "default-forgejo-token-789")
+
+	capturedAuth = ""
+	_, _, err = client.DoForgejoAs(ctx, "emp-human-marcus", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "token default-forgejo-token-789", capturedAuth)
+
 	capturedAuth = ""
 	_, _, err = client.DoForgejoAs(ctx, "generic-user", "GET", "/api/v1/user", nil)
 	require.NoError(t, err)
