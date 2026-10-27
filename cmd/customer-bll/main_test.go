@@ -60,6 +60,30 @@ type stubCoreInvestServer struct {
 	portfolios       map[string]*coreinvestv1.Portfolio
 	streams          []*coreinvestv1.CameraStream
 	failStreams      bool
+	failListPorts    bool
+	failGenStmtFor   map[string]bool
+}
+
+func (s *stubCoreInvestServer) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+	if s.failListPorts {
+		return nil, status.Error(codes.Internal, "database error listing portfolios")
+	}
+	var list []*coreinvestv1.Portfolio
+	for _, p := range s.portfolios {
+		list = append(list, p)
+	}
+	return &coreinvestv1.ListPortfoliosResponse{Portfolios: list}, nil
+}
+
+func (s *stubCoreInvestServer) GenerateStatement(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error) {
+	if s.failGenStmtFor != nil && s.failGenStmtFor[in.PortfolioID] {
+		return nil, status.Error(codes.Internal, "failed to generate statement for portfolio")
+	}
+	return &coreinvestv1.GenerateStatementResponse{
+		StatementID: "stmt-" + in.PortfolioID,
+		PortfolioID: in.PortfolioID,
+		Status:      "generated",
+	}, nil
 }
 
 func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
@@ -442,4 +466,56 @@ func TestCustomerBLL_GetStreams(t *testing.T) {
 	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, respEmpty.Streams)
+}
+
+func TestCustomerBLL_GenerateBatchStatements(t *testing.T) {
+	// Case 1: core-invest client is nil -> Unavailable
+	bllNil := customerbll.NewServer(customerbll.Config{})
+	clientNil := startCustomerBLLTestServer(t, bllNil)
+	_, err := clientNil.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Contains(t, err.Error(), "core-invest service unavailable")
+
+	// Case 2: ListPortfolios returns an error -> Internal
+	ciStubFailList := &stubCoreInvestServer{failListPorts: true}
+	bllFailList := customerbll.NewServer(customerbll.Config{})
+	bllFailList.SetCoreInvestClient(ciStubFailList)
+	clientFailList := startCustomerBLLTestServer(t, bllFailList)
+	_, err = clientFailList.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Contains(t, err.Error(), "failed to list portfolios")
+
+	// Case 3: Success path with default parameters (Year=0, Period="") and partial portfolio statement failure
+	ciStub := &stubCoreInvestServer{
+		portfolios: map[string]*coreinvestv1.Portfolio{
+			"port-1": {PortfolioID: "port-1", CustomerID: "cust-1"},
+			"port-2": {PortfolioID: "port-2", CustomerID: "cust-2"},
+			"port-3": {PortfolioID: "port-3", CustomerID: "cust-3"},
+		},
+		failGenStmtFor: map[string]bool{
+			"port-2": true, // statement generation fails for port-2
+		},
+	}
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	res, err := client.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), res.TotalPortfolios) // 2 out of 3 succeeded
+	assert.Equal(t, "completed", res.Status)
+	assert.NotEmpty(t, res.Period)
+	assert.NotEmpty(t, res.GeneratedAt)
+
+	// Case 4: Success path with explicit Year and Period
+	resExplicit, err := client.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{
+		Year:   2025,
+		Period: "2025-01",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), resExplicit.TotalPortfolios)
+	assert.Equal(t, "2025-01", resExplicit.Period)
+	assert.Equal(t, "completed", resExplicit.Status)
 }
