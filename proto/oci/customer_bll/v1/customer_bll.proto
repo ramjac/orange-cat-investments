@@ -37,6 +37,7 @@ service CustomerBLLService {
 
   rpc GetESGTransparency(GetESGTransparencyRequest) returns (GetESGTransparencyResponse);
   rpc ListCameraStreams(ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
+  rpc CompleteBacktestRun(CompleteBacktestRunRequest) returns (CompleteBacktestRunResponse);
 
   rpc ListStatements(ListStatementsRequest) returns (ListStatementsResponse);
   rpc GenerateStatement(GenerateStatementRequest) returns (GenerateStatementResponse);
@@ -370,6 +371,16 @@ message ListCameraStreamsRequest {
 
 message ListCameraStreamsResponse {
   repeated oci.core_invest.v1.CameraStream streams = 1;
+}
+
+message CompleteBacktestRunRequest {
+  string run_id = 1;
+  string status = 2;
+  string results = 3;
+}
+
+message CompleteBacktestRunResponse {
+  oci.core_invest.v1.BacktestRun run = 1;
 }
 
 message ListStatementsRequest {

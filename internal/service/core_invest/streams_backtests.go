@@ -82,6 +82,16 @@ func (s *coreInvestService) ListBacktestRuns(ctx context.Context, limit, offset 
 	return s.repo.ListBacktestRuns(ctx, limit, offset)
 }
 
+func (s *coreInvestService) CompleteBacktestRun(ctx context.Context, id string, status string, results string) (*core_invest.BacktestRun, error) {
+	if id == "" {
+		return nil, errors.New("backtest id cannot be empty")
+	}
+	if status == "" {
+		status = "completed"
+	}
+	return s.repo.UpdateBacktestRunResults(ctx, id, status, results)
+}
+
 func (s *coreInvestService) ListMLModels(ctx context.Context) ([]map[string]interface{}, error) {
 	return []map[string]interface{}{
 		{

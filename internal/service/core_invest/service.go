@@ -37,6 +37,7 @@ type StreamBacktestService interface {
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error)
+	CompleteBacktestRun(ctx context.Context, id string, status string, results string) (*core_invest.BacktestRun, error)
 	ListMLModels(ctx context.Context) ([]map[string]interface{}, error)
 	LogModelDrift(ctx context.Context, payload map[string]interface{}) (map[string]interface{}, error)
 }

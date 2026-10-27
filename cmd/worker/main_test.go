@@ -14,6 +14,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/internal/app/worker"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,10 @@ func (m *mockCustomerBLLClient) GenerateBatchStatements(ctx context.Context, in 
 		Status:          "completed",
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func (m *mockCustomerBLLClient) CompleteBacktestRun(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error) {
+	return &customerbllv1.CompleteBacktestRunResponse{}, nil
 }
 
 type mockInternalBLLClient struct {
@@ -103,6 +108,10 @@ func (m *mockInternalBLLClient) BroadcastPebbleIncidentAlert(ctx context.Context
 		return m.broadcastFunc(ctx, in)
 	}
 	return &internalbllv1.BroadcastPebbleIncidentAlertResponse{TicketID: "tick-001", Status: "broadcasted"}, nil
+}
+
+func (m *mockInternalBLLClient) UpdateOTAJobStatus(ctx context.Context, in *facilitiesv1.UpdateOTAJobStatusRequest) (*facilitiesv1.UpdateOTAJobStatusResponse, error) {
+	return &facilitiesv1.UpdateOTAJobStatusResponse{Job: &facilitiesv1.DeviceOTAJob{JobID: in.JobID, Status: in.Status}}, nil
 }
 
 func TestEventEnvelopeJSON(t *testing.T) {
@@ -220,8 +229,9 @@ func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+	mockCustBLL := &mockCustomerBLLClient{}
 
-	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, mockCustBLL, nil, "", "", nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -254,8 +264,9 @@ func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+	mockIntBLL := &mockInternalBLLClient{}
 
-	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, nil, "", "", nil)
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, nil, mockIntBLL, "", "", nil)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -325,11 +336,12 @@ func TestHandleCatSpotted_DoesNotLogRawPayload(t *testing.T) {
 func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 	buf := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(buf, nil))
+	mockBLL := &mockCustomerBLLClient{}
 
 	secretPayloadStr := `{"secret_strategy":"CLASSIFIED_QUANT_MODEL"}`
 	msg := message.NewMessage("test-msg-uuid-456", []byte(secretPayloadStr))
 
-	outMsgs, err := worker.HandleBacktestRun(logger, msg)
+	outMsgs, err := worker.HandleBacktestRun(context.Background(), logger, mockBLL, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
 
@@ -340,6 +352,7 @@ func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 
 func TestHandleOTATriggered(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	mockBLL := &mockInternalBLLClient{}
 
 	event := worker.EventEnvelope[worker.OTATriggeredPayload]{
 		EventID:       watermill.NewUUID(),
@@ -361,7 +374,7 @@ func TestHandleOTATriggered(t *testing.T) {
 	assert.NoError(t, err)
 
 	msg := message.NewMessage(event.EventID, data)
-	outputMsgs, err := worker.HandleOTATriggered(logger, msg)
+	outputMsgs, err := worker.HandleOTATriggered(context.Background(), logger, mockBLL, msg)
 
 	assert.NoError(t, err)
 	assert.Len(t, outputMsgs, 1)
@@ -377,11 +390,12 @@ func TestHandleOTATriggered(t *testing.T) {
 func TestHandleOTATriggered_DoesNotLogRawPayload(t *testing.T) {
 	buf := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(buf, nil))
+	mockBLL := &mockInternalBLLClient{}
 
 	secretPayloadStr := `{"secret_ota_token":"SUPER_SECRET_OTA_KEY","payload":{"job_id":"job-1","asset_id":"asset-1","release_id":"rel-1","device_type":"edge_cam","version":"1.0","file_url":"http://url","checksum":"chk"}}`
 	msg := message.NewMessage("test-msg-uuid-789", []byte(secretPayloadStr))
 
-	outMsgs, err := worker.HandleOTATriggered(logger, msg)
+	outMsgs, err := worker.HandleOTATriggered(context.Background(), logger, mockBLL, msg)
 	require.NoError(t, err)
 	require.Len(t, outMsgs, 1)
 

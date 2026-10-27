@@ -101,7 +101,7 @@ func CreateRouter(
 			"events.investment.backtest_completed.v1",
 			ps,
 			func(msg *message.Message) ([]*message.Message, error) {
-				return HandleBacktestRun(logger, msg)
+				return HandleBacktestRun(context.Background(), logger, customerBLL, msg)
 			},
 		)
 		logger.Info("Watermill backtest handler registered")
@@ -128,7 +128,7 @@ func CreateRouter(
 		"events.facilities.ota_completed.v1",
 		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
-			return HandleOTATriggered(logger, msg)
+			return HandleOTATriggered(context.Background(), logger, internalBLL, msg)
 		},
 	)
 

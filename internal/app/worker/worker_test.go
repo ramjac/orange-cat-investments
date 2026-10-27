@@ -15,6 +15,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/internal/app/worker"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,14 @@ type mockCustomerBLL struct {
 	settleFunc    func(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error)
 	claimFunc     func(ctx context.Context, in *customerbllv1.ClaimDueRecurringDepositsRequest) (*customerbllv1.ClaimDueRecurringDepositsResponse, error)
 	batchStmtFunc func(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error)
+	completeBacktestFunc func(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error)
+}
+
+func (m *mockCustomerBLL) CompleteBacktestRun(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error) {
+	if m.completeBacktestFunc != nil {
+		return m.completeBacktestFunc(ctx, in)
+	}
+	return &customerbllv1.CompleteBacktestRunResponse{}, nil
 }
 
 func (m *mockCustomerBLL) SettleACHTransfer(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error) {
@@ -65,6 +74,14 @@ type mockInternalBLL struct {
 	checkReportFunc    func(ctx context.Context, in *internalbllv1.CheckExecutiveReportRequest) (*internalbllv1.CheckExecutiveReportResponse, error)
 	getFelineFunc      func(ctx context.Context, in *internalbllv1.GetFelineTargetRequest) (*internalbllv1.GetFelineTargetResponse, error)
 	broadcastFunc      func(ctx context.Context, in *internalbllv1.BroadcastPebbleIncidentAlertRequest) (*internalbllv1.BroadcastPebbleIncidentAlertResponse, error)
+	updateOTAFunc      func(ctx context.Context, in *facilitiesv1.UpdateOTAJobStatusRequest) (*facilitiesv1.UpdateOTAJobStatusResponse, error)
+}
+
+func (m *mockInternalBLL) UpdateOTAJobStatus(ctx context.Context, in *facilitiesv1.UpdateOTAJobStatusRequest) (*facilitiesv1.UpdateOTAJobStatusResponse, error) {
+	if m.updateOTAFunc != nil {
+		return m.updateOTAFunc(ctx, in)
+	}
+	return &facilitiesv1.UpdateOTAJobStatusResponse{Job: &facilitiesv1.DeviceOTAJob{JobID: in.JobID, Status: in.Status}}, nil
 }
 
 func (m *mockInternalBLL) GenerateMonthlyReport(ctx context.Context, in *internalbllv1.GenerateMonthlyReportRequest) (*internalbllv1.GenerateMonthlyReportResponse, error) {
@@ -117,11 +134,18 @@ func TestConsumersInvest(t *testing.T) {
 	})
 
 	t.Run("HandleBacktestRun", func(t *testing.T) {
-		msg := message.NewMessage("test-uuid", []byte(`{"strategy":"alpha"}`))
-		outMsgs, err := worker.HandleBacktestRun(logger, msg)
+		mockBLL := &mockCustomerBLL{}
+		msg := message.NewMessage("test-uuid", []byte(`{"backtest_id":"bt-1","strategy_id":"alpha"}`))
+		outMsgs, err := worker.HandleBacktestRun(context.Background(), logger, mockBLL, msg)
 		require.NoError(t, err)
 		require.Len(t, outMsgs, 1)
-		assert.Contains(t, string(outMsgs[0].Payload), "backtest_completed")
+		assert.Contains(t, string(outMsgs[0].Payload), "events.investment.backtest_completed.v1")
+	})
+
+	t.Run("HandleBacktestRun_NilClient", func(t *testing.T) {
+		msg := message.NewMessage("test-uuid", []byte(`{"backtest_id":"bt-1"}`))
+		_, err := worker.HandleBacktestRun(context.Background(), logger, nil, msg)
+		assert.Error(t, err)
 	})
 
 	t.Run("HandleACHTransferRequested", func(t *testing.T) {
@@ -161,9 +185,8 @@ func TestConsumersInvest(t *testing.T) {
 		data, _ := json.Marshal(req)
 		msg := message.NewMessage("msg-2", data)
 
-		outMsgs, err := worker.HandleACHTransferRequested(context.Background(), logger, nil, msg)
-		require.NoError(t, err)
-		require.Len(t, outMsgs, 1)
+		_, err := worker.HandleACHTransferRequested(context.Background(), logger, nil, msg)
+		assert.Error(t, err)
 	})
 }
 
@@ -171,6 +194,7 @@ func TestConsumersOpsWorkforce(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	t.Run("HandleOTATriggered", func(t *testing.T) {
+		mockBLL := &mockInternalBLL{}
 		otaReq := worker.EventEnvelope[worker.OTATriggeredPayload]{
 			EventID: "evt-ota-1",
 			Payload: worker.OTATriggeredPayload{
@@ -186,7 +210,7 @@ func TestConsumersOpsWorkforce(t *testing.T) {
 		data, _ := json.Marshal(otaReq)
 		msg := message.NewMessage("msg-ota", data)
 
-		outMsgs, err := worker.HandleOTATriggered(logger, msg)
+		outMsgs, err := worker.HandleOTATriggered(context.Background(), logger, mockBLL, msg)
 		require.NoError(t, err)
 		require.Len(t, outMsgs, 1)
 
@@ -195,6 +219,12 @@ func TestConsumersOpsWorkforce(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "job-1", comp.Payload.JobID)
 		assert.Equal(t, "completed", comp.Payload.Status)
+	})
+
+	t.Run("HandleOTATriggered_NilClient", func(t *testing.T) {
+		msg := message.NewMessage("msg-ota-nil", []byte(`{}`))
+		_, err := worker.HandleOTATriggered(context.Background(), logger, nil, msg)
+		assert.Error(t, err)
 	})
 
 	t.Run("HandleExecutiveReportTrigger", func(t *testing.T) {

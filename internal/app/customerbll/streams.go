@@ -179,6 +179,21 @@ func (s *Server) ListCameraStreams(ctx context.Context, in *customerbllv1.ListCa
 	return &customerbllv1.ListCameraStreamsResponse{Streams: res.Streams}, nil
 }
 
+func (s *Server) CompleteBacktestRun(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Errorf(codes.Unavailable, "core invest domain client is not initialized")
+	}
+	res, err := s.ciClient.CompleteBacktestRun(ctx, &coreinvestv1.CompleteBacktestRunRequest{
+		RunID:   in.RunID,
+		Status:  in.Status,
+		Results: in.Results,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &customerbllv1.CompleteBacktestRunResponse{Run: res.Run}, nil
+}
+
 func (s *Server) StreamPortfolioValuation(in *coreinvestv1.StreamPortfolioValuationRequest, stream customerbllv1.CustomerBLLService_StreamPortfolioValuationServer) error {
 	if in == nil || in.PortfolioID == "" {
 		return status.Error(codes.InvalidArgument, "portfolio_id required")

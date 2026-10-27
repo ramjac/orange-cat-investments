@@ -88,6 +88,14 @@ func (s *CoreInvestGRPCServer) ListBacktestRuns(ctx context.Context, in *coreinv
 	return &coreinvestv1.ListBacktestRunsResponse{Runs: out}, nil
 }
 
+func (s *CoreInvestGRPCServer) CompleteBacktestRun(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+	run, err := s.svc.CompleteBacktestRun(ctx, in.RunID, in.Status, in.Results)
+	if err != nil {
+		return nil, err
+	}
+	return &coreinvestv1.CompleteBacktestRunResponse{Run: toProtoBacktestRun(run)}, nil
+}
+
 func (s *CoreInvestGRPCServer) ListMLModels(ctx context.Context, in *coreinvestv1.ListMLModelsRequest) (*coreinvestv1.ListMLModelsResponse, error) {
 	models, err := s.svc.ListMLModels(ctx)
 	if err != nil {

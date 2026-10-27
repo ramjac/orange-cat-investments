@@ -334,6 +334,16 @@ type ListCameraStreamsResponse struct {
 	Streams []*coreinvestv1.CameraStream `json:"streams"`
 }
 
+type CompleteBacktestRunRequest struct {
+	RunID   string `json:"run_id"`
+	Status  string `json:"status"`
+	Results string `json:"results"`
+}
+
+type CompleteBacktestRunResponse struct {
+	Run *coreinvestv1.BacktestRun `json:"run"`
+}
+
 type ListStatementsRequest struct {
 	CustomerID string `json:"customer_id"`
 }
@@ -470,6 +480,7 @@ type CustomerBLLServiceClient interface {
 
 	GetESGTransparency(ctx context.Context, in *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
 
 	ListStatements(ctx context.Context, in *ListStatementsRequest) (*ListStatementsResponse, error)
 	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)
@@ -512,6 +523,7 @@ type CustomerBLLServiceServer interface {
 
 	GetESGTransparency(ctx context.Context, in *GetESGTransparencyRequest) (*GetESGTransparencyResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
 
 	ListStatements(ctx context.Context, in *ListStatementsRequest) (*ListStatementsResponse, error)
 	GenerateStatement(ctx context.Context, in *GenerateStatementRequest) (*GenerateStatementResponse, error)

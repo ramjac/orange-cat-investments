@@ -128,6 +128,9 @@ func (c *coreInvestServiceClient) GetBacktestRun(ctx context.Context, in *GetBac
 func (c *coreInvestServiceClient) ListBacktestRuns(ctx context.Context, in *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error) {
 	return invokeUnary[ListBacktestRunsRequest, ListBacktestRunsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListBacktestRuns", in)
 }
+func (c *coreInvestServiceClient) CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error) {
+	return invokeUnary[CompleteBacktestRunRequest, CompleteBacktestRunResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/CompleteBacktestRun", in)
+}
 func (c *coreInvestServiceClient) ListMLModels(ctx context.Context, in *ListMLModelsRequest) (*ListMLModelsResponse, error) {
 	return invokeUnary[ListMLModelsRequest, ListMLModelsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListMLModels", in)
 }
@@ -275,6 +278,9 @@ func (UnimplementedCoreInvestServiceServer) GetBacktestRun(context.Context, *Get
 func (UnimplementedCoreInvestServiceServer) ListBacktestRuns(context.Context, *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBacktestRuns not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) CompleteBacktestRun(context.Context, *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteBacktestRun not implemented")
+}
 func (UnimplementedCoreInvestServiceServer) ListMLModels(context.Context, *ListMLModelsRequest) (*ListMLModelsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListMLModels not implemented")
 }
@@ -415,6 +421,9 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "ListBacktestRuns", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListBacktestRuns", CoreInvestServiceServer.ListBacktestRuns)
+		}},
+		{MethodName: "CompleteBacktestRun", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/CompleteBacktestRun", CoreInvestServiceServer.CompleteBacktestRun)
 		}},
 		{MethodName: "ListMLModels", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListMLModels", CoreInvestServiceServer.ListMLModels)

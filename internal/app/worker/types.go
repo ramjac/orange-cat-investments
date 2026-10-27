@@ -99,6 +99,23 @@ type CARotationPayload struct {
 	Status                    string    `json:"status"`
 }
 
+// BacktestRequestedPayload is payload for events.investment.backtest_requested.v1.
+type BacktestRequestedPayload struct {
+	BacktestID string `json:"backtest_id"`
+	StrategyID string `json:"strategy_id"`
+	RunID      string `json:"run_id,omitempty"`
+}
+
+// BacktestCompletedPayload is payload for events.investment.backtest_completed.v1.
+type BacktestCompletedPayload struct {
+	RunID       string    `json:"run_id"`
+	StrategyID  string    `json:"strategy_id,omitempty"`
+	Status      string    `json:"status"`
+	SharpeRatio float64   `json:"sharpe_ratio"`
+	Alpha       float64   `json:"alpha"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
 // IncidentCreatedEventPayload is payload for events.workforce.incident_created.v1.
 type IncidentCreatedEventPayload struct {
 	IncidentID       string    `json:"incident_id"`

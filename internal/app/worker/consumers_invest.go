@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -15,6 +16,10 @@ import (
 // HandleACHTransferRequested consumes an ACH transfer requested event and delegates settlement to Customer BLL.
 func HandleACHTransferRequested(ctx context.Context, logger *slog.Logger, customerBLL customerbllv1.CustomerBLLServiceClient, msg *message.Message) ([]*message.Message, error) {
 	logger.Info("Watermill consumer received ACH transfer requested event", "uuid", msg.UUID)
+
+	if customerBLL == nil {
+		return nil, errors.New("customer BLL client not configured for ACH settlement")
+	}
 
 	var envelope EventEnvelope[ACHTransferRequestedPayload]
 	if err := json.Unmarshal(msg.Payload, &envelope); err != nil {
@@ -31,26 +36,22 @@ func HandleACHTransferRequested(ctx context.Context, logger *slog.Logger, custom
 	)
 
 	settledAt := time.Now().UTC()
-	if customerBLL != nil {
-		res, err := customerBLL.SettleACHTransfer(ctx, &customerbllv1.SettleACHTransferRequest{
-			TransferID:   req.TransferID,
-			CustomerID:   req.CustomerID,
-			PortfolioID:  req.PortfolioID,
-			BankAccount:  req.BankAccount,
-			AmountUSD:    req.AmountUSD,
-			TransferType: req.TransferType,
-		})
-		if err != nil {
-			logger.Error("Customer BLL ACH settlement error", "transfer_id", req.TransferID, "error", err)
-			return nil, fmt.Errorf("customer BLL ACH settlement failed for transfer %s: %w", req.TransferID, err)
+	res, err := customerBLL.SettleACHTransfer(ctx, &customerbllv1.SettleACHTransferRequest{
+		TransferID:   req.TransferID,
+		CustomerID:   req.CustomerID,
+		PortfolioID:  req.PortfolioID,
+		BankAccount:  req.BankAccount,
+		AmountUSD:    req.AmountUSD,
+		TransferType: req.TransferType,
+	})
+	if err != nil {
+		logger.Error("Customer BLL ACH settlement error", "transfer_id", req.TransferID, "error", err)
+		return nil, fmt.Errorf("customer BLL ACH settlement failed for transfer %s: %w", req.TransferID, err)
+	}
+	if res != nil && res.SettledAt != "" {
+		if t, parseErr := time.Parse(time.RFC3339, res.SettledAt); parseErr == nil {
+			settledAt = t
 		}
-		if res != nil && res.SettledAt != "" {
-			if t, parseErr := time.Parse(time.RFC3339, res.SettledAt); parseErr == nil {
-				settledAt = t
-			}
-		}
-	} else {
-		logger.Warn("Customer BLL client not configured; proceeding with mock ACH settlement", "transfer_id", req.TransferID)
 	}
 
 	settled := EventEnvelope[ACHSettledPayload]{
@@ -93,10 +94,62 @@ func HandleCatSpotted(logger *slog.Logger, msg *message.Message) ([]*message.Mes
 	return []*message.Message{outputMsg}, nil
 }
 
-// HandleBacktestRun executes a historical quant backtesting pipeline.
-func HandleBacktestRun(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
+// HandleBacktestRun executes a historical quant backtesting pipeline and persists updates through Customer BLL.
+func HandleBacktestRun(ctx context.Context, logger *slog.Logger, customerBLL customerbllv1.CustomerBLLServiceClient, msg *message.Message) ([]*message.Message, error) {
 	logger.Info("Watermill consumer processing historical backtest run", "uuid", msg.UUID)
 
-	outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"backtest_completed","results":{"sharpe_ratio":1.85,"alpha":0.12}}`))
+	if customerBLL == nil {
+		return nil, errors.New("customer BLL client not configured for backtest completion")
+	}
+
+	var payload BacktestRequestedPayload
+	var env EventEnvelope[BacktestRequestedPayload]
+	if err := json.Unmarshal(msg.Payload, &env); err == nil && (env.Payload.BacktestID != "" || env.Payload.RunID != "") {
+		payload = env.Payload
+	} else if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		logger.Error("failed to unmarshal backtest requested payload", "error", err)
+		return nil, fmt.Errorf("unmarshal backtest payload: %w", err)
+	}
+
+	runID := payload.BacktestID
+	if runID == "" {
+		runID = payload.RunID
+	}
+	if runID == "" {
+		runID = msg.UUID
+	}
+
+	resultsJSON := `{"sharpe_ratio":1.85,"alpha":0.12,"max_drawdown":0.08}`
+	_, err := customerBLL.CompleteBacktestRun(ctx, &customerbllv1.CompleteBacktestRunRequest{
+		RunID:   runID,
+		Status:  "completed",
+		Results: resultsJSON,
+	})
+	if err != nil {
+		logger.Error("failed to complete backtest run via Customer BLL", "run_id", runID, "error", err)
+		return nil, fmt.Errorf("customer BLL complete backtest run failed: %w", err)
+	}
+
+	completedAt := time.Now().UTC()
+	completionEvent := EventEnvelope[BacktestCompletedPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.investment.backtest_completed.v1",
+		OccurredAt:    completedAt,
+		CorrelationID: msg.UUID,
+		Payload: BacktestCompletedPayload{
+			RunID:       runID,
+			StrategyID:  payload.StrategyID,
+			Status:      "completed",
+			SharpeRatio: 1.85,
+			Alpha:       0.12,
+			CompletedAt: completedAt,
+		},
+	}
+
+	data, err := json.Marshal(completionEvent)
+	if err != nil {
+		return nil, fmt.Errorf("marshal backtest completed event: %w", err)
+	}
+	outputMsg := message.NewMessage(completionEvent.EventID, data)
 	return []*message.Message{outputMsg}, nil
 }

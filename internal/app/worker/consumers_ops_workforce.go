@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,29 +14,46 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
+	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
 var deliveredIncidentBFF sync.Map
 var deliveredIncidentPebble sync.Map
 
-// HandleOTATriggered processes OTA firmware update triggers for edge habitat hardware.
-func HandleOTATriggered(logger *slog.Logger, msg *message.Message) ([]*message.Message, error) {
+// HandleOTATriggered processes OTA firmware update triggers for edge habitat hardware and persists updates through Internal BLL.
+func HandleOTATriggered(ctx context.Context, logger *slog.Logger, internalBLL internalbllv1.InternalBLLServiceClient, msg *message.Message) ([]*message.Message, error) {
 	logger.Info("Watermill consumer received OTA update triggered event", "uuid", msg.UUID)
 
+	if internalBLL == nil {
+		return nil, errors.New("internal BLL client not configured for OTA job update")
+	}
+
 	var envelope EventEnvelope[OTATriggeredPayload]
-	status := "completed"
-	if err := json.Unmarshal(msg.Payload, &envelope); err == nil {
-		logger.Info("executing edge device OTA firmware update pipeline",
-			"job_id", envelope.Payload.JobID,
-			"asset_id", envelope.Payload.AssetID,
-			"version", envelope.Payload.Version,
-		)
-		logger.Info("downloading firmware image and verifying checksum",
-			"file_url", envelope.Payload.FileURL,
-			"checksum", envelope.Payload.Checksum,
-		)
-		logger.Info("applying OTA update to edge device and rebooting", "asset_id", envelope.Payload.AssetID)
+	if err := json.Unmarshal(msg.Payload, &envelope); err != nil {
+		logger.Error("failed to unmarshal OTA update triggered event", "error", err)
+		return nil, fmt.Errorf("unmarshal ota triggered event: %w", err)
+	}
+
+	payload := envelope.Payload
+	logger.Info("executing edge device OTA firmware update pipeline",
+		"job_id", payload.JobID,
+		"asset_id", payload.AssetID,
+		"version", payload.Version,
+	)
+	logger.Info("downloading firmware image and verifying checksum",
+		"file_url", payload.FileURL,
+		"checksum", payload.Checksum,
+	)
+	logger.Info("applying OTA update to edge device and rebooting", "asset_id", payload.AssetID)
+
+	_, err := internalBLL.UpdateOTAJobStatus(ctx, &facilitiesv1.UpdateOTAJobStatusRequest{
+		JobID:  payload.JobID,
+		Status: "completed",
+	})
+	if err != nil {
+		logger.Error("failed to update OTA job status via Internal BLL", "job_id", payload.JobID, "error", err)
+		return nil, fmt.Errorf("internal BLL update ota job status failed: %w", err)
 	}
 
 	completionEvent := EventEnvelope[OTACompletedPayload]{
@@ -44,10 +62,10 @@ func HandleOTATriggered(logger *slog.Logger, msg *message.Message) ([]*message.M
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: msg.UUID,
 		Payload: OTACompletedPayload{
-			JobID:       envelope.Payload.JobID,
-			AssetID:     envelope.Payload.AssetID,
-			ReleaseID:   envelope.Payload.ReleaseID,
-			Status:      status,
+			JobID:       payload.JobID,
+			AssetID:     payload.AssetID,
+			ReleaseID:   payload.ReleaseID,
+			Status:      "completed",
 			CompletedAt: time.Now().UTC(),
 		},
 	}

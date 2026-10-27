@@ -49,22 +49,20 @@ func main() {
 		var err error
 		tlsConfig, err = mtls.NewClientTLSConfig(tlsCert, tlsKey, caCert)
 		if err != nil {
-			logger.Warn("could not load client mTLS config for internal-bll, proceeding without TLS", "error", err)
+			logger.Error("pebble-proxy fatal: could not load client mTLS config for internal-bll", "error", err)
+			os.Exit(1)
 		}
 	}
 
 	bllConn, err := grpcutil.Dial(ctx, internalBLLURL, tlsConfig)
 	if err != nil {
-		logger.Warn("could not connect to internal-bll gRPC service", "url", internalBLLURL, "error", err)
-	} else {
-		defer bllConn.Close()
-		logger.Info("connected to internal-bll gRPC service", "url", internalBLLURL)
+		logger.Error("pebble-proxy fatal: could not connect to internal-bll gRPC service", "url", internalBLLURL, "error", err)
+		os.Exit(1)
 	}
+	defer bllConn.Close()
+	logger.Info("connected to internal-bll gRPC service", "url", internalBLLURL)
 
-	var bllClient internalbllv1.InternalBLLServiceClient
-	if bllConn != nil {
-		bllClient = internalbllv1.NewInternalBLLServiceClient(bllConn)
-	}
+	bllClient := internalbllv1.NewInternalBLLServiceClient(bllConn)
 
 	router := NewRouter(bllClient, logger)
 	httputil.ListenAndServeGraceful("Pebble Companion Gateway Proxy", port, router, logger)

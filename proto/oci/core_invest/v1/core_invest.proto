@@ -37,6 +37,7 @@ service CoreInvestService {
   rpc StartBacktestRun (StartBacktestRunRequest) returns (StartBacktestRunResponse);
   rpc GetBacktestRun (GetBacktestRunRequest) returns (GetBacktestRunResponse);
   rpc ListBacktestRuns (ListBacktestRunsRequest) returns (ListBacktestRunsResponse);
+  rpc CompleteBacktestRun (CompleteBacktestRunRequest) returns (CompleteBacktestRunResponse);
   rpc ListMLModels (ListMLModelsRequest) returns (ListMLModelsResponse);
   rpc LogModelDrift (LogModelDriftRequest) returns (LogModelDriftResponse);
 
@@ -412,6 +413,16 @@ message ListBacktestRunsRequest {
 
 message ListBacktestRunsResponse {
   repeated BacktestRun runs = 1;
+}
+
+message CompleteBacktestRunRequest {
+  string run_id = 1;
+  string status = 2;
+  string results = 3;
+}
+
+message CompleteBacktestRunResponse {
+  BacktestRun run = 1;
 }
 
 message MLModelInfo {

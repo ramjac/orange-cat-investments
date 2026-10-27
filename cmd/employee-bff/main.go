@@ -30,7 +30,6 @@ func main() {
 		bllURL = "internal-bll-service.oci-core.svc.cluster.local:8086"
 	}
 
-	var bllClient internalbllv1.InternalBLLServiceClient
 	tlsCert := os.Getenv("TLS_CERT_FILE")
 	tlsKey := os.Getenv("TLS_KEY_FILE")
 	caCert := os.Getenv("CA_CERT_FILE")
@@ -43,17 +42,19 @@ func main() {
 		var err error
 		clientTLS, err = mtls.NewClientTLSConfig(tlsCert, tlsKey, caCert)
 		if err != nil {
-			logger.Warn("failed to initialize mTLS config for Internal BLL upstream; proceeding with fallback", "error", err)
+			logger.Error("employee-bff fatal: failed to initialize mTLS config for Internal BLL upstream", "error", err)
+			os.Exit(1)
 		}
 	}
 
 	conn, err := grpcutil.Dial(context.Background(), bllURL, clientTLS)
-	if err == nil {
-		bllClient = internalbllv1.NewInternalBLLServiceClient(conn)
-		logger.Info("connected Employee BFF to Internal BLL upstream via gRPC", "addr", bllURL)
-	} else {
-		logger.Warn("failed to connect to Internal BLL upstream; running with in-memory fallback", "addr", bllURL, "error", err)
+	if err != nil {
+		logger.Error("employee-bff fatal: failed to connect to Internal BLL upstream", "addr", bllURL, "error", err)
+		os.Exit(1)
 	}
+	defer conn.Close()
+	bllClient := internalbllv1.NewInternalBLLServiceClient(conn)
+	logger.Info("connected Employee BFF to Internal BLL upstream via gRPC", "addr", bllURL)
 
 	bff := employeebff.NewEmployeeBFF(bllClient, logger)
 

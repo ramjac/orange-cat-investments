@@ -121,6 +121,9 @@ func (c *customerBLLServiceClient) GetESGTransparency(ctx context.Context, in *G
 func (c *customerBLLServiceClient) ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return invokeUnary[ListCameraStreamsRequest, ListCameraStreamsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/ListCameraStreams", in)
 }
+func (c *customerBLLServiceClient) CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error) {
+	return invokeUnary[CompleteBacktestRunRequest, CompleteBacktestRunResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/CompleteBacktestRun", in)
+}
 func (c *customerBLLServiceClient) ListStatements(ctx context.Context, in *ListStatementsRequest) (*ListStatementsResponse, error) {
 	return invokeUnary[ListStatementsRequest, ListStatementsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/ListStatements", in)
 }
@@ -219,6 +222,9 @@ func (UnimplementedCustomerBLLServiceServer) GetESGTransparency(context.Context,
 }
 func (UnimplementedCustomerBLLServiceServer) ListCameraStreams(context.Context, *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCameraStreams not implemented")
+}
+func (UnimplementedCustomerBLLServiceServer) CompleteBacktestRun(context.Context, *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteBacktestRun not implemented")
 }
 func (UnimplementedCustomerBLLServiceServer) ListStatements(context.Context, *ListStatementsRequest) (*ListStatementsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListStatements not implemented")
@@ -359,6 +365,9 @@ var CustomerBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "ListCameraStreams", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/ListCameraStreams", CustomerBLLServiceServer.ListCameraStreams)
+		}},
+		{MethodName: "CompleteBacktestRun", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/CompleteBacktestRun", CustomerBLLServiceServer.CompleteBacktestRun)
 		}},
 		{MethodName: "ListStatements", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/ListStatements", CustomerBLLServiceServer.ListStatements)

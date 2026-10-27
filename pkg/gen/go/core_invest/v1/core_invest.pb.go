@@ -383,6 +383,16 @@ type ListBacktestRunsResponse struct {
 	Runs []*BacktestRun `json:"runs"`
 }
 
+type CompleteBacktestRunRequest struct {
+	RunID   string `json:"run_id"`
+	Status  string `json:"status"`
+	Results string `json:"results"`
+}
+
+type CompleteBacktestRunResponse struct {
+	Run *BacktestRun `json:"run"`
+}
+
 type MLModelInfo struct {
 	ModelID   string  `json:"model_id"`
 	Name      string  `json:"name"`
@@ -592,6 +602,7 @@ type CoreInvestServiceClient interface {
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
 	GetBacktestRun(ctx context.Context, in *GetBacktestRunRequest) (*GetBacktestRunResponse, error)
 	ListBacktestRuns(ctx context.Context, in *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
 	ListMLModels(ctx context.Context, in *ListMLModelsRequest) (*ListMLModelsResponse, error)
 	LogModelDrift(ctx context.Context, in *LogModelDriftRequest) (*LogModelDriftResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
@@ -635,6 +646,7 @@ type CoreInvestServiceServer interface {
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
 	GetBacktestRun(ctx context.Context, in *GetBacktestRunRequest) (*GetBacktestRunResponse, error)
 	ListBacktestRuns(ctx context.Context, in *ListBacktestRunsRequest) (*ListBacktestRunsResponse, error)
+	CompleteBacktestRun(ctx context.Context, in *CompleteBacktestRunRequest) (*CompleteBacktestRunResponse, error)
 	ListMLModels(ctx context.Context, in *ListMLModelsRequest) (*ListMLModelsResponse, error)
 	LogModelDrift(ctx context.Context, in *LogModelDriftRequest) (*LogModelDriftResponse, error)
 	CreateRecurringDeposit(ctx context.Context, in *CreateRecurringDepositRequest) (*CreateRecurringDepositResponse, error)
