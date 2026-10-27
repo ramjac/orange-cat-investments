@@ -254,7 +254,7 @@ fi
 
 # 6. Push Git Monorepo Tree to Forgejo
 echo "Pushing codebase to Forgejo repositories..."
-FORGEJO_HOST=$(echo "${FORGEJO_URL}" | sed -e 's|^[^/]*//||')
+FORGEJO_HOST="${FORGEJO_URL#*//}"
 CURRENT_COMMIT=$(git rev-parse HEAD)
 echo "Current HEAD commit: ${CURRENT_COMMIT} (branch: ${TARGET_BRANCH})"
 
