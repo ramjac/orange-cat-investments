@@ -38,7 +38,14 @@ func (b *EmployeeBFF) RegisterRoutes(mux *http.ServeMux) {
 
 	// 3. Workforce domain routes
 	if b.wfHandler != nil {
-		b.wfHandler.RegisterRoutes(mux)
+		if b.sessionStore != nil {
+			wfMux := http.NewServeMux()
+			b.wfHandler.RegisterRoutes(wfMux)
+			sessionAuth := SessionAuthMiddleware(b.sessionStore)
+			mux.Handle("/", sessionAuth(wfMux))
+		} else {
+			b.wfHandler.RegisterRoutes(mux)
+		}
 	}
 
 	// 4. Operations domain routes

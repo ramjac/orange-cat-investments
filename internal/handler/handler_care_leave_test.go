@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -129,8 +130,22 @@ func TestWorkforceWebhookEndpoints(t *testing.T) {
 func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
 	mux := setupTestServer()
 
+	hrSess := &session.EmployeeSession{
+		EmployeeID: "emp-human-hr-alice",
+		Role:       "hr",
+	}
+
+	t.Run("Unauthenticated Request Returns 401 Unauthorized", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+
 	t.Run("List All Leave Requests", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests", nil)
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), hrSess))
 		rec := httptest.NewRecorder()
 
 		mux.ServeHTTP(rec, req)
@@ -144,6 +159,7 @@ func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
 
 	t.Run("List Leave Requests With Filter", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests?employee_id=emp-feline-garfield&status=approved", nil)
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), hrSess))
 		rec := httptest.NewRecorder()
 
 		mux.ServeHTTP(rec, req)
@@ -168,6 +184,7 @@ func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/leave-requests", bytes.NewReader(data))
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), hrSess))
 		rec := httptest.NewRecorder()
 
 		mux.ServeHTTP(rec, req)
@@ -183,6 +200,7 @@ func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
 		updatePayload := map[string]string{"status": "approved"}
 		updateData, _ := json.Marshal(updatePayload)
 		updateReq := httptest.NewRequest("PUT", "/api/v1/workforce/leave-requests/"+created.LeaveID+"/status", bytes.NewReader(updateData))
+		updateReq = updateReq.WithContext(session.WithEmployeeSession(updateReq.Context(), hrSess))
 		updateRec := httptest.NewRecorder()
 
 		mux.ServeHTTP(updateRec, updateReq)
@@ -203,9 +221,85 @@ func TestWorkforceLeaveRequestsEndpoints(t *testing.T) {
 		}
 		badData, _ := json.Marshal(badPayload)
 		badReq := httptest.NewRequest("POST", "/api/v1/workforce/leave-requests", bytes.NewReader(badData))
+		badReq = badReq.WithContext(session.WithEmployeeSession(badReq.Context(), hrSess))
 		badRec := httptest.NewRecorder()
 		mux.ServeHTTP(badRec, badReq)
 
 		assert.Equal(t, http.StatusBadRequest, badRec.Code)
+	})
+
+	t.Run("Session Authorization - Regular Employee Access Controls", func(t *testing.T) {
+		staffSess := &session.EmployeeSession{
+			EmployeeID: "emp-feline-garfield",
+			Role:       "staff",
+		}
+
+		// 1. Viewing another employee's leave requests should fail with 403
+		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests?employee_id=emp-human-alice", nil)
+		ctx := session.WithEmployeeSession(req.Context(), staffSess)
+		req = req.WithContext(ctx)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+
+		// 2. Submitting a leave request for another employee should fail with 403
+		payload := map[string]any{
+			"employee_id": "emp-human-alice",
+			"leave_type":  "catnip_break",
+			"start_date":  "2026-11-01",
+			"end_date":    "2026-11-03",
+		}
+		data, _ := json.Marshal(payload)
+		createReq := httptest.NewRequest("POST", "/api/v1/workforce/leave-requests", bytes.NewReader(data))
+		createReq = createReq.WithContext(session.WithEmployeeSession(createReq.Context(), staffSess))
+		createRec := httptest.NewRecorder()
+		mux.ServeHTTP(createRec, createReq)
+		assert.Equal(t, http.StatusForbidden, createRec.Code)
+
+		// 3. Updating leave request status as regular staff should fail with 403
+		updatePayload := map[string]string{"status": "approved"}
+		updateData, _ := json.Marshal(updatePayload)
+		updateReq := httptest.NewRequest("PUT", "/api/v1/workforce/leave-requests/leave-req-123/status", bytes.NewReader(updateData))
+		updateReq = updateReq.WithContext(session.WithEmployeeSession(updateReq.Context(), staffSess))
+		updateRec := httptest.NewRecorder()
+		mux.ServeHTTP(updateRec, updateReq)
+		assert.Equal(t, http.StatusForbidden, updateRec.Code)
+	})
+
+	t.Run("Session Authorization - HR Employee Access Controls", func(t *testing.T) {
+		hrSess := &session.EmployeeSession{
+			EmployeeID: "emp-human-hr-alice",
+			Role:       "hr",
+		}
+
+		// 1. HR can view leave requests for another employee
+		req := httptest.NewRequest("GET", "/api/v1/workforce/leave-requests?employee_id=emp-feline-garfield", nil)
+		req = req.WithContext(session.WithEmployeeSession(req.Context(), hrSess))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// 2. HR can submit leave request for another employee
+		payload := map[string]any{
+			"employee_id": "emp-feline-garfield",
+			"leave_type":  "catnip_break",
+			"start_date":  "2026-11-01",
+			"end_date":    "2026-11-03",
+		}
+		data, _ := json.Marshal(payload)
+		createReq := httptest.NewRequest("POST", "/api/v1/workforce/leave-requests", bytes.NewReader(data))
+		createReq = createReq.WithContext(session.WithEmployeeSession(createReq.Context(), hrSess))
+		createRec := httptest.NewRecorder()
+		mux.ServeHTTP(createRec, createReq)
+		assert.Equal(t, http.StatusCreated, createRec.Code)
+
+		// 3. HR can update leave request status
+		updatePayload := map[string]string{"status": "approved"}
+		updateData, _ := json.Marshal(updatePayload)
+		updateReq := httptest.NewRequest("PUT", "/api/v1/workforce/leave-requests/leave-1/status", bytes.NewReader(updateData))
+		updateReq = updateReq.WithContext(session.WithEmployeeSession(updateReq.Context(), hrSess))
+		updateRec := httptest.NewRecorder()
+		mux.ServeHTTP(updateRec, updateReq)
+		assert.Equal(t, http.StatusOK, updateRec.Code)
 	})
 }

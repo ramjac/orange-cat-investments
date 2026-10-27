@@ -125,8 +125,16 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	bff := employeebff.NewEmployeeBFF(mockBLL, nil)
 	router := bff.SetupRouter()
 
+	sessStore := bff.SessionStore()
+	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
+	require.NoError(t, err)
+
 	// 1. Workforce Employees route
 	reqEmp := httptest.NewRequest(http.MethodGet, "/api/v1/workforce/employees", nil)
+	reqEmp.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recEmp := httptest.NewRecorder()
 	router.ServeHTTP(recEmp, reqEmp)
 	assert.Equal(t, http.StatusOK, recEmp.Code)
@@ -134,6 +142,10 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 
 	// 2. Workforce Leave Requests route
 	reqLeave := httptest.NewRequest(http.MethodGet, "/api/v1/workforce/leave-requests", nil)
+	reqLeave.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recLeave := httptest.NewRecorder()
 	router.ServeHTTP(recLeave, reqLeave)
 	assert.Equal(t, http.StatusOK, recLeave.Code)
@@ -147,10 +159,6 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.True(t, mockBLL.listAssetsCalled, "expected ListAssets RPC to be invoked")
 
 	// 4. Operations Tickets route (requires authenticated employee session)
-	sessStore := bff.SessionStore()
-	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
-	require.NoError(t, err)
-
 	reqTickets := httptest.NewRequest(http.MethodGet, "/api/v1/ops/tickets", nil)
 	reqTickets.AddCookie(&http.Cookie{
 		Name:  "__Host-employee-session",

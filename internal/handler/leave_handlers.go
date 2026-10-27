@@ -5,11 +5,26 @@ import (
 	"net/http"
 
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func (h *WorkforceHandler) listLeaveRequests(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
 	status := r.URL.Query().Get("status")
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
+	if employeeID != "" && employeeID != sess.EmployeeID && sess.Role != "hr" && sess.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden: access to leave requests of another employee is restricted")
+		return
+	}
+	if employeeID == "" && sess.Role != "hr" && sess.Role != "admin" {
+		employeeID = sess.EmployeeID
+	}
 
 	if h.bllClient != nil {
 		resp, err := h.bllClient.ListLeaveRequests(r.Context(), &workforcev1.ListLeaveRequestsRequest{
@@ -42,6 +57,19 @@ func (h *WorkforceHandler) createLeaveRequest(w http.ResponseWriter, r *http.Req
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
+	if req.EmployeeID == "" {
+		req.EmployeeID = sess.EmployeeID
+	} else if req.EmployeeID != sess.EmployeeID && sess.Role != "hr" && sess.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden: cannot submit leave request for another employee")
 		return
 	}
 
@@ -81,6 +109,17 @@ func (h *WorkforceHandler) updateLeaveRequestStatus(w http.ResponseWriter, r *ht
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request JSON body: "+err.Error())
+		return
+	}
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
+	if sess.Role != "hr" && sess.Role != "admin" && sess.Role != "manager" {
+		writeError(w, http.StatusForbidden, "forbidden: insufficient permissions to update leave request status")
 		return
 	}
 

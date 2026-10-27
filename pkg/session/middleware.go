@@ -186,6 +186,11 @@ func CustomerSessionAuthMiddleware(store CustomerSessionStore) func(http.Handler
 func EmployeeSessionAuthMiddleware(store EmployeeSessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/webhooks/") || r.URL.Path == "/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			var token string
 			if c, err := r.Cookie("__Host-employee-session"); err == nil && c.Value != "" {
 				token = c.Value
