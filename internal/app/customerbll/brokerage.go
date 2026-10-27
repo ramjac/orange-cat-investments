@@ -62,6 +62,8 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 				CashBalanceUSD:  acc.Cash,
 				Status:          acc.Status,
 				Holdings:        positions,
+				// TODO(Future Work 7.10): Replace hardcoded historical valuation points with dynamic historical calculation
+				// from brokerage transaction ledger or daily NAV snapshots once historical ledger service is available.
 				HistoricalPerformance: []*customerbllv1.ValuationPoint{
 					{Date: "2026-01-01", Valuation: math.Round(acc.PortfolioValue * 0.78)},
 					{Date: "2026-02-01", Valuation: math.Round(acc.PortfolioValue * 0.85)},

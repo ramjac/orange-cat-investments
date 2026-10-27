@@ -676,7 +676,7 @@ The following roadmap outlines planned technical debt remediation, architectural
 
 The remaining items are prioritized in the execution order that maximizes engineering velocity and minimizes architectural risk:
 1. **Phase 1 — End-to-End Verification, Codebase Modularity & Self-Hosted CI/CD (`7.1`–`7.3`):** Establish stateful authenticated persona simulation (`7.1`), decompose monolithic `main.go` entrypoints into modular handler packages while protected by that test suite (`7.2`), and wire automated in-cluster Forgejo Actions builds and live simulation promotion gates (`7.3`).
-2. **Phase 2 — Core Domain Completion (`7.4`):** Implement dynamic habitat camera provisioning and computer vision stream lifecycle management cleanly atop the modular BFF/BLL architecture.
+2. **Phase 2 — Core Domain Completion (`7.4`, `7.10`):** Implement dynamic habitat camera provisioning and computer vision stream lifecycle management (`7.4`) and dynamic historical portfolio valuation with daily NAV snapshots (`7.10`) cleanly atop the modular BFF/BLL architecture.
 3. **Phase 3 — Full-Stack Infrastructure, Database & Application Observability (`7.5`–`7.7`):** Instrument self-hosted Kubernetes blind spots (`7.5`), stateful data stores (`7.6`), and OpenTelemetry distributed tracing/metrics (`7.7`) across all completed domain services.
 4. **Phase 4 — Chaos Engineering & Zero-Trust Hardening (`7.8`–`7.9`):** Execute fault injection and chaos resilience verification against the fully instrumented alerting stack (`7.8`), followed by dynamic secret management and workload identity mesh hardening (`7.9`).
 
@@ -889,4 +889,22 @@ Complete the zero-trust security architecture to eliminate trust assumptions bet
   * Migrate from static base64-encoded Kubernetes Secret manifests to HashiCorp Vault or cert-manager CSI secret drivers, providing short-lived, dynamically generated database credentials and API tokens.
 * **Workload Identity Service Mesh:**
   * Explore SPIRE (SPIFFE Runtime Environment) or OpenZiti (https://github.com/openziti/ziti) to establish cryptographically attested workload identities for zero-trust service mesh connectivity without depending exclusively on network perimeter security.
+
+### 7.10 Dynamic Historical Portfolio Valuation & Daily Net Asset Value (NAV) Snapshot Engine
+Eliminate static and hardcoded historical performance points in `customer-bff` and `customer-bll` by introducing an automated daily Net Asset Value (NAV) snapshot engine and time-series portfolio valuation service:
+
+* **Why Tenth (Phase 2 Domain Completion):** Resolves open technical debt identified during PR review on PR #137 where historical performance points (`Date`, `Valuation`) in `internal/app/customerbff/portfolio_handlers.go` and `internal/app/customerbll/brokerage.go` currently use hardcoded percentage multipliers (`0.78`, `0.85`, `0.92`) against the current total balance due to the absence of a historical time-series ledger.
+* **The Problem:**
+  Retail investors expect authentic portfolio growth charts over 1M, 3M, 6M, 1Y, and YTD intervals. Currently, because neither the database nor the broker integration persists periodic portfolio valuation snapshots, the BFF and BLL synthesize static valuation curves using fixed historical dates (`2026-01-01` through `2026-04-01`) scaled by arbitrary coefficients. This masks real investment gains/losses and prevents accurate performance analytics.
+* **Architecture & Objectives:**
+  * **Daily NAV Snapshot Persistence (`core_invest.portfolio_snapshots`):**
+    * Introduce a partitioned time-series table in PostgreSQL (`core_invest.portfolio_snapshots`) with columns `snapshot_id (UUID)`, `portfolio_id (UUID)`, `snapshot_date (DATE)`, `nav_usd (DECIMAL)`, `cash_usd (DECIMAL)`, `equity_usd (DECIMAL)`, `daily_return_pct (DECIMAL)`, and `holdings_breakdown (JSONB)`.
+    * Enforce a unique constraint on `(portfolio_id, snapshot_date)` to guarantee idempotency.
+  * **Automated End-of-Day Valuation Batch Runner:**
+    * Implement a scheduled cron worker (`cmd/worker` or batch CronJob) executing at market close (e.g., 21:00 UTC / 17:00 EST) that iterates active customer portfolios, computes current market values via real-time market data quotes, and persists immutable daily valuation records via `core-invest-api`.
+  * **Historical Portfolio Valuation RPC in BLL & BFF:**
+    * Add `GetPortfolioHistory(portfolio_id, start_date, end_date, interval)` to `core_invest.proto` and `customer_bll.proto`.
+    * In `customer-bll`, query `core_invest.portfolio_snapshots` for real historical valuation points, calculating true cumulative returns, drawdowns, and benchmark comparisons against feline executive activity indices.
+    * In `customer-bff`, serve dynamic historical valuation series directly to the Vue 3 customer portal charting components, completely removing hardcoded fallback curves.
+
 
