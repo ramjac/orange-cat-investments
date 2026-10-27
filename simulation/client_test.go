@@ -116,3 +116,59 @@ func TestClientDoWithBody(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.JSONEq(t, `{"status":"ok"}`, string(respBytes))
 }
+
+func TestDoForgejoAs_Tokens(t *testing.T) {
+	var receivedAuthHeader string
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	c := &Client{
+		forgejoURL: server.URL,
+		httpClient: server.Client(),
+	}
+
+	// 1. Unset all tokens; ensure no Authorization header and no hardcoded secrets leaked
+	t.Setenv("FORGEJO_TOKEN", "")
+	t.Setenv("FORGEJO_ELISE_TOKEN", "")
+	t.Setenv("FORGEJO_MARCUS_TOKEN", "")
+
+	receivedAuthHeader = "SENTINEL"
+	_, _, err := c.DoForgejoAs(context.Background(), "", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuthHeader, "expected no Authorization header when tokens are unset")
+
+	receivedAuthHeader = "SENTINEL"
+	_, _, err = c.DoForgejoAs(context.Background(), "emp-human-elise", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuthHeader, "expected no Authorization header when Elise token is unset")
+
+	receivedAuthHeader = "SENTINEL"
+	_, _, err = c.DoForgejoAs(context.Background(), "emp-human-marcus", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Empty(t, receivedAuthHeader, "expected no Authorization header when Marcus token is unset")
+
+	// 2. Set default FORGEJO_TOKEN
+	t.Setenv("FORGEJO_TOKEN", "test-default-token-123")
+	_, _, err = c.DoForgejoAs(context.Background(), "generic-user", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "token test-default-token-123", receivedAuthHeader)
+
+	// 3. Set FORGEJO_ELISE_TOKEN
+	t.Setenv("FORGEJO_ELISE_TOKEN", "test-elise-token-456")
+	_, _, err = c.DoForgejoAs(context.Background(), "emp-human-elise", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "token test-elise-token-456", receivedAuthHeader)
+
+	// 4. Set FORGEJO_MARCUS_TOKEN
+	t.Setenv("FORGEJO_MARCUS_TOKEN", "test-marcus-token-789")
+	_, _, err = c.DoForgejoAs(context.Background(), "emp-human-marcus", "GET", "/api/v1/user", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "token test-marcus-token-789", receivedAuthHeader)
+}
