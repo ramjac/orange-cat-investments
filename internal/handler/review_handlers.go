@@ -5,9 +5,15 @@ import (
 	"net/http"
 
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func (h *WorkforceHandler) listReviewCycles(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	employeeID := r.URL.Query().Get("employee_id")
 	status := r.URL.Query().Get("status")
 	reviewType := r.URL.Query().Get("review_type")
@@ -34,6 +40,11 @@ func (h *WorkforceHandler) listReviewCycles(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	var req struct {
 		EmployeeID              string   `json:"employee_id"`
 		ReviewType              string   `json:"review_type"`
@@ -168,6 +179,11 @@ func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Requ
 }
 
 func (h *WorkforceHandler) getReviewCycle(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
@@ -188,6 +204,11 @@ func (h *WorkforceHandler) getReviewCycle(w http.ResponseWriter, r *http.Request
 }
 
 func (h *WorkforceHandler) updateReviewCycle(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")

@@ -3,20 +3,57 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
+
+func newAuthReq(method, path string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, path, body)
+	ctx := session.WithEmployeeSession(req.Context(), &session.EmployeeSession{
+		EmployeeID: "emp-human-alice",
+		Email:      "alice@oci.local",
+		Name:       "Alice Vance",
+		Role:       "hr",
+		Department: "Human Resources",
+	})
+	return req.WithContext(ctx)
+}
 
 func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 	mux := setupTestServer()
 
+	t.Run("Unauthenticated Request Returns 401 Unauthorized", func(t *testing.T) {
+		endpoints := []struct {
+			method string
+			path   string
+		}{
+			{"GET", "/api/v1/workforce/review-cycles"},
+			{"POST", "/api/v1/workforce/review-cycles"},
+			{"GET", "/workforce/review-cycles/rev-1"},
+			{"PUT", "/api/v1/workforce/review-cycles/rev-1"},
+			{"POST", "/api/v1/workforce/review-cycles/rev-1/self-appraisal"},
+			{"POST", "/api/v1/workforce/review-cycles/rev-1/peer-feedback"},
+			{"POST", "/api/v1/workforce/review-cycles/rev-1/manager-assessment"},
+			{"POST", "/api/v1/workforce/review-cycles/rev-1/vet-audit"},
+		}
+
+		for _, ep := range endpoints {
+			req := httptest.NewRequest(ep.method, ep.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "expected 401 for %s %s", ep.method, ep.path)
+		}
+	})
+
 	t.Run("List All Review Cycles", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/workforce/review-cycles", nil)
+		req := newAuthReq("GET", "/api/v1/workforce/review-cycles", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -28,7 +65,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 	})
 
 	t.Run("List Review Cycles With Filter", func(t *testing.T) {
-		reqFilter := httptest.NewRequest("GET", "/workforce/review-cycles?employee_id=emp-feline-garfield&status=completed&review_type=feline_health_assessment", nil)
+		reqFilter := newAuthReq("GET", "/workforce/review-cycles?employee_id=emp-feline-garfield&status=completed&review_type=feline_health_assessment", nil)
 		recFilter := httptest.NewRecorder()
 		mux.ServeHTTP(recFilter, reqFilter)
 
@@ -53,7 +90,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"notes":         notes,
 		}
 		data, _ := json.Marshal(createPayload)
-		createReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(data))
+		createReq := newAuthReq("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(data))
 		createRec := httptest.NewRecorder()
 		mux.ServeHTTP(createRec, createReq)
 
@@ -67,7 +104,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 		assert.Equal(t, "2026-11-28", created.ScheduledFor)
 
 		// Fetch review cycle by ID
-		getReq := httptest.NewRequest("GET", "/workforce/review-cycles/"+created.ReviewID, nil)
+		getReq := newAuthReq("GET", "/workforce/review-cycles/"+created.ReviewID, nil)
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
@@ -87,7 +124,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"notes":  evalNotes,
 		}
 		updateData, _ := json.Marshal(updatePayload)
-		updateReq := httptest.NewRequest("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(updateData))
+		updateReq := newAuthReq("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(updateData))
 		updateRec := httptest.NewRecorder()
 		mux.ServeHTTP(updateRec, updateReq)
 
@@ -105,7 +142,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"score": 9.9,
 		}
 		badScoreData, _ := json.Marshal(badScorePayload)
-		badScoreReq := httptest.NewRequest("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(badScoreData))
+		badScoreReq := newAuthReq("PUT", "/api/v1/workforce/review-cycles/"+created.ReviewID, bytes.NewReader(badScoreData))
 		badScoreRec := httptest.NewRecorder()
 		mux.ServeHTTP(badScoreRec, badScoreReq)
 
@@ -119,7 +156,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"scheduled_for": "2026-11-28",
 		}
 		badData, _ := json.Marshal(badPayload)
-		badReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(badData))
+		badReq := newAuthReq("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(badData))
 		badRec := httptest.NewRecorder()
 		mux.ServeHTTP(badRec, badReq)
 
@@ -135,7 +172,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"scheduled_for": "2026-11-28",
 		}
 		createData, _ := json.Marshal(createPayload)
-		createReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(createData))
+		createReq := newAuthReq("POST", "/api/v1/workforce/review-cycles", bytes.NewReader(createData))
 		createRec := httptest.NewRecorder()
 		mux.ServeHTTP(createRec, createReq)
 		assert.Equal(t, http.StatusCreated, createRec.Code)
@@ -148,7 +185,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"self_score":     4.88,
 		}
 		selfData, _ := json.Marshal(selfPayload)
-		selfReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/self-appraisal", bytes.NewReader(selfData))
+		selfReq := newAuthReq("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/self-appraisal", bytes.NewReader(selfData))
 		selfRec := httptest.NewRecorder()
 		mux.ServeHTTP(selfRec, selfReq)
 		assert.Equal(t, http.StatusOK, selfRec.Code)
@@ -164,7 +201,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"peer_score":      4.90,
 		}
 		peerData, _ := json.Marshal(peerPayload)
-		peerReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/peer-feedback", bytes.NewReader(peerData))
+		peerReq := newAuthReq("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/peer-feedback", bytes.NewReader(peerData))
 		peerRec := httptest.NewRecorder()
 		mux.ServeHTTP(peerRec, peerReq)
 		assert.Equal(t, http.StatusOK, peerRec.Code)
@@ -180,7 +217,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"kpi_ratings":        map[string]float64{"hardware_uptime": 5.0},
 		}
 		mgrData, _ := json.Marshal(mgrPayload)
-		mgrReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/manager-assessment", bytes.NewReader(mgrData))
+		mgrReq := newAuthReq("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/manager-assessment", bytes.NewReader(mgrData))
 		mgrRec := httptest.NewRecorder()
 		mux.ServeHTTP(mgrRec, mgrReq)
 		assert.Equal(t, http.StatusOK, mgrRec.Code)
@@ -198,7 +235,7 @@ func TestWorkforceReviewCyclesEndpoints(t *testing.T) {
 			"vhr_record_id":           "vhr-12345",
 		}
 		vetData, _ := json.Marshal(vetPayload)
-		vetReq := httptest.NewRequest("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/vet-audit", bytes.NewReader(vetData))
+		vetReq := newAuthReq("POST", "/api/v1/workforce/review-cycles/"+rc.ReviewID+"/vet-audit", bytes.NewReader(vetData))
 		vetRec := httptest.NewRecorder()
 		mux.ServeHTTP(vetRec, vetReq)
 		assert.Equal(t, http.StatusOK, vetRec.Code)

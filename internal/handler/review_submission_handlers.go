@@ -5,9 +5,15 @@ import (
 	"net/http"
 
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func (h *WorkforceHandler) handleReviewSelfAppraisal(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
@@ -46,6 +52,11 @@ func (h *WorkforceHandler) handleReviewSelfAppraisal(w http.ResponseWriter, r *h
 }
 
 func (h *WorkforceHandler) handleReviewPeerFeedback(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
@@ -86,6 +97,11 @@ func (h *WorkforceHandler) handleReviewPeerFeedback(w http.ResponseWriter, r *ht
 }
 
 func (h *WorkforceHandler) handleReviewManagerAssessment(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
@@ -145,6 +161,11 @@ func (h *WorkforceHandler) handleReviewManagerAssessment(w http.ResponseWriter, 
 }
 
 func (h *WorkforceHandler) handleReviewVeterinaryAudit(w http.ResponseWriter, r *http.Request) {
+	if sess := session.EmployeeFromContext(r.Context()); sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: valid employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "review cycle id parameter is required")
