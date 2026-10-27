@@ -31,6 +31,23 @@ func (r *mockRow) Scan(dest ...any) error {
 	return r.err
 }
 
+type queryRecorderDB struct {
+	lastSQL  string
+	lastArgs []any
+}
+
+func (q *queryRecorderDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	q.lastSQL = sql
+	q.lastArgs = args
+	return &mockRow{err: pgx.ErrNoRows}
+}
+
+func (q *queryRecorderDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	q.lastSQL = sql
+	q.lastArgs = args
+	return nil, pgx.ErrNoRows
+}
+
 func TestOpsPgxRepository(t *testing.T) {
 	repo := NewMockRepository()
 	ctx := context.Background()
@@ -241,5 +258,49 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 
 		_, err = pgxRepo.CloseITTicket(ctx, "ticket-001")
 		assert.Error(t, err)
+	})
+
+	t.Run("Query SQL parameterization verification", func(t *testing.T) {
+		recorder := &queryRecorderDB{}
+		recRepo := NewRepository(recorder)
+
+		_, _ = recRepo.GetITTicketByID(ctx, "ticket-123")
+		assert.Contains(t, recorder.lastSQL, "WHERE ticket_id = $1")
+		assert.NotContains(t, recorder.lastSQL, "ticket-123")
+		assert.Equal(t, []any{"ticket-123"}, recorder.lastArgs)
+
+		_, _ = recRepo.ListOpenITTickets(ctx, 20, 10)
+		assert.Contains(t, recorder.lastSQL, "LIMIT $1 OFFSET $2")
+		assert.Equal(t, []any{int32(20), int32(10)}, recorder.lastArgs)
+
+		_, _ = recRepo.ListITTickets(ctx, 20, 10)
+		assert.Contains(t, recorder.lastSQL, "LIMIT $1 OFFSET $2")
+		assert.Equal(t, []any{int32(20), int32(10)}, recorder.lastArgs)
+
+		_, _ = recRepo.ListITTicketsBySource(ctx, "customer", 20, 10)
+		assert.Contains(t, recorder.lastSQL, "WHERE source = $1")
+		assert.Equal(t, []any{"customer", int32(20), int32(10)}, recorder.lastArgs)
+
+		_, _ = recRepo.ListITTicketsByCustomer(ctx, "cust-456", 20, 10)
+		assert.Contains(t, recorder.lastSQL, "WHERE customer_id = $1")
+		assert.Equal(t, []any{"cust-456", int32(20), int32(10)}, recorder.lastArgs)
+
+		_, _ = recRepo.CreateITTicket(ctx, &ITTicket{Title: "Test", AuthorUsername: "author"})
+		assert.Contains(t, recorder.lastSQL, "INSERT INTO ops.it_tickets")
+		assert.Contains(t, recorder.lastSQL, "RETURNING ticket_id, forgejo_issue_id")
+
+		_, _ = recRepo.UpdateITTicket(ctx, &ITTicket{TicketID: "ticket-123", State: "open"})
+		assert.Contains(t, recorder.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, recorder.lastSQL, "WHERE ticket_id = $1")
+
+		_, _ = recRepo.AcknowledgeITTicket(ctx, "ticket-123", "ack-user")
+		assert.Contains(t, recorder.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, recorder.lastSQL, "WHERE ticket_id = $1")
+		assert.Equal(t, []any{"ticket-123", "ack-user"}, recorder.lastArgs)
+
+		_, _ = recRepo.CloseITTicket(ctx, "ticket-123")
+		assert.Contains(t, recorder.lastSQL, "UPDATE ops.it_tickets")
+		assert.Contains(t, recorder.lastSQL, "WHERE ticket_id = $1")
+		assert.Equal(t, []any{"ticket-123"}, recorder.lastArgs)
 	})
 }
