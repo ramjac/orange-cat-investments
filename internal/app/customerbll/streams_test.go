@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"testing"
-	"time"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	"github.com/stretchr/testify/assert"
@@ -15,11 +14,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var _ coreinvestv1.CoreInvestServiceClient = (*mockCoreInvestClient)(nil)
+
 type mockValuationServer struct {
 	grpc.ServerStream
-	ctx        context.Context
-	sentEvents []*coreinvestv1.PortfolioValuationEvent
-	sendErr    error
+	ctx          context.Context
+	sentEvents   []*coreinvestv1.PortfolioValuationEvent
+	sendErr      error
+	cancelOnSend bool
+	cancelFunc   context.CancelFunc
 }
 
 func (m *mockValuationServer) Context() context.Context {
@@ -34,6 +37,9 @@ func (m *mockValuationServer) Send(evt *coreinvestv1.PortfolioValuationEvent) er
 		return m.sendErr
 	}
 	m.sentEvents = append(m.sentEvents, evt)
+	if m.cancelOnSend && m.cancelFunc != nil {
+		m.cancelFunc()
+	}
 	return nil
 }
 
@@ -202,16 +208,13 @@ func TestStreamPortfolioValuation_ContextCancelMidStream(t *testing.T) {
 	s := &Server{}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	serverStream := &mockValuationServer{ctx: ctx}
-
-	// Cancel context after 600ms (after first ticker tick at 500ms)
-	go func() {
-		time.Sleep(600 * time.Millisecond)
-		cancel()
-	}()
+	serverStream := &mockValuationServer{
+		ctx:          ctx,
+		cancelOnSend: true,
+		cancelFunc:   cancel,
+	}
 
 	err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-cancel-mid"}, serverStream)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(serverStream.sentEvents), 1)
-	assert.Less(t, len(serverStream.sentEvents), 5)
+	assert.Equal(t, 1, len(serverStream.sentEvents))
 }
