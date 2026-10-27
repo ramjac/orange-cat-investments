@@ -26,6 +26,21 @@ func TestCustomerBFF_PortfolioAndTickerRoutes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, portResp["total_balance_usd"].(float64), 0.0)
 	assert.Greater(t, portResp["cash_balance_usd"].(float64), 0.0)
+	assert.NotNil(t, portResp["historical_performance"])
+
+	// Check portfolio for a customer with no historical performance in mock (e.g. cust-active-chloe or new customer)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio", nil)
+	req2.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-chloe-token"})
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var portResp2 map[string]interface{}
+	err = json.Unmarshal(rec2.Body.Bytes(), &portResp2)
+	require.NoError(t, err)
+	histPoints, ok := portResp2["historical_performance"].([]interface{})
+	require.True(t, ok)
+	assert.Empty(t, histPoints, "expected empty historical_performance without fallback points")
 
 	// 2. GET /api/v1/customer/ticker
 	tReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/ticker", nil)
