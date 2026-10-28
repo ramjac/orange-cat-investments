@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type mockCoreInvestClient struct {
+type mockLifecycleCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 
 	registerCustomerFunc          func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error)
@@ -29,70 +29,70 @@ type mockCoreInvestClient struct {
 	generateStatementFunc         func(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error)
 }
 
-func (m *mockCoreInvestClient) RegisterCustomer(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
+func (m *mockLifecycleCoreInvestClient) RegisterCustomer(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
 	if m.registerCustomerFunc != nil {
 		return m.registerCustomerFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) CloseAndLiquidateAccount(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error) {
+func (m *mockLifecycleCoreInvestClient) CloseAndLiquidateAccount(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error) {
 	if m.closeAndLiquidateAccountFunc != nil {
 		return m.closeAndLiquidateAccountFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+func (m *mockLifecycleCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 	if m.executeGDPRErasureFunc != nil {
 		return m.executeGDPRErasureFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) GetGDPRErasureCertificate(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error) {
+func (m *mockLifecycleCoreInvestClient) GetGDPRErasureCertificate(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error) {
 	if m.getGDPRErasureCertificateFunc != nil {
 		return m.getGDPRErasureCertificateFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) ListStatements(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+func (m *mockLifecycleCoreInvestClient) ListStatements(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
 	if m.listStatementsFunc != nil {
 		return m.listStatementsFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) GenerateMonthlyStatement(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error) {
+func (m *mockLifecycleCoreInvestClient) GenerateMonthlyStatement(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error) {
 	if m.generateMonthlyStatementFunc != nil {
 		return m.generateMonthlyStatementFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) GenerateForm1099B(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error) {
+func (m *mockLifecycleCoreInvestClient) GenerateForm1099B(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error) {
 	if m.generateForm1099BFunc != nil {
 		return m.generateForm1099BFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) GetStatementDocument(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error) {
+func (m *mockLifecycleCoreInvestClient) GetStatementDocument(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error) {
 	if m.getStatementDocumentFunc != nil {
 		return m.getStatementDocumentFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+func (m *mockLifecycleCoreInvestClient) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
 	if m.listPortfoliosFunc != nil {
 		return m.listPortfoliosFunc(ctx, in)
 	}
 	return nil, errors.New("unimplemented")
 }
 
-func (m *mockCoreInvestClient) GenerateStatement(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error) {
+func (m *mockLifecycleCoreInvestClient) GenerateStatement(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error) {
 	if m.generateStatementFunc != nil {
 		return m.generateStatementFunc(ctx, in)
 	}
@@ -136,7 +136,7 @@ func TestRegisterCustomer_Fallback_WithoutCiClient(t *testing.T) {
 }
 
 func TestRegisterCustomer_WithCiClient_Success(t *testing.T) {
-	mockCi := &mockCoreInvestClient{
+	mockCi := &mockLifecycleCoreInvestClient{
 		registerCustomerFunc: func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
 			assert.Equal(t, "Whiskers Orange", in.Name)
 			assert.Equal(t, "whiskers@orangecat.io", in.Email)
@@ -181,7 +181,7 @@ func TestRegisterCustomer_WithCiClient_Success(t *testing.T) {
 }
 
 func TestRegisterCustomer_WithCiClient_Error(t *testing.T) {
-	mockCi := &mockCoreInvestClient{
+	mockCi := &mockLifecycleCoreInvestClient{
 		registerCustomerFunc: func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
 			return nil, errors.New("email already registered")
 		},
@@ -227,7 +227,7 @@ func TestCloseAccount(t *testing.T) {
 	})
 
 	t.Run("with ciClient success", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			closeAndLiquidateAccountFunc: func(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error) {
 				return &coreinvestv1.CloseAndLiquidateAccountResponse{
 					CustomerID:    in.CustomerID,
@@ -268,7 +268,7 @@ func TestExecuteGDPRErasure(t *testing.T) {
 	})
 
 	t.Run("with ciClient success", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 				return &coreinvestv1.ExecuteGDPRErasureResponse{
 					Certificate: &coreinvestv1.GDPRErasureCertificate{
@@ -321,7 +321,7 @@ func TestListStatements(t *testing.T) {
 	})
 
 	t.Run("with ciClient", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
 				return &coreinvestv1.ListStatementsResponse{
 					Statements: []*coreinvestv1.CustomerStatement{
@@ -364,7 +364,7 @@ func TestGenerateStatement(t *testing.T) {
 	})
 
 	t.Run("with ciClient monthly statement", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			generateMonthlyStatementFunc: func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error) {
 				return &coreinvestv1.GenerateMonthlyStatementResponse{
 					Statement: &coreinvestv1.CustomerStatement{StatementID: "stmt-m-1"},
@@ -384,7 +384,7 @@ func TestGenerateStatement(t *testing.T) {
 	})
 
 	t.Run("with ciClient 1099b", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			generateForm1099BFunc: func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error) {
 				return &coreinvestv1.GenerateForm1099BResponse{
 					Statement: &coreinvestv1.CustomerStatement{StatementID: "stmt-1099-1"},
@@ -424,7 +424,7 @@ func TestDownloadStatement(t *testing.T) {
 	})
 
 	t.Run("with ciClient", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			getStatementDocumentFunc: func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error) {
 				return &coreinvestv1.GetStatementDocumentResponse{
 					Statement: &coreinvestv1.CustomerStatement{StatementID: in.StatementID},
@@ -456,7 +456,7 @@ func TestGenerateBatchStatements(t *testing.T) {
 	})
 
 	t.Run("with ciClient success", func(t *testing.T) {
-		mockCi := &mockCoreInvestClient{
+		mockCi := &mockLifecycleCoreInvestClient{
 			listPortfoliosFunc: func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
 				return &coreinvestv1.ListPortfoliosResponse{
 					Portfolios: []*coreinvestv1.Portfolio{
