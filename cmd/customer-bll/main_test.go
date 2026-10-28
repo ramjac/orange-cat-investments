@@ -55,11 +55,14 @@ func (s *stubWorkforceServer) ListEmployees(ctx context.Context, in *workforcev1
 
 type stubCoreInvestServer struct {
 	coreinvestv1.UnimplementedCoreInvestServiceServer
-	orderPersisted   atomic.Bool
-	recurringCreated atomic.Bool
-	portfolios       map[string]*coreinvestv1.Portfolio
-	streams          []*coreinvestv1.CameraStream
-	failStreams      bool
+	orderPersisted            atomic.Bool
+	recurringCreated          atomic.Bool
+	portfolios                map[string]*coreinvestv1.Portfolio
+	streams                   []*coreinvestv1.CameraStream
+	failStreams               bool
+	recurringDeposits         []*coreinvestv1.RecurringDeposit
+	failListRecurringDeposits bool
+	advancedDeposits          []*coreinvestv1.AdvanceRecurringDepositRequest
 }
 
 func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
@@ -107,6 +110,22 @@ func (s *stubCoreInvestServer) ListCameraStreams(ctx context.Context, in *corein
 		return nil, status.Error(codes.Unavailable, "core-invest unavailable")
 	}
 	return &coreinvestv1.ListCameraStreamsResponse{Streams: s.streams}, nil
+}
+
+func (s *stubCoreInvestServer) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+	if s.failListRecurringDeposits {
+		return nil, status.Error(codes.Internal, "database failure listing recurring deposits")
+	}
+	return &coreinvestv1.ListRecurringDepositsResponse{
+		Deposits: s.recurringDeposits,
+	}, nil
+}
+
+func (s *stubCoreInvestServer) AdvanceRecurringDeposit(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error) {
+	s.advancedDeposits = append(s.advancedDeposits, in)
+	return &coreinvestv1.AdvanceRecurringDepositResponse{
+		Status: "ok",
+	}, nil
 }
 
 func (s *stubCoreInvestServer) StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
@@ -442,4 +461,136 @@ func TestCustomerBLL_GetStreams(t *testing.T) {
 	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, respEmpty.Streams)
+}
+
+func TestCustomerBLL_ClaimDueRecurringDeposits(t *testing.T) {
+	// Case 1: CoreInvest client unavailable (ciClient == nil)
+	bllNoCI := customerbll.NewServer(customerbll.Config{})
+	clientNoCI := startCustomerBLLTestServer(t, bllNoCI)
+
+	_, err := clientNoCI.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Contains(t, err.Error(), "core-invest service unavailable")
+
+	// Case 2: CoreInvest returns error on listing recurring deposits
+	ciStub := &stubCoreInvestServer{failListRecurringDeposits: true}
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	_, err = client.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Contains(t, err.Error(), "failed to list recurring deposits")
+
+	// Case 3: Processing and filtering recurring deposits
+	pastTime := "2025-01-01T00:00:00Z"
+	futureTime := "2099-01-01T00:00:00Z"
+
+	ciStub.failListRecurringDeposits = false
+	ciStub.recurringDeposits = []*coreinvestv1.RecurringDeposit{
+		{
+			DepositID:    "dep-inactive",
+			CustomerID:   "cust-01",
+			PortfolioID:  "port-01",
+			AmountUSD:    100.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-01",
+			Status:       "paused",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-future",
+			CustomerID:   "cust-02",
+			PortfolioID:  "port-02",
+			AmountUSD:    200.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-02",
+			Status:       "active",
+			NextChargeAt: futureTime,
+		},
+		{
+			DepositID:    "dep-weekly",
+			CustomerID:   "cust-03",
+			PortfolioID:  "port-03",
+			AmountUSD:    300.0,
+			Frequency:    "weekly",
+			BankAccount:  "bank-03",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-biweekly",
+			CustomerID:   "cust-04",
+			PortfolioID:  "port-04",
+			AmountUSD:    400.0,
+			Frequency:    "biweekly",
+			BankAccount:  "bank-04",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-biweekly-underscore",
+			CustomerID:   "cust-05",
+			PortfolioID:  "port-05",
+			AmountUSD:    500.0,
+			Frequency:    "bi_weekly",
+			BankAccount:  "bank-05",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-monthly",
+			CustomerID:   "cust-06",
+			PortfolioID:  "port-06",
+			AmountUSD:    600.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-06",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-default-freq",
+			CustomerID:   "cust-07",
+			PortfolioID:  "port-07",
+			AmountUSD:    700.0,
+			Frequency:    "custom",
+			BankAccount:  "bank-07",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-zerotime",
+			CustomerID:   "cust-08",
+			PortfolioID:  "port-08",
+			AmountUSD:    800.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-08",
+			Status:       "active",
+			NextChargeAt: "",
+		},
+	}
+
+	res, err := client.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Len(t, res.DueDeposits, 6)
+
+	// Verify IDs of claimed deposits
+	claimedIDs := make([]string, len(res.DueDeposits))
+	for i, d := range res.DueDeposits {
+		claimedIDs[i] = d.DepositID
+		assert.Equal(t, "active", d.Status)
+		assert.NotEmpty(t, d.NextChargeAt)
+	}
+	assert.Contains(t, claimedIDs, "dep-weekly")
+	assert.Contains(t, claimedIDs, "dep-biweekly")
+	assert.Contains(t, claimedIDs, "dep-biweekly-underscore")
+	assert.Contains(t, claimedIDs, "dep-monthly")
+	assert.Contains(t, claimedIDs, "dep-default-freq")
+	assert.Contains(t, claimedIDs, "dep-zerotime")
+
+	// Verify advance calls recorded in stub
+	assert.Len(t, ciStub.advancedDeposits, 6)
 }
