@@ -13,12 +13,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type mockCoreInvestClient struct {
+type mockGDPRCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 	executeGDPRErasureFunc func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
 }
 
-func (m *mockCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+func (m *mockGDPRCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 	if m.executeGDPRErasureFunc != nil {
 		return m.executeGDPRErasureFunc(ctx, in)
 	}
@@ -73,7 +73,7 @@ func TestExecuteGDPRErasure(t *testing.T) {
 	})
 
 	t.Run("integrated mode with ciClient success", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockGDPRCoreInvestClient{
 			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 				assert.Equal(t, "cust-777", in.CustomerID)
 				assert.Equal(t, "alice@example.com", in.Email)
@@ -102,7 +102,7 @@ func TestExecuteGDPRErasure(t *testing.T) {
 	})
 
 	t.Run("integrated mode with ciClient error propagation", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockGDPRCoreInvestClient{
 			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 				return nil, errors.New("database connection failed")
 			},
