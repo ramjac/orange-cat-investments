@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type mockCoreInvestClient struct {
+type mockBrokerageCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 
 	deleteWebhookFunc func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error)
@@ -21,21 +21,21 @@ type mockCoreInvestClient struct {
 	createWebhookFunc func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error)
 }
 
-func (m *mockCoreInvestClient) DeleteWebhook(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+func (m *mockBrokerageCoreInvestClient) DeleteWebhook(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
 	if m.deleteWebhookFunc != nil {
 		return m.deleteWebhookFunc(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
-func (m *mockCoreInvestClient) ListWebhooks(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
+func (m *mockBrokerageCoreInvestClient) ListWebhooks(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
 	if m.listWebhooksFunc != nil {
 		return m.listWebhooksFunc(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
-func (m *mockCoreInvestClient) CreateWebhook(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
+func (m *mockBrokerageCoreInvestClient) CreateWebhook(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
 	if m.createWebhookFunc != nil {
 		return m.createWebhookFunc(ctx, in)
 	}
@@ -60,7 +60,7 @@ func TestDeleteWebhook_NilCoreInvestClient(t *testing.T) {
 }
 
 func TestDeleteWebhook_CoreInvestSuccessWithStatus(t *testing.T) {
-	mockCI := &mockCoreInvestClient{
+	mockCI := &mockBrokerageCoreInvestClient{
 		deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
 			assert.Equal(t, "cust-202", in.CustomerID)
 			assert.Equal(t, "wh-sub-202", in.WebhookID)
@@ -88,7 +88,7 @@ func TestDeleteWebhook_CoreInvestSuccessWithStatus(t *testing.T) {
 
 func TestDeleteWebhook_CoreInvestSuccessWithDefaultStatus(t *testing.T) {
 	t.Run("nil response from coreinvest", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockBrokerageCoreInvestClient{
 			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
 				return nil, nil
 			},
@@ -108,7 +108,7 @@ func TestDeleteWebhook_CoreInvestSuccessWithDefaultStatus(t *testing.T) {
 	})
 
 	t.Run("empty status string from coreinvest", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockBrokerageCoreInvestClient{
 			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
 				return &coreinvestv1.DeleteWebhookResponse{Status: ""}, nil
 			},
@@ -131,7 +131,7 @@ func TestDeleteWebhook_CoreInvestSuccessWithDefaultStatus(t *testing.T) {
 func TestDeleteWebhook_CoreInvestErrorPropagation(t *testing.T) {
 	expectedErr := status.Error(codes.NotFound, "webhook subscription not found")
 
-	mockCI := &mockCoreInvestClient{
+	mockCI := &mockBrokerageCoreInvestClient{
 		deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
 			return nil, expectedErr
 		},
@@ -159,7 +159,7 @@ func TestListWebhooks(t *testing.T) {
 	})
 
 	t.Run("ciClient error returns empty slice", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockBrokerageCoreInvestClient{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
 				return nil, errors.New("database connection failed")
 			},
@@ -174,7 +174,7 @@ func TestListWebhooks(t *testing.T) {
 	})
 
 	t.Run("ciClient success returns webhooks", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockBrokerageCoreInvestClient{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
 				return &coreinvestv1.ListWebhooksResponse{
 					Webhooks: []*coreinvestv1.CustomerWebhook{
@@ -213,7 +213,7 @@ func TestCreateWebhook(t *testing.T) {
 	})
 
 	t.Run("ciClient success with empty secret fallback", func(t *testing.T) {
-		mockCI := &mockCoreInvestClient{
+		mockCI := &mockBrokerageCoreInvestClient{
 			createWebhookFunc: func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
 				return &coreinvestv1.CreateWebhookResponse{
 					Webhook: &coreinvestv1.CustomerWebhook{
