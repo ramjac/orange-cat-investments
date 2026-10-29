@@ -170,6 +170,9 @@ func (s *Server) GetGDPRCertificate(ctx context.Context, in *customerbllv1.GetGD
 }
 
 func (s *Server) ListStatements(ctx context.Context, in *customerbllv1.ListStatementsRequest) (*customerbllv1.ListStatementsResponse, error) {
+	if in == nil {
+		in = &customerbllv1.ListStatementsRequest{}
+	}
 	if s.ciClient != nil {
 		res, err := s.ciClient.ListStatements(ctx, &coreinvestv1.ListStatementsRequest{
 			CustomerID: in.CustomerID,
