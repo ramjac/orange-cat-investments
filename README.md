@@ -679,6 +679,7 @@ The remaining items are prioritized in the execution order that maximizes engine
 2. **Phase 2 — Core Domain Completion (`7.4`, `7.10`):** Implement dynamic habitat camera provisioning and computer vision stream lifecycle management (`7.4`) and dynamic historical portfolio valuation with daily NAV snapshots (`7.10`) cleanly atop the modular BFF/BLL architecture.
 3. **Phase 3 — Full-Stack Infrastructure, Database & Application Observability (`7.5`–`7.7`):** Instrument self-hosted Kubernetes blind spots (`7.5`), stateful data stores (`7.6`), and OpenTelemetry distributed tracing/metrics (`7.7`) across all completed domain services.
 4. **Phase 4 — Chaos Engineering & Zero-Trust Hardening (`7.8`–`7.9`):** Execute fault injection and chaos resilience verification against the fully instrumented alerting stack (`7.8`), followed by dynamic secret management and workload identity mesh hardening (`7.9`).
+5. **Phase 5 — Developer Experience & Technical Debt Cleanup (`7.11`–`7.12`):** Finish removing the deprecated in-process mock simulator artifacts still lingering in simulator defaults and documentation (`7.11`), then realign the local quickstart with the production 5-tier topology so local development is no longer a special, non-conforming means of running the application (`7.12`).
 
 ---
 
@@ -906,5 +907,31 @@ Eliminate static and hardcoded historical performance points in `customer-bff` a
     * Add `GetPortfolioHistory(portfolio_id, start_date, end_date, interval)` to `core_invest.proto` and `customer_bll.proto`.
     * In `customer-bll`, query `core_invest.portfolio_snapshots` for real historical valuation points, calculating true cumulative returns, drawdowns, and benchmark comparisons against feline executive activity indices.
     * In `customer-bff`, serve dynamic historical valuation series directly to the Vue 3 customer portal charting components, completely removing hardcoded fallback curves.
+
+### 7.11 Complete Removal of the Deprecated In-Process Mock Simulator (Technical Debt Cleanup)
+
+The in-process mock simulator mode (`-mode mock`) was previously removed (commit `a4608e8`) because it embedded the entire domain stack (`internal/handler`, `internal/service`, `internal/repository`, and the mock bank/broker engines) inside the simulation binary behind `httptest.Server` instances, which produced false confidence and blurred the line between unit tests and authentic end-to-end verification. That removal was not clean or complete: simulator defaults, flags, and the README quickstart still assume a single "Unified API Server" at `http://localhost:8080` that no longer exists in `cmd/` (all four Domain APIs are now pure gRPC services on `:50051`–`:50054`, and REST traffic only reaches the BFF tiers).
+
+* **Leftover Artifacts:**
+  * `README.md` §6.2 lists "Unified API Server │ http://localhost:8080" in the port topology table; §6.3 Step 4 instructs running `go run ./cmd/workforce-api` with `PORT=8080` and claims it "hosts all 4 domains" — incorrect, since `workforce-api` is a pure gRPC service (default `:50051`) serving the `workforce` schema only.
+  * `README.md` §6.6 and §6.7 point simulator invocations and verification `curl`s (`/healthz`, `/facilities/assets`, `/api/v1/workforce/care-schedules/...`) at `http://localhost:8080`.
+  * `simulation/config.go`: `ServerURL` (default `http://localhost:8080`) plus the `:8080` port-substitution heuristics in `ResolveRoutingURLs` / `ResolveExternalURLs` encode the retired unified-server routing model.
+  * `simulation/cmd/simulator/main.go`: the `-url` "Unified base URL" and `-server-url` "OCI Domain API Server" flags.
+  * `simulation/README.md`: the `-server-url http://localhost:8080` usage example.
+* **Architecture & Objectives:**
+  * Eliminate the `ServerURL` / unified-URL routing model from the simulation client: persona REST actions must target only endpoints that actually exist in the architecture (Employee BFF `:8081`, Customer BFF `:8083`, and the external mock broker/bank services).
+  * Purge `:8080` and "Unified API Server" references from all simulator defaults, flag help text, examples, and README sections (§6.2, §6.3, §6.6, §6.7).
+  * **Verification:** `grep -rn "8080\|Unified" simulation/ README.md` returns no references to the removed server, and `go test -race ./simulation/...` remains green.
+
+### 7.12 Realign Local Development & Quickstart With the Production 5-Tier Architecture
+
+The standalone quickstart (README §6.3) documents a special, separate means of running the platform — a single unified HTTP entry point fronting all four domains — which does not match the mandated tiered topology (Frontends → BFF → BLL → gRPC Domain APIs → Workers). Local development must be a scaled-down replica of the production `oci-core` deployment so that local verification carries over to the cluster and no special run mode with different boundaries is maintained.
+
+* **Why:** Maintaining a distinct local runtime topology (the unified server) means defects that only surface at the real BFF/BLL/gRPC boundaries are never caught locally, and it directly contradicts the Domain API isolation and BFF isolation invariants in `AGENTS.md` §2 (four separate gRPC Domain APIs, each owning its own PostgreSQL schema, with BFFs strictly prohibited from bypassing the BLL).
+* **Objectives:**
+  * Rewrite §6.3 to launch the same services and ports as `k8s/oci-core/`: `workforce-api` (`:50051`), `facilities-api` (`:50052`), `core-invest-api` (`:50053`), `ops-api` (`:50054`), `customer-bll` (`:8085`), `internal-bll` (`:8086`), `employee-bff` (`:8081`), `customer-bff` (`:8083`), `pebble-proxy` (`:8082`), `worker`, plus PostgreSQL, Valkey, and RabbitMQ.
+  * Update the §6.2 port topology table and the §6.7 verification `curl`s to target the real BFF endpoints the web portals use, instead of the fictional unified server.
+  * Provide a single-command local topology launcher (e.g. `scripts/run-local-dev.sh` or a Docker Compose profile) that starts the complete local stack mirroring the Kubernetes deployment, so "local development" and "production" are the same architecture at different scales.
+  * **Verification:** a clean local bootstrap followed by `go run ./simulation/cmd/simulator -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083` passes all persona workflows against the same per-tier services (and ports) used in the cluster, with no unified-server fallback.
 
 
