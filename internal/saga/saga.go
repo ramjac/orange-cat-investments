@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
 type EventEnvelope[T any] struct {
@@ -22,37 +23,16 @@ type EventEnvelope[T any] struct {
 }
 
 // VCSAccount represents a developer account provisioned in VCS (Forgejo).
-type VCSAccount struct {
-	Username  string  `json:"username"`
-	Email     string  `json:"email"`
-	FullName  string  `json:"full_name"`
-	SSHKeyIDs []int64 `json:"ssh_key_ids,omitempty"`
-	Status    string  `json:"status"` // "Active", "Suspended"
-}
+type VCSAccount = internalbllv1.VCSAccount
 
 // Workspace represents an intranet/storage workspace provisioned in Nextcloud.
-type Workspace struct {
-	Username     string   `json:"username"`
-	Quota        string   `json:"quota"`
-	GroupFolders []string `json:"group_folders"`
-	Status       string   `json:"status"` // "Active", "Archived"
-}
+type Workspace = internalbllv1.Workspace
 
 // AssetAllocation represents an IT hardware asset assigned in Snipe-IT.
-type AssetAllocation struct {
-	AssetTag    string `json:"asset_tag"`
-	Name        string `json:"name"`
-	Category    string `json:"category"` // e.g. "Laptop", "Workstation", "Badge", "Pebble Watch"
-	StatusLabel string `json:"status_label"`
-}
+type AssetAllocation = internalbllv1.AssetAllocation
 
 // AssetRecoverySummary represents equipment recovery tickets generated upon departure.
-type AssetRecoverySummary struct {
-	TicketID   string            `json:"ticket_id"`
-	TotalItems int               `json:"total_items"`
-	Status     string            `json:"status"`
-	Assets     []AssetAllocation `json:"assets"`
-}
+type AssetRecoverySummary = internalbllv1.AssetRecoverySummary
 
 // VCSClient defines source control and developer account operations.
 type VCSClient interface {
