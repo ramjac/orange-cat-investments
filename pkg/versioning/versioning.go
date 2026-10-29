@@ -86,63 +86,72 @@ func negotiateVersion(r *http.Request, cfg Config, supportedMap map[string]bool)
 	}
 
 	// 2. Check Accept header for vendor MIME type (e.g. application/vnd.oci.v1+json)
-	accept := r.Header.Get("Accept")
-	if accept != "" {
-		parts := strings.Split(accept, ",")
-		var candidates []versionCandidate
-		hasVendorMIME := false
-		for i, part := range parts {
-			elements := strings.Split(part, ";")
-			mime := strings.TrimSpace(elements[0])
-			matches := vendorMediaRegex.FindStringSubmatch(mime)
-			if len(matches) != 2 {
-				continue
-			}
-			hasVendorMIME = true
-			q := 1.0
-			for _, param := range elements[1:] {
-				param = strings.TrimSpace(param)
-				if strings.HasPrefix(strings.ToLower(param), "q=") {
-					if parsedQ, err := strconv.ParseFloat(param[2:], 64); err == nil {
-						q = parsedQ
-					}
-				}
-			}
-			candidates = append(candidates, versionCandidate{
-				version: normalizeVersion("v" + matches[1]),
-				q:       q,
-				order:   i,
-			})
-		}
-
+	if accept := r.Header.Get("Accept"); accept != "" {
+		candidates, hasVendorMIME := parseVendorCandidates(accept)
 		if hasVendorMIME {
-			// Sort candidates by quality descending, preserving order for matching q
-			sort.SliceStable(candidates, func(i, j int) bool {
-				if candidates[i].q != candidates[j].q {
-					return candidates[i].q > candidates[j].q
-				}
-				return candidates[i].order < candidates[j].order
-			})
-
-			// Negotiate: check acceptable candidates (q > 0) against supported versions
-			for _, c := range candidates {
-				if c.q > 0 && supportedMap[c.version] {
-					return c.version, true
-				}
-			}
-
-			// If no supported candidate with q > 0 was found, return the top candidate as rejected
-			firstVersion := ""
-			if len(candidates) > 0 {
-				firstVersion = candidates[0].version
-			}
-			return firstVersion, false
+			return selectVersionCandidate(candidates, supportedMap)
 		}
 	}
 
 	// 3. Fallback to default configured version
 	def := normalizeVersion(cfg.DefaultVersion)
 	return def, supportedMap[def]
+}
+
+// parseVendorCandidates extracts version candidates from an Accept header string.
+func parseVendorCandidates(accept string) ([]versionCandidate, bool) {
+	parts := strings.Split(accept, ",")
+	var candidates []versionCandidate
+	hasVendorMIME := false
+	for i, part := range parts {
+		elements := strings.Split(part, ";")
+		mime := strings.TrimSpace(elements[0])
+		matches := vendorMediaRegex.FindStringSubmatch(mime)
+		if len(matches) != 2 {
+			continue
+		}
+		hasVendorMIME = true
+		q := 1.0
+		for _, param := range elements[1:] {
+			param = strings.TrimSpace(param)
+			if strings.HasPrefix(strings.ToLower(param), "q=") {
+				if parsedQ, err := strconv.ParseFloat(param[2:], 64); err == nil {
+					q = parsedQ
+				}
+			}
+		}
+		candidates = append(candidates, versionCandidate{
+			version: normalizeVersion("v" + matches[1]),
+			q:       q,
+			order:   i,
+		})
+	}
+	return candidates, hasVendorMIME
+}
+
+// selectVersionCandidate sorts candidates by quality and order, then finds the best supported match.
+func selectVersionCandidate(candidates []versionCandidate, supportedMap map[string]bool) (string, bool) {
+	// Sort candidates by quality descending, preserving order for matching q
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].q != candidates[j].q {
+			return candidates[i].q > candidates[j].q
+		}
+		return candidates[i].order < candidates[j].order
+	})
+
+	// Negotiate: check acceptable candidates (q > 0) against supported versions
+	for _, c := range candidates {
+		if c.q > 0 && supportedMap[c.version] {
+			return c.version, true
+		}
+	}
+
+	// If no supported candidate with q > 0 was found, return the top candidate as rejected
+	firstVersion := ""
+	if len(candidates) > 0 {
+		firstVersion = candidates[0].version
+	}
+	return firstVersion, false
 }
 
 
