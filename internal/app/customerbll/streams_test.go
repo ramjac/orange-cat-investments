@@ -15,6 +15,7 @@ type mockCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 	listCameraStreamsFunc func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
 	listStatementsFunc    func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
+	listAPIKeysFunc       func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
 }
 
 func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -29,6 +30,13 @@ func (m *mockCoreInvestClient) ListStatements(ctx context.Context, in *coreinves
 		return m.listStatementsFunc(ctx, in)
 	}
 	return nil, nil
+}
+
+func (m *mockCoreInvestClient) ListAPIKeys(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error) {
+	if m.listAPIKeysFunc != nil {
+		return m.listAPIKeysFunc(ctx, in)
+	}
+	return &coreinvestv1.ListAPIKeysResponse{APIKeys: []*coreinvestv1.CustomerAPIKey{}}, nil
 }
 
 func TestListCameraStreams(t *testing.T) {
