@@ -8,7 +8,6 @@ import (
 
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
-	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/stretchr/testify/assert"
@@ -28,10 +27,6 @@ func (m *mockPublisher) Close() error {
 
 type mockWorkforceClient struct {
 	workforcev1.WorkforceServiceClient
-}
-
-type mockCoreInvestClient struct {
-	coreinvestv1.CoreInvestServiceClient
 }
 
 type mockOpsClient struct {
