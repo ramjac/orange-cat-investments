@@ -78,17 +78,32 @@ class DatabaseHelper {
   Future<int> markAsSynced(List<String> logIds, DateTime syncedAt) async {
     if (logIds.isEmpty) return 0;
     final db = await database;
-    int count = 0;
-    for (final id in logIds) {
-      count += await db.update(
+    final batch = db.batch();
+    const chunkSize = 500;
+
+    for (var i = 0; i < logIds.length; i += chunkSize) {
+      final chunk = logIds.sublist(
+        i,
+        i + chunkSize > logIds.length ? logIds.length : i + chunkSize,
+      );
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      batch.update(
         'maintenance_logs',
         {
           'synced': 1,
           'synced_at': syncedAt.toIso8601String(),
         },
-        where: 'id = ?',
-        whereArgs: [id],
+        where: 'id IN ($placeholders)',
+        whereArgs: chunk,
       );
+    }
+
+    final results = await batch.commit(noResult: false);
+    int count = 0;
+    for (final res in results) {
+      if (res is int) {
+        count += res;
+      }
     }
     return count;
   }
