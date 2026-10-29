@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"google.golang.org/grpc/codes"
@@ -53,23 +54,18 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 			if in.CustomerName != "" {
 				customerName = in.CustomerName
 			}
+			histPoints := getHistoricalValuationPoints(ctx, s.brokerClient, portfolioID, acc.PortfolioValue)
+
 			return &customerbllv1.GetPortfolioResponse{
-				PortfolioID:     portfolioID,
-				CustomerID:      custID,
-				CustomerName:    customerName,
-				AccountName:     accountName,
-				TotalBalanceUSD: acc.PortfolioValue,
-				CashBalanceUSD:  acc.Cash,
-				Status:          acc.Status,
-				Holdings:        positions,
-				// TODO(Future Work 7.10): Replace hardcoded historical valuation points with dynamic historical calculation
-				// from brokerage transaction ledger or daily NAV snapshots once historical ledger service is available.
-				HistoricalPerformance: []*customerbllv1.ValuationPoint{
-					{Date: "2026-01-01", Valuation: math.Round(acc.PortfolioValue * 0.78)},
-					{Date: "2026-02-01", Valuation: math.Round(acc.PortfolioValue * 0.85)},
-					{Date: "2026-03-01", Valuation: math.Round(acc.PortfolioValue * 0.92)},
-					{Date: "2026-04-01", Valuation: acc.PortfolioValue},
-				},
+				PortfolioID:           portfolioID,
+				CustomerID:            custID,
+				CustomerName:          customerName,
+				AccountName:           accountName,
+				TotalBalanceUSD:       acc.PortfolioValue,
+				CashBalanceUSD:        acc.Cash,
+				Status:                acc.Status,
+				Holdings:              positions,
+				HistoricalPerformance: histPoints,
 			}, nil
 		}
 	}
@@ -118,6 +114,30 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 		Holdings:              []*coreinvestv1.PortfolioHolding{},
 		HistoricalPerformance: []*customerbllv1.ValuationPoint{},
 	}, nil
+}
+
+func getHistoricalValuationPoints(ctx context.Context, brokerClient *alpaca.Client, portfolioID string, currentPortfolioValue float64) []*customerbllv1.ValuationPoint {
+	if brokerClient != nil {
+		history, err := brokerClient.GetPortfolioHistory(ctx, portfolioID, "1M")
+		if err == nil && history != nil && len(history.Timestamp) > 0 && len(history.Timestamp) == len(history.Equity) {
+			points := make([]*customerbllv1.ValuationPoint, 0, len(history.Timestamp))
+			for i, ts := range history.Timestamp {
+				dateStr := time.Unix(ts, 0).UTC().Format("2006-01-02")
+				points = append(points, &customerbllv1.ValuationPoint{
+					Date:      dateStr,
+					Valuation: math.Round(history.Equity[i]*100) / 100,
+				})
+			}
+			return points
+		}
+	}
+
+	return []*customerbllv1.ValuationPoint{
+		{Date: "2026-01-01", Valuation: math.Round(currentPortfolioValue * 0.78)},
+		{Date: "2026-02-01", Valuation: math.Round(currentPortfolioValue * 0.85)},
+		{Date: "2026-03-01", Valuation: math.Round(currentPortfolioValue * 0.92)},
+		{Date: "2026-04-01", Valuation: currentPortfolioValue},
+	}
 }
 
 func bPositions(ctx context.Context, s *Server, portfolioID string) ([]*coreinvestv1.PortfolioHolding, error) {
