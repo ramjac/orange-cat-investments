@@ -136,7 +136,7 @@ func TestGarfieldSleepInHallwayAction_Branches(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := &Client{serverURL: srv.URL, bffURL: srv.URL, httpClient: srv.Client()}
+	client := &Client{bffURL: srv.URL, httpClient: srv.Client()}
 
 	r := NewRegistry()
 	garfield, ok := r.Get("emp-feline-garfield")
@@ -190,7 +190,7 @@ func TestGarfieldSleepInHallwayAction_Errors(t *testing.T) {
 	// 1. Initial GET network error
 	closedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	closedServer.Close()
-	c1 := &Client{serverURL: closedServer.URL, httpClient: closedServer.Client()}
+	c1 := &Client{bffURL: closedServer.URL, httpClient: closedServer.Client()}
 
 	_, err := sleepAction.Execute(context.Background(), c1)
 	assert.Error(t, err)
@@ -212,7 +212,7 @@ func TestGarfieldSleepInHallwayAction_Errors(t *testing.T) {
 	}))
 	defer vetFailServer.Close()
 
-	c2 := &Client{serverURL: vetFailServer.URL, bffURL: vetFailServer.URL, httpClient: vetFailServer.Client()}
+	c2 := &Client{bffURL: vetFailServer.URL, httpClient: vetFailServer.Client()}
 	for i := 0; i < 50; i++ {
 		res, err := sleepAction.Execute(context.Background(), c2)
 		if err != nil {
@@ -245,7 +245,7 @@ func TestGarfieldSleepInHallwayAction_Errors(t *testing.T) {
 	}))
 	defer injuryFailServer.Close()
 
-	c3 := &Client{serverURL: injuryFailServer.URL, bffURL: injuryFailServer.URL, httpClient: injuryFailServer.Client()}
+	c3 := &Client{bffURL: injuryFailServer.URL, httpClient: injuryFailServer.Client()}
 	for i := 0; i < 50; i++ {
 		res, err := sleepAction.Execute(context.Background(), c3)
 		if err != nil {
@@ -463,7 +463,7 @@ func TestBarnebySlapWaterGlassAction_MultiStepErrors(t *testing.T) {
 	closedServer.Close()
 
 	// 1. Error on maintenance ticket creation
-	c1 := &Client{serverURL: closedServer.URL, httpClient: closedServer.Client()}
+	c1 := &Client{bffURL: closedServer.URL, httpClient: closedServer.Client()}
 	_, err := slapAction.Execute(context.Background(), c1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create maintenance ticket")
@@ -480,7 +480,7 @@ func TestBarnebySlapWaterGlassAction_MultiStepErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s2.Close()
-	c2 := &Client{serverURL: s2.URL, httpClient: s2.Client()}
+	c2 := &Client{bffURL: s2.URL, httpClient: s2.Client()}
 
 	_, err = slapAction.Execute(context.Background(), c2)
 	assert.Error(t, err)
@@ -503,7 +503,7 @@ func TestBarnebySlapWaterGlassAction_MultiStepErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s3.Close()
-	c3 := &Client{serverURL: s3.URL, httpClient: s3.Client()}
+	c3 := &Client{bffURL: s3.URL, httpClient: s3.Client()}
 
 	_, err = slapAction.Execute(context.Background(), c3)
 	assert.Error(t, err)
@@ -531,7 +531,7 @@ func TestBarnebySlapWaterGlassAction_MultiStepErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s4.Close()
-	c4 := &Client{serverURL: s4.URL, httpClient: s4.Client()}
+	c4 := &Client{bffURL: s4.URL, httpClient: s4.Client()}
 
 	_, err = slapAction.Execute(context.Background(), c4)
 	assert.Error(t, err)
@@ -553,7 +553,7 @@ func TestAliceAndFrankPublishDocActions_Errors(t *testing.T) {
 	closedServer.Close()
 
 	// Document creation error
-	c1 := &Client{serverURL: closedServer.URL, httpClient: closedServer.Client()}
+	c1 := &Client{bffURL: closedServer.URL, httpClient: closedServer.Client()}
 	_, err := publishDocAction.Execute(context.Background(), c1)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create Nextcloud document")
@@ -570,7 +570,7 @@ func TestAliceAndFrankPublishDocActions_Errors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s2.Close()
-	c2 := &Client{serverURL: s2.URL, httpClient: s2.Client()}
+	c2 := &Client{bffURL: s2.URL, httpClient: s2.Client()}
 
 	_, err = publishDocAction.Execute(context.Background(), c2)
 	assert.Error(t, err)
@@ -634,7 +634,7 @@ func TestArthurCustomerActions_PathsAndErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s2.Close()
-	c2 := &Client{custBFFURL: s2.URL, httpClient: s2.Client()}
+	c2 := &Client{custBFFURL: s2.URL, bffURL: s2.URL, httpClient: s2.Client()}
 
 	_, err = supportTicketAction.Execute(context.Background(), c2)
 	assert.Error(t, err)
@@ -657,7 +657,7 @@ func TestArthurCustomerActions_PathsAndErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s3.Close()
-	c3 := &Client{custBFFURL: s3.URL, httpClient: s3.Client()}
+	c3 := &Client{custBFFURL: s3.URL, bffURL: s3.URL, httpClient: s3.Client()}
 
 	_, err = monthlyStmtAction.Execute(context.Background(), c3)
 	assert.Error(t, err)
@@ -700,7 +700,7 @@ func TestArthurTaxForm1099B_Errors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s2.Close()
-	c2 := &Client{custBFFURL: s2.URL, httpClient: s2.Client()}
+	c2 := &Client{custBFFURL: s2.URL, bffURL: s2.URL, httpClient: s2.Client()}
 
 	_, err = taxFormAction.Execute(context.Background(), c2)
 	assert.Error(t, err)
@@ -743,7 +743,7 @@ func TestChloeGDPRDataErasure_PathsAndErrors(t *testing.T) {
 		conn.Close()
 	}))
 	defer s2.Close()
-	c2 := &Client{custBFFURL: s2.URL, httpClient: s2.Client()}
+	c2 := &Client{custBFFURL: s2.URL, bffURL: s2.URL, httpClient: s2.Client()}
 
 	_, err = gdprAction.Execute(context.Background(), c2)
 	assert.Error(t, err)
@@ -756,7 +756,7 @@ func TestAllPersonaActions_TransportErrorHandling(t *testing.T) {
 	s.Close()
 
 	client := &Client{
-		serverURL:  s.URL,
+
 		bffURL:     s.URL,
 		custBFFURL: s.URL,
 		brokerURL:  s.URL,

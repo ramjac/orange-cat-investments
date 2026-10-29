@@ -1,55 +1,33 @@
-# Orange Cat Investments (OCI) Platform Simulator
+# OCI Synthetic Simulation Driver
 
-The **OCI Stack Simulator** is a Go-based driver application designed to fully exercise the Orange Cat Investments software and hardware infrastructure stack. By emulating the daily operational workflows of OCI's human staff and feline executives, the simulator drives end-to-end API calls, event triggers, domain sagas, hardware asset management, quantitative backtesting, and wearable alert proxy workflows.
+The OCI platform relies on a headless, autonomous simulation driver to emulate real-world business activities across the company's four primary domain APIs (`workforce`, `facilities`, `core_invest`, `ops`) and the integrated COTS ecosystem (Forgejo, Nextcloud, Snipe-IT).
 
----
+Instead of writing brittle end-to-end UI tests, Orange Cat Investments validates system correctness, database locking, and eventual consistency using concurrent programmatic personas executing complex saga workflows in a live environment.
 
-## Architecture Overview
+## The 13 Business Personas
 
-The simulator architecture mirrors OCI's Domain-Driven Design (DDD) model:
+The simulator operates by assuming the identities of 13 registered corporate personas (both human and feline). Each persona possesses a role-specific daily action list, randomized execution paths, and specific behavioral intent.
 
-```text
-simulation/
-├── config.go            # Configuration flags (URLs, modes, iteration, delays)
-├── persona.go           # Persona and Action interface definitions & Registry
-├── client.go            # HTTP client abstraction driving running OCI stack services
-├── actions.go           # Persona action suites for all 13 OCI personas
-├── driver.go            # Orchestration engine for running simulation workflows
-├── driver_test.go       # Tests verifying simulation execution
-└── cmd/
-    └── simulator/       # Runnable CLI entrypoint (`go run ./simulation/cmd/simulator`)
-        └── main.go
-```
+### 1. Garfield (`emp-feline-garfield`) — Chief Executive Officer (CEO)
+* **`garfield_sleep_in_hallway`**: Simulates the feline CEO sleeping in critical human walkways, generating high-priority `habitat_hazard` infrastructure tickets (`POST /ops/tickets`).
+* **`garfield_request_premium_tuna`**: Automatically denies cheap cat food and requests premium `Bluefin` tuna via API (`PUT /api/v1/workforce/care-schedules/emp-feline-garfield`).
+* **`garfield_review_performance`**: Conducts a random performance review of human subordinates (`GET /api/v1/workforce/review-cycles`), grading them strictly based on treat delivery latency.
 
----
+### 2. Barneby (`emp-feline-barneby`) — Chief Financial Officer (CFO)
+* **`barneby_slap_water_glass`**: Synthetically models the feline CFO knocking a water glass onto the main operations server, triggering severe cascading system alerts (`POST /ops/tickets`, `GET /ops/pebble/alerts`, `POST /ops/pebble/ack`, `POST /facilities/sync/maintenance-logs`).
+* **`barneby_audit_brokerage_trades`**: Audits the mock stock broker trade ledger to ensure OCI Alpha Growth fund liquidity targets are met (`GET /core-invest/brokerage/orders`).
+* **`barneby_sleep_on_keyboard`**: Halts all active CI/CD pipeline deployments by taking a nap on the production terminal (`POST /ops/tickets`).
 
-## Employee Personas & Daily Simulation Action Mapping
+### 3. Alice Human (`emp-human-alice`) — Human Resources Director
+* **`alice_approve_timesheets`**: Queries pending contractor timesheets (`GET /api/v1/workforce/timesheets?status=submitted`) and issues bulk approvals (`PUT /api/v1/workforce/timesheets`).
+* **`alice_generate_executive_report`**: Compiles the monthly TPS (Treat Performance Standard) report for the feline executive board (`GET /api/v1/workforce/reports/tps`).
+* **`alice_onboard_new_hire`**: Triggers the HR onboarding saga (`POST /api/v1/workforce/sagas/onboarding`) to provision Snipe-IT laptops, Nextcloud storage, and Forgejo developer accounts for new employees.
+* **`alice_write_handbook_doc`**: Authors the quarterly Employee Handbook update in Nextcloud (`POST /nextcloud/api/v1/documents`).
+* **`alice_send_announcement_chat`**: Broadcasts company-wide announcements via Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
 
-The simulator uses the 13 official OCI personas defined in `personas/` to execute semi-real daily action lists:
-
-### 1. Garfield (`emp-feline-garfield`) — Chief Observation Officer (COO)
-* **`garfield_morning_zoomies`**: Emits real-time observation telemetry during 3 AM peak activity windows via optical IP camera streams (`/facilities/assets?asset_type=edge_camera`).
-* **`garfield_perch_inspection`**: Inspects primary habitat infrastructure (`/facilities/assets?status=active`) for operational readiness.
-* **`garfield_care_schedule_audit`**: Queries care schedules (`/api/v1/workforce/care-schedules/emp-feline-garfield`) to ensure punctual lasagna and snack disbursements.
-* **`garfield_sleep_in_hallway`**: Naps in hallway B; 1/3 chance of tripping a human employee, placing Garfield on vet medical hold (`POST /api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold`) and logging a workplace injury ticket (`POST /ops/tickets`).
-
-### 2. Barneby (`emp-feline-barneby`) — Senior Alpha Perch Analyst
-* **`barneby_sunbeam_tracking`**: Queries habitat optical camera streams (`/facilities/assets?asset_type=edge_camera`) to track sunbeam positioning.
-* **`barneby_care_schedule_review`**: Reviews secondary perch health and care assessment parameters (`/api/v1/workforce/care-schedules/emp-feline-barneby`).
-* **`barneby_slap_water_glass`**: Slaps a water glass off a desk, creating a facilities maintenance ticket (`POST /facilities/assets/{id}/maintenance`), querying Pebble watch alerts (`GET /ops/pebble/alerts`), submitting a Pebble watch ACK (`POST /ops/pebble/ack`), and logging completed maintenance work via mobile field app sync (`POST /facilities/sync/maintenance-logs`).
-
-### 3. Alice Vance (`emp-human-alice`) — Head of Human & Feline Resources
-* **`alice_workforce_directory`**: Queries combined human and feline workforce employee directory (`/api/v1/workforce/employees`).
-* **`alice_trigger_onboarding_saga`**: Simulates Frappe HR status changes (`/api/v1/webhooks/frappe-hr`) triggering the Go `OnboardingSaga` across workforce, Forgejo, and internal service planes.
-* **`alice_review_leave_requests`**: Audits pending staff leave requests and feline catnip break compliance (`/api/v1/workforce/leave-requests`).
-* **`alice_approve_timesheet`**: Reviews pending workforce timesheets and submits manager approvals (`PUT /api/v1/workforce/timesheets/{id}/status`), synchronizing DocType Timesheets to Frappe HR.
-* **`alice_process_payroll_entry`**: Submits monthly payroll run (`POST /api/v1/workforce/payroll/run`) for Frappe HR salary slip generation and compensation distribution.
-* **`alice_offboard_employee`**: Triggers automated deprovisioning engine (`POST /api/v1/workforce/employees/{id}/offboard`), invalidating sessions, archiving storage, and generating Snipe-IT equipment recovery tickets.
-* **`alice_assign_laptop_to_rick`**: Provisions a new laptop hardware asset assigned to new hire Rick during onboarding (`POST /facilities/assets`).
-* **`alice_publish_onboarding_doc`**: Publishes the employee onboarding handbook in Nextcloud (`POST /nextcloud/api/v1/documents`) and notifies Rick over Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
-
-### 4. Bob Builder (`emp-human-bob`) — Lead Facilities & Edge Telemetry Engineer
-* **`bob_scan_edge_cameras`**: Scans optical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
+### 4. Bob Facility (`emp-human-bob`) — Facilities Edge Engineer
+* **`bob_review_maintenance_calendar`**: Checks the shared Nextcloud operations calendar for upcoming habitat maintenance windows.
+* **`bob_query_edge_cameras`**: Queries the registry of physical edge camera rigs across habitat zones (`/facilities/assets?asset_type=edge_camera`).
 * **`bob_register_camera_rig`**: Registers a new 4K edge camera asset (`POST /facilities/assets`).
 * **`bob_verify_pebble_wearables`**: Verifies assigned Pebble watch hardware assets for on-call alerting (`GET /facilities/assets?asset_type=pebble_watch`).
 * **`bob_log_daily_timesheet`**: Submits daily 8-hour shift timesheet for habitat facilities maintenance (`POST /api/v1/workforce/timesheets`) with billable cost center allocation.
@@ -114,9 +92,9 @@ The simulator uses the 13 official OCI personas defined in `personas/` to execut
 
 ## Execution Modes
 
-The simulator supports four execution modes:
+The simulator supports three execution modes:
 
-1. **`live` (Default)**: Connects directly to deployed or running OCI stack services (e.g. Employee BFF on port `8081` and Customer BFF on port `8083`, or via unified staging URL `-url https://dev.api.oci.local`). Acts as a true end-to-end integration test catching runtime defects.
+1. **`live` (Default)**: Connects directly to deployed or running OCI stack services (e.g. Employee BFF on port `8081` and Customer BFF on port `8083`). Acts as a true end-to-end integration test catching runtime defects.
 2. **`step`**: Runs a single step-by-step pass through each registered persona's actions and prints action results.
 3. **`continuous`**: Loops persona daily action lists continuously with configured action delays (`-delay`), simulating real-time continuous business operations until interrupted (`Ctrl+C`).
 
@@ -140,16 +118,16 @@ go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
 ### 4. Drive Live Local / MicroK8s OCI Stack
-Target staging or local cluster directly via unified URL:
+Target staging or local cluster directly:
 ```bash
-# Target Kubernetes oci-dev staging environment with smart URL routing
-go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
+# Target Kubernetes oci-dev staging environment with explicit URLs
+go run ./simulation/cmd/simulator -mode live -bff-url https://dev.employee-bff.oci.local -cust-bff-url https://dev.customer-bff.oci.local
 
 # Target local services with explicit service flags
 go run ./simulation/cmd/simulator \
   -mode live \
-  -server-url http://localhost:8080 \
   -bff-url http://localhost:8081 \
+  -cust-bff-url http://localhost:8083 \
   -iterations 3 \
   -delay 200
 ```
@@ -157,13 +135,13 @@ go run ./simulation/cmd/simulator \
 ### 5. CLI Flag Reference
 | Flag | Default | Description |
 |---|---|---|
-| `-url` | `""` | Unified base URL or staging domain (e.g., `https://dev.api.oci.local`), automatically routing API and BFF endpoints |
 | `-mode` | `live` | Execution mode: `live`, `step`, or `continuous` |
 | `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-marcus`, etc.) or `all` |
-| `-server-url` | `""` | Target URL for OCI Domain API Server (overrides `-url`) |
-| `-bff-url` | `""` | Target URL for OCI Employee BFF (overrides `-url`) |
-| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF (overrides `-url`) |
-| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host (overrides `-url`) |
+| `-bff-url` | `""` | Target URL for OCI Employee BFF |
+| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF |
+| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host |
+| `-broker-url`  | `""` | Target URL for Mock Broker API |
+| `-bank-url`    | `""` | Target URL for Mock Bank API |
 | `-iterations` | `1` | Number of daily action loops to perform |
 | `-delay` | `100` | Delay between persona action executions in milliseconds |
 | `-verbose` | `true` | Enable detailed logging of request/response outputs |
