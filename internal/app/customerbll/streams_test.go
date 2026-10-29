@@ -33,6 +33,8 @@ type mockCoreInvestClient struct {
 	updatePortfolioBalanceFunc  func(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error)
 	advanceRecurringDepositFunc func(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error)
 	completeBacktestRunFn       func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error)
+	revokeFunc                  func(ctx context.Context, in *coreinvestv1.RevokeAPIKeyRequest) (*coreinvestv1.RevokeAPIKeyResponse, error)
+	lastRevokeReq               *coreinvestv1.RevokeAPIKeyRequest
 }
 
 func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -169,6 +171,14 @@ func (m *mockCoreInvestClient) CompleteBacktestRun(ctx context.Context, in *core
 		return m.completeBacktestRunFn(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
+}
+
+func (m *mockCoreInvestClient) RevokeAPIKey(ctx context.Context, in *coreinvestv1.RevokeAPIKeyRequest) (*coreinvestv1.RevokeAPIKeyResponse, error) {
+	m.lastRevokeReq = in
+	if m.revokeFunc != nil {
+		return m.revokeFunc(ctx, in)
+	}
+	return &coreinvestv1.RevokeAPIKeyResponse{Status: "revoked"}, nil
 }
 
 func TestListCameraStreams(t *testing.T) {
