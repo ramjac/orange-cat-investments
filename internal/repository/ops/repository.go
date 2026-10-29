@@ -71,6 +71,72 @@ const ticketColumns = `
 	ticket_id, forgejo_issue_id, forgejo_repo, title, body, state, severity, category, source, customer_id, assignee_username, author_username, resolution_notes, is_urgent, acknowledged_at, acknowledged_by, created_at, updated_at
 `
 
+const (
+	getITTicketByIDSQL = `
+		SELECT ` + ticketColumns + `
+		FROM ops.it_tickets
+		WHERE ticket_id = $1`
+
+	listOpenITTicketsSQL = `
+		SELECT ` + ticketColumns + `
+		FROM ops.it_tickets
+		WHERE state = 'open'
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2`
+
+	listITTicketsSQL = `
+		SELECT ` + ticketColumns + `
+		FROM ops.it_tickets
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2`
+
+	listITTicketsBySourceSQL = `
+		SELECT ` + ticketColumns + `
+		FROM ops.it_tickets
+		WHERE source = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`
+
+	listITTicketsByCustomerSQL = `
+		SELECT ` + ticketColumns + `
+		FROM ops.it_tickets
+		WHERE customer_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`
+
+	createITTicketSQL = `
+		INSERT INTO ops.it_tickets (
+			forgejo_issue_id, forgejo_repo, title, body, state, severity, category, source, customer_id, assignee_username, author_username, resolution_notes, is_urgent
+		) VALUES (
+			$1, $2, $3, $4, 'open', $5, $6, $7, $8, $9, $10, $11, $12
+		) RETURNING ` + ticketColumns
+
+	updateITTicketSQL = `
+		UPDATE ops.it_tickets
+		SET state = COALESCE($2, state),
+			assignee_username = COALESCE($3, assignee_username),
+			resolution_notes = COALESCE($4, resolution_notes),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE ticket_id = $1
+		RETURNING ` + ticketColumns
+
+	acknowledgeITTicketSQL = `
+		UPDATE ops.it_tickets
+		SET state = 'acknowledged',
+			acknowledged_at = CURRENT_TIMESTAMP,
+			acknowledged_by = $2,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE ticket_id = $1
+		RETURNING ` + ticketColumns
+
+	closeITTicketSQL = `
+		UPDATE ops.it_tickets
+		SET state = 'closed',
+			updated_at = CURRENT_TIMESTAMP
+		WHERE ticket_id = $1
+		RETURNING ` + ticketColumns
+)
+
 func scanITTicket(row interface{ Scan(dest ...any) error }) (*ITTicket, error) {
 	var t ITTicket
 	err := row.Scan(
@@ -89,11 +155,7 @@ func (r *pgxRepository) GetITTicketByID(ctx context.Context, ticketID string) (*
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM ops.it_tickets
-		WHERE ticket_id = $1`, ticketColumns)
-	row := r.db.QueryRow(ctx, query, ticketID)
+	row := r.db.QueryRow(ctx, getITTicketByIDSQL, ticketID)
 	t, err := scanITTicket(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -108,13 +170,7 @@ func (r *pgxRepository) ListOpenITTickets(ctx context.Context, limit, offset int
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM ops.it_tickets
-		WHERE state = 'open'
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2`, ticketColumns)
-	rows, err := r.db.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, listOpenITTicketsSQL, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -135,12 +191,7 @@ func (r *pgxRepository) ListITTickets(ctx context.Context, limit, offset int32) 
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM ops.it_tickets
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2`, ticketColumns)
-	rows, err := r.db.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, listITTicketsSQL, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -161,13 +212,7 @@ func (r *pgxRepository) ListITTicketsBySource(ctx context.Context, source string
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM ops.it_tickets
-		WHERE source = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3`, ticketColumns)
-	rows, err := r.db.Query(ctx, query, source, limit, offset)
+	rows, err := r.db.Query(ctx, listITTicketsBySourceSQL, source, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -188,13 +233,7 @@ func (r *pgxRepository) ListITTicketsByCustomer(ctx context.Context, customerID 
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		SELECT %s
-		FROM ops.it_tickets
-		WHERE customer_id = $1
-		ORDER BY created_at DESC
-		LIMIT $2 OFFSET $3`, ticketColumns)
-	rows, err := r.db.Query(ctx, query, customerID, limit, offset)
+	rows, err := r.db.Query(ctx, listITTicketsByCustomerSQL, customerID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -232,13 +271,7 @@ func (r *pgxRepository) CreateITTicket(ctx context.Context, ticket *ITTicket) (*
 		}
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO ops.it_tickets (
-			forgejo_issue_id, forgejo_repo, title, body, state, severity, category, source, customer_id, assignee_username, author_username, resolution_notes, is_urgent
-		) VALUES (
-			$1, $2, $3, $4, 'open', $5, $6, $7, $8, $9, $10, $11, $12
-		) RETURNING %s`, ticketColumns)
-	row := r.db.QueryRow(ctx, query,
+	row := r.db.QueryRow(ctx, createITTicketSQL,
 		ticket.ForgejoIssueID, ticket.ForgejoRepo, ticket.Title, ticket.Body,
 		ticket.Severity, ticket.Category, ticket.Source, ticket.CustomerID,
 		ticket.AssigneeUsername, ticket.AuthorUsername, ticket.ResolutionNotes, ticket.IsUrgent,
@@ -254,15 +287,7 @@ func (r *pgxRepository) UpdateITTicket(ctx context.Context, ticket *ITTicket) (*
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		UPDATE ops.it_tickets
-		SET state = COALESCE($2, state),
-			assignee_username = COALESCE($3, assignee_username),
-			resolution_notes = COALESCE($4, resolution_notes),
-			updated_at = CURRENT_TIMESTAMP
-		WHERE ticket_id = $1
-		RETURNING %s`, ticketColumns)
-	row := r.db.QueryRow(ctx, query,
+	row := r.db.QueryRow(ctx, updateITTicketSQL,
 		ticket.TicketID, ticket.State, ticket.AssigneeUsername, ticket.ResolutionNotes,
 	)
 	t, err := scanITTicket(row)
@@ -279,15 +304,7 @@ func (r *pgxRepository) AcknowledgeITTicket(ctx context.Context, ticketID, ackno
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		UPDATE ops.it_tickets
-		SET state = 'acknowledged',
-			acknowledged_at = CURRENT_TIMESTAMP,
-			acknowledged_by = $2,
-			updated_at = CURRENT_TIMESTAMP
-		WHERE ticket_id = $1
-		RETURNING %s`, ticketColumns)
-	row := r.db.QueryRow(ctx, query, ticketID, acknowledgedBy)
+	row := r.db.QueryRow(ctx, acknowledgeITTicketSQL, ticketID, acknowledgedBy)
 	t, err := scanITTicket(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -302,13 +319,7 @@ func (r *pgxRepository) CloseITTicket(ctx context.Context, ticketID string) (*IT
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
-	query := fmt.Sprintf(`
-		UPDATE ops.it_tickets
-		SET state = 'closed',
-			updated_at = CURRENT_TIMESTAMP
-		WHERE ticket_id = $1
-		RETURNING %s`, ticketColumns)
-	row := r.db.QueryRow(ctx, query, ticketID)
+	row := r.db.QueryRow(ctx, closeITTicketSQL, ticketID)
 	t, err := scanITTicket(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

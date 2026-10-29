@@ -55,11 +55,17 @@ func (s *stubWorkforceServer) ListEmployees(ctx context.Context, in *workforcev1
 
 type stubCoreInvestServer struct {
 	coreinvestv1.UnimplementedCoreInvestServiceServer
-	orderPersisted   atomic.Bool
-	recurringCreated atomic.Bool
-	portfolios       map[string]*coreinvestv1.Portfolio
-	streams          []*coreinvestv1.CameraStream
-	failStreams      bool
+	orderPersisted            atomic.Bool
+	recurringCreated          atomic.Bool
+	portfolios                map[string]*coreinvestv1.Portfolio
+	statements                map[string][]*coreinvestv1.CustomerStatement
+	streams                   []*coreinvestv1.CameraStream
+	failStreams               bool
+	recurringDeposits         []*coreinvestv1.RecurringDeposit
+	failListRecurringDeposits bool
+	advancedDeposits          []*coreinvestv1.AdvanceRecurringDepositRequest
+	failListPorts             bool
+	failGenStmtFor            map[string]bool
 }
 
 func (s *stubCoreInvestServer) CreateOrder(ctx context.Context, in *coreinvestv1.CreateOrderRequest) (*coreinvestv1.CreateOrderResponse, error) {
@@ -109,8 +115,55 @@ func (s *stubCoreInvestServer) ListCameraStreams(ctx context.Context, in *corein
 	return &coreinvestv1.ListCameraStreamsResponse{Streams: s.streams}, nil
 }
 
+func (s *stubCoreInvestServer) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+	if s.failListRecurringDeposits {
+		return nil, status.Error(codes.Internal, "database failure listing recurring deposits")
+	}
+	return &coreinvestv1.ListRecurringDepositsResponse{
+		Deposits: s.recurringDeposits,
+	}, nil
+}
+
+func (s *stubCoreInvestServer) AdvanceRecurringDeposit(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error) {
+	s.advancedDeposits = append(s.advancedDeposits, in)
+	return &coreinvestv1.AdvanceRecurringDepositResponse{
+		Status: "ok",
+	}, nil
+}
+
 func (s *stubCoreInvestServer) StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
 	return nil, status.Error(codes.Unimplemented, "not implemented")
+}
+
+func (s *stubCoreInvestServer) ListStatements(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+	if s.statements != nil {
+		if stmts, ok := s.statements[in.CustomerID]; ok {
+			return &coreinvestv1.ListStatementsResponse{Statements: stmts}, nil
+		}
+	}
+	return &coreinvestv1.ListStatementsResponse{Statements: []*coreinvestv1.CustomerStatement{}}, nil
+}
+
+func (s *stubCoreInvestServer) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+	if s.failListPorts {
+		return nil, status.Error(codes.Internal, "database error listing portfolios")
+	}
+	var list []*coreinvestv1.Portfolio
+	for _, p := range s.portfolios {
+		list = append(list, p)
+	}
+	return &coreinvestv1.ListPortfoliosResponse{Portfolios: list}, nil
+}
+
+func (s *stubCoreInvestServer) GenerateStatement(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error) {
+	if s.failGenStmtFor != nil && s.failGenStmtFor[in.PortfolioID] {
+		return nil, status.Error(codes.Internal, "failed to generate statement for portfolio")
+	}
+	return &coreinvestv1.GenerateStatementResponse{
+		StatementID: "stmt-" + in.PortfolioID,
+		PortfolioID: in.PortfolioID,
+		Status:      "generated",
+	}, nil
 }
 
 func startCustomerBLLTestServer(t *testing.T, srv *customerbll.Server) customerbllv1.CustomerBLLServiceClient {
@@ -442,4 +495,219 @@ func TestCustomerBLL_GetStreams(t *testing.T) {
 	respEmpty, err := client.ListCameraStreams(t.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	require.NoError(t, err)
 	assert.Empty(t, respEmpty.Streams)
+}
+
+func TestCustomerBLL_ListStatements(t *testing.T) {
+	ciStub := &stubCoreInvestServer{
+		statements: map[string][]*coreinvestv1.CustomerStatement{
+			"cust-777": {
+				{
+					StatementID:   "stmt-777-1",
+					CustomerID:    "cust-777",
+					PortfolioID:   "port-777",
+					StatementType: "monthly",
+					Period:        "2026-03",
+					Status:        "generated",
+				},
+			},
+		},
+	}
+
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	// Case 1: Existing statements for customer
+	resp, err := client.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{CustomerID: "cust-777"})
+	require.NoError(t, err)
+	assert.Len(t, resp.Statements, 1)
+	assert.Equal(t, "stmt-777-1", resp.Statements[0].StatementID)
+
+	// Case 2: No statements for customer
+	respEmpty, err := client.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{CustomerID: "cust-unknown"})
+	require.NoError(t, err)
+	assert.Empty(t, respEmpty.Statements)
+}
+
+func TestCustomerBLL_ClaimDueRecurringDeposits(t *testing.T) {
+	// Case 1: CoreInvest client unavailable (ciClient == nil)
+	bllNoCI := customerbll.NewServer(customerbll.Config{})
+	clientNoCI := startCustomerBLLTestServer(t, bllNoCI)
+
+	_, err := clientNoCI.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Contains(t, err.Error(), "core-invest service unavailable")
+
+	// Case 2: CoreInvest returns error on listing recurring deposits
+	ciStub := &stubCoreInvestServer{failListRecurringDeposits: true}
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+	_, err = client.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Contains(t, err.Error(), "failed to list recurring deposits")
+
+	// Case 3: Processing and filtering recurring deposits
+	pastTime := "2025-01-01T00:00:00Z"
+	futureTime := "2099-01-01T00:00:00Z"
+
+	ciStub.failListRecurringDeposits = false
+	ciStub.recurringDeposits = []*coreinvestv1.RecurringDeposit{
+		{
+			DepositID:    "dep-inactive",
+			CustomerID:   "cust-01",
+			PortfolioID:  "port-01",
+			AmountUSD:    100.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-01",
+			Status:       "paused",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-future",
+			CustomerID:   "cust-02",
+			PortfolioID:  "port-02",
+			AmountUSD:    200.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-02",
+			Status:       "active",
+			NextChargeAt: futureTime,
+		},
+		{
+			DepositID:    "dep-weekly",
+			CustomerID:   "cust-03",
+			PortfolioID:  "port-03",
+			AmountUSD:    300.0,
+			Frequency:    "weekly",
+			BankAccount:  "bank-03",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-biweekly",
+			CustomerID:   "cust-04",
+			PortfolioID:  "port-04",
+			AmountUSD:    400.0,
+			Frequency:    "biweekly",
+			BankAccount:  "bank-04",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-biweekly-underscore",
+			CustomerID:   "cust-05",
+			PortfolioID:  "port-05",
+			AmountUSD:    500.0,
+			Frequency:    "bi_weekly",
+			BankAccount:  "bank-05",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-monthly",
+			CustomerID:   "cust-06",
+			PortfolioID:  "port-06",
+			AmountUSD:    600.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-06",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-default-freq",
+			CustomerID:   "cust-07",
+			PortfolioID:  "port-07",
+			AmountUSD:    700.0,
+			Frequency:    "custom",
+			BankAccount:  "bank-07",
+			Status:       "active",
+			NextChargeAt: pastTime,
+		},
+		{
+			DepositID:    "dep-zerotime",
+			CustomerID:   "cust-08",
+			PortfolioID:  "port-08",
+			AmountUSD:    800.0,
+			Frequency:    "monthly",
+			BankAccount:  "bank-08",
+			Status:       "active",
+			NextChargeAt: "",
+		},
+	}
+
+	res, err := client.ClaimDueRecurringDeposits(t.Context(), &customerbllv1.ClaimDueRecurringDepositsRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Len(t, res.DueDeposits, 6)
+
+	// Verify IDs of claimed deposits
+	claimedIDs := make([]string, len(res.DueDeposits))
+	for i, d := range res.DueDeposits {
+		claimedIDs[i] = d.DepositID
+		assert.Equal(t, "active", d.Status)
+		assert.NotEmpty(t, d.NextChargeAt)
+	}
+	assert.Contains(t, claimedIDs, "dep-weekly")
+	assert.Contains(t, claimedIDs, "dep-biweekly")
+	assert.Contains(t, claimedIDs, "dep-biweekly-underscore")
+	assert.Contains(t, claimedIDs, "dep-monthly")
+	assert.Contains(t, claimedIDs, "dep-default-freq")
+	assert.Contains(t, claimedIDs, "dep-zerotime")
+
+	// Verify advance calls recorded in stub
+	assert.Len(t, ciStub.advancedDeposits, 6)
+}
+
+func TestCustomerBLL_GenerateBatchStatements(t *testing.T) {
+	// Case 1: core-invest client is nil -> Unavailable
+	bllNil := customerbll.NewServer(customerbll.Config{})
+	clientNil := startCustomerBLLTestServer(t, bllNil)
+	_, err := clientNil.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Contains(t, err.Error(), "core-invest service unavailable")
+
+	// Case 2: ListPortfolios returns an error -> Internal
+	ciStubFailList := &stubCoreInvestServer{failListPorts: true}
+	bllFailList := customerbll.NewServer(customerbll.Config{})
+	bllFailList.SetCoreInvestClient(ciStubFailList)
+	clientFailList := startCustomerBLLTestServer(t, bllFailList)
+	_, err = clientFailList.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Contains(t, err.Error(), "failed to list portfolios")
+
+	// Case 3: Success path with default parameters (Year=0, Period="") and partial portfolio statement failure
+	ciStub := &stubCoreInvestServer{
+		portfolios: map[string]*coreinvestv1.Portfolio{
+			"port-1": {PortfolioID: "port-1", CustomerID: "cust-1"},
+			"port-2": {PortfolioID: "port-2", CustomerID: "cust-2"},
+			"port-3": {PortfolioID: "port-3", CustomerID: "cust-3"},
+		},
+		failGenStmtFor: map[string]bool{
+			"port-2": true, // statement generation fails for port-2
+		},
+	}
+	bll := customerbll.NewServer(customerbll.Config{})
+	bll.SetCoreInvestClient(ciStub)
+	client := startCustomerBLLTestServer(t, bll)
+
+	res, err := client.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), res.TotalPortfolios) // 2 out of 3 succeeded
+	assert.Equal(t, "completed", res.Status)
+	assert.NotEmpty(t, res.Period)
+	assert.NotEmpty(t, res.GeneratedAt)
+
+	// Case 4: Success path with explicit Year and Period
+	resExplicit, err := client.GenerateBatchStatements(t.Context(), &customerbllv1.GenerateBatchStatementsRequest{
+		Year:   2025,
+		Period: "2025-01",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), resExplicit.TotalPortfolios)
+	assert.Equal(t, "2025-01", resExplicit.Period)
+	assert.Equal(t, "completed", resExplicit.Status)
 }
