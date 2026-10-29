@@ -18,6 +18,7 @@ type mockCoreInvestClient struct {
 	getStatementDocFunc   func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error)
 	listStatementsFunc    func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
 	listAPIKeysFunc       func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
+	createAPIKeyFn        func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error)
 	listCameraStreamsFunc func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
 	generateMonthlyFunc   func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error)
 	generate1099BFunc     func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error)
@@ -48,6 +49,13 @@ func (m *mockCoreInvestClient) ListAPIKeys(ctx context.Context, in *coreinvestv1
 		return m.listAPIKeysFunc(ctx, in)
 	}
 	return &coreinvestv1.ListAPIKeysResponse{APIKeys: []*coreinvestv1.CustomerAPIKey{}}, nil
+}
+
+func (m *mockCoreInvestClient) CreateAPIKey(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error) {
+	if m.createAPIKeyFn != nil {
+		return m.createAPIKeyFn(ctx, in)
+	}
+	return nil, errors.New("not implemented")
 }
 
 func (m *mockCoreInvestClient) GetStatementDocument(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error) {
