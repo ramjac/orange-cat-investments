@@ -758,24 +758,22 @@ Refactor the test cluster verification and deployment workflow so that test clus
   * **Gated Promotion to Staging (`oci-dev`) & Production (`oci-core`):** Once unit tests and builds succeed inside the cluster runner, the workflow triggers Kubernetes rolling updates in `oci-dev` and subsequent promotion to `oci-core`.
   * **Automated End-to-End Simulation Verification:** The runner triggers an automated post-deployment simulation run (`simulation/cmd/simulator -mode live`) to verify that all personas function correctly on the freshly deployed cluster without requiring external CLI intervention.
 
-### 7.4 Dynamic Habitat Camera & Computer Vision Stream Lifecycle Management
-Design and implement an end-to-end dynamic lifecycle and discovery framework for OCI habitat camera feeds and optical computer vision streams (`core_invest.camera_streams` and `facilities.hardware_assets`):
+### 7.4 Mock Hardware Asset Data Generation for Platform Workflows
+Design and implement mock hardware assets that generate data, such as interpreted video feed events, to trigger downstream OCI applications and simulate realistic physical environments.
 
 * **Why Fourth:** Completes the remaining functional domain surface across `facilities-api`, `core-invest-api`, `internal-bll`, `customer-bll`, and `customer-bff` before layering full-stack observability (`7.5`–`7.7`) and chaos testing (`7.8`).
 * **The Problem:**
-  Habitat camera streams are currently populated via static seed scripts (`scripts/seed-dev.sql`, `scripts/init.sql`). In production, optical observation feeds (e.g. 4K WebRTC low-latency habitat perch cameras, wide-angle feline observation scopes, thermal imaging feeds) are dynamically deployed, upgraded, repositioned, or decommissioned. The platform requires a formal management plane to register physical hardware cameras, provision streaming ingest endpoints (WebRTC/WHEP, RTSP, HLS), monitor stream health, dynamically negotiate WebRTC SDP handshakes, and route video frames into the ML computer vision observation pipeline without manual SQL intervention.
+  Habitat camera streams and physical assets are currently stubbed out via static seed scripts (`scripts/seed-dev.sql`, `scripts/init.sql`). Since OCI applications require active edge data (e.g., habitat motion events, temperature readings) to exercise platform logic (like trading decisions based on feline zoomies), we need a dynamic mechanism to mock this physical edge. Without a real video ingest layer, we must simulate the output of computer vision models directly to trigger business logic.
 * **Architecture & Objectives:**
-  * **Hardware Asset to Stream Binding:**
-    * Formalize the lifecycle link between `facilities.hardware_assets` (edge cameras identified by QR codes and serial numbers) and `core_invest.camera_streams`.
-    * Provide automated camera provisioning APIs in `facilities-api` and `internal-bll` for field engineers to scan a camera's QR code, pair it to a habitat zone (`Zone Alpha`, `Zone Beta`), and initialize its streaming ingestion pipeline.
-  * **Dynamic Stream Discovery & Catalog API:**
-    * Implement pure gRPC RPCs in `CoreInvestService` (`ListCameraStreams`, `GetCameraStream`, `RegisterCameraStream`, `UpdateStreamStatus`) backed by `core_invest.camera_streams`.
-    * Expose dynamic stream discovery in `customer-bll` (`GET /api/v1/customer-bll/streams`) and `customer-bff` (`GET /api/v1/customer/streams`), replacing any static fallbacks.
-  * **Edge Media Server Integration & Ingestion Pipeline:**
-    * Integrate an edge media server (e.g. MediaMTX / LiveKit / Janus WebRTC gateway) running in `oci-core` to ingest raw RTSP feeds from physical edge cameras and transcode/relay them to WebRTC (WHEP) and HLS endpoints for the customer web portal.
-    * Automate stream health checks: when a camera goes offline or encounters network degradation, automatically transition stream status (`active` $\rightarrow$ `idle` $\rightarrow$ `error`), notifying facilities engineers via ops alerts.
-  * **Computer Vision Ingestion Orchestration:**
-    * Connect the active stream ingestion plane with the feline executive observation engine: edge workers pull frames from the active stream, execute optical pose estimation and activity detection (e.g., alpha perch posture, rest cycles), and publish `events.investment.observation_ingested.v1` events to RabbitMQ.
+  * **Mock Event Generators:**
+    * Create dedicated Go binaries in `cmd/mock-hardware` to simulate various edge devices (e.g., smart cameras, IoT climate sensors).
+    * Configure these mock devices to emit high-level interpreted events rather than raw data (e.g., publishing `events.investment.observation_ingested.v1` for a detected "zoomie" instead of streaming RTSP video).
+  * **Dynamic Hardware Discovery & Catalog API:**
+    * Implement gRPC RPCs in `CoreInvestService` and `FacilitiesService` to track and discover these virtual hardware assets.
+    * Allow the platform to query the status of mock devices and subscribe to their event streams via RabbitMQ.
+  * **Simulated Environment Responses:**
+    * Wire the mock event streams into `oci-worker` and internal services to trigger system actions (e.g., altering asset allocation when an alpha perch posture is detected).
+    * Introduce realistic variance and probabilistic behavior into the mock generators to ensure unpredictable, lifelike event distributions for the simulation engine.
 
 ### 7.5 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
 Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
