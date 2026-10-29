@@ -14,6 +14,7 @@ import (
 type mockCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 	listCameraStreamsFunc func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
+	listStatementsFunc    func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
 }
 
 func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -21,6 +22,13 @@ func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *corein
 		return m.listCameraStreamsFunc(ctx, in)
 	}
 	return &coreinvestv1.ListCameraStreamsResponse{}, nil
+}
+
+func (m *mockCoreInvestClient) ListStatements(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+	if m.listStatementsFunc != nil {
+		return m.listStatementsFunc(ctx, in)
+	}
+	return nil, nil
 }
 
 func TestListCameraStreams(t *testing.T) {

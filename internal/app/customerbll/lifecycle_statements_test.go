@@ -13,6 +13,104 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func TestListStatements_Success(t *testing.T) {
+	expectedStatements := []*coreinvestv1.CustomerStatement{
+		{
+			StatementID:   "stmt-101",
+			CustomerID:    "cust-123",
+			PortfolioID:   "port-123",
+			StatementType: "monthly",
+			Period:        "2026-01",
+			Status:        "generated",
+		},
+		{
+			StatementID:   "stmt-102",
+			CustomerID:    "cust-123",
+			PortfolioID:   "port-123",
+			StatementType: "monthly",
+			Period:        "2026-02",
+			Status:        "generated",
+		},
+	}
+
+	mockCI := &mockCoreInvestClient{
+		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+			assert.Equal(t, "cust-123", in.CustomerID)
+			return &coreinvestv1.ListStatementsResponse{
+				Statements: expectedStatements,
+			}, nil
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "cust-123",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Len(t, res.Statements, 2)
+	assert.Equal(t, "stmt-101", res.Statements[0].StatementID)
+	assert.Equal(t, "stmt-102", res.Statements[1].StatementID)
+}
+
+func TestListStatements_CoreInvestErrorFallback(t *testing.T) {
+	mockCI := &mockCoreInvestClient{
+		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+			return nil, errors.New("database connection failed")
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "cust-123",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
+func TestListStatements_NilResponseFromCoreInvest(t *testing.T) {
+	mockCI := &mockCoreInvestClient{
+		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+			return nil, nil
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "cust-123",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
+func TestListStatements_NilCoreInvestClient(t *testing.T) {
+	server := NewServer(Config{})
+
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "cust-123",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
+func TestListStatements_NilRequest(t *testing.T) {
+	server := NewServer(Config{})
+
+	res, err := server.ListStatements(t.Context(), nil)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
 type mockGDPRCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 	executeGDPRErasureFunc func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
