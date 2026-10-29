@@ -15,19 +15,23 @@ import (
 
 type mockCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
-	getStatementDocFunc   func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error)
-	listStatementsFunc    func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
-	listAPIKeysFunc       func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
-	createAPIKeyFn        func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error)
-	listCameraStreamsFunc func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
-	generateMonthlyFunc   func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error)
-	generate1099BFunc     func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error)
-	listPortfoliosFunc    func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error)
-	generateStmtFunc      func(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error)
-	registerCustFunc      func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error)
-	closeAccountFunc      func(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error)
-	executeGDPRFunc       func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
-	getGDPRCertFunc       func(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error)
+	getStatementDocFunc         func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error)
+	listStatementsFunc          func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
+	listAPIKeysFunc             func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
+	createAPIKeyFn              func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error)
+	listCameraStreamsFunc       func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
+	generateMonthlyFunc         func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error)
+	generate1099BFunc           func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error)
+	listPortfoliosFunc          func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error)
+	generateStmtFunc            func(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error)
+	registerCustFunc            func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error)
+	closeAccountFunc            func(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error)
+	executeGDPRFunc             func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
+	getGDPRCertFunc             func(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error)
+	createRecurringDepositFunc  func(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error)
+	listRecurringDepositsFunc   func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error)
+	updatePortfolioBalanceFunc  func(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error)
+	advanceRecurringDepositFunc func(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error)
 }
 
 func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -119,6 +123,44 @@ func (m *mockCoreInvestClient) GetGDPRErasureCertificate(ctx context.Context, in
 		return m.getGDPRCertFunc(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
+}
+
+func (m *mockCoreInvestClient) CreateRecurringDeposit(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
+	if m.createRecurringDepositFunc != nil {
+		return m.createRecurringDepositFunc(ctx, in)
+	}
+	return &coreinvestv1.CreateRecurringDepositResponse{
+		Deposit: &coreinvestv1.RecurringDeposit{
+			DepositID:   "dep-mock-01",
+			CustomerID:  in.CustomerID,
+			PortfolioID: in.PortfolioID,
+			AmountUSD:   in.AmountUSD,
+			Frequency:   in.Frequency,
+			BankAccount: in.BankAccount,
+			Status:      "active",
+		},
+	}, nil
+}
+
+func (m *mockCoreInvestClient) ListRecurringDeposits(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+	if m.listRecurringDepositsFunc != nil {
+		return m.listRecurringDepositsFunc(ctx, in)
+	}
+	return &coreinvestv1.ListRecurringDepositsResponse{}, nil
+}
+
+func (m *mockCoreInvestClient) UpdatePortfolioBalance(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error) {
+	if m.updatePortfolioBalanceFunc != nil {
+		return m.updatePortfolioBalanceFunc(ctx, in)
+	}
+	return &coreinvestv1.UpdatePortfolioBalanceResponse{}, nil
+}
+
+func (m *mockCoreInvestClient) AdvanceRecurringDeposit(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error) {
+	if m.advanceRecurringDepositFunc != nil {
+		return m.advanceRecurringDepositFunc(ctx, in)
+	}
+	return &coreinvestv1.AdvanceRecurringDepositResponse{}, nil
 }
 
 func TestListCameraStreams(t *testing.T) {
