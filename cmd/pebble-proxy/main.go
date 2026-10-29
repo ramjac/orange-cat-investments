@@ -6,14 +6,24 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
+
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
-	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "pebble-proxy")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 	logger.Info("starting OCI Pebble Companion App Gateway Proxy")
 
 	enablePebbleGateway := os.Getenv("ENABLE_PEBBLE_GATEWAY") != "false"

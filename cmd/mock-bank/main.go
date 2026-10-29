@@ -13,6 +13,7 @@ import (
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/engine"
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/handler"
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/ledger"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 )
 
 func main() {
@@ -20,6 +21,14 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "mock-bank")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -6,20 +6,31 @@ import (
 	"log/slog"
 	"net"
 	"os"
+
 	"os/signal"
 	"syscall"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	facilities_repo "github.com/orange-cat-investments/oci/internal/repository/facilities"
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "facilities-api")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 	logger.Info("starting OCI Facilities Domain API microservice (pure gRPC)...")
 
 	port := os.Getenv("PORT")

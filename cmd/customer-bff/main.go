@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
+
 	"github.com/orange-cat-investments/oci/internal/app/customerbff"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
@@ -36,6 +38,14 @@ func NewSessionStore() SessionStore {
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "customer-bff")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 	logger.Info("Starting OCI Customer BFF API Server...")
 
 	port := os.Getenv("PORT")
