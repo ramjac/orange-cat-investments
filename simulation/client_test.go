@@ -116,3 +116,71 @@ func TestClientDoWithBody(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.JSONEq(t, `{"status":"ok"}`, string(respBytes))
 }
+
+func TestDoForgejoAsTokenHandling(t *testing.T) {
+	var capturedAuth string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	c := &Client{
+		forgejoURL: server.URL,
+		httpClient: server.Client(),
+	}
+
+	// Helper to clear environment variables after test
+	defer func() {
+		t.Setenv("FORGEJO_TOKEN", "")
+		t.Setenv("FORGEJO_ELISE_TOKEN", "")
+		t.Setenv("FORGEJO_MARCUS_TOKEN", "")
+	}()
+
+	t.Run("No token env vars set", func(t *testing.T) {
+		t.Setenv("FORGEJO_TOKEN", "")
+		t.Setenv("FORGEJO_ELISE_TOKEN", "")
+		t.Setenv("FORGEJO_MARCUS_TOKEN", "")
+		capturedAuth = "SENTINEL"
+
+		resp, _, err := c.DoForgejoAs(context.Background(), "emp-human-elise", "GET", "/api/v1/user", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Empty(t, capturedAuth, "Expected no Authorization header when tokens are unset")
+	})
+
+	t.Run("Elise token set", func(t *testing.T) {
+		t.Setenv("FORGEJO_TOKEN", "default-token")
+		t.Setenv("FORGEJO_ELISE_TOKEN", "elise-secret-token")
+		t.Setenv("FORGEJO_MARCUS_TOKEN", "")
+
+		resp, _, err := c.DoForgejoAs(context.Background(), "emp-human-elise", "GET", "/api/v1/user", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "token elise-secret-token", capturedAuth)
+	})
+
+	t.Run("Marcus token set", func(t *testing.T) {
+		t.Setenv("FORGEJO_TOKEN", "default-token")
+		t.Setenv("FORGEJO_ELISE_TOKEN", "")
+		t.Setenv("FORGEJO_MARCUS_TOKEN", "marcus-secret-token")
+
+		resp, _, err := c.DoForgejoAs(context.Background(), "emp-human-marcus", "GET", "/api/v1/user", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "token marcus-secret-token", capturedAuth)
+	})
+
+	t.Run("Fallback to general token for unknown user", func(t *testing.T) {
+		t.Setenv("FORGEJO_TOKEN", "general-token")
+		t.Setenv("FORGEJO_ELISE_TOKEN", "")
+		t.Setenv("FORGEJO_MARCUS_TOKEN", "")
+
+		resp, _, err := c.DoForgejoAs(context.Background(), "emp-human-other", "GET", "/api/v1/user", nil)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "token general-token", capturedAuth)
+	})
+}

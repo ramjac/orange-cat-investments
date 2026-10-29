@@ -123,6 +123,70 @@ func TestVersioningMiddleware(t *testing.T) {
 			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
 		}
 	})
+
+	t.Run("Normalize version handling without 'v' prefix", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("X-API-Version", "1")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v1" {
+			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
+		}
+	})
+
+	t.Run("Invalid quality parameter defaults to q=1.0", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/employees", nil)
+		req.Header.Set("Accept", "application/vnd.oci.v1+json;q=invalid")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected status 200 OK, got %d", rec.Code)
+		}
+		if v := rec.Header().Get("X-API-Version"); v != "v1" {
+			t.Errorf("expected X-API-Version 'v1', got '%s'", v)
+		}
+	})
+}
+
+func TestNormalizeVersion(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"1", "v1"},
+		{"v1", "v1"},
+		{"V2", "v2"},
+		{"  2  ", "v2"},
+		{"v10", "v10"},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeVersion(tt.input); got != tt.expected {
+			t.Errorf("normalizeVersion(%q) = %q, expected %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestDeprecateZeroTime(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Deprecate(rec, time.Time{}, "")
+
+	if v := rec.Header().Get("Deprecation"); v != "true" {
+		t.Errorf("expected Deprecation 'true', got '%s'", v)
+	}
+	if v := rec.Header().Get("Sunset"); v != "" {
+		t.Errorf("expected empty Sunset header, got '%s'", v)
+	}
+	if v := rec.Header().Get("Link"); v != "" {
+		t.Errorf("expected empty Link header, got '%s'", v)
+	}
 }
 
 
