@@ -23,6 +23,23 @@ func (m *mockErrDB) Query(ctx context.Context, sql string, args ...any) (pgx.Row
 	return nil, m.err
 }
 
+type mockCapturedDB struct {
+	lastSQL  string
+	lastArgs []any
+}
+
+func (m *mockCapturedDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	m.lastSQL = sql
+	m.lastArgs = args
+	return &mockRow{err: pgx.ErrNoRows}
+}
+
+func (m *mockCapturedDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	m.lastSQL = sql
+	m.lastArgs = args
+	return nil, nil
+}
+
 type mockRow struct {
 	err error
 }
@@ -253,6 +270,15 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		})
 		assert.Error(t, err)
 
+		_, err = pgxRepo.ListITTicketsBySource(ctx, "internal", 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListITTicketsByCustomer(ctx, "cust-1", 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.UpdateITTicket(ctx, &ITTicket{TicketID: "ticket-001"})
+		assert.Error(t, err)
+
 		_, err = pgxRepo.AcknowledgeITTicket(ctx, "ticket-001", "emp-human-frank")
 		assert.Error(t, err)
 
@@ -287,7 +313,8 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 
 		_, _ = recRepo.CreateITTicket(ctx, &ITTicket{Title: "Test", AuthorUsername: "author"})
 		assert.Contains(t, recorder.lastSQL, "INSERT INTO ops.it_tickets")
-		assert.Contains(t, recorder.lastSQL, "RETURNING ticket_id, forgejo_issue_id")
+		assert.Contains(t, recorder.lastSQL, "RETURNING")
+		assert.Contains(t, recorder.lastSQL, "ticket_id, forgejo_issue_id")
 
 		_, _ = recRepo.UpdateITTicket(ctx, &ITTicket{TicketID: "ticket-123", State: "open"})
 		assert.Contains(t, recorder.lastSQL, "UPDATE ops.it_tickets")
@@ -303,4 +330,44 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		assert.Contains(t, recorder.lastSQL, "WHERE ticket_id = $1")
 		assert.Equal(t, []any{"ticket-123"}, recorder.lastArgs)
 	})
+}
+
+func TestOpsPgxRepositoryParameterizedQueries(t *testing.T) {
+	ctx := context.Background()
+	capturedDB := &mockCapturedDB{}
+	repo := NewRepository(capturedDB)
+
+	injectionPayloads := []string{
+		"' OR '1'='1",
+		"'; DROP TABLE ops.it_tickets; --",
+		"admin'--",
+		"ticket-001' UNION SELECT 1,2,3--",
+	}
+
+	for _, payload := range injectionPayloads {
+		t.Run("AcknowledgeITTicket with payload: "+payload, func(t *testing.T) {
+			_, err := repo.AcknowledgeITTicket(ctx, payload, payload)
+			assert.Error(t, err) // Expect pgx.ErrNoRows wrapped error from mockRow
+			assert.Equal(t, acknowledgeITTicketSQL, capturedDB.lastSQL)
+			require.Len(t, capturedDB.lastArgs, 2)
+			assert.Equal(t, payload, capturedDB.lastArgs[0])
+			assert.Equal(t, payload, capturedDB.lastArgs[1])
+		})
+
+		t.Run("GetITTicketByID with payload: "+payload, func(t *testing.T) {
+			_, err := repo.GetITTicketByID(ctx, payload)
+			assert.Error(t, err)
+			assert.Equal(t, getITTicketByIDSQL, capturedDB.lastSQL)
+			require.Len(t, capturedDB.lastArgs, 1)
+			assert.Equal(t, payload, capturedDB.lastArgs[0])
+		})
+
+		t.Run("CloseITTicket with payload: "+payload, func(t *testing.T) {
+			_, err := repo.CloseITTicket(ctx, payload)
+			assert.Error(t, err)
+			assert.Equal(t, closeITTicketSQL, capturedDB.lastSQL)
+			require.Len(t, capturedDB.lastArgs, 1)
+			assert.Equal(t, payload, capturedDB.lastArgs[0])
+		})
+	}
 }

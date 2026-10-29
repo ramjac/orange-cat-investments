@@ -327,21 +327,17 @@ func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string,
 	if username == "emp-human-elise" {
 		if t := os.Getenv("FORGEJO_ELISE_TOKEN"); t != "" {
 			token = t
-		} else {
-			token = "5c16770c72b9f71cc94d8340d608c7d47dba6bf8"
 		}
 	} else if username == "emp-human-marcus" {
 		if t := os.Getenv("FORGEJO_MARCUS_TOKEN"); t != "" {
 			token = t
-		} else {
-			token = "f02981756f72cad9c9ccdaeee4fd977ace8a4a11"
 		}
 	}
-	if token == "" {
-		token = "14d90cb21c0fefa3ed3ee3a276159a3fcf99acb6"
-	}
-	headers := map[string]string{
-		"Authorization": "token " + token,
+	var headers map[string]string
+	if token != "" {
+		headers = map[string]string{
+			"Authorization": "token " + token,
+		}
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
