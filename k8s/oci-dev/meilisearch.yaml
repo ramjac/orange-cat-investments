@@ -29,6 +29,8 @@ spec:
                   key: MEILI_MASTER_KEY
             - name: MEILI_ENV
               value: development
+            - name: MEILI_EXPERIMENTAL_ENABLE_METRICS
+              value: "true"
           resources:
             requests:
               cpu: 50m
