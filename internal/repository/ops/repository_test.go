@@ -253,6 +253,15 @@ func TestOpsPgxRepositoryDBErrors(t *testing.T) {
 		})
 		assert.Error(t, err)
 
+		_, err = pgxRepo.ListITTicketsBySource(ctx, "internal", 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.ListITTicketsByCustomer(ctx, "cust-1", 10, 0)
+		assert.Error(t, err)
+
+		_, err = pgxRepo.UpdateITTicket(ctx, &ITTicket{TicketID: "ticket-001"})
+		assert.Error(t, err)
+
 		_, err = pgxRepo.AcknowledgeITTicket(ctx, "ticket-001", "emp-human-frank")
 		assert.Error(t, err)
 
