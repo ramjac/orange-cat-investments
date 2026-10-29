@@ -341,3 +341,36 @@ func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string,
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
 }
+
+// timesheetRef is the minimal workforce timesheet projection used for
+// same-day idempotency checks in the simulation actions.
+type timesheetRef struct {
+	TimesheetID string `json:"timesheet_id"`
+	ShiftDate   string `json:"shift_date"`
+	Status      string `json:"status"`
+}
+
+// findTimesheetByShiftDate queries the workforce timesheet list for a timesheet
+// matching the given employee and shift date. It returns the timesheet and true
+// when one exists, allowing daily actions to stay idempotent across re-runs.
+func (c *Client) findTimesheetByShiftDate(ctx context.Context, employeeID, shiftDate string) (*timesheetRef, bool, error) {
+	resp, bytes, err := c.Do(ctx, true, "GET", "/api/v1/workforce/timesheets?employee_id="+employeeID, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("timesheet list request failed: status %d", resp.StatusCode)
+	}
+	var listResp struct {
+		Items []timesheetRef `json:"items"`
+	}
+	if err := json.Unmarshal(bytes, &listResp); err != nil {
+		return nil, false, err
+	}
+	for i := range listResp.Items {
+		if listResp.Items[i].ShiftDate == shiftDate {
+			return &listResp.Items[i], true, nil
+		}
+	}
+	return nil, false, nil
+}

@@ -468,25 +468,44 @@ func (r *Registry) createAliceApproveTimesheetAction() Action {
 			if len(listResp.Items) > 0 {
 				timesheetID = listResp.Items[0].TimesheetID
 			} else {
-				// Fallback: If no submitted timesheet exists yet, submit one first
 				today := time.Now().UTC().Format("2006-01-02")
-				_, createBytes, createErr := client.Do(ctx, true, "POST", "/api/v1/workforce/timesheets", map[string]any{
-					"employee_id":   "emp-human-bob",
-					"shift_date":    today,
-					"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
-					"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
-					"break_minutes": 30,
-					"task_code":     "habitat_maintenance",
-					"billable":      true,
-				})
-				if createErr != nil {
-					return nil, createErr
+				if existing, ok, checkErr := client.findTimesheetByShiftDate(ctx, "emp-human-bob", today); checkErr == nil && ok {
+					if existing.Status == "submitted" {
+						timesheetID = existing.TimesheetID
+					} else {
+						return &ActionResult{
+							PersonaID:   "emp-human-alice",
+							PersonaName: "Alice Vance",
+							ActionName:  "alice_approve_timesheet",
+							Endpoint:    listEndpoint,
+							Success:     true,
+							StatusCode:  http.StatusOK,
+							Details:     fmt.Sprintf("Timesheet %s for shift %s already %s; same-day re-run has nothing pending to approve", existing.TimesheetID, today, existing.Status),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
 				}
-				var created struct {
-					TimesheetID string `json:"timesheet_id"`
+
+				if timesheetID == "" {
+					// Fallback: If no submitted timesheet exists yet, submit one first
+					_, createBytes, createErr := client.Do(ctx, true, "POST", "/api/v1/workforce/timesheets", map[string]any{
+						"employee_id":   "emp-human-bob",
+						"shift_date":    today,
+						"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
+						"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
+						"break_minutes": 30,
+						"task_code":     "habitat_maintenance",
+						"billable":      true,
+					})
+					if createErr != nil {
+						return nil, createErr
+					}
+					var created struct {
+						TimesheetID string `json:"timesheet_id"`
+					}
+					_ = json.Unmarshal(createBytes, &created)
+					timesheetID = created.TimesheetID
 				}
-				_ = json.Unmarshal(createBytes, &created)
-				timesheetID = created.TimesheetID
 			}
 
 			if timesheetID == "" {
@@ -804,6 +823,20 @@ func (r *Registry) createBobLogDailyTimesheetAction() Action {
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/timesheets"
 			today := time.Now().UTC().Format("2006-01-02")
+
+			if existing, ok, checkErr := client.findTimesheetByShiftDate(ctx, "emp-human-bob", today); checkErr == nil && ok {
+				return &ActionResult{
+					PersonaID:   "emp-human-bob",
+					PersonaName: "Bob Builder",
+					ActionName:  "bob_log_daily_timesheet",
+					Endpoint:    endpoint,
+					Success:     true,
+					StatusCode:  http.StatusOK,
+					Details:     fmt.Sprintf("Daily timesheet %s already logged for shift %s; same-day re-run skips duplicate submission", existing.TimesheetID, today),
+					Timestamp:   time.Now().UTC(),
+				}, nil
+			}
+
 			payload := map[string]any{
 				"employee_id":   "emp-human-bob",
 				"shift_date":    today,
