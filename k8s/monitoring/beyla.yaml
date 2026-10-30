@@ -13,7 +13,7 @@ rules:
     resources: ["replicasets"]
     verbs: ["list", "watch"]
   - apiGroups: [""]
-    resources: ["pods", "services", "nodes"]
+    resources: ["pods", "services", "nodes", "nodes/proxy"]
     verbs: ["list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -49,7 +49,7 @@ spec:
       serviceAccountName: beyla
       containers:
         - name: beyla
-          image: grafana/beyla:v1.4.0
+          image: grafana/beyla:1.4.2
           securityContext:
             privileged: true
           env:

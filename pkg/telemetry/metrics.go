@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -27,7 +28,7 @@ var (
 	PebbleMTTADuration metric.Float64Histogram
 )
 
-func InitMetrics(serviceName string) error {
+func initMetrics(serviceName string) error {
 	meter = otel.GetMeterProvider().Meter(serviceName)
 
 	var err error
@@ -92,24 +93,15 @@ func InitMetrics(serviceName string) error {
 	return nil
 }
 
-// Helper functions for easy recording
 func RecordOnboardingAttempt(ctx context.Context, success bool) {
 	if InvestorOnboardingCounter != nil {
-		status := "success"
-		if !success {
-			status = "failure"
-		}
-		// In a real app we'd use attributes, but keeping it simple for the interface for now if we can't import semconv easily everywhere.
-		// Actually, let's just add an attribute.
-		// For simplicity, we just use a basic counter.
-		InvestorOnboardingCounter.Add(ctx, 1) // We could add metric.WithAttributes(attribute.String("status", status))
-		_ = status // to avoid unused variable
+		InvestorOnboardingCounter.Add(ctx, 1, metric.WithAttributes(attribute.Bool("success", success)))
 	}
 }
 
 func RecordBankLinkingAttempt(ctx context.Context, success bool) {
 	if BankLinkingCounter != nil {
-		BankLinkingCounter.Add(ctx, 1)
+		BankLinkingCounter.Add(ctx, 1, metric.WithAttributes(attribute.Bool("success", success)))
 	}
 }
 
@@ -127,7 +119,7 @@ func RecordBracketOrderFill(ctx context.Context) {
 
 func RecordFelineBehavioralEvent(ctx context.Context, eventType string) {
 	if FelineBehavioralEvents != nil {
-		FelineBehavioralEvents.Add(ctx, 1)
+		FelineBehavioralEvents.Add(ctx, 1, metric.WithAttributes(attribute.String("event_type", eventType)))
 	}
 }
 

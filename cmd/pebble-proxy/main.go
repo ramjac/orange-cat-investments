@@ -22,8 +22,6 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		_ = telemetry.InitMetrics("")
-		_ = telemetry.InitMetrics("pebble-proxy")
 		defer shutdownTelemetry(ctx)
 	}
 	logger.Info("starting OCI Pebble Companion App Gateway Proxy")

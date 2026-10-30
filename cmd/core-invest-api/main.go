@@ -29,8 +29,6 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		_ = telemetry.InitMetrics("")
-		_ = telemetry.InitMetrics("core-invest-api")
 		defer shutdownTelemetry(ctx)
 	}
 	logger.Info("starting OCI Core Invest Domain API microservice (pure gRPC)...")

@@ -38,8 +38,6 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		_ = telemetry.InitMetrics("")
-		_ = telemetry.InitMetrics("internal-bll")
 		defer shutdownTelemetry(ctx)
 	}
 	slog.SetDefault(logger)

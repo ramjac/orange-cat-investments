@@ -44,8 +44,6 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		_ = telemetry.InitMetrics("")
-		_ = telemetry.InitMetrics("customer-bff")
 		defer shutdownTelemetry(ctx)
 	}
 	logger.Info("Starting OCI Customer BFF API Server...")

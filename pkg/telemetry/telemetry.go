@@ -32,15 +32,15 @@ func InitProvider(ctx context.Context, serviceName string) (func(context.Context
 		otelEndpoint = "alloy.monitoring.svc.cluster.local:4317"
 	}
 
-	// For tests, do not block or fail if the endpoint is not reachable
-	traceExporter, _ := otlptracegrpc.New(ctx,
+	traceExporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(otelEndpoint),
 		otlptracegrpc.WithInsecure(),
 		otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 
+	// We don't fail fast on exporter creation error because it might just be the collector is down
 	var tracerProvider *sdktrace.TracerProvider
-	if traceExporter != nil {
+	if err == nil && traceExporter != nil {
 		bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
 		tracerProvider = sdktrace.NewTracerProvider(
 			sdktrace.WithSampler(sdktrace.AlwaysSample()),
@@ -50,14 +50,14 @@ func InitProvider(ctx context.Context, serviceName string) (func(context.Context
 		otel.SetTracerProvider(tracerProvider)
 	}
 
-	metricExporter, _ := otlpmetricgrpc.New(ctx,
+	metricExporter, err := otlpmetricgrpc.New(ctx,
 		otlpmetricgrpc.WithEndpoint(otelEndpoint),
 		otlpmetricgrpc.WithInsecure(),
 		otlpmetricgrpc.WithDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
 	)
 
 	var meterProvider *sdkmetric.MeterProvider
-	if metricExporter != nil {
+	if err == nil && metricExporter != nil {
 		meterProvider = sdkmetric.NewMeterProvider(
 			sdkmetric.WithResource(res),
 			sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter, sdkmetric.WithInterval(15*time.Second))),
@@ -66,6 +66,8 @@ func InitProvider(ctx context.Context, serviceName string) (func(context.Context
 	}
 
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+
+	_ = initMetrics(serviceName)
 
 	shutdown := func(ctx context.Context) error {
 		if tracerProvider != nil {

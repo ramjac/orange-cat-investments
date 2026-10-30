@@ -27,8 +27,6 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		_ = telemetry.InitMetrics("")
-		_ = telemetry.InitMetrics("mock-broker")
 		defer shutdownTelemetry(ctx)
 	}
 
