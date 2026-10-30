@@ -27,6 +27,10 @@ spec:
     metadata:
       labels:
         app: postgres-core
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: postgres
@@ -60,32 +64,59 @@ spec:
               cpu: 250m
               memory: 512Mi
             limits:
+
               cpu: "1"
+
               memory: 2Gi
+
         - name: postgres-exporter
-          image: prometheuscommunity/postgres-exporter:latest
+
+          image: prometheuscommunity/postgres-exporter:v0.15.0
+
           env:
-            - name: DATA_SOURCE_NAME
-              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/oci?sslmode=disable"
+
             - name: POSTGRES_USER
+
               valueFrom:
+
                 secretKeyRef:
+
                   name: oci-core-secrets
+
                   key: POSTGRES_USER
+
             - name: POSTGRES_PASSWORD
+
               valueFrom:
+
                 secretKeyRef:
+
                   name: oci-core-secrets
+
                   key: POSTGRES_PASSWORD
+
+            - name: DATA_SOURCE_NAME
+
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/oci?sslmode=disable"
+
           ports:
+
             - containerPort: 9187
+
               name: metrics
+
           resources:
+
             requests:
+
               cpu: 50m
+
               memory: 32Mi
+
             limits:
+
               cpu: 100m
+
               memory: 64Mi
       volumes:
         - name: postgres-storage
@@ -125,6 +156,7 @@ spec:
           containers:
           - name: postgres-backup
             image: postgres:16-alpine
+          args: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
             command:
             - /bin/sh
             - -c

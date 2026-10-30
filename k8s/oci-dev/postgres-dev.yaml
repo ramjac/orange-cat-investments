@@ -27,6 +27,10 @@ spec:
     metadata:
       labels:
         app: postgres-dev
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: postgres
@@ -59,53 +63,3 @@ spec:
             requests:
               cpu: 100m
               memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
-        - name: postgres-exporter
-          image: prometheuscommunity/postgres-exporter:latest
-          env:
-            - name: DATA_SOURCE_NAME
-              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/oci?sslmode=disable"
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: oci-dev-secrets
-                  key: POSTGRES_PASSWORD
-          ports:
-            - containerPort: 9187
-              name: metrics
-          resources:
-            requests:
-              cpu: 25m
-              memory: 16Mi
-            limits:
-              cpu: 50m
-              memory: 32Mi
-      volumes:
-        - name: postgres-dev-storage
-          persistentVolumeClaim:
-            claimName: postgres-dev-data-pvc
-        - name: init-script
-          configMap:
-            name: postgres-dev-init-script
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres-dev-service
-  namespace: oci-dev
-  labels:
-    app: postgres-dev
-spec:
-  ports:
-    - port: 5432
-      targetPort: 5432
-      name: postgres
-  selector:
-    app: postgres-dev

@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: meilisearch
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "7700"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: meilisearch
