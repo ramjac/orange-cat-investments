@@ -274,7 +274,6 @@ When running locally on a home server, the services bind to the following ports:
        │ PostgreSQL 16           │ localhost:5432                    │
        │ Valkey (Redis)          │ localhost:6379                    │
        │ RabbitMQ                │ localhost:5672 (AMQP) / 15672 (UI)│
-       │ Unified API Server      │ http://localhost:8080             │
        │ Employee BFF            │ http://localhost:8081             │
        │ Pebble Gateway Proxy    │ http://localhost:8082             │
        │ Customer BFF            │ http://localhost:8083             │
@@ -363,11 +362,11 @@ PGPASSWORD=catnip psql -h localhost -U oci -d oci -f scripts/init.sql
 
 You can run each service in separate terminal tabs, in `tmux`/`screen`, or as `systemd` user services.
 
-**1. Unified API Server (`:8080`)**
-Hosts all 4 domains (`core-invest`, `facilities`, `ops`, `workforce`):
+**1. Workforce Domain API Server (`:50051`)**
+Hosts the `workforce` domain via gRPC:
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8080"
+export PORT="50051"
 go run ./cmd/workforce-api
 ```
 
@@ -524,12 +523,12 @@ kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
 kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
 
 # 2. Run the 12-persona platform simulation driver against the live cluster:
-go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
+go run ./simulation/cmd/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
 
 # 3. Execute concurrent load testing (e.g. 10 parallel simulation runs):
 go build -o /tmp/simulator ./simulation/cmd/simulator
 for i in {1..10}; do
-  /tmp/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
+  /tmp/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
 done
 wait
 ```
@@ -568,11 +567,10 @@ The repository includes a comprehensive simulation driver (`simulation/cmd/simul
 
 ```bash
 # 1. Run against Kubernetes oci-dev Staging (smart URL routing):
-go run ./simulation/cmd/simulator -url https://dev.api.oci.local
+go run ./simulation/cmd/simulator -bff-url https://dev.employee-bff.oci.local -cust-bff-url https://dev.customer-bff.oci.local
 
 # 2. Run against local test services:
 go run ./simulation/cmd/simulator \
-  -server-url http://localhost:8080 \
   -bff-url http://localhost:8081 \
   -cust-bff-url http://localhost:8083 \
   -broker-url http://localhost:8089 \
@@ -588,18 +586,18 @@ Once services are running, verify system operation using `curl`:
 
 **1. Health Check:**
 ```bash
-curl -i http://localhost:8080/healthz
+curl -i http://localhost:8081/healthz
 # Response: HTTP/200 {"status":"ok"}
 ```
 
 **2. List Hardware Assets (Keyset Pagination):**
 ```bash
-curl -s http://localhost:8080/facilities/assets | jq .
+curl -s http://localhost:8081/facilities/assets | jq .
 ```
 
 **3. Submit Offline Maintenance Logs (Field Sync):**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
+curl -s -X POST http://localhost:8081/facilities/sync/maintenance-logs \
   -H "Content-Type: application/json" \
   -d '[{
     "asset_id": "018e0000-0000-7000-8000-000000000001",
@@ -610,7 +608,7 @@ curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
 
 **4. Trigger Edge Device Firmware OTA Update:**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
+curl -s -X POST http://localhost:8081/facilities/firmware/ota-jobs \
   -H "Content-Type: application/json" \
   -d '{
     "asset_ids": ["018e0000-0000-7000-8000-000000000001"],
@@ -620,7 +618,7 @@ curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
 
 **5. Toggle Feline Emergency Medical Hold:**
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
+curl -s -X POST http://localhost:8081/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
   -H "Content-Type: application/json" \
   -d '{"emergency_medical_hold": true}' | jq .
 ```

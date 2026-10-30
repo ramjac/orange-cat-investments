@@ -17,9 +17,8 @@ import (
 	"time"
 )
 
-// Client wraps HTTP communication with the OCI stack (Domain API server, Employee BFF, Customer BFF, Forgejo, Bank, and Broker).
+// Client wraps HTTP communication with the OCI stack (Employee BFF, Customer BFF, Forgejo, Bank, and Broker).
 type Client struct {
-	serverURL       string
 	bffURL          string
 	custBFFURL      string
 	brokerURL       string
@@ -52,7 +51,6 @@ func NewClient(cfg *Config) (*Client, error) {
 	}
 
 	c := &Client{
-		serverURL:   strings.TrimSuffix(cfg.ServerURL, "/"),
 		bffURL:      strings.TrimSuffix(cfg.EmployeeBFFURL, "/"),
 		custBFFURL:  strings.TrimSuffix(cfg.CustomerBFFURL, "/"),
 		brokerURL:   strings.TrimSuffix(cfg.BrokerURL, "/"),
@@ -269,29 +267,20 @@ func (c *Client) doRequest(ctx context.Context, fullURL, method string, body any
 }
 
 // Do executes an HTTP request against the Employee BFF target URL.
-func (c *Client) Do(ctx context.Context, useBFF bool, method, path string, body any) (*http.Response, []byte, error) {
+func (c *Client) Do(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.bffURL
-	if baseURL == "" {
-		baseURL = c.serverURL
-	}
 	return c.doRequest(ctx, baseURL+path, method, body, nil)
 }
 
 // DoCustomer executes an HTTP request against the Customer BFF target URL.
 func (c *Client) DoCustomer(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.custBFFURL
-	if baseURL == "" {
-		baseURL = c.serverURL
-	}
 	return c.doRequest(ctx, baseURL+path, method, body, nil)
 }
 
 // DoBroker executes an HTTP request directly against the Mock Broker API.
 func (c *Client) DoBroker(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.brokerURL
-	if baseURL == "" {
-		baseURL = "http://localhost:8089"
-	}
 	headers := map[string]string{
 		"APCA-API-KEY-ID":     "CK_OCI_TEST_KEY_01",
 		"APCA-API-SECRET-KEY": "SK_OCI_TEST_SECRET_01",
@@ -302,9 +291,6 @@ func (c *Client) DoBroker(ctx context.Context, method, path string, body any) (*
 // DoBank executes an HTTP request directly against the Mock Bank API.
 func (c *Client) DoBank(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.bankURL
-	if baseURL == "" {
-		baseURL = "http://localhost:8088"
-	}
 	headers := map[string]string{
 		"PLAID-CLIENT-ID": "client_oci_sim_01",
 		"PLAID-SECRET":    "sec_oci_sim_test_8829",
@@ -320,9 +306,6 @@ func (c *Client) DoForgejo(ctx context.Context, method, path string, body any) (
 // DoForgejoAs executes an HTTP request directly against the Forgejo REST API with a specific user token.
 func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.forgejoURL
-	if baseURL == "" {
-		baseURL = "http://localhost:3000"
-	}
 	token := os.Getenv("FORGEJO_TOKEN")
 	if username == "emp-human-elise" {
 		if t := os.Getenv("FORGEJO_ELISE_TOKEN"); t != "" {
@@ -354,7 +337,7 @@ type timesheetRef struct {
 // matching the given employee and shift date. It returns the timesheet and true
 // when one exists, allowing daily actions to stay idempotent across re-runs.
 func (c *Client) findTimesheetByShiftDate(ctx context.Context, employeeID, shiftDate string) (*timesheetRef, bool, error) {
-	resp, bytes, err := c.Do(ctx, true, "GET", "/api/v1/workforce/timesheets?employee_id="+employeeID, nil)
+	resp, bytes, err := c.Do(ctx, "GET", "/api/v1/workforce/timesheets?employee_id="+employeeID, nil)
 	if err != nil {
 		return nil, false, err
 	}
