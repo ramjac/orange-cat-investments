@@ -49,7 +49,7 @@ spec:
       serviceAccountName: beyla
       containers:
         - name: beyla
-          image: grafana/beyla:latest
+          image: grafana/beyla:v1.4.0
           securityContext:
             privileged: true
           env:

@@ -44,6 +44,8 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
+		_ = telemetry.InitMetrics("")
+		_ = telemetry.InitMetrics("customer-bff")
 		defer shutdownTelemetry(ctx)
 	}
 	logger.Info("Starting OCI Customer BFF API Server...")
@@ -97,5 +99,5 @@ func main() {
 		cachevalkey.StartAMQPInvalidationListener(context.Background(), amqpURL, "customer-bff", cacheInstance, logger)
 	}
 
-	httputil.ListenAndServeGraceful("customer-bff", port, custBFF.Routes(), logger)
+	httputil.ListenAndServeGraceful("customer-bff", port, httputil.InstrumentHandler(custBFF.Routes(), "customer-bff"), logger)
 }

@@ -26,6 +26,8 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
+		_ = telemetry.InitMetrics("")
+		_ = telemetry.InitMetrics("employee-bff")
 		defer shutdownTelemetry(ctx)
 	}
 	logger.Info("Starting OCI Employee BFF API Server...")
@@ -112,5 +114,5 @@ func main() {
 		cachevalkey.StartAMQPInvalidationListener(context.Background(), amqpURL, "employee-bff", cache, logger)
 	}
 
-	httputil.ListenAndServeGraceful("employee-bff", port, bff.SetupRouter(), logger)
+	httputil.ListenAndServeGraceful("employee-bff", port, httputil.InstrumentHandler(bff.SetupRouter(), "employee-bff"), logger)
 }

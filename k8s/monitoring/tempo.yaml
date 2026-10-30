@@ -45,10 +45,28 @@ spec:
             - name: tempo-config
               mountPath: /etc/tempo.yaml
               subPath: tempo.yaml
+            - name: tempo-data
+              mountPath: /var/tempo
       volumes:
         - name: tempo-config
           configMap:
             name: tempo-config
+        - name: tempo-data
+          persistentVolumeClaim:
+            claimName: tempo-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tempo-pvc
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: microk8s-hostpath
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -79,6 +97,6 @@ data:
       trace:
         backend: local
         local:
-          path: /tmp/tempo/blocks
+          path: /var/tempo/blocks
         wal:
-          path: /tmp/tempo/wal
+          path: /var/tempo/wal
