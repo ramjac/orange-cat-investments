@@ -679,7 +679,8 @@ The remaining items are prioritized in the execution order that maximizes engine
 2. **Phase 2 — Core Domain Completion (`7.4`, `7.10`):** Implement dynamic habitat camera provisioning and computer vision stream lifecycle management (`7.4`) and dynamic historical portfolio valuation with daily NAV snapshots (`7.10`) cleanly atop the modular BFF/BLL architecture.
 3. **Phase 3 — Full-Stack Infrastructure, Database & Application Observability (`7.5`–`7.7`):** Instrument self-hosted Kubernetes blind spots (`7.5`), stateful data stores (`7.6`), and OpenTelemetry distributed tracing/metrics (`7.7`) across all completed domain services.
 4. **Phase 4 — Chaos Engineering & Zero-Trust Hardening (`7.8`–`7.9`):** Execute fault injection and chaos resilience verification against the fully instrumented alerting stack (`7.8`), followed by dynamic secret management and workload identity mesh hardening (`7.9`).
-5. **Phase 5 — Load Testing & Simulation Run Hardening (`7.11`):** Provision simulation fixtures, credentials, and seed data so all persona workflows execute cleanly under sustained high-concurrency load, and restore in-cluster resource telemetry for load test verification.
+5. **Phase 5 — Developer Experience & Technical Debt Cleanup (`7.11`–`7.12`):** Finish removing the deprecated in-process mock simulator artifacts still lingering in simulator defaults and documentation (`7.11`), then realign the local quickstart with the production 5-tier topology so local development is no longer a special, non-conforming means of running the application (`7.12`).
+6. **Phase 6 — Load Testing & Simulation Run Hardening (`7.13`):** Provision simulation fixtures, credentials, and seed data so all persona workflows execute cleanly under sustained high-concurrency load, and restore in-cluster resource telemetry for load test verification.
 
 ---
 
@@ -759,24 +760,22 @@ Refactor the test cluster verification and deployment workflow so that test clus
   * **Gated Promotion to Staging (`oci-dev`) & Production (`oci-core`):** Once unit tests and builds succeed inside the cluster runner, the workflow triggers Kubernetes rolling updates in `oci-dev` and subsequent promotion to `oci-core`.
   * **Automated End-to-End Simulation Verification:** The runner triggers an automated post-deployment simulation run (`simulation/cmd/simulator -mode live`) to verify that all personas function correctly on the freshly deployed cluster without requiring external CLI intervention.
 
-### 7.4 Dynamic Habitat Camera & Computer Vision Stream Lifecycle Management
-Design and implement an end-to-end dynamic lifecycle and discovery framework for OCI habitat camera feeds and optical computer vision streams (`core_invest.camera_streams` and `facilities.hardware_assets`):
+### 7.4 Mock Hardware Asset Data Generation for Platform Workflows
+Design and implement mock hardware assets that generate data, such as interpreted video feed events, to trigger downstream OCI applications and simulate realistic physical environments.
 
 * **Why Fourth:** Completes the remaining functional domain surface across `facilities-api`, `core-invest-api`, `internal-bll`, `customer-bll`, and `customer-bff` before layering full-stack observability (`7.5`–`7.7`) and chaos testing (`7.8`).
 * **The Problem:**
-  Habitat camera streams are currently populated via static seed scripts (`scripts/seed-dev.sql`, `scripts/init.sql`). In production, optical observation feeds (e.g. 4K WebRTC low-latency habitat perch cameras, wide-angle feline observation scopes, thermal imaging feeds) are dynamically deployed, upgraded, repositioned, or decommissioned. The platform requires a formal management plane to register physical hardware cameras, provision streaming ingest endpoints (WebRTC/WHEP, RTSP, HLS), monitor stream health, dynamically negotiate WebRTC SDP handshakes, and route video frames into the ML computer vision observation pipeline without manual SQL intervention.
+  Habitat camera streams and physical assets are currently stubbed out via static seed scripts (`scripts/seed-dev.sql`, `scripts/init.sql`). Since OCI applications require active edge data (e.g., habitat motion events, temperature readings) to exercise platform logic (like trading decisions based on feline zoomies), we need a dynamic mechanism to mock this physical edge. Without a real video ingest layer, we must simulate the output of computer vision models directly to trigger business logic.
 * **Architecture & Objectives:**
-  * **Hardware Asset to Stream Binding:**
-    * Formalize the lifecycle link between `facilities.hardware_assets` (edge cameras identified by QR codes and serial numbers) and `core_invest.camera_streams`.
-    * Provide automated camera provisioning APIs in `facilities-api` and `internal-bll` for field engineers to scan a camera's QR code, pair it to a habitat zone (`Zone Alpha`, `Zone Beta`), and initialize its streaming ingestion pipeline.
-  * **Dynamic Stream Discovery & Catalog API:**
-    * Implement pure gRPC RPCs in `CoreInvestService` (`ListCameraStreams`, `GetCameraStream`, `RegisterCameraStream`, `UpdateStreamStatus`) backed by `core_invest.camera_streams`.
-    * Expose dynamic stream discovery in `customer-bll` (`GET /api/v1/customer-bll/streams`) and `customer-bff` (`GET /api/v1/customer/streams`), replacing any static fallbacks.
-  * **Edge Media Server Integration & Ingestion Pipeline:**
-    * Integrate an edge media server (e.g. MediaMTX / LiveKit / Janus WebRTC gateway) running in `oci-core` to ingest raw RTSP feeds from physical edge cameras and transcode/relay them to WebRTC (WHEP) and HLS endpoints for the customer web portal.
-    * Automate stream health checks: when a camera goes offline or encounters network degradation, automatically transition stream status (`active` $\rightarrow$ `idle` $\rightarrow$ `error`), notifying facilities engineers via ops alerts.
-  * **Computer Vision Ingestion Orchestration:**
-    * Connect the active stream ingestion plane with the feline executive observation engine: edge workers pull frames from the active stream, execute optical pose estimation and activity detection (e.g., alpha perch posture, rest cycles), and publish `events.investment.observation_ingested.v1` events to RabbitMQ.
+  * **Mock Event Generators:**
+    * Create dedicated Go binaries in `cmd/mock-hardware` to simulate various edge devices (e.g., smart cameras, IoT climate sensors).
+    * Configure these mock devices to emit high-level interpreted events rather than raw data (e.g., publishing `events.investment.observation_ingested.v1` for a detected "zoomie" instead of streaming RTSP video).
+  * **Dynamic Hardware Discovery & Catalog API:**
+    * Implement gRPC RPCs in `CoreInvestService` and `FacilitiesService` to track and discover these virtual hardware assets.
+    * Allow the platform to query the status of mock devices and subscribe to their event streams via RabbitMQ.
+  * **Simulated Environment Responses:**
+    * Wire the mock event streams into `oci-worker` and internal services to trigger system actions (e.g., altering asset allocation when an alpha perch posture is detected).
+    * Introduce realistic variance and probabilistic behavior into the mock generators to ensure unpredictable, lifelike event distributions for the simulation engine.
 
 ### 7.5 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
 Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
@@ -808,15 +807,14 @@ Address critical Kubernetes infrastructure failure modes commonly overlooked whe
     2. In Alertmanager configuration, configure a dedicated route forwarding the `Watchdog` notification via an HTTP webhook every 5–10 minutes to a free external dead man's switch service (e.g. [Healthchecks.io](https://healthchecks.io), Better Stack, or Cronitor).
     3. If the external heartbeat monitor stops receiving the expected ping within the configured grace period (e.g. 15 minutes), the external service immediately pages the on-call engineer via SMS, email, or mobile push notification, providing external out-of-band alerting for complete site, power, or internet failures.
 
-### 7.6 Research: Infrastructure Application Monitoring (Valkey, PostgreSQL, & Meilisearch)
-Research and evaluate comprehensive Prometheus telemetry, health probing, and alerting strategies for the remaining stateful data stores backing Orange Cat Investments (`valkey`, `meilisearch`, and dual `postgres-core`/`postgres-internal` databases), complementing the already-implemented RabbitMQ and COTS telemetry. Because databases and persistence stores generally do not expose Prometheus metrics natively, Kubernetes architectures must evaluate the **Exporter Sidecar Pattern**, dedicated operators, or native internal plugin modules:
+### 7.6 Infrastructure Application Monitoring (Valkey, PostgreSQL, & Meilisearch)
+Implement comprehensive Prometheus telemetry, health probing, and alerting strategies for the remaining stateful data stores backing Orange Cat Investments (`valkey`, `meilisearch`, and dual `postgres-core`/`postgres-internal` databases), complementing the already-implemented RabbitMQ and COTS telemetry. Because databases and persistence stores generally do not expose Prometheus metrics natively, Kubernetes architectures must utilize the **Exporter Sidecar Pattern**, dedicated operators, or native internal plugin modules:
 
 * **Why Sixth:** Extends cluster observability (`7.5`) into the persistence and caching tiers before instrumenting application-level distributed traces (`7.7`) and running database/cache chaos failure tests (`7.8`).
 * **Valkey (In-Memory Cache & Session Store):**
   * **Redis Wire Compatibility:** Because Valkey maintains wire and command compatibility with Redis, the standard `oliver006/redis_exporter` works seamlessly without custom forks.
   * **Setup:**
-    * If deployed via Helm chart, toggle `metrics.enabled=true` to automatically inject `redis_exporter` as a sidecar container listening on port `9121` alongside a `ServiceMonitor` / `PodMonitor`.
-    * In native manifests (`k8s/oci-core/valkey.yaml`), deploy `oliver006/redis_exporter:latest` as a sidecar container pointing to `redis://localhost:6379`.
+    * In native manifests (`k8s/oci-core/valkey.yaml` and `k8s/oci-dev/valkey.yaml`), deploy `oliver006/redis_exporter:latest` as a sidecar container pointing to `redis://localhost:6379`.
   * **Key Metrics & Alerts:**
     * *Memory Saturation:* Compare `redis_memory_used_bytes` against `redis_memory_max_bytes` (alert above 85% to prevent sudden Linux OOMKilled pod evictions).
     * *Key Evictions:* `increase(redis_evicted_keys_total[5m]) > 0` indicates Valkey is dropping keys under memory pressure, directly impacting active BFF sessions (`pkg/session/valkey`) and cached API query results (`pkg/cache/valkey`).
@@ -824,8 +822,7 @@ Research and evaluate comprehensive Prometheus telemetry, health probing, and al
     * *Connected Clients & Command Latency:* Monitor `redis_connected_clients` against connection caps and track slow operations via `redis_slowlog_length`.
 * **PostgreSQL (Dual-Instance RDBMS - `postgres-core` & `postgres-internal`):**
   * **Setup:**
-    * *CloudNativePG Operator (Recommended):* Migrate from static StatefulSets/Deployments to the CloudNativePG (CNPG) Operator, which embeds a Prometheus exporter directly into its instance manager on port `9187` with automated failover, WAL archiving, and declarative `PodMonitor` CRDs.
-    * *Exporter Sidecar:* Alternatively, run `prometheus-community/postgres_exporter` as a sidecar in `k8s/oci-core/postgres.yaml` and `k8s/oci-internal/postgres.yaml` authenticated via a read-only monitoring database role.
+    * *Exporter Sidecar:* Run `prometheus-community/postgres_exporter` as a sidecar in `k8s/oci-core/postgres-core.yaml`, `k8s/oci-dev/postgres-dev.yaml`, and `k8s/oci-internal/postgres-internal.yaml` authenticated via a read-only monitoring database role.
     * *Query Profiling Extension:* Ensure the `pg_stat_statements` extension is enabled in `postgresql.conf` and database bootstrap scripts to monitor slow queries, execution counts, and buffer hit cache ratios.
   * **Key Metrics & Alerts:**
     * *Connection Saturation:* Active connections (`pg_stat_activity_count`) approaching `pg_settings_max_connections` (alert at 80% to prevent rejecting connection requests from application pools in `pgxpool`).
@@ -834,23 +831,21 @@ Research and evaluate comprehensive Prometheus telemetry, health probing, and al
     * *Buffer Cache Hit Ratio:* Alert if `sum(blks_hit) / (sum(blks_hit) + sum(blks_read))` drops below 99%.
 * **Meilisearch (Full-Text Search Engine):**
   * **Setup & Exposition:**
-    * Enable experimental native Prometheus telemetry via the `--experimental-prometheus-metrics` CLI flag or environment variable `MEILI_EXPERIMENTAL_PROMETHEUS_METRICS=true` on port `7700`.
-    * Alternatively, deploy a lightweight exporter sidecar (such as `meilisearch-exporter` or a custom Go daemon) querying Meilisearch's internal `/health`, `/stats`, and `/tasks` JSON APIs.
+    * Enable experimental native Prometheus telemetry by adding the `MEILI_EXPERIMENTAL_PROMETHEUS_METRICS=true` environment variable to `k8s/oci-core/meilisearch.yaml` and `k8s/oci-dev/meilisearch.yaml` on port `7700`.
   * **Key Metrics & Alerts:**
     * *Task & Indexing Queue Backlog:* Monitor pending task count (`meilisearch_task_queue_depth` or pending tasks in `/tasks?statuses=enqueued,processing`) to detect asynchronous indexing lag when updating knowledge base documents, SOPs, or VHR health records.
     * *LMDB Disk & Memory Saturation:* Monitor `meilisearch_database_size_bytes` against the persistent volume capacity (`meilisearch-data-pvc`), and track memory virtual mapping (LMDB memory map size) to prevent out-of-disk crashes during large document re-indexing jobs.
     * *Search Latency & QPS:* Track P95 and P99 search request latencies and queries per second (QPS) across the Employee Portal Command+K search palette.
     * *Index Document Counts & Updates:* Track document counts per index (`helpdesk`, `sop_docs`, `vhr_records`) to verify document synchronization consistency.
 
-### 7.7 Research: Application Metrics & Tracing (OpenTelemetry) for OCI Applications
-Research and evaluate the integration of end-to-end distributed tracing, Application Performance Monitoring (APM), and business metrics using OpenTelemetry (OTel) across OCI custom services (`customer-bff`, `employee-bff`, `customer-bll`, `internal-bll`, Domain APIs, `worker`, `pebble-proxy`) to establish complete request-path visibility and performance telemetry:
+### 7.7 Implement Application Metrics & Tracing (OpenTelemetry) for OCI Applications
+Implement the integration of end-to-end distributed tracing, Application Performance Monitoring (APM), and business metrics using OpenTelemetry (OTel) across OCI custom services (`customer-bff`, `employee-bff`, `customer-bll`, `internal-bll`, Domain APIs, `worker`, `pebble-proxy`) to establish complete request-path visibility and performance telemetry:
 
 * **Why Seventh:** Instrumenting distributed traces and custom business metrics after service decomposition (`7.2`), domain completion (`7.4`), and infrastructure/database monitoring (`7.5`–`7.6`) provides full-stack correlation across HTTP/gRPC spans, SQL queries, and logs prior to chaos testing (`7.8`).
 * **Zero-Code Auto-Instrumentation:**
-  * **OpenTelemetry Operator for Kubernetes:** Evaluate deploying the OpenTelemetry Operator in the cluster to automatically inject instrumentation into running application pods using declarative annotations (e.g. `instrumentation.opentelemetry.io/inject-go: "true"` for Go microservices, `instrumentation.opentelemetry.io/inject-python: "true"` for Frappe HR/ERPNext background workers, or Node.js equivalents for web portal file servers).
-  * **Kernel-Level eBPF Telemetry (Grafana Beyla):** Investigate eBPF-based auto-instrumentation using Grafana Beyla as a zero-overhead alternative for Go binaries, automatically capturing inbound/outbound HTTP/gRPC route latencies, HTTP status codes, error rates (RED metrics), and outbound SQL (`pgxpool`) / REST calls without modifying application code or re-architecting binaries.
+  * **Kernel-Level eBPF Telemetry (Grafana Beyla):** Deploy Grafana Beyla as a zero-overhead alternative for Go binaries, automatically capturing inbound/outbound HTTP/gRPC route latencies, HTTP status codes, error rates (RED metrics), and outbound SQL (`pgxpool`) / REST calls without modifying application code or re-architecting binaries.
 * **SDK-Based Instrumentation for Custom Business Telemetry:**
-  * **Direct OpenTelemetry & Prometheus Client SDK Integration:** Integrate the OpenTelemetry Go SDK (`go.opentelemetry.io/otel`) or native Prometheus client SDK directly into critical business APIs across BFF, BLL, and Domain services.
+  * **Direct OpenTelemetry Client SDK Integration:** Integrate the OpenTelemetry Go SDK (`go.opentelemetry.io/otel`) directly into critical business APIs across BFF, BLL, and Domain services.
   * **Custom Business & Operational Metrics:** Instrument fine-grained counters, gauges, and histograms for domain-specific events:
     * Retail investor user onboarding, KYC status transitions, and Plaid bank account linking success/failure rates.
     * Trading checkout events, algorithmic order execution latency, and Smart Order Router bracket order fills.
@@ -859,7 +854,7 @@ Research and evaluate the integration of end-to-end distributed tracing, Applica
     * Wearable on-call alert dispatch-to-acknowledgment (MTTA) duration histograms from `cmd/pebble-proxy`.
 * **OTLP Pipeline, Collectors & Telemetry Storage Backend:**
   * **Standardized OTLP Export:** Push traces, spans, and metrics over gRPC (port `4317`) and HTTP (port `4318`) using the OpenTelemetry Protocol (OTLP).
-  * **In-Cluster Telemetry Agent (OTel Collector / Grafana Alloy):** Deploy an in-cluster OpenTelemetry Collector or Grafana Alloy agent in namespace `monitoring` to receive, batch, sample, and redact incoming spans and metrics.
+  * **In-Cluster Telemetry Agent (Grafana Alloy):** Deploy an in-cluster Grafana Alloy agent in namespace `monitoring` to receive, batch, sample, and redact incoming spans and metrics.
   * **Storage & Correlation in Prometheus & Grafana Tempo:** Configure the collector to forward metrics to the in-cluster Prometheus instance (`monitoring/prometheus`) and distributed traces to Grafana Tempo, enabling seamless trace-to-metrics and trace-to-logs (Loki) correlation directly within Grafana dashboards.
 
 ### 7.8 Fault Tolerance, Chaos Engineering & Negative API Testing
@@ -908,10 +903,36 @@ Eliminate static and hardcoded historical performance points in `customer-bff` a
     * In `customer-bll`, query `core_invest.portfolio_snapshots` for real historical valuation points, calculating true cumulative returns, drawdowns, and benchmark comparisons against feline executive activity indices.
     * In `customer-bff`, serve dynamic historical valuation series directly to the Vue 3 customer portal charting components, completely removing hardcoded fallback curves.
 
-### 7.11 Load Testing & Simulation Run Hardening
+### 7.11 Complete Removal of the Deprecated In-Process Mock Simulator (Technical Debt Cleanup)
+
+The in-process mock simulator mode (`-mode mock`) was previously removed (commit `a4608e8`) because it embedded the entire domain stack (`internal/handler`, `internal/service`, `internal/repository`, and the mock bank/broker engines) inside the simulation binary behind `httptest.Server` instances, which produced false confidence and blurred the line between unit tests and authentic end-to-end verification. That removal was not clean or complete: simulator defaults, flags, and the README quickstart still assume a single "Unified API Server" at `http://localhost:8080` that no longer exists in `cmd/` (all four Domain APIs are now pure gRPC services on `:50051`–`:50054`, and REST traffic only reaches the BFF tiers).
+
+* **Leftover Artifacts:**
+  * `README.md` §6.2 lists "Unified API Server │ http://localhost:8080" in the port topology table; §6.3 Step 4 instructs running `go run ./cmd/workforce-api` with `PORT=8080` and claims it "hosts all 4 domains" — incorrect, since `workforce-api` is a pure gRPC service (default `:50051`) serving the `workforce` schema only.
+  * `README.md` §6.6 and §6.7 point simulator invocations and verification `curl`s (`/healthz`, `/facilities/assets`, `/api/v1/workforce/care-schedules/...`) at `http://localhost:8080`.
+  * `simulation/config.go`: `ServerURL` (default `http://localhost:8080`) plus the `:8080` port-substitution heuristics in `ResolveRoutingURLs` / `ResolveExternalURLs` encode the retired unified-server routing model.
+  * `simulation/cmd/simulator/main.go`: the `-url` "Unified base URL" and `-server-url` "OCI Domain API Server" flags.
+  * `simulation/README.md`: the `-server-url http://localhost:8080` usage example.
+* **Architecture & Objectives:**
+  * Eliminate the `ServerURL` / unified-URL routing model from the simulation client: persona REST actions must target only endpoints that actually exist in the architecture (Employee BFF `:8081`, Customer BFF `:8083`, and the external mock broker/bank services).
+  * Purge `:8080` and "Unified API Server" references from all simulator defaults, flag help text, examples, and README sections (§6.2, §6.3, §6.6, §6.7).
+  * **Verification:** `grep -rn "8080\|Unified" simulation/ README.md` returns no references to the removed server, and `go test -race ./simulation/...` remains green.
+
+### 7.12 Realign Local Development & Quickstart With the Production 5-Tier Architecture
+
+The standalone quickstart (README §6.3) documents a special, separate means of running the platform — a single unified HTTP entry point fronting all four domains — which does not match the mandated tiered topology (Frontends → BFF → BLL → gRPC Domain APIs → Workers). Local development must be a scaled-down replica of the production `oci-core` deployment so that local verification carries over to the cluster and no special run mode with different boundaries is maintained.
+
+* **Why:** Maintaining a distinct local runtime topology (the unified server) means defects that only surface at the real BFF/BLL/gRPC boundaries are never caught locally, and it directly contradicts the Domain API isolation and BFF isolation invariants in `AGENTS.md` §2 (four separate gRPC Domain APIs, each owning its own PostgreSQL schema, with BFFs strictly prohibited from bypassing the BLL).
+* **Objectives:**
+  * Rewrite §6.3 to launch the same services and ports as `k8s/oci-core/`: `workforce-api` (`:50051`), `facilities-api` (`:50052`), `core-invest-api` (`:50053`), `ops-api` (`:50054`), `customer-bll` (`:8085`), `internal-bll` (`:8086`), `employee-bff` (`:8081`), `customer-bff` (`:8083`), `pebble-proxy` (`:8082`), `worker`, plus PostgreSQL, Valkey, and RabbitMQ.
+  * Update the §6.2 port topology table and the §6.7 verification `curl`s to target the real BFF endpoints the web portals use, instead of the fictional unified server.
+  * Provide a single-command local topology launcher (e.g. `scripts/run-local-dev.sh` or a Docker Compose profile) that starts the complete local stack mirroring the Kubernetes deployment, so "local development" and "production" are the same architecture at different scales.
+  * **Verification:** a clean local bootstrap followed by `go run ./simulation/cmd/simulator -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083` passes all persona workflows against the same per-tier services (and ports) used in the cluster, with no unified-server fallback.
+
+### 7.13 Load Testing & Simulation Run Hardening
 Harden the platform simulator and the cluster load-testing workflow so that sustained high-concurrency runs (e.g. a 10-minute continuous 13-persona run executed per the external-execution rules in [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md)) produce clean, reproducible signal: infrastructure failures (OOMKills, 5xx, dropped connections) are separated from deterministic fixture/config failures, and every persona workflow executes to completion against the staging cluster:
 
-* **Why Eleventh:** A 10-minute continuous simulator load test (77 persona-day iterations, 5,571 actions) confirmed the raised Domain API memory limits (`256Mi` $\rightarrow$ `512Mi`) eliminated OOM pressure (zero OOMKilled events, zero pod restarts, zero 5xx responses, `core-invest-api` peaking at 95Mi). However, 21.5% of actions still failed for deterministic fixture and configuration reasons that mask real load signal and make run-over-run comparisons unreliable.
+* **Why Thirteenth:** A 10-minute continuous simulator load test (77 persona-day iterations, 5,571 actions) confirmed the raised Domain API memory limits (`256Mi` $\rightarrow$ `512Mi`) eliminated OOM pressure (zero OOMKilled events, zero pod restarts, zero 5xx responses, `core-invest-api` peaking at 95Mi). However, 21.5% of actions still failed for deterministic fixture and configuration reasons that mask real load signal and make run-over-run comparisons unreliable.
 * **The Problem:**
   The continuous load run surfaced a consistent failure profile unrelated to cluster capacity: 456 Forgejo developer-persona actions failing `401 token is required` (no valid Forgejo API token provisioned for the Elise / Marcus developer personas), 444 customer actions failing `invalid or expired customer session` (customer BFF session invalidation cascading under rapid re-login cycles), 151+ mock-broker business rejections from exhausted account balances (`insufficient cash balance`) as repeat buy orders drain the `external-sim` accounts each iteration, 77 deterministic `404` failures from a missing care-schedule seed row, and 73 expected `429` rate-limiter responses. Additionally, the test cluster has no working `metrics-server` (the runbook's `kubectl top` monitoring guidance is unusable), forcing ad-hoc kubelet stats sampling during load runs.
 * **Architecture & Objectives:**
