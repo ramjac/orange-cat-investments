@@ -62,7 +62,7 @@ func (c *Client) authenticateEmployee(ctx context.Context, p *Persona) error {
 	}
 
 	endpoint := "/api/v1/employee/auth/login"
-	resp, respBytes, err := c.Do(ctx, true, "POST", endpoint, loginPayload)
+	resp, respBytes, err := c.Do(ctx, "POST", endpoint, loginPayload)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		var res struct {
 			Status    string `json:"status"`
@@ -81,7 +81,7 @@ func (c *Client) authenticateEmployee(ctx context.Context, p *Persona) error {
 			"username": forgejoUsername,
 			"password": "password123",
 		}
-		fResp, fBytes, fErr := c.Do(ctx, true, "POST", "/api/v1/employee/auth/forgejo/login", forgejoPayload)
+		fResp, fBytes, fErr := c.Do(ctx, "POST", "/api/v1/employee/auth/forgejo/login", forgejoPayload)
 		if fErr == nil && fResp.StatusCode == http.StatusOK {
 			var res struct {
 				Status    string `json:"status"`
@@ -119,7 +119,7 @@ func (c *Client) LogoutPersona(ctx context.Context, p *Persona) error {
 	}
 
 	endpoint := "/api/v1/employee/auth/logout"
-	resp, _, err := c.Do(personaCtx, true, "POST", endpoint, nil)
+	resp, _, err := c.Do(personaCtx, "POST", endpoint, nil)
 	if err != nil {
 		return err
 	}
