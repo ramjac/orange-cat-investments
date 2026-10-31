@@ -10,6 +10,7 @@ data:
     
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
     
     -- Function to generate RFC 4122 compliant UUIDv7 in PostgreSQL 16
     CREATE OR REPLACE FUNCTION gen_random_uuid_v7()

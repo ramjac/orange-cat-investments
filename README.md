@@ -941,4 +941,3 @@ Harden the platform simulator and the cluster load-testing workflow so that sust
   * **Simulation Seed Data Completeness:** Add the missing care-schedule row for the Barneby feline executive to the development seed scripts so `barneby_care_schedule_review` resolves, and audit all persona actions for other deterministic `404` seed gaps.
   * **In-Cluster Load Test Telemetry:** Restore the MicroK8s `metrics-server` addon (or add a kubelet cAdvisor scrape to the existing `monitoring` Prometheus stack) so `kubectl top` / Prometheus per-container memory queries work during load runs, and extend the post-test analysis section of [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md) with mandatory resource verification: per-container memory peaks vs. limits, OOMKill event audit, and pod restart counts for each run.
 
-

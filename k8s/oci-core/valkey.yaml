@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         app: valkey
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: valkey
@@ -37,8 +41,40 @@ spec:
               cpu: 100m
               memory: 128Mi
             limits:
+
               cpu: 500m
+
               memory: 512Mi
+
+        - name: valkey-exporter
+
+          image: oliver006/redis_exporter:v1.58.0
+
+          env:
+
+            - name: REDIS_ADDR
+
+              value: "redis://localhost:6379"
+
+          ports:
+
+            - containerPort: 9121
+
+              name: metrics
+
+          resources:
+
+            requests:
+
+              cpu: 50m
+
+              memory: 32Mi
+
+            limits:
+
+              cpu: 100m
+
+              memory: 64Mi
       volumes:
         - name: valkey-data
           persistentVolumeClaim:
