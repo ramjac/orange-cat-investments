@@ -65,7 +65,7 @@ func (r *Registry) createGarfieldMorningZoomiesAction() Action {
 		Description: "Emits observation event during 3 AM morning zoomies via optical camera stream",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/facilities/assets?asset_type=edge_camera"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -89,7 +89,7 @@ func (r *Registry) createGarfieldPerchInspectionAction() Action {
 		Description: "Inspects primary habitat active hardware assets",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/facilities/assets?status=active"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -113,7 +113,7 @@ func (r *Registry) createGarfieldCareScheduleAuditAction() Action {
 		Description: "Queries workforce care schedule to verify lasagna and snack disbursement times",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -137,7 +137,7 @@ func (r *Registry) createGarfieldSleepInHallwayAction() Action {
 		Description: "Sleeps in the middle of a hallway, with a 1/3 chance of tripping a human employee, sending Garfield to the vet and triggering a workplace injury report",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/facilities/assets?status=active"
-			resp, _, err := client.Do(ctx, false, "GET", endpoint, nil)
+			resp, _, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -157,7 +157,7 @@ func (r *Registry) createGarfieldSleepInHallwayAction() Action {
 			}
 
 			vetEndpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
-			vetResp, vetBytes, vetErr := client.Do(ctx, true, "POST", vetEndpoint, map[string]any{
+			vetResp, vetBytes, vetErr := client.Do(ctx, "POST", vetEndpoint, map[string]any{
 				"emergency_medical_hold": true,
 			})
 			if vetErr != nil {
@@ -171,7 +171,7 @@ func (r *Registry) createGarfieldSleepInHallwayAction() Action {
 				"body":            "Human employee tripped over Garfield while sleeping in hallway. Garfield admitted to vet for checkup.",
 				"author_username": "emp-human-bob",
 			}
-			injResp, injBytes, injErr := client.Do(ctx, false, "POST", injuryEndpoint, injuryPayload)
+			injResp, injBytes, injErr := client.Do(ctx, "POST", injuryEndpoint, injuryPayload)
 			if injErr != nil {
 				return nil, fmt.Errorf("failed to create workplace injury ticket: %w", injErr)
 			}
@@ -215,7 +215,7 @@ func (r *Registry) createBarnebySunbeamTrackingAction() Action {
 		Description: "Monitors habitat optical camera streams and tracks high-frequency sunbeam alignment",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/facilities/assets?asset_type=edge_camera"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -239,7 +239,7 @@ func (r *Registry) createBarnebyCareScheduleReviewAction() Action {
 		Description: "Reviews feline care schedule and health assessment parameters",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/care-schedules/emp-feline-barneby"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +270,7 @@ func (r *Registry) createBarnebySlapWaterGlassAction() Action {
 				"body":            "Barneby slapped a full glass of water onto active server control console desk. Immediate spill response required.",
 				"author_username": "emp-feline-barneby",
 			}
-			maintResp, maintBytes, err := client.Do(ctx, false, "POST", maintEndpoint, maintPayload)
+			maintResp, maintBytes, err := client.Do(ctx, "POST", maintEndpoint, maintPayload)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create maintenance ticket: %w", err)
 			}
@@ -286,7 +286,7 @@ func (r *Registry) createBarnebySlapWaterGlassAction() Action {
 
 			// Step 2: Query Pebble companion alerts
 			pebbleAlertEndpoint := "/ops/pebble/alerts"
-			pebbleResp, pebbleBytes, pebbleErr := client.Do(ctx, false, "GET", pebbleAlertEndpoint, nil)
+			pebbleResp, pebbleBytes, pebbleErr := client.Do(ctx, "GET", pebbleAlertEndpoint, nil)
 			if pebbleErr != nil {
 				return nil, fmt.Errorf("failed to query Pebble watch alerts: %w", pebbleErr)
 			}
@@ -297,7 +297,7 @@ func (r *Registry) createBarnebySlapWaterGlassAction() Action {
 				"ticket_id":       ticketID,
 				"acknowledged_by": "emp-human-bob",
 			}
-			ackResp, ackBytes, ackErr := client.Do(ctx, false, "POST", pebbleAckEndpoint, pebbleAckPayload)
+			ackResp, ackBytes, ackErr := client.Do(ctx, "POST", pebbleAckEndpoint, pebbleAckPayload)
 			if ackErr != nil {
 				return nil, fmt.Errorf("failed to acknowledge Pebble watch alert: %w", ackErr)
 			}
@@ -313,7 +313,7 @@ func (r *Registry) createBarnebySlapWaterGlassAction() Action {
 					"created_at":      time.Now().UTC().Format(time.RFC3339),
 				},
 			}
-			syncResp, syncBytes, syncErr := client.Do(ctx, false, "POST", syncEndpoint, syncPayload)
+			syncResp, syncBytes, syncErr := client.Do(ctx, "POST", syncEndpoint, syncPayload)
 			if syncErr != nil {
 				return nil, fmt.Errorf("failed to sync mobile app maintenance log: %w", syncErr)
 			}
@@ -368,7 +368,7 @@ func (r *Registry) createAliceWorkforceDirectoryAction() Action {
 		Description: "Queries employee directory across human and feline staff",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/employees"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -403,7 +403,7 @@ func (r *Registry) createAliceTriggerOnboardingSagaAction() Action {
 				"department":    "Workforce Operations",
 				"status":        "onboarding",
 			}
-			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -427,7 +427,7 @@ func (r *Registry) createAliceReviewLeaveRequestsAction() Action {
 		Description: "Audits pending staff leave requests and feline catnip break compliance",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/leave-requests"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -451,7 +451,7 @@ func (r *Registry) createAliceApproveTimesheetAction() Action {
 		Description: "Reviews and approves pending workforce timesheets for Frappe HR synchronization",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			listEndpoint := "/api/v1/workforce/timesheets?status=submitted"
-			_, bytes, err := client.Do(ctx, true, "GET", listEndpoint, nil)
+			_, bytes, err := client.Do(ctx, "GET", listEndpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -468,25 +468,44 @@ func (r *Registry) createAliceApproveTimesheetAction() Action {
 			if len(listResp.Items) > 0 {
 				timesheetID = listResp.Items[0].TimesheetID
 			} else {
-				// Fallback: If no submitted timesheet exists yet, submit one first
 				today := time.Now().UTC().Format("2006-01-02")
-				_, createBytes, createErr := client.Do(ctx, true, "POST", "/api/v1/workforce/timesheets", map[string]any{
-					"employee_id":   "emp-human-bob",
-					"shift_date":    today,
-					"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
-					"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
-					"break_minutes": 30,
-					"task_code":     "habitat_maintenance",
-					"billable":      true,
-				})
-				if createErr != nil {
-					return nil, createErr
+				if existing, ok, checkErr := client.findTimesheetByShiftDate(ctx, "emp-human-bob", today); checkErr == nil && ok {
+					if existing.Status == "submitted" {
+						timesheetID = existing.TimesheetID
+					} else {
+						return &ActionResult{
+							PersonaID:   "emp-human-alice",
+							PersonaName: "Alice Vance",
+							ActionName:  "alice_approve_timesheet",
+							Endpoint:    listEndpoint,
+							Success:     true,
+							StatusCode:  http.StatusOK,
+							Details:     fmt.Sprintf("Timesheet %s for shift %s already %s; same-day re-run has nothing pending to approve", existing.TimesheetID, today, existing.Status),
+							Timestamp:   time.Now().UTC(),
+						}, nil
+					}
 				}
-				var created struct {
-					TimesheetID string `json:"timesheet_id"`
+
+				if timesheetID == "" {
+					// Fallback: If no submitted timesheet exists yet, submit one first
+					_, createBytes, createErr := client.Do(ctx, "POST", "/api/v1/workforce/timesheets", map[string]any{
+						"employee_id":   "emp-human-bob",
+						"shift_date":    today,
+						"start_time":    fmt.Sprintf("%sT08:00:00Z", today),
+						"end_time":      fmt.Sprintf("%sT16:30:00Z", today),
+						"break_minutes": 30,
+						"task_code":     "habitat_maintenance",
+						"billable":      true,
+					})
+					if createErr != nil {
+						return nil, createErr
+					}
+					var created struct {
+						TimesheetID string `json:"timesheet_id"`
+					}
+					_ = json.Unmarshal(createBytes, &created)
+					timesheetID = created.TimesheetID
 				}
-				_ = json.Unmarshal(createBytes, &created)
-				timesheetID = created.TimesheetID
 			}
 
 			if timesheetID == "" {
@@ -498,7 +517,7 @@ func (r *Registry) createAliceApproveTimesheetAction() Action {
 				"status":      "approved",
 				"approver_id": "emp-human-alice",
 			}
-			approveResp, approveBytes, approveErr := client.Do(ctx, true, "PUT", approveEndpoint, payload)
+			approveResp, approveBytes, approveErr := client.Do(ctx, "PUT", approveEndpoint, payload)
 			if approveErr != nil {
 				return nil, approveErr
 			}
@@ -531,7 +550,7 @@ func (r *Registry) createAliceAssignLaptopAction() Action {
 				"assigned_to":   "emp-human-rick",
 				"notes":         "Assigned to Rick Newhire during onboarding checklist execution",
 			}
-			resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -561,7 +580,7 @@ func (r *Registry) createAlicePublishOnboardingDocAction() Action {
 				"author":     "emp-human-alice",
 				"share_with": []string{"emp-human-rick", "emp-human-frank"},
 			}
-			docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
+			docResp, docBytes, docErr := client.Do(ctx, "POST", docEndpoint, docPayload)
 			if docErr != nil {
 				return nil, fmt.Errorf("failed to create Nextcloud document: %w", docErr)
 			}
@@ -573,7 +592,7 @@ func (r *Registry) createAlicePublishOnboardingDocAction() Action {
 				"room":      "onboarding-general",
 				"message":   "Welcome to OCI, Rick! I published the Onboarding Handbook in Nextcloud and assigned your laptop asset.",
 			}
-			chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
+			chatResp, chatBytes, chatErr := client.Do(ctx, "POST", chatEndpoint, chatPayload)
 			if chatErr != nil {
 				return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
 			}
@@ -605,7 +624,7 @@ func (r *Registry) createAliceGenerateExecutiveReportAction() Action {
 				"period":       "2026-10",
 				"generated_by": "emp-human-alice",
 			}
-			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -624,7 +643,7 @@ func (r *Registry) createAliceGenerateExecutiveReportAction() Action {
 
 			// Verify report is listed in historical reports
 			listEndpoint := "/api/v1/workforce/reports/monthly"
-			listResp, listBytes, listErr := client.Do(ctx, true, "GET", listEndpoint, nil)
+			listResp, listBytes, listErr := client.Do(ctx, "GET", listEndpoint, nil)
 			if listErr != nil {
 				return nil, listErr
 			}
@@ -662,7 +681,7 @@ func (r *Registry) createAliceProcessPayrollEntryAction() Action {
 				"payroll_frequency": "Monthly",
 				"currency":          "USD",
 			}
-			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -691,7 +710,7 @@ func (r *Registry) createAliceOffboardEmployeeAction() Action {
 				"reason":        "Seasonal habitat monitoring contract concluded",
 				"target_status": "separated",
 			}
-			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -726,7 +745,7 @@ func (r *Registry) createBobPersona() *Persona {
 				Description: "Scans active edge camera rigs across habitat zones",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/facilities/assets?asset_type=edge_camera"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -753,7 +772,7 @@ func (r *Registry) createBobPersona() *Persona {
 						"model":         "4K-Feline-Scope-V2",
 						"zone_id":       "018f3a9a-1111-7000-8000-000000000001",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -774,7 +793,7 @@ func (r *Registry) createBobPersona() *Persona {
 				Description: "Verifies assigned Pebble watch hardware assets for on-call alerting",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/facilities/assets?asset_type=pebble_watch"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -804,6 +823,20 @@ func (r *Registry) createBobLogDailyTimesheetAction() Action {
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/timesheets"
 			today := time.Now().UTC().Format("2006-01-02")
+
+			if existing, ok, checkErr := client.findTimesheetByShiftDate(ctx, "emp-human-bob", today); checkErr == nil && ok {
+				return &ActionResult{
+					PersonaID:   "emp-human-bob",
+					PersonaName: "Bob Builder",
+					ActionName:  "bob_log_daily_timesheet",
+					Endpoint:    endpoint,
+					Success:     true,
+					StatusCode:  http.StatusOK,
+					Details:     fmt.Sprintf("Daily timesheet %s already logged for shift %s; same-day re-run skips duplicate submission", existing.TimesheetID, today),
+					Timestamp:   time.Now().UTC(),
+				}, nil
+			}
+
 			payload := map[string]any{
 				"employee_id":   "emp-human-bob",
 				"shift_date":    today,
@@ -814,7 +847,7 @@ func (r *Registry) createBobLogDailyTimesheetAction() Action {
 				"billable":      true,
 				"notes":         "Daily habitat perimeter maintenance, 4K camera rig alignment & HVAC telemetry inspection",
 			}
-			resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+			resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 			if err != nil {
 				return nil, err
 			}
@@ -838,7 +871,7 @@ func (r *Registry) createBobViewPaystubsAction() Action {
 		Description: "Queries historical salary slips and itemized paystubs for compensation review",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob"
-			resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -862,7 +895,7 @@ func (r *Registry) createBobReviewCalendarAction() Action {
 		Description: "Reviews scheduled habitat maintenance windows and shift rotations in the shared operations calendar",
 		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 			endpoint := "/api/v1/workforce/calendar/events?calendar=Habitat%20Maintenance%20Windows"
-			resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+			resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 			if err != nil {
 				return nil, err
 			}
@@ -897,7 +930,7 @@ func (r *Registry) createCarolPersona() *Persona {
 				Description: "Audits real-time execution log of brokerage trade orders",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/core-invest/brokerage/orders?limit=20"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -926,7 +959,7 @@ func (r *Registry) createCarolPersona() *Persona {
 						"quantity":     10.0,
 						"price":        225.50,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -968,7 +1001,7 @@ func (r *Registry) createDavidPersona() *Persona {
 						"stream_url":      "rtsp://edge-cam-01.local/live",
 						"protocol":        "rtsp",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -995,7 +1028,7 @@ func (r *Registry) createDavidPersona() *Persona {
 						"end_date":    time.Now().Format(time.RFC3339),
 						"parameters":  `{"confidence_threshold":0.95,"multiplier":1.5}`,
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1060,7 +1093,7 @@ func (r *Registry) createElenaPersona() *Persona {
 						"preferred_perch_zone":   "Alpha Sunbeam Lounge",
 						"emergency_medical_hold": false,
 					}
-					resp, bytes, err := client.Do(ctx, true, "PUT", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "PUT", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1084,7 +1117,7 @@ func (r *Registry) createElenaPersona() *Persona {
 					payload := map[string]any{
 						"emergency_medical_hold": false,
 					}
-					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1105,7 +1138,7 @@ func (r *Registry) createElenaPersona() *Persona {
 				Description: "Audits scheduled feline health assessments and records clinical observation metrics",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/workforce/review-cycles?review_type=feline_health_assessment"
-					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1131,7 +1164,7 @@ func (r *Registry) createElenaPersona() *Persona {
 						"wellness_audit_score":    4.90,
 						"habitat_recommendations": "Recalibrate perch climb angle to reduce joint strain and install secondary scratching post",
 					}
-					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1168,7 +1201,7 @@ func (r *Registry) createFrankPersona() *Persona {
 				Description: "Monitors IT helpdesk ticket queue for cluster security or pod alerts",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/ops/tickets"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1189,7 +1222,7 @@ func (r *Registry) createFrankPersona() *Persona {
 				Description: "Queries Pebble companion watch AppMessage alert payloads",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/ops/pebble/alerts"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1216,7 +1249,7 @@ func (r *Registry) createFrankPersona() *Persona {
 						"body":            "Cert-manager renewed oci-intermediate-ca. Verify SPIFFE ID mTLS dynamic reloads.",
 						"author_username": "emp-human-frank",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1243,7 +1276,7 @@ func (r *Registry) createFrankPersona() *Persona {
 						"author":     "emp-human-frank",
 						"share_with": []string{"emp-human-elise", "emp-human-rick", "emp-human-bob"},
 					}
-					docResp, docBytes, docErr := client.Do(ctx, false, "POST", docEndpoint, docPayload)
+					docResp, docBytes, docErr := client.Do(ctx, "POST", docEndpoint, docPayload)
 					if docErr != nil {
 						return nil, fmt.Errorf("failed to write security doc in Nextcloud: %w", docErr)
 					}
@@ -1255,7 +1288,7 @@ func (r *Registry) createFrankPersona() *Persona {
 						"room":      "devsecops-alerts",
 						"message":   "Published the updated SPIFFE mTLS and Zero-Trust standard document in Nextcloud. Please review!",
 					}
-					chatResp, chatBytes, chatErr := client.Do(ctx, false, "POST", chatEndpoint, chatPayload)
+					chatResp, chatBytes, chatErr := client.Do(ctx, "POST", chatEndpoint, chatPayload)
 					if chatErr != nil {
 						return nil, fmt.Errorf("failed to send Nextcloud chat message: %w", chatErr)
 					}
@@ -1920,7 +1953,7 @@ func (r *Registry) createRickPersona() *Persona {
 				Description: "Verifies workforce directory status during onboarding checklist execution",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/workforce/employees"
-					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1941,7 +1974,7 @@ func (r *Registry) createRickPersona() *Persona {
 				Description: "Reads onboarding and security policy documents shared in Nextcloud",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/nextcloud/api/v1/documents"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -1968,7 +2001,7 @@ func (r *Registry) createRickPersona() *Persona {
 						"room":      "onboarding-general",
 						"message":   "Thanks Alice! I set up my new MacBook Pro laptop asset and finished reading the Nextcloud handbook.",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -1989,7 +2022,7 @@ func (r *Registry) createRickPersona() *Persona {
 				Description: "Queries employee onboarding status from workforce directory",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/api/v1/workforce/employees?status=onboarding"
-					resp, bytes, err := client.Do(ctx, true, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -2021,7 +2054,7 @@ func (r *Registry) createRickPersona() *Persona {
 						"department":    "Workforce Operations",
 						"status":        "onboarding",
 					}
-					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2170,7 +2203,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"author":     "emp-human-elise",
 						"share_with": []string{"emp-human-frank", "emp-human-rick"},
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2197,7 +2230,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"room":      "engineering-onboarding",
 						"message":   "Hey Rick, welcome! I posted the Vue 3 & Employee BFF architecture doc in Nextcloud for your onboarding reading.",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2218,7 +2251,7 @@ func (r *Registry) createElisePersona() *Persona {
 				Description: "Monitors IT helpdesk queue for developer tooling and CI/CD workflow issues",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/ops/tickets"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -2245,7 +2278,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"body":            "Automated build and test suite run successfully in Forgejo Actions runner.",
 						"author_username": "emp-human-elise",
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2266,7 +2299,7 @@ func (r *Registry) createElisePersona() *Persona {
 				Description: "Audits active developer IT tickets and CI build issues",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/ops/tickets"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
@@ -2296,7 +2329,7 @@ func (r *Registry) createElisePersona() *Persona {
 						"is_urgent":       true,
 						"forgejo_repo":    "oci-internal/helpdesk",
 					}
-					resp, bytes, err := client.Do(ctx, true, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2339,7 +2372,7 @@ func (r *Registry) createMarcusPersona() *Persona {
 						"author":     "emp-human-marcus",
 						"share_with": []string{"emp-human-elise", "emp-human-frank"},
 					}
-					resp, bytes, err := client.Do(ctx, false, "POST", endpoint, payload)
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
 					if err != nil {
 						return nil, err
 					}
@@ -2446,7 +2479,7 @@ func (r *Registry) createMarcusPersona() *Persona {
 				Description: "Audits active developer tickets and CI/CD workflow status across platform deployments",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
 					endpoint := "/ops/tickets"
-					resp, bytes, err := client.Do(ctx, false, "GET", endpoint, nil)
+					resp, bytes, err := client.Do(ctx, "GET", endpoint, nil)
 					if err != nil {
 						return nil, err
 					}
