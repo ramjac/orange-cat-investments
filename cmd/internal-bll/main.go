@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"net"
 	"os"
+
 	"os/signal"
 	"syscall"
+
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 
 	"github.com/orange-cat-investments/oci/internal/app/internalbll"
 	"github.com/orange-cat-investments/oci/internal/saga"
@@ -29,6 +32,14 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "internal-bll")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 	slog.SetDefault(logger)
 
 	port := os.Getenv("PORT")

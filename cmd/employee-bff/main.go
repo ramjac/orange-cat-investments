@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
+
 	"github.com/orange-cat-investments/oci/internal/app/employeebff"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -18,6 +20,14 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "employee-bff")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry(ctx)
+	}
 	logger.Info("Starting OCI Employee BFF API Server...")
 
 	port := os.Getenv("PORT")
@@ -102,5 +112,5 @@ func main() {
 		cachevalkey.StartAMQPInvalidationListener(context.Background(), amqpURL, "employee-bff", cache, logger)
 	}
 
-	httputil.ListenAndServeGraceful("employee-bff", port, bff.SetupRouter(), logger)
+	httputil.ListenAndServeGraceful("employee-bff", port, httputil.InstrumentHandler(bff.SetupRouter(), "employee-bff"), logger)
 }
