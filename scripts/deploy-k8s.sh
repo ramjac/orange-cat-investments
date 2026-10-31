@@ -91,6 +91,7 @@ if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
+    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
     echo "Staging environment deployed. Production (oci-core) and internal COTS left untouched."
 elif [[ "${PROFILE}" == "business-only" ]]; then
     echo ""
@@ -109,6 +110,7 @@ else
     echo ""
     echo "5. Deploying External Simulation Mocks (external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
+    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
 
     echo ""
     echo "6. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
@@ -202,7 +204,7 @@ elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "  ./scripts/seed-dev.sh"
 else
     echo "Cluster Status:"
-    kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, workforce-api, facilities-api, core-invest-api, ops-api, customer-bll, internal-bll, oci-worker, mock-hardware)' || kubectl get pods -A
+    kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, workforce-api, facilities-api, core-invest-api, ops-api, customer-bll, internal-bll, oci-worker)' || kubectl get pods -A
     echo ""
     echo "Quickstart: Connect from local machine using port-forwarding:"
     echo "  # Employee BFF & Web Portal:"

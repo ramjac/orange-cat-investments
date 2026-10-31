@@ -115,7 +115,6 @@ jobs:
           docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile .
           docker build -t localhost:32000/oci-marketing:dev-latest -t localhost:32000/oci-marketing:sha-${COMMIT_SHA} -f web/marketing/Dockerfile .
           docker build -t localhost:32000/mock-hardware:dev-latest -t localhost:32000/mock-hardware:sha-${COMMIT_SHA} -f cmd/mock-hardware/Dockerfile .
-          docker build -t localhost:32000/mock-hardware:dev-latest -t localhost:32000/mock-hardware:sha-${COMMIT_SHA} -f cmd/mock-hardware/Dockerfile .
 
           echo "Pushing images directly to in-cluster container registry (localhost:32000)..."
           for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware; do
@@ -147,11 +146,12 @@ jobs:
           kubectl set image deployment/oci-pebble-proxy-dev oci-pebble-proxy-dev=localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/oci-worker-dev oci-worker-dev=localhost:32000/oci-worker:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/oci-marketing oci-marketing=localhost:32000/oci-marketing:sha-${COMMIT_SHA} -n oci-dev
-          kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
-          kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n oci-dev
 
+          kubectl apply -f k8s/external-sim/mock-hardware.yaml
+          kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
+          kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
           echo "Waiting for oci-dev workloads to reach ready state..."
-          for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff-dev oci-employee-bff-dev oci-customer-portal-dev oci-employee-portal-dev oci-pebble-proxy-dev oci-worker-dev oci-marketing mock-hardware; do
+          for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff-dev oci-employee-bff-dev oci-customer-portal-dev oci-employee-portal-dev oci-pebble-proxy-dev oci-worker-dev oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-dev --timeout=120s
           done
 
@@ -214,9 +214,11 @@ jobs:
           if [ -f /data/kubeconfig ]; then
             export KUBECONFIG=/data/kubeconfig
           fi
+          kubectl apply -f k8s/external-sim/mock-hardware.yaml
+          kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
           echo "Rolling out verified stable release to oci-core..."
           kubectl apply -f k8s/oci-core/
-          for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-customer-portal oci-employee-portal oci-pebble-proxy oci-worker oci-marketing mock-hardware; do
+          for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-customer-portal oci-employee-portal oci-pebble-proxy oci-worker oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-core --timeout=180s
           done
           echo "Production deployment to oci-core completed successfully."
