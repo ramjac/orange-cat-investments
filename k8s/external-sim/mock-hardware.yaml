@@ -24,6 +24,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: rabbitmq-credentials
+                  optional: true
                   key: rabbitmq_url
             - name: INTERNAL_BLL_ADDR
               value: "internal-bll-service.oci-core.svc.cluster.local:8086"

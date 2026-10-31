@@ -25,7 +25,7 @@ func main() {
 
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
-		amqpURL = "amqp://guest:guest@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+		amqpURL = "amqp://guest:guest@rabbitmq-service.external-sim.svc.cluster.local:5672/"
 	}
 
 	pub, _ := envelope.NewPubSubWithFallback(amqpURL, logger)

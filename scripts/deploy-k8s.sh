@@ -91,7 +91,6 @@ if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
     echo "Staging environment deployed. Production (oci-core) and internal COTS left untouched."
 elif [[ "${PROFILE}" == "business-only" ]]; then
     echo ""
@@ -110,7 +109,6 @@ else
     echo ""
     echo "5. Deploying External Simulation Mocks (external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
 
     echo ""
     echo "6. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
