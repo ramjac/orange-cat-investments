@@ -67,5 +67,3 @@ k8s/ha/lan/tls/*.key
 starter-admin-credentials.txt
 .starter-admin-credentials.json
 .starter-admin-password.txt
-MEMORY.md
-

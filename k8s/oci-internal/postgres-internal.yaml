@@ -184,7 +184,6 @@ spec:
           containers:
           - name: postgres-backup
             image: postgres:16-alpine
-          args: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
             command:
             - /bin/sh
             - -c

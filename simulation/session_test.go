@@ -169,7 +169,7 @@ func TestTransparentDoubleSubmitCSRFInjection(t *testing.T) {
 	personaCtx := WithPersona(ctx, alice)
 
 	// Mutating POST request with transparent CSRF injection should succeed
-	resp, body, err := client.Do(personaCtx, "POST", "/api/v1/workforce/timesheets", map[string]any{
+	resp, body, err := client.Do(personaCtx, true, "POST", "/api/v1/workforce/timesheets", map[string]any{
 		"employee_id": alice.ID,
 	})
 	require.NoError(t, err)

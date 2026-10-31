@@ -54,7 +54,7 @@ spec:
               memory: 64Mi
             limits:
               cpu: 250m
-              memory: 512Mi
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 50051
@@ -160,7 +160,7 @@ spec:
               memory: 64Mi
             limits:
               cpu: 250m
-              memory: 512Mi
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 50052
@@ -266,7 +266,7 @@ spec:
               memory: 64Mi
             limits:
               cpu: 250m
-              memory: 512Mi
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 50053
@@ -372,7 +372,7 @@ spec:
               memory: 64Mi
             limits:
               cpu: 250m
-              memory: 512Mi
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 50054
