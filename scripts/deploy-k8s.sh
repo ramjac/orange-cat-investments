@@ -202,7 +202,7 @@ elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "  ./scripts/seed-dev.sh"
 else
     echo "Cluster Status:"
-    kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, workforce-api, facilities-api, core-invest-api, ops-api, customer-bll, internal-bll, oci-worker)' || kubectl get pods -A
+    kubectl get pods -A -l 'app in (postgres-core, postgres-internal, valkey, rabbitmq, forgejo, zitadel, snipe-it, meilisearch, nextcloud, loki, prometheus, grafana, workforce-api, facilities-api, core-invest-api, ops-api, customer-bll, internal-bll, oci-worker, mock-hardware)' || kubectl get pods -A
     echo ""
     echo "Quickstart: Connect from local machine using port-forwarding:"
     echo "  # Employee BFF & Web Portal:"
