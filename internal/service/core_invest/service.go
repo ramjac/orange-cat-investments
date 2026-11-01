@@ -31,6 +31,7 @@ type BankClient interface {
 }
 
 type StreamBacktestService interface {
+	TrackMockDevices(ctx context.Context, deviceID, deviceType, status string) (map[string]interface{}, error)
 	RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error)
 	GetCameraStream(ctx context.Context, id string) (*core_invest.CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*core_invest.CameraStream, error)

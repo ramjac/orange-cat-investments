@@ -24,23 +24,19 @@ spec:
           imagePullPolicy: Always
           env:
             - name: RABBITMQ_URL
-              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+              valueFrom:
+                secretKeyRef:
+                  name: oci-secrets
+                  key: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  optional: true
+                  key: rabbitmq_url
             - name: INTERNAL_BLL_ADDR
               value: "internal-bll-service.oci-core.svc.cluster.local:8086"
-            - name: TLS_CERT_FILE
-              value: "/certs/tls.crt"
-            - name: TLS_KEY_FILE
-              value: "/certs/tls.key"
-            - name: CLIENT_CA_FILE
-              value: "/certs/ca.crt"
-          volumeMounts:
-            - name: certs
-              mountPath: "/certs"
-              readOnly: true
-      volumes:
-        - name: certs
-          secret:
-            secretName: mock-hardware-tls-certs
+            - name: INSECURE
+              value: "true"
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -67,6 +63,6 @@ spec:
     - mock-hardware.external-sim.svc
     - mock-hardware.external-sim.svc.cluster.local
   issuerRef:
-    name: oci-intermediate-issuer
+    name: oci-lan-issuer
     kind: ClusterIssuer
     group: cert-manager.io

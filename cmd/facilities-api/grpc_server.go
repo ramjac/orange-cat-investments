@@ -375,3 +375,12 @@ func (s *FacilitiesGRPCServer) CalibrateCameraLens(ctx context.Context, in *faci
 		Status:   st,
 	}, nil
 }
+
+func (s *FacilitiesGRPCServer) TrackMockDevices(ctx context.Context, in *facilitiesv1.TrackMockDevicesRequest) (*facilitiesv1.TrackMockDevicesResponse, error) {
+	res, err := s.svc.TrackMockDevices(ctx, in.DeviceId, in.DeviceType, in.Status)
+	if err != nil {
+		return nil, err
+	}
+	st, _ := res["status"].(string)
+	return &facilitiesv1.TrackMockDevicesResponse{Status: st}, nil
+}

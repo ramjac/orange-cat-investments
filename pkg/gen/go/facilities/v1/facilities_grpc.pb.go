@@ -224,7 +224,13 @@ var FacilitiesService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "UpdateOTAJobStatus", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/UpdateOTAJobStatus", FacilitiesServiceServer.UpdateOTAJobStatus)
 		}},
-		{MethodName: "IngestEnvironmentalTelemetry", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+		{MethodName: "TrackMockDevices",
+			Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+				return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/TrackMockDevices", FacilitiesServiceServer.TrackMockDevices)
+			},
+		},
+		{
+			MethodName: "IngestEnvironmentalTelemetry", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/IngestEnvironmentalTelemetry", FacilitiesServiceServer.IngestEnvironmentalTelemetry)
 		}},
 		{MethodName: "ControlPTZ", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {

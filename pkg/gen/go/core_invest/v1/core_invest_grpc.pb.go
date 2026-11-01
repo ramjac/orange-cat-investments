@@ -422,7 +422,13 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListCameraStreams", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListCameraStreams", CoreInvestServiceServer.ListCameraStreams)
 		}},
-		{MethodName: "IngestObservation", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+		{MethodName: "TrackMockDevices",
+			Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+				return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/TrackMockDevices", CoreInvestServiceServer.TrackMockDevices)
+			},
+		},
+		{
+			MethodName: "IngestObservation", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/IngestObservation", CoreInvestServiceServer.IngestObservation)
 		}},
 		{MethodName: "ListObservations", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {

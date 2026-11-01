@@ -19,6 +19,7 @@ service FacilitiesService {
   rpc ListOTAJobs (ListOTAJobsRequest) returns (ListOTAJobsResponse);
   rpc UpdateOTAJobStatus (UpdateOTAJobStatusRequest) returns (UpdateOTAJobStatusResponse);
 
+  rpc TrackMockDevices (TrackMockDevicesRequest) returns (TrackMockDevicesResponse);
   rpc IngestEnvironmentalTelemetry (IngestTelemetryRequest) returns (IngestTelemetryResponse);
   rpc StreamEnvironmentalTelemetry (StreamTelemetryRequest) returns (stream TelemetrySample);
 
@@ -227,4 +228,14 @@ message CalibrateCameraLensRequest {
 message CalibrateCameraLensResponse {
   string camera_id = 1;
   string status = 2;
+}
+
+message TrackMockDevicesRequest {
+  string device_id = 1;
+  string device_type = 2;
+  string status = 3;
+}
+
+message TrackMockDevicesResponse {
+  string status = 1;
 }
