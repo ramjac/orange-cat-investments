@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orange-cat-investments/oci/pkg/telemetry"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -65,7 +64,6 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 			Frequency:   freq,
 			BankAccount: in.BankAccount,
 		})
-		telemetry.RecordBankLinkingAttempt(ctx, false)
 		if err != nil {
 			s.log().Warn("failed to persist recurring deposit schedule in core-invest-api via gRPC", "error", err)
 			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
@@ -130,7 +128,6 @@ func (s *Server) ListDeposits(ctx context.Context, in *customerbllv1.ListDeposit
 	res, err := s.ciClient.ListRecurringDeposits(ctx, &coreinvestv1.ListRecurringDepositsRequest{
 		CustomerID: in.CustomerID,
 	})
-	telemetry.RecordBankLinkingAttempt(ctx, false)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list recurring deposits: %v", err)
 	}
@@ -193,7 +190,6 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 			Direction:   direction,
 			Description: fmt.Sprintf("OCI Investment Capital ACH %s (%s)", in.TransferType, in.TransferID),
 		})
-		telemetry.RecordBankLinkingAttempt(ctx, false)
 		if err != nil {
 			return nil, status.Errorf(codes.Unavailable, "bank clearing failed for transfer %s: %v", in.TransferID, err)
 		}
@@ -210,7 +206,6 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 			DeltaUSD:    delta,
 			Reason:      fmt.Sprintf("ACH settlement for transfer %s", in.TransferID),
 		})
-		telemetry.RecordBankLinkingAttempt(ctx, false)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "core-invest balance update failed for transfer %s: %v", in.TransferID, err)
 		}
@@ -231,7 +226,6 @@ func (s *Server) ClaimDueRecurringDeposits(ctx context.Context, in *customerbllv
 		return nil, status.Error(codes.Unavailable, "core-invest service unavailable")
 	}
 	res, err := s.ciClient.ListRecurringDeposits(ctx, &coreinvestv1.ListRecurringDepositsRequest{})
-	telemetry.RecordBankLinkingAttempt(ctx, false)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list recurring deposits: %v", err)
 	}

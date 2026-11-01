@@ -114,9 +114,9 @@ The simulator uses the 13 official OCI personas defined in `personas/` to execut
 
 ## Execution Modes
 
-The simulator supports three execution modes:
+The simulator supports four execution modes:
 
-1. **`live` (Default)**: Connects directly to deployed or running OCI stack services (e.g. Employee BFF on port `8081` and Customer BFF on port `8083`). Acts as a true end-to-end integration test catching runtime defects.
+1. **`live` (Default)**: Connects directly to deployed or running OCI stack services (e.g. Employee BFF on port `8081` and Customer BFF on port `8083`, or via unified staging URL `-url https://dev.api.oci.local`). Acts as a true end-to-end integration test catching runtime defects.
 2. **`step`**: Runs a single step-by-step pass through each registered persona's actions and prints action results.
 3. **`continuous`**: Loops persona daily action lists continuously with configured action delays (`-delay`), simulating real-time continuous business operations until interrupted (`Ctrl+C`).
 
@@ -140,16 +140,16 @@ go run ./simulation/cmd/simulator -persona emp-human-rick
 ```
 
 ### 4. Drive Live Local / MicroK8s OCI Stack
-Target staging or local cluster directly:
+Target staging or local cluster directly via unified URL:
 ```bash
-# Target Kubernetes oci-dev staging environment with explicit URLs
-go run ./simulation/cmd/simulator -mode live -bff-url https://dev.employee-bff.oci.local -cust-bff-url https://dev.customer-bff.oci.local
+# Target Kubernetes oci-dev staging environment with smart URL routing
+go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
 
 # Target local services with explicit service flags
 go run ./simulation/cmd/simulator \
   -mode live \
+  -server-url http://localhost:8080 \
   -bff-url http://localhost:8081 \
-  -cust-bff-url http://localhost:8083 \
   -iterations 3 \
   -delay 200
 ```
@@ -157,13 +157,13 @@ go run ./simulation/cmd/simulator \
 ### 5. CLI Flag Reference
 | Flag | Default | Description |
 |---|---|---|
+| `-url` | `""` | Unified base URL or staging domain (e.g., `https://dev.api.oci.local`), automatically routing API and BFF endpoints |
 | `-mode` | `live` | Execution mode: `live`, `step`, or `continuous` |
 | `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-marcus`, etc.) or `all` |
-| `-bff-url` | `""` | Target URL for OCI Employee BFF |
-| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF |
-| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host |
-| `-broker-url`  | `""` | Target URL for Mock Broker API |
-| `-bank-url`    | `""` | Target URL for Mock Bank API |
+| `-server-url` | `""` | Target URL for OCI Domain API Server (overrides `-url`) |
+| `-bff-url` | `""` | Target URL for OCI Employee BFF (overrides `-url`) |
+| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF (overrides `-url`) |
+| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host (overrides `-url`) |
 | `-iterations` | `1` | Number of daily action loops to perform |
 | `-delay` | `100` | Delay between persona action executions in milliseconds |
 | `-verbose` | `true` | Enable detailed logging of request/response outputs |

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
+
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
@@ -182,6 +184,9 @@ func (b *CustomerBFF) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := b.sessions.Create(custID, name, email)
 	if err != nil {
+		if req.BankPublicToken != "" {
+			telemetry.RecordBankLinkingAttempt(r.Context(), false)
+		}
 		httputil.WriteError(w, http.StatusInternalServerError, "failed to create customer session")
 		return
 	}

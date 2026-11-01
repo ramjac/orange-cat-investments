@@ -9,6 +9,9 @@ import (
 
 // Config holds options for driving the OCI simulation.
 type Config struct {
+	// ServerURL is the base URL for the OCI Domain API server (default: http://localhost:8080).
+	ServerURL string
+
 	// EmployeeBFFURL is the base URL for the Employee BFF server (default: http://localhost:8081).
 	EmployeeBFFURL string
 
@@ -46,6 +49,7 @@ type Config struct {
 // DefaultConfig returns reasonable defaults for local simulation runs.
 func DefaultConfig() *Config {
 	return &Config{
+		ServerURL:      "http://localhost:8080",
 		EmployeeBFFURL: "http://localhost:8081",
 		CustomerBFFURL: "http://localhost:8083",
 		BrokerURL:      "http://localhost:8089",
@@ -67,6 +71,7 @@ func (c *Config) ValidateTarget() error {
 		name string
 		url  string
 	}{
+		{"ServerURL", c.ServerURL},
 		{"EmployeeBFFURL", c.EmployeeBFFURL},
 		{"CustomerBFFURL", c.CustomerBFFURL},
 		{"BrokerURL", c.BrokerURL},
@@ -107,13 +112,62 @@ func (c *Config) ValidateTarget() error {
 	return nil
 }
 
-// ResolveRoutingURLs determines the effective EmployeeBFFURL, CustomerBFFURL, and ForgejoURL
-// based on any explicit service URL overrides.
-func ResolveRoutingURLs(bffURL, custBFFURL, forgejoURL string) (string, string, string) {
+// ResolveRoutingURLs determines the effective ServerURL, EmployeeBFFURL, CustomerBFFURL, and ForgejoURL
+// based on a unified URL flag (e.g., https://dev.api.oci.local or http://localhost:8080)
+// and any explicit service URL overrides.
+func ResolveRoutingURLs(unifiedURL, serverURL, bffURL, custBFFURL, forgejoURL string) (string, string, string, string) {
+	resolvedServer := strings.TrimRight(serverURL, "/")
 	resolvedBFF := strings.TrimRight(bffURL, "/")
 	resolvedCustBFF := strings.TrimRight(custBFFURL, "/")
 	resolvedForgejo := strings.TrimRight(forgejoURL, "/")
+	uURL := strings.TrimRight(strings.TrimSpace(unifiedURL), "/")
 
+	if uURL != "" {
+		if resolvedServer == "" {
+			resolvedServer = uURL
+		}
+		if resolvedBFF == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				resolvedBFF = strings.Replace(uURL, "dev.api.oci.local", "dev.employee-bff.oci.local", 1)
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBFF = strings.Replace(uURL, ":8080", ":8081", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedBFF = strings.Replace(uURL, "dev.api.", "dev.employee-bff.", 1)
+			} else {
+				resolvedBFF = uURL
+			}
+		}
+		if resolvedCustBFF == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				resolvedCustBFF = strings.Replace(uURL, "dev.api.oci.local", "dev.customer-bff.oci.local", 1)
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedCustBFF = strings.Replace(uURL, ":8080", ":8083", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedCustBFF = strings.Replace(uURL, "dev.api.", "dev.customer-bff.", 1)
+			} else {
+				resolvedCustBFF = uURL
+			}
+		}
+		if resolvedForgejo == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedForgejo = "http://forgejo.oci.local"
+				} else {
+					resolvedForgejo = "https://forgejo.oci.local"
+				}
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedForgejo = strings.Replace(uURL, ":8080", ":3000", 1)
+			} else if strings.Contains(uURL, "dev.api.") {
+				resolvedForgejo = strings.Replace(uURL, "dev.api.", "forgejo.", 1)
+			} else {
+				resolvedForgejo = "http://localhost:3000"
+			}
+		}
+	}
+
+	if resolvedServer == "" {
+		resolvedServer = "http://localhost:8080"
+	}
 	if resolvedBFF == "" {
 		resolvedBFF = "http://localhost:8081"
 	}
@@ -124,13 +178,39 @@ func ResolveRoutingURLs(bffURL, custBFFURL, forgejoURL string) (string, string, 
 		resolvedForgejo = "http://localhost:3000"
 	}
 
-	return resolvedBFF, resolvedCustBFF, resolvedForgejo
+	return resolvedServer, resolvedBFF, resolvedCustBFF, resolvedForgejo
 }
 
-// ResolveExternalURLs resolves the mock broker and mock bank URLs based on explicit flags.
-func ResolveExternalURLs(brokerURL, bankURL string) (string, string) {
+// ResolveExternalURLs resolves the mock broker and mock bank URLs based on unifiedURL and explicit flags.
+func ResolveExternalURLs(unifiedURL, brokerURL, bankURL string) (string, string) {
 	resolvedBroker := strings.TrimRight(brokerURL, "/")
 	resolvedBank := strings.TrimRight(bankURL, "/")
+	uURL := strings.TrimRight(strings.TrimSpace(unifiedURL), "/")
+
+	if uURL != "" {
+		if resolvedBroker == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedBroker = "http://broker-api.sim.oci.local"
+				} else {
+					resolvedBroker = "https://broker-api.sim.oci.local"
+				}
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBroker = strings.Replace(uURL, ":8080", ":8089", 1)
+			}
+		}
+		if resolvedBank == "" {
+			if strings.Contains(uURL, "dev.api.oci.local") {
+				if strings.HasPrefix(uURL, "http://") {
+					resolvedBank = "http://plaid-api.sim.oci.local"
+				} else {
+					resolvedBank = "https://plaid-api.sim.oci.local"
+				}
+			} else if strings.Contains(uURL, ":8080") {
+				resolvedBank = strings.Replace(uURL, ":8080", ":8088", 1)
+			}
+		}
+	}
 
 	if resolvedBroker == "" {
 		resolvedBroker = "http://localhost:8089"
