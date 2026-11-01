@@ -21,12 +21,20 @@ spec:
           imagePullPolicy: Always
           env:
             - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-credentials
-                  optional: true
-                  key: rabbitmq_url
+              value: "amqp://oci_rabbit:orange_cat_mq_2024@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: INTERNAL_BLL_ADDR
               value: "internal-bll-service.oci-core.svc.cluster.local:8086"
-            - name: INSECURE
-              value: "true"
+            - name: TLS_CERT_FILE
+              value: "/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/certs/ca.crt"
+          volumeMounts:
+            - name: certs
+              mountPath: "/certs"
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: employee-bff-tls-certs

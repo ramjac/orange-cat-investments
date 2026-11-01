@@ -17,6 +17,7 @@ import (
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 )
 
 func main() {
@@ -36,8 +37,15 @@ func main() {
 	}
 
 	var tlsConfig *tls.Config
-	if os.Getenv("INSECURE") != "true" {
-		tlsConfig = &tls.Config{InsecureSkipVerify: true}
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	clientCA := os.Getenv("CLIENT_CA_FILE")
+	if certFile != "" && keyFile != "" {
+		var err error
+		tlsConfig, err = mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Error("Failed to load mTLS config", "error", err)
+		}
 	}
 
 	bllConn, err := grpcutil.Dial(context.Background(), internalBLLAddr, tlsConfig)
