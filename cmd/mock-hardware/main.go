@@ -26,7 +26,7 @@ func main() {
 
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
-		amqpURL = "amqp://guest:guest@rabbitmq-service.external-sim.svc.cluster.local:5672/"
+		amqpURL = "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
 	}
 
 	pub, _ := envelope.NewPubSubWithFallback(amqpURL, logger)
@@ -70,10 +70,10 @@ func main() {
 	logger.Info("Shutting down mock hardware generator...")
 }
 
-func getFelineTarget(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient) string {
+func getFelineTarget(bllClient internalbllv1.InternalBLLServiceClient) string {
 	felineID := os.Getenv("OBSERVATION_FELINE_ID")
 	if felineID == "" && bllClient != nil {
-		if res, err := bllClient.GetFelineTarget(ctx, &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
+		if res, err := bllClient.GetFelineTarget(context.Background(), &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
 			felineID = res.FelineID
 		}
 	}
@@ -83,12 +83,12 @@ func getFelineTarget(ctx context.Context, bllClient internalbllv1.InternalBLLSer
 	return felineID
 }
 
-func getZoneTarget(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient) string {
+func getZoneTarget() string {
 	// In a real app we'd fetch this dynamically.
 	return "zone-alpha"
 }
 
-func getCameraAsset(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient) string {
+func getCameraAsset() string {
 	// Ideally fetched dynamically via ListAssets
 	return "CAM-ORANGE-01"
 }
@@ -103,8 +103,8 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			felineID := getFelineTarget(ctx, bllClient)
-			cameraID := getCameraAsset(ctx, bllClient)
+			felineID := getFelineTarget(bllClient)
+			cameraID := getCameraAsset()
 
 			activity := activities[rand.Intn(len(activities))]
 			confidence := 0.8 + rand.Float64()*0.19 // between 0.80 and 0.99
@@ -144,7 +144,7 @@ func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.Inte
 				continue
 			}
 
-			zoneID := getZoneTarget(ctx, bllClient)
+			zoneID := getZoneTarget()
 			temp := 22.0 + rand.Float64()*3.0 // 22-25 C
 			humidity := 40.0 + rand.Float64()*20.0 // 40-60%
 			lux := 200.0 + rand.Float64()*100.0

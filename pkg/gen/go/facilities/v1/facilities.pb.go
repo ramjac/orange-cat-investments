@@ -222,6 +222,7 @@ type FacilitiesServiceClient interface {
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
 	UpdateOTAJobStatus(ctx context.Context, in *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error)
+	TrackMockDevices(ctx context.Context, in *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
 	StreamEnvironmentalTelemetry(ctx context.Context, in *StreamTelemetryRequest) (FacilitiesService_StreamEnvironmentalTelemetryClient, error)
 	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
@@ -240,6 +241,7 @@ type FacilitiesServiceServer interface {
 	CreateOTAJob(ctx context.Context, in *CreateOTAJobRequest) (*CreateOTAJobResponse, error)
 	ListOTAJobs(ctx context.Context, in *ListOTAJobsRequest) (*ListOTAJobsResponse, error)
 	UpdateOTAJobStatus(ctx context.Context, in *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error)
+	TrackMockDevices(ctx context.Context, in *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error)
 	IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error)
 	StreamEnvironmentalTelemetry(*StreamTelemetryRequest, FacilitiesService_StreamEnvironmentalTelemetryServer) error
 	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
@@ -254,3 +256,24 @@ type FacilitiesService_StreamEnvironmentalTelemetryServer interface {
 	Send(*TelemetrySample) error
 	Context() context.Context
 }
+
+type TrackMockDevicesRequest struct {
+	state         int
+	sizeCache     int
+	unknownFields []byte
+	DeviceId      string `json:"device_id,omitempty"`
+	DeviceType    string `json:"device_type,omitempty"`
+	Status        string `json:"status,omitempty"`
+}
+func (x *TrackMockDevicesRequest) Reset() { *x = TrackMockDevicesRequest{} }
+func (x *TrackMockDevicesRequest) String() string { return "TrackMockDevicesRequest{}" }
+func (*TrackMockDevicesRequest) ProtoMessage() {}
+type TrackMockDevicesResponse struct {
+	state         int
+	sizeCache     int
+	unknownFields []byte
+	Status        string `json:"status,omitempty"`
+}
+func (x *TrackMockDevicesResponse) Reset() { *x = TrackMockDevicesResponse{} }
+func (x *TrackMockDevicesResponse) String() string { return "TrackMockDevicesResponse{}" }
+func (*TrackMockDevicesResponse) ProtoMessage() {}
