@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: meilisearch
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "7700"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: meilisearch
@@ -29,6 +33,8 @@ spec:
                   key: MEILI_MASTER_KEY
             - name: MEILI_ENV
               value: production
+            - name: MEILI_EXPERIMENTAL_ENABLE_METRICS
+              value: "true"
           resources:
             requests:
               cpu: 100m

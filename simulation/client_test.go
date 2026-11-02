@@ -99,8 +99,8 @@ func TestClientDoWithBody(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	c := &Client{
-		serverURL:  server.URL,
+	c := &Client{bffURL: server.URL,
+
 		httpClient: server.Client(),
 	}
 
@@ -111,7 +111,7 @@ func TestClientDoWithBody(t *testing.T) {
 		ShareWith: []string{"emp-human-alice", "emp-human-rick", "emp-human-bob"},
 	}
 
-	resp, respBytes, err := c.Do(context.Background(), false, "POST", "/test", payload)
+	resp, respBytes, err := c.Do(context.Background(), "POST", "/test", payload)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.JSONEq(t, `{"status":"ok"}`, string(respBytes))
@@ -127,7 +127,7 @@ func TestDoForgejoAsTokenHandling(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	c := &Client{
+	c := &Client{bffURL: server.URL,
 		forgejoURL: server.URL,
 		httpClient: server.Client(),
 	}
