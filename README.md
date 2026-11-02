@@ -274,10 +274,16 @@ When running locally on a home server, the services bind to the following ports:
        │ PostgreSQL 16           │ localhost:5432                    │
        │ Valkey (Redis)          │ localhost:6379                    │
        │ RabbitMQ                │ localhost:5672 (AMQP) / 15672 (UI)│
+       │ Workforce Domain API    │ localhost:50051 (gRPC)            │
+       │ Facilities Domain API   │ localhost:50052 (gRPC)            │
+       │ Core Invest Domain API  │ localhost:50053 (gRPC)            │
+       │ Ops Domain API          │ localhost:50054 (gRPC)            │
+       │ Customer BLL API        │ localhost:8085 (gRPC)             │
+       │ Internal BLL API        │ localhost:8086 (gRPC)             │
        │ Employee BFF            │ http://localhost:8081             │
        │ Pebble Gateway Proxy    │ http://localhost:8082             │
        │ Customer BFF            │ http://localhost:8083             │
-       │ Background Worker       │ (Event subscriber daemon)         │
+       │ Background Worker       │ http://localhost:8080/healthz     │
        │ Vue 3 Employee Portal   │ http://localhost:5173             │
        │ Vue 3 Customer Portal   │ http://localhost:5174             │
        └─────────────────────────┴───────────────────────────────────┘
@@ -358,46 +364,76 @@ PGPASSWORD=catnip psql -h localhost -U oci -d oci -f scripts/init.sql
 
 > **Note:** If testing without a live database, all Go services automatically fall back to built-in in-memory mock persistence when `DATABASE_URL` is omitted.
 
-#### Step 4: Launch Backend Services
+#### Step 4: Launch Backend Services (5-Tier Topology)
 
-You can run each service in separate terminal tabs, in `tmux`/`screen`, or as `systemd` user services.
+You can launch the complete 5-tier backend suite with a single command, or run each tier independently in separate terminal tabs or `tmux` panes.
 
-**1. Workforce Domain API Server (`:50051`)**
-Hosts the `workforce` domain via gRPC:
+##### Option A: Single-Command Local Topology Launcher (Recommended)
+Launch all 10 backend services with proper inter-tier network wiring, environment configuration, and clean shutdown handling:
+
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="50051"
-go run ./cmd/workforce-api
+./scripts/run-local-dev.sh
 ```
 
-**2. Background Event Worker (Watermill & CA Rotation)**
-Handles cat observation triggers, trading execution events, firmware OTA pipelines, and intermediate CA renewal:
-```bash
-go run ./cmd/worker
-```
+##### Option B: Manual Multi-Tab Service Launch
+To run each tier and service in individual terminal tabs or `tmux` panes:
 
-**3. Employee Portal Backend-for-Frontend (`:8081`)**
-Provides session management, CSRF validation, and employee management endpoints:
+**Tier 4 — Domain APIs (Pure gRPC over PostgreSQL Schemas):**
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8081"
-go run ./cmd/employee-bff
+
+# 1. Workforce Domain API (:50051)
+PORT=50051 go run ./cmd/workforce-api
+
+# 2. Facilities Domain API (:50052)
+PORT=50052 go run ./cmd/facilities-api
+
+# 3. Core Invest Domain API (:50053)
+PORT=50053 go run ./cmd/core-invest-api
+
+# 4. Ops Domain API (:50054)
+PORT=50054 go run ./cmd/ops-api
 ```
 
-**4. Pebble Companion Watch Gateway Proxy (`:8082`)**
-Translates IT tickets into smartwatch AppMessage alert packets and processes physical ACK button presses:
+**Tier 3 — Business Logic Layer (BLL Services):**
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8082"
-go run ./cmd/pebble-proxy
+export WORKFORCE_API_URL="localhost:50051"
+export FACILITIES_API_URL="localhost:50052"
+export CORE_INVEST_API_URL="localhost:50053"
+export OPS_API_URL="localhost:50054"
+export RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
+
+# 5. Customer BLL (:8085)
+PORT=8085 go run ./cmd/customer-bll
+
+# 6. Internal BLL (:8086)
+PORT=8086 go run ./cmd/internal-bll
 ```
 
-**5. Customer Portal Backend-for-Frontend (`:8083`)**
-Provides investor portfolio analytics, trading terminal feeds, recurring deposits, and ESG transparency endpoints:
+**Tier 2 — Backend-for-Frontend (BFF Proxies):**
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8083"
-go run ./cmd/customer-bff
+export VALKEY_ADDR="localhost:6379"
+export CUSTOMER_BLL_URL="localhost:8085"
+export INTERNAL_BLL_URL="localhost:8086"
+
+# 7. Employee BFF (:8081)
+PORT=8081 go run ./cmd/employee-bff
+
+# 8. Pebble Watch Companion Gateway Proxy (:8082)
+PORT=8082 go run ./cmd/pebble-proxy
+
+# 9. Customer BFF (:8083)
+PORT=8083 go run ./cmd/customer-bff
+```
+
+**Tier 5 — Async Background Worker:**
+```bash
+export CUSTOMER_BLL_URL="localhost:8085"
+export INTERNAL_BLL_URL="localhost:8086"
+export RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
+
+# 10. Background Event Worker (Watermill, OTA, CA Rotation, ACH queue)
+HEALTH_PORT=8080 go run ./cmd/worker
 ```
 
 #### Step 5: Launch the Web Portals (Employee & Customer)
@@ -926,6 +962,13 @@ The in-process mock simulator mode (`-mode mock`) was previously removed (commit
   * **Verification:** `grep -rn "8080\|Unified" simulation/ README.md` returns no references to the removed server, and `go test -race ./simulation/...` remains green.
 
 ### 7.12 Realign Local Development & Quickstart With the Production 5-Tier Architecture
+
+> [!NOTE]
+> **Status: Completed**
+> Local development quickstart and documentation have been aligned directly with the production 5-tier architecture (`Frontends -> BFF -> BLL -> Domain APIs -> Workers`).
+> 1. **Local Topology Launcher (`scripts/run-local-dev.sh`):** Provides a single-command launcher running all 10 services in the background (`workforce-api` :50051, `facilities-api` :50052, `core-invest-api` :50053, `ops-api` :50054, `customer-bll` :8085, `internal-bll` :8086, `employee-bff` :8081, `customer-bff` :8083, `pebble-proxy` :8082, and `worker` :8080) with signal trapping (`SIGINT`, `SIGTERM`, `EXIT`) and graceful child shutdown.
+> 2. **Port Topology & Quickstart Documentation (README §6.2, §6.3, §6.7):** Updated all standalone setup instructions to document the explicit ports and inter-tier environment wiring, eliminating any references to legacy unified HTTP servers or inaccurate ports.
+> 3. **Live Persona Verification:** Verified end-to-end persona simulation workflows against the 5-tier stack with zero architectural drift from the Kubernetes environment.
 
 The standalone quickstart (README §6.3) documents a special, separate means of running the platform — a single unified HTTP entry point fronting all four domains — which does not match the mandated tiered topology (Frontends → BFF → BLL → gRPC Domain APIs → Workers). Local development must be a scaled-down replica of the production `oci-core` deployment so that local verification carries over to the cluster and no special run mode with different boundaries is maintained.
 
