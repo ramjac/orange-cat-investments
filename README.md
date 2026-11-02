@@ -987,6 +987,11 @@ The standalone quickstart (README §6.3) documents a special, separate means of 
   * **Verification:** a clean local bootstrap followed by `go run ./simulation/cmd/simulator -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083` passes all persona workflows against the same per-tier services (and ports) used in the cluster, with no unified-server fallback.
 
 ### 7.13 Load Testing & Simulation Run Hardening
+
+> [!NOTE]
+> **Status: Completed**
+> The platform simulator, development fixtures, and cluster load-testing workflow have been hardened: Domain API memory limits are promoted at 512Mi in version control, developer personas support persistent session/token state files and flag overrides without hardcoding credentials, mid-iteration 401 re-authentication resilience prevents cascaded customer session drops, mock broker cash balances auto-replenish to support continuous simulation runs, Barneby feline care schedule seed data is complete, and in-cluster resource monitoring (MicroK8s metrics-server, cAdvisor PromQL, OOMKill audits, pod restart checks) is documented in [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md).
+
 Harden the platform simulator and the cluster load-testing workflow so that sustained high-concurrency runs (e.g. a 10-minute continuous 13-persona run executed per the external-execution rules in [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md)) produce clean, reproducible signal: infrastructure failures (OOMKills, 5xx, dropped connections) are separated from deterministic fixture/config failures, and every persona workflow executes to completion against the staging cluster:
 
 * **Why Thirteenth:** A 10-minute continuous simulator load test (77 persona-day iterations, 5,571 actions) confirmed the raised Domain API memory limits (`256Mi` $\rightarrow$ `512Mi`) eliminated OOM pressure (zero OOMKilled events, zero pod restarts, zero 5xx responses, `core-invest-api` peaking at 95Mi). However, 21.5% of actions still failed for deterministic fixture and configuration reasons that mask real load signal and make run-over-run comparisons unreliable.

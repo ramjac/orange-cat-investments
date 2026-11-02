@@ -174,3 +174,35 @@ func TestStoreSeedAccounts(t *testing.T) {
 	chloePositions := store.ListPositions(chloeID)
 	assert.Len(t, chloePositions, 2)
 }
+
+func TestStore_AutoReplenishCashBalance(t *testing.T) {
+	store := NewStore()
+	store.SetAutoReplenish(true)
+
+	acc := &Account{
+		ID:   "test-replenish-acc",
+		Cash: 50.0, // Very low cash balance
+	}
+	err := store.CreateAccount(acc)
+	require.NoError(t, err)
+
+	quote := Quote{
+		AskPrice: 100.0,
+		BidPrice: 99.5,
+	}
+
+	buyReq := CreateOrderRequest{
+		Symbol: "AAPL",
+		Qty:    10.0, // Cost = $1000.00, well exceeds $50.00 cash
+		Side:   "buy",
+		Type:   "market",
+	}
+
+	order, err := store.CreateOrder("test-replenish-acc", buyReq, quote)
+	require.NoError(t, err)
+	assert.Equal(t, "filled", order.Status)
+
+	updatedAcc, err := store.GetAccount("test-replenish-acc")
+	require.NoError(t, err)
+	assert.Greater(t, updatedAcc.Cash, 0.0, "cash should be replenished and positive after execution")
+}

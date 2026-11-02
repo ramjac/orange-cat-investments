@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -183,4 +184,29 @@ func TestDoForgejoAsTokenHandling(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "token general-token", capturedAuth)
 	})
+}
+
+func TestClient_TokensFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "tokens-*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	client, err := NewClient(&Config{})
+	require.NoError(t, err)
+
+	client.SetPersonaToken("emp-human-elise", "elise-tok-123")
+	client.SetPersonaToken("emp-human-marcus", "marcus-tok-456")
+	client.SetCSRFToken("cust-active-chloe", "csrf-chloe-789")
+
+	err = client.SaveTokensFile(tmpFile.Name())
+	require.NoError(t, err)
+
+	newClient, err := NewClient(&Config{
+		TokensFile: tmpFile.Name(),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "elise-tok-123", newClient.GetPersonaToken("emp-human-elise"))
+	assert.Equal(t, "marcus-tok-456", newClient.GetPersonaToken("emp-human-marcus"))
+	assert.Equal(t, "csrf-chloe-789", newClient.GetCSRFToken("cust-active-chloe"))
 }

@@ -24,6 +24,18 @@ type Config struct {
 	// ForgejoURL is the base URL for the Forgejo Git repository host (default: http://localhost:3000).
 	ForgejoURL string
 
+	// TokensFile is an optional path to a JSON file containing saved tokens and session state.
+	TokensFile string
+
+	// ForgejoToken is the general Forgejo REST API access token override.
+	ForgejoToken string
+
+	// ForgejoEliseToken is the Forgejo REST API access token override for persona Elise Dev.
+	ForgejoEliseToken string
+
+	// ForgejoMarcusToken is the Forgejo REST API access token override for persona Marcus Lead.
+	ForgejoMarcusToken string
+
 	// Mode determines how simulation actions are executed:
 	// "live"       - sends HTTP requests to real running OCI stack services (default).
 	// "step"       - runs a single iteration of each persona's actions and prints results.
