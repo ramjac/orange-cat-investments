@@ -10,7 +10,6 @@ import (
 )
 
 type Service interface {
-	TrackMockDevices(ctx context.Context, deviceID, deviceType, status string) (map[string]interface{}, error)
 	GetAsset(ctx context.Context, id string) (*facilities.HardwareAsset, error)
 	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error)
 	CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error)
@@ -179,14 +178,4 @@ func (s *facilitiesService) ControlPTZ(ctx context.Context, cameraID string, pay
 
 func (s *facilitiesService) CalibrateCameraLens(ctx context.Context, cameraID string) (map[string]interface{}, error) {
 	return map[string]interface{}{"camera_id": cameraID, "status": "lens_calibrated"}, nil
-}
-
-func (s *facilitiesService) TrackMockDevices(ctx context.Context, deviceID, deviceType, status string) (map[string]interface{}, error) {
-	if deviceID == "" {
-		return nil, errors.New("device_id is required")
-	}
-	return map[string]interface{}{
-		"status": "tracked",
-		"device_id": deviceID,
-	}, nil
 }

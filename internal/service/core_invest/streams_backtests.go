@@ -115,13 +115,3 @@ func (s *coreInvestService) LogModelDrift(ctx context.Context, payload map[strin
 		"payload":          payload,
 	}, nil
 }
-
-func (s *coreInvestService) TrackMockDevices(ctx context.Context, deviceID, deviceType, status string) (map[string]interface{}, error) {
-	if deviceID == "" {
-		return nil, errors.New("device_id is required")
-	}
-	return map[string]interface{}{
-		"status": "tracked",
-		"device_id": deviceID,
-	}, nil
-}

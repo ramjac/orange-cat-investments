@@ -172,7 +172,7 @@ func main() {
 	}
 
 	if worker.IsFeatureEnabled("ENABLE_FELINE_WORKFORCE") && worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
-		worker.StartCatSpottedPublisher(ctx, router, pubSub, internalBLL)
+		// worker.StartCatSpottedPublisher is disabled as synthetic events are now handled by external-sim/mock-hardware
 	}
 
 	stop := make(chan os.Signal, 1)

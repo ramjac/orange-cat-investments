@@ -11,12 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
+	"github.com/google/uuid"
 	"github.com/ThreeDotsLabs/watermill/message"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 )
 
 func main() {
@@ -36,16 +37,23 @@ func main() {
 	}
 
 	var tlsConfig *tls.Config
-	if os.Getenv("INSECURE") != "true" {
-		tlsConfig = &tls.Config{InsecureSkipVerify: true}
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	clientCA := os.Getenv("CLIENT_CA_FILE")
+	if certFile != "" && keyFile != "" {
+		var err error
+		tlsConfig, err = mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Error("Failed to load mTLS config", "error", err)
+		}
 	}
 
 	bllConn, err := grpcutil.Dial(context.Background(), internalBLLAddr, tlsConfig)
 	if err != nil {
 		logger.Error("Failed to dial InternalBLL", "error", err)
-	} else {
-		logger.Info("Connected to InternalBLL", "addr", internalBLLAddr)
+		os.Exit(1)
 	}
+	logger.Info("Connected to InternalBLL", "addr", internalBLLAddr)
 	defer bllConn.Close()
 
 	bllClient := internalbllv1.NewInternalBLLServiceClient(bllConn)
@@ -62,7 +70,7 @@ func main() {
 	logger.Info("Shutting down mock hardware generator...")
 }
 
-func getFelineTarget(bllClient internalbllv1.InternalBLLServiceClient) string {
+func getFelineTarget(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient) string {
 	felineID := os.Getenv("OBSERVATION_FELINE_ID")
 	if felineID == "" && bllClient != nil {
 		if res, err := bllClient.GetFelineTarget(context.Background(), &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
@@ -95,17 +103,17 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			felineID := getFelineTarget(bllClient)
+			felineID := getFelineTarget(ctx, bllClient)
 			cameraID := getCameraAsset()
 
 			activity := activities[rand.Intn(len(activities))]
 			confidence := 0.8 + rand.Float64()*0.19 // between 0.80 and 0.99
 
 			event := envelope.EventEnvelope[envelope.CatSpottedPayload]{
-				EventID:       watermill.NewUUID(),
+				EventID:       uuid.Must(uuid.NewV7()).String(),
 				EventType:     "observation.cat_spotted.v1",
 				OccurredAt:    time.Now().UTC(),
-				CorrelationID: "correlation-trace-" + watermill.NewUUID()[:8],
+				CorrelationID: "correlation-trace-" + uuid.Must(uuid.NewV7()).String()[:8],
 				Payload: envelope.CatSpottedPayload{
 					CameraID:        cameraID,
 					FelineID:        felineID,

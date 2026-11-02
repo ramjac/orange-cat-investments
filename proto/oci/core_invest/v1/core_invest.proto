@@ -32,7 +32,6 @@ service CoreInvestService {
   rpc RegisterCameraStream (RegisterCameraStreamRequest) returns (RegisterCameraStreamResponse);
   rpc GetCameraStream (GetCameraStreamRequest) returns (GetCameraStreamResponse);
   rpc ListCameraStreams (ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
-  rpc TrackMockDevices (TrackMockDevicesRequest) returns (TrackMockDevicesResponse);
   rpc IngestObservation (IngestObservationRequest) returns (IngestObservationResponse);
   rpc ListObservations (ListObservationsRequest) returns (ListObservationsResponse);
 
@@ -614,14 +613,4 @@ message PortfolioValuationEvent {
   double invested_balance_usd = 4;
   double change_pct = 5;
   string timestamp = 6;
-}
-
-message TrackMockDevicesRequest {
-  string device_id = 1;
-  string device_type = 2;
-  string status = 3;
-}
-
-message TrackMockDevicesResponse {
-  string status = 1;
 }

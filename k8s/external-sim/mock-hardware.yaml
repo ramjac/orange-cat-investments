@@ -5,18 +5,16 @@ metadata:
   namespace: external-sim
   labels:
     app: mock-hardware
-    environment: simulated-external
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: mock-hardware
-    environment: simulated-external
   template:
     metadata:
       labels:
         app: mock-hardware
-    environment: simulated-external
+        environment: simulated-external
     spec:
       containers:
         - name: mock-hardware
@@ -28,15 +26,30 @@ spec:
                 secretKeyRef:
                   name: oci-secrets
                   key: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-credentials
                   optional: true
-                  key: rabbitmq_url
             - name: INTERNAL_BLL_ADDR
               value: "internal-bll-service.oci-core.svc.cluster.local:8086"
-            - name: INSECURE
-              value: "true"
+            - name: TLS_CERT_FILE
+              value: "/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/certs/ca.crt"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: certs
+              mountPath: "/certs"
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: mock-hardware-tls-certs
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate

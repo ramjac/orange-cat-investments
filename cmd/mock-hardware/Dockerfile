@@ -11,5 +11,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/bin/mock-hardware /usr/local/bin/mock-hardware
 
-USER 1000:1000
+RUN adduser -D -g "" -u 1000 oci
+USER oci
 ENTRYPOINT ["/usr/local/bin/mock-hardware"]

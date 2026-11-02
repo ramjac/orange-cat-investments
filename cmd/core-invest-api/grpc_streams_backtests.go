@@ -187,12 +187,3 @@ func (s *CoreInvestGRPCServer) StreamPortfolioValuation(req *coreinvestv1.Stream
 	}
 	return nil
 }
-
-func (s *CoreInvestGRPCServer) TrackMockDevices(ctx context.Context, in *coreinvestv1.TrackMockDevicesRequest) (*coreinvestv1.TrackMockDevicesResponse, error) {
-	res, err := s.svc.TrackMockDevices(ctx, in.DeviceId, in.DeviceType, in.Status)
-	if err != nil {
-		return nil, err
-	}
-	st, _ := res["status"].(string)
-	return &coreinvestv1.TrackMockDevicesResponse{Status: st}, nil
-}
