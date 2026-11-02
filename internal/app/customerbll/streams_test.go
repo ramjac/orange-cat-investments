@@ -7,6 +7,7 @@ import (
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -374,4 +375,222 @@ func TestListCameraStreams_Success(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Len(t, resp.Streams, 2)
 	assert.Equal(t, mockStreams, resp.Streams)
+}
+
+func TestBuildFelineExecutiveSummary(t *testing.T) {
+	t.Run("nil employee returns nil", func(t *testing.T) {
+		res := buildFelineExecutiveSummary(nil, nil)
+		assert.Nil(t, res)
+	})
+
+	t.Run("employee without records uses default values", func(t *testing.T) {
+		emp := &workforcev1.Employee{
+			EmployeeID: "fel-01",
+			FirstName:  "Barnaby",
+			RoleTitle:  "Chief Nap Officer",
+		}
+		res := buildFelineExecutiveSummary(emp, nil)
+		require.NotNil(t, res)
+		assert.Equal(t, "fel-01", res.EmployeeID)
+		assert.Equal(t, "Barnaby", res.Name)
+		assert.Equal(t, "Chief Nap Officer", res.Role)
+		assert.Equal(t, "ACTIVE", res.HealthStatus)
+		assert.Equal(t, "100%", res.WhiskerSymmetry)
+		assert.Equal(t, 25.0, res.PurrFrequencyHz)
+		assert.Equal(t, "Observation Lounge", res.PreferredSunbeam)
+		assert.Equal(t, int32(0), res.VHRRecordsCnt)
+	})
+
+	t.Run("employee with peak performer dental score >= 4", func(t *testing.T) {
+		emp := &workforcev1.Employee{
+			EmployeeID: "fel-02",
+			FirstName:  "Cleo",
+			RoleTitle:  "Head of Whisker Dynamics",
+		}
+		records := []*workforcev1.VHRRecord{
+			{
+				RecordID:      "vhr-101",
+				FelineID:      "fel-02",
+				DentalScore:   4,
+				ClinicalNotes: "South Terrace Window",
+			},
+		}
+		res := buildFelineExecutiveSummary(emp, records)
+		require.NotNil(t, res)
+		assert.Equal(t, "fel-02", res.EmployeeID)
+		assert.Equal(t, "Cleo", res.Name)
+		assert.Equal(t, "Head of Whisker Dynamics", res.Role)
+		assert.Equal(t, "PEAK_PERFORMER", res.HealthStatus)
+		assert.Equal(t, "99.8%", res.WhiskerSymmetry)
+		assert.Equal(t, 26.2, res.PurrFrequencyHz)
+		assert.Equal(t, "South Terrace Window", res.PreferredSunbeam)
+		assert.Equal(t, int32(1), res.VHRRecordsCnt)
+	})
+
+	t.Run("employee with under observation dental score < 4", func(t *testing.T) {
+		emp := &workforcev1.Employee{
+			EmployeeID: "fel-03",
+			FirstName:  "Garfield",
+			RoleTitle:  "Executive Lasagna Strategist",
+		}
+		records := []*workforcev1.VHRRecord{
+			{
+				RecordID:      "vhr-102",
+				FelineID:      "fel-03",
+				DentalScore:   3,
+				ClinicalNotes: "",
+			},
+		}
+		res := buildFelineExecutiveSummary(emp, records)
+		require.NotNil(t, res)
+		assert.Equal(t, "fel-03", res.EmployeeID)
+		assert.Equal(t, "Garfield", res.Name)
+		assert.Equal(t, "Executive Lasagna Strategist", res.Role)
+		assert.Equal(t, "UNDER_OBSERVATION", res.HealthStatus)
+		assert.Equal(t, "95.0%", res.WhiskerSymmetry)
+		assert.Equal(t, 22.0, res.PurrFrequencyHz)
+		assert.Equal(t, "Observation Lounge", res.PreferredSunbeam)
+		assert.Equal(t, int32(1), res.VHRRecordsCnt)
+	})
+}
+
+func TestGetESGTransparency(t *testing.T) {
+	t.Run("nil wfClient returns default metrics with empty felines", func(t *testing.T) {
+		s := NewServer(Config{})
+		ctx := context.Background()
+
+		resp, err := s.GetESGTransparency(ctx, &customerbllv1.GetESGTransparencyRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, 5.0, resp.OverallWelfareScore)
+		assert.Equal(t, 100.0, resp.VeterinaryAdherencePct)
+		assert.Empty(t, resp.FelineExecutives)
+		assert.Empty(t, resp.Incidents)
+		assert.Equal(t, int32(0), resp.WorkplaceIncidentsCnt)
+	})
+
+	t.Run("with felines and vhr records and incidents", func(t *testing.T) {
+		wf := &mockWorkforceClient{
+			listEmployeesFunc: func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
+				return &workforcev1.ListEmployeesResponse{
+					Employees: []*workforcev1.Employee{
+						{
+							EmployeeID: "fel-01",
+							FirstName:  "Barnaby",
+							RoleTitle:  "Chief Nap Officer",
+						},
+						{
+							EmployeeID: "fel-02",
+							FirstName:  "Cleo",
+							RoleTitle:  "Head of Whisker Dynamics",
+						},
+					},
+				}, nil
+			},
+			listVHRRecordsFunc: func(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error) {
+				return &workforcev1.ListVHRRecordsResponse{
+					Records: []*workforcev1.VHRRecord{
+						{
+							RecordID:      "vhr-1",
+							FelineID:      "fel-01",
+							DentalScore:   5,
+							ClinicalNotes: "Perch 1",
+						},
+					},
+				}, nil
+			},
+			listIncidentsFunc: func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error) {
+				return &workforcev1.ListIncidentsResponse{
+					Incidents: []*workforcev1.WorkplaceIncident{
+						{IncidentID: "inc-1", Title: "Spilled water bowl"},
+					},
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetWorkforceClient(wf)
+		ctx := context.Background()
+
+		resp, err := s.GetESGTransparency(ctx, &customerbllv1.GetESGTransparencyRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Len(t, resp.FelineExecutives, 2)
+		assert.Equal(t, "fel-01", resp.FelineExecutives[0].EmployeeID)
+		assert.Equal(t, "PEAK_PERFORMER", resp.FelineExecutives[0].HealthStatus)
+		assert.Equal(t, "fel-02", resp.FelineExecutives[1].EmployeeID)
+		assert.Equal(t, "ACTIVE", resp.FelineExecutives[1].HealthStatus)
+		assert.Equal(t, int32(1), resp.WorkplaceIncidentsCnt)
+		assert.Equal(t, 4.98, resp.OverallWelfareScore)
+		assert.Equal(t, 100.0, resp.VeterinaryAdherencePct)
+	})
+
+	t.Run("with felines but 0 vhr records adherence drops to 98.5", func(t *testing.T) {
+		wf := &mockWorkforceClient{
+			listEmployeesFunc: func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
+				return &workforcev1.ListEmployeesResponse{
+					Employees: []*workforcev1.Employee{
+						{
+							EmployeeID: "fel-01",
+							FirstName:  "Barnaby",
+							RoleTitle:  "Chief Nap Officer",
+						},
+					},
+				}, nil
+			},
+			listVHRRecordsFunc: func(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error) {
+				return &workforcev1.ListVHRRecordsResponse{
+					Records: []*workforcev1.VHRRecord{},
+				}, nil
+			},
+			listIncidentsFunc: func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error) {
+				return &workforcev1.ListIncidentsResponse{
+					Incidents: []*workforcev1.WorkplaceIncident{},
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetWorkforceClient(wf)
+		ctx := context.Background()
+
+		resp, err := s.GetESGTransparency(ctx, &customerbllv1.GetESGTransparencyRequest{})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Len(t, resp.FelineExecutives, 1)
+		assert.Equal(t, 98.5, resp.VeterinaryAdherencePct)
+		assert.Equal(t, 5.0, resp.OverallWelfareScore)
+	})
+
+	t.Run("cached active felines and vhr records", func(t *testing.T) {
+		callCount := 0
+		wf := &mockWorkforceClient{
+			listEmployeesFunc: func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
+				callCount++
+				return &workforcev1.ListEmployeesResponse{
+					Employees: []*workforcev1.Employee{
+						{
+							EmployeeID: "fel-cached",
+							FirstName:  "CachedCat",
+						},
+					},
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetWorkforceClient(wf)
+		ctx := context.Background()
+
+		resp1, err := s.GetESGTransparency(ctx, &customerbllv1.GetESGTransparencyRequest{})
+		require.NoError(t, err)
+		assert.Len(t, resp1.FelineExecutives, 1)
+		assert.Equal(t, 1, callCount)
+
+		// Second call within 30s should hit cache
+		resp2, err := s.GetESGTransparency(ctx, &customerbllv1.GetESGTransparencyRequest{})
+		require.NoError(t, err)
+		assert.Len(t, resp2.FelineExecutives, 1)
+		assert.Equal(t, 1, callCount)
+	})
 }
