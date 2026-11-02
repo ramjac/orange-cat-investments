@@ -94,6 +94,12 @@ The repository includes an automated concurrency runner: [`scripts/run-load-test
 While the load test runs in the background, monitor both the client workstation and the target server:
 
 ### 4.1 On Target Server (`thinker`)
+Ensure the MicroK8s `metrics-server` addon is enabled so `kubectl top` commands function:
+```bash
+microk8s enable metrics-server
+```
+
+Monitor cluster resources:
 ```bash
 # Monitor CPU & thread distribution
 htop
@@ -106,6 +112,10 @@ microk8s kubectl top nodes
 microk8s kubectl top pods -A
 kubectl top nodes
 kubectl top pods -A
+
+# Query container memory working set via Prometheus / cAdvisor
+# (Execute against Prometheus port 9090 or via PromQL in Grafana)
+# sum(container_memory_working_set_bytes{namespace=~"oci-.*"}) by (pod, container)
 ```
 
 ### 4.2 On Client Workstation
@@ -178,7 +188,40 @@ for dom in sorted(domain_latencies.keys()):
 
 ---
 
-## 6. Understanding Response Codes & Concurrency Behavior
+## 6. Post-Load Test In-Cluster Resource Verification
+
+After each sustained load test, run mandatory resource verification checks against the target cluster:
+
+### 6.1 Container Memory Peaks vs. Limits
+Query Prometheus or kubelet metrics to verify container memory utilization remained safely within limits:
+```bash
+# Verify top memory consumers across namespaces
+kubectl top pods -A --sort-by=memory
+
+# PromQL query to evaluate peak working set vs memory limits:
+# (container_memory_working_set_bytes{namespace=~"oci-.*"} / container_spec_memory_limit_bytes{namespace=~"oci-.*"}) * 100
+```
+Verify that the four Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) peak well below their 512Mi limit.
+
+### 6.2 OOMKill Termination Audit
+Audit Kubernetes events and container status for any Out-Of-Memory terminations:
+```bash
+# Check container termination reasons for OOMKills
+kubectl get pods -A -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.lastState.terminated.reason}{"\n"}{end}{end}' | grep -i "OOMKilled" || echo "Zero OOMKilled containers found."
+
+# Query Prometheus for OOMKilled alerts
+# kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+```
+
+### 6.3 Pod Restart Audit
+Check for unexpected container crashes or restarts across all platform workloads:
+```bash
+kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'
+```
+
+---
+
+## 7. Understanding Response Codes & Concurrency Behavior
 
 * **200 / 201 OK:** Expected response for valid, authenticated read and write operations.
 * **401 Unauthorized:** Occurs on endpoints requiring authentication when simulation threads test unauthenticated or expired session behavior.

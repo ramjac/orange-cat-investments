@@ -28,6 +28,10 @@ func main() {
 		listPersonas = flag.Bool("list-personas", false, "List all registered employee personas and exit")
 		seedSearch   = flag.Bool("seed-search", false, "Seed Meilisearch indexes with development fixtures before running simulation")
 		meiliURL     = flag.String("meili-url", "", "Meilisearch Base URL for search seeding (default from MEILISEARCH_URL or http://localhost:7700)")
+		tokensFile   = flag.String("tokens-file", "", "Path to saved tokens and session state JSON file for persistent runs")
+		forgejoToken = flag.String("forgejo-token", "", "Forgejo REST API authentication token override")
+		eliseToken   = flag.String("forgejo-elise-token", "", "Forgejo REST API token override for Elise Dev")
+		marcusToken  = flag.String("forgejo-marcus-token", "", "Forgejo REST API token override for Marcus Lead")
 	)
 
 	flag.Parse()
@@ -63,16 +67,20 @@ func main() {
 	resolvedBroker, resolvedBank := simulation.ResolveExternalURLs(*brokerURL, *bankURL)
 
 	cfg := &simulation.Config{
-		EmployeeBFFURL: resolvedBFF,
-		CustomerBFFURL: resolvedCustBFF,
-		ForgejoURL:     resolvedForgejo,
-		BrokerURL:      resolvedBroker,
-		BankURL:        resolvedBank,
-		Mode:           *mode,
-		TargetPersona:  *persona,
-		Iterations:     *iterations,
-		ActionDelay:    time.Duration(*delayMs) * time.Millisecond,
-		Verbose:        *verbose,
+		EmployeeBFFURL:     resolvedBFF,
+		CustomerBFFURL:     resolvedCustBFF,
+		ForgejoURL:         resolvedForgejo,
+		BrokerURL:          resolvedBroker,
+		BankURL:            resolvedBank,
+		TokensFile:         *tokensFile,
+		ForgejoToken:       *forgejoToken,
+		ForgejoEliseToken:  *eliseToken,
+		ForgejoMarcusToken: *marcusToken,
+		Mode:               *mode,
+		TargetPersona:      *persona,
+		Iterations:         *iterations,
+		ActionDelay:        time.Duration(*delayMs) * time.Millisecond,
+		Verbose:            *verbose,
 	}
 
 	driver, err := simulation.NewDriver(cfg)

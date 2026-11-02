@@ -588,6 +588,34 @@ data:
     ON CONFLICT (employee_id) DO NOTHING;
 
     --------------------------------------------------------------------------------
+    -- Seed Feline Care Schedules
+    --------------------------------------------------------------------------------
+    INSERT INTO workforce.care_schedules (
+        schedule_id, feline_id, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id
+    ) VALUES
+        (
+            '018e0000-0000-7000-8000-000000000030',
+            '018f3a9a-e001-7000-8000-000000000001',
+            'High-protein salmon pate & prescription kibble',
+            ARRAY['08:00 AM', '12:00 PM', '06:00 PM'],
+            'Daily joint vitamin supplement with morning feeding',
+            'Alpha Perch Suite - Zone 1',
+            false,
+            '018f3a9a-e004-7000-8000-000000000004'
+        ),
+        (
+            '018e0000-0000-7000-8000-000000000031',
+            '018f3a9a-e002-7000-8000-000000000002',
+            'Grain-free organic turkey pate',
+            ARRAY['07:30 AM', '05:30 PM'],
+            'Hydration fountain monitoring',
+            'Perch Zone B - West Tower',
+            false,
+            '018f3a9a-e004-7000-8000-000000000004'
+        )
+    ON CONFLICT (feline_id) DO NOTHING;
+
+    --------------------------------------------------------------------------------
     -- Employee Equipment & On-Call Alert Wearables (Pebble Watches & Laptops)
     --------------------------------------------------------------------------------
     INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id)

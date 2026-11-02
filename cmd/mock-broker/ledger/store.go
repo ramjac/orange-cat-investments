@@ -36,6 +36,7 @@ type Store struct {
 	accountOrders  map[string][]*Order             // accountID -> []*Order
 	subscribers    map[chan TradeUpdate]struct{}
 	subscribersMu  sync.RWMutex
+	autoReplenish  bool
 }
 
 func NewStore() *Store {
@@ -45,7 +46,29 @@ func NewStore() *Store {
 		orders:        make(map[string]*Order),
 		accountOrders: make(map[string][]*Order),
 		subscribers:   make(map[chan TradeUpdate]struct{}),
+		autoReplenish: false,
 	}
+}
+
+// SetAutoReplenish toggles automatic cash balance replenishment on buy orders.
+func (s *Store) SetAutoReplenish(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.autoReplenish = enabled
+}
+
+// ReplenishCash deposits funds into an account balance (e.g. overnight ACH settlement).
+func (s *Store) ReplenishCash(accountID string, amount float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	acc, exists := s.accounts[accountID]
+	if !exists {
+		return ErrAccountNotFound
+	}
+	acc.Cash += amount
+	s.recalculateAccountValuation(acc, accountID)
+	return nil
 }
 
 func (s *Store) CreateAccount(acc *Account) error {
