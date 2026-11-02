@@ -812,6 +812,15 @@ Design and implement mock hardware assets that generate data, such as interprete
     * Introduce realistic variance and probabilistic behavior into the mock generators to ensure unpredictable, lifelike event distributions for the simulation engine.
 
 ### 7.5 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
+
+> [!NOTE]
+> **Status: Completed**
+> Self-hosted Kubernetes monitoring blind spots and automated infrastructure catch-all alerts are fully implemented and documented:
+> 1. **Persistent Volume (PVC) Disk Saturation:** Configured Prometheus scrape jobs for Kubelet metrics (`kubelet_volume_stats_available_bytes`, `kubelet_volume_stats_capacity_bytes`) in [`k8s/monitoring/prometheus.yaml`](k8s/monitoring/prometheus.yaml), backed by `PVCCapacityWarning` (< 15% free space) and `PVCCapacityPrediction` (linear exhaustion within 24h) alerts.
+> 2. **Kubernetes Object State & OOMKills:** Deployed `kube-state-metrics` in [`k8s/monitoring/kube-state-metrics.yaml`](k8s/monitoring/kube-state-metrics.yaml) scraped by Prometheus, alerting on `PodCrashLoopBackOff` (> 5m), `PodImagePullBackOff` (> 5m), `PodPending` (> 10m), and container `OOMKilled` evictions.
+> 3. **Automated Backup Verification:** Configured `BackupFailedOrStale` alert rule in Prometheus triggering if `backup_last_successful_timestamp_seconds` is older than 26 hours.
+> 4. **Operational Runbooks & External Heartbeats:** Documented Kubernetes API event shipping to Loki (`loki.source.kubernetes_events`), Prometheus Pushgateway backup timestamp emissions, and Alertmanager `Watchdog` dead man's switch integration to external monitoring services (Healthchecks.io/Better Stack) in [`docs/runbooks/k8s-monitoring-blind-spots.md`](docs/runbooks/k8s-monitoring-blind-spots.md).
+
 Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
 
 * **Why Fifth:** Protects the underlying bare-metal Kubernetes host and storage volumes first—serving as the foundation of the observability phase before database exporters (`7.6`), application tracing (`7.7`), and chaos engineering (`7.8`).
