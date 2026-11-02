@@ -243,88 +243,145 @@ func TestListCameraStreams(t *testing.T) {
 	})
 }
 
-func TestCompleteBacktestRun_UninitializedClient(t *testing.T) {
-	s := &Server{ciClient: nil}
-	ctx := context.Background()
+func TestCompleteBacktestRun(t *testing.T) {
+	t.Run("nil ciClient returns unavailable error", func(t *testing.T) {
+		s := NewServer(Config{})
+		ctx := context.Background()
 
-	req := &customerbllv1.CompleteBacktestRunRequest{
-		RunID:   "run-001",
-		Status:  "completed",
-		Results: `{"return_pct": 12.5}`,
-	}
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-001",
+			Status:  "completed",
+			Results: `{"return_pct": 12.5}`,
+		}
 
-	resp, err := s.CompleteBacktestRun(ctx, req)
-	require.Error(t, err)
-	assert.Nil(t, resp)
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.Error(t, err)
+		assert.Nil(t, resp)
 
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Unavailable, st.Code())
-	assert.Contains(t, st.Message(), "core invest domain client is not initialized")
-}
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+		assert.Contains(t, st.Message(), "core invest domain client is not initialized")
+	})
 
-func TestCompleteBacktestRun_ClientError(t *testing.T) {
-	mockErr := status.Error(codes.NotFound, "backtest run not found")
-	mockClient := &mockCoreInvestClient{
-		completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
-			return nil, mockErr
-		},
-	}
+	t.Run("downstream core-invest error propagation", func(t *testing.T) {
+		mockErr := status.Error(codes.NotFound, "backtest run not found")
+		mockClient := &mockCoreInvestClient{
+			completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+				return nil, mockErr
+			},
+		}
 
-	s := &Server{}
-	s.SetCoreInvestClient(mockClient)
-	ctx := context.Background()
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		ctx := context.Background()
 
-	req := &customerbllv1.CompleteBacktestRunRequest{
-		RunID:   "run-invalid",
-		Status:  "failed",
-		Results: `{}`,
-	}
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-invalid",
+			Status:  "failed",
+			Results: `{}`,
+		}
 
-	resp, err := s.CompleteBacktestRun(ctx, req)
-	require.Error(t, err)
-	assert.Nil(t, resp)
-	assert.Equal(t, mockErr, err)
-}
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, mockErr, err)
+	})
 
-func TestCompleteBacktestRun_Success(t *testing.T) {
-	expectedRun := &coreinvestv1.BacktestRun{
-		RunID:          "run-123",
-		ResearcherID:   "fel-01",
-		StrategyName:   "Alpha Cat Strategy",
-		Status:         "COMPLETED",
-		InitialCapital: 100000.0,
-		FinalCapital:   125000.0,
-		SharpeRatio:    1.85,
-		MaxDrawdown:    0.05,
-		CreatedAt:      "2025-01-01T00:00:00Z",
-	}
+	t.Run("successful completion forwarding parameters and returning backtest run", func(t *testing.T) {
+		expectedRun := &coreinvestv1.BacktestRun{
+			RunID:          "run-123",
+			ResearcherID:   "fel-01",
+			StrategyName:   "Alpha Cat Strategy",
+			Status:         "COMPLETED",
+			InitialCapital: 100000.0,
+			FinalCapital:   125000.0,
+			SharpeRatio:    1.85,
+			MaxDrawdown:    0.05,
+			CreatedAt:      "2025-01-01T00:00:00Z",
+		}
 
-	mockClient := &mockCoreInvestClient{
-		completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
-			assert.Equal(t, "run-123", in.RunID)
-			assert.Equal(t, "COMPLETED", in.Status)
-			assert.Equal(t, `{"sharpe": 1.85, "alpha": 0.05}`, in.Results)
-			return &coreinvestv1.CompleteBacktestRunResponse{
-				Run: expectedRun,
-			}, nil
-		},
-	}
+		mockClient := &mockCoreInvestClient{
+			completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+				assert.Equal(t, "run-123", in.RunID)
+				assert.Equal(t, "COMPLETED", in.Status)
+				assert.Equal(t, `{"sharpe": 1.85, "alpha": 0.05}`, in.Results)
+				return &coreinvestv1.CompleteBacktestRunResponse{
+					Run: expectedRun,
+				}, nil
+			},
+		}
 
-	s := &Server{}
-	s.SetCoreInvestClient(mockClient)
-	ctx := context.Background()
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		ctx := context.Background()
 
-	req := &customerbllv1.CompleteBacktestRunRequest{
-		RunID:   "run-123",
-		Status:  "COMPLETED",
-		Results: `{"sharpe": 1.85, "alpha": 0.05}`,
-	}
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-123",
+			Status:  "COMPLETED",
+			Results: `{"sharpe": 1.85, "alpha": 0.05}`,
+		}
 
-	resp, err := s.CompleteBacktestRun(ctx, req)
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.Equal(t, expectedRun, resp.Run)
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, expectedRun, resp.Run)
+	})
+
+	t.Run("successful completion with nil backtest run response", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+				return &coreinvestv1.CompleteBacktestRunResponse{
+					Run: nil,
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		ctx := context.Background()
+
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-nil-run",
+			Status:  "UNKNOWN",
+			Results: `{}`,
+		}
+
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Nil(t, resp.Run)
+	})
+
+	t.Run("context cancellation propagated to downstream client", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		mockClient := &mockCoreInvestClient{
+			completeBacktestRunFn: func(c context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+				if c.Err() != nil {
+					return nil, status.Error(codes.Canceled, c.Err().Error())
+				}
+				return &coreinvestv1.CompleteBacktestRunResponse{}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-canceled",
+			Status:  "CANCELED",
+			Results: `{}`,
+		}
+
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Canceled, st.Code())
+	})
 }
 
 func TestListCameraStreams_UninitializedClient(t *testing.T) {
