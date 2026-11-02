@@ -948,6 +948,13 @@ Eliminate static and hardcoded historical performance points in `customer-bff` a
 
 ### 7.11 Complete Removal of the Deprecated In-Process Mock Simulator (Technical Debt Cleanup)
 
+> [!NOTE]
+> **Status: Completed**
+> The deprecated in-process mock simulator artifacts and retired unified-server routing models have been completely eliminated:
+> 1. **Simulator Configuration & Flags (`simulation/config.go`, `simulation/cmd/simulator/main.go`):** The retired `ServerURL` property, legacy `:8080` port-substitution heuristics, and deprecated `-url` / `-server-url` CLI flags have been removed. The simulator exclusively targets authentic tiered services via dedicated flags (`-bff-url` `:8081`, `-cust-bff-url` `:8083`, `-broker-url` `:8089`, `-bank-url` `:8088`).
+> 2. **Client Routing Alignment (`simulation/client.go`):** All persona actions route exclusively through authentic HTTP boundaries (Employee BFF, Customer BFF, or external mock financial APIs), enforcing layer isolation and cookie/CSRF authentication.
+> 3. **Documentation Cleansing (`simulation/README.md`, `README.md`):** Usage examples, flag references, and verification curl examples target explicit BFF endpoints instead of the non-existent `:8080` server. All simulation tests (`go test -race ./simulation/...`) run green.
+
 The in-process mock simulator mode (`-mode mock`) was previously removed (commit `a4608e8`) because it embedded the entire domain stack (`internal/handler`, `internal/service`, `internal/repository`, and the mock bank/broker engines) inside the simulation binary behind `httptest.Server` instances, which produced false confidence and blurred the line between unit tests and authentic end-to-end verification. That removal was not clean or complete: simulator defaults, flags, and the README quickstart still assume a single "Unified API Server" at `http://localhost:8080` that no longer exists in `cmd/` (all four Domain APIs are now pure gRPC services on `:50051`–`:50054`, and REST traffic only reaches the BFF tiers).
 
 * **Leftover Artifacts:**
