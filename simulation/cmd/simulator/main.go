@@ -15,7 +15,7 @@ import (
 
 func main() {
 	var (
-		unifiedURL   = flag.String("url", "", "Unified base URL or staging domain (e.g. https://dev.api.oci.local, http://localhost:8080)")
+		unifiedURL   = flag.String("url", "", "Unified base URL or staging domain (e.g. https://dev.api.oci.local)")
 		serverURL    = flag.String("server-url", "", "Base URL for OCI Domain API Server (overrides -url)")
 		bffURL       = flag.String("bff-url", "", "Base URL for OCI Employee BFF (overrides -url)")
 		custBFFURL   = flag.String("cust-bff-url", "", "Base URL for OCI Customer BFF (overrides -url)")

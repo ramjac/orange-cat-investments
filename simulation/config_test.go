@@ -12,7 +12,7 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	require.NotNil(t, cfg, "DefaultConfig() should not return nil")
 
-	assert.Equal(t, "http://localhost:8080", cfg.ServerURL)
+	assert.Equal(t, "", cfg.ServerURL)
 	assert.Equal(t, "http://localhost:8081", cfg.EmployeeBFFURL)
 	assert.Equal(t, "http://localhost:8083", cfg.CustomerBFFURL)
 	assert.Equal(t, "http://localhost:8089", cfg.BrokerURL)
@@ -27,7 +27,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestResolveRoutingURLs(t *testing.T) {
 	// Case 1: Empty inputs return standard localhost defaults
 	srv, bff, cust, forgejo := ResolveRoutingURLs("", "", "", "", "")
-	assert.Equal(t, "http://localhost:8080", srv)
+	assert.Equal(t, "", srv)
 	assert.Equal(t, "http://localhost:8081", bff)
 	assert.Equal(t, "http://localhost:8083", cust)
 	assert.Equal(t, "http://localhost:3000", forgejo)
@@ -46,12 +46,6 @@ func TestResolveRoutingURLs(t *testing.T) {
 	assert.Equal(t, "https://dev.customer-bff.internal.local", cust)
 	assert.Equal(t, "https://forgejo.internal.local", forgejo)
 
-	// Case 4: Unified URL pointing to localhost:8080 port scheme
-	srv, bff, cust, forgejo = ResolveRoutingURLs("http://localhost:8080", "", "", "", "")
-	assert.Equal(t, "http://localhost:8080", srv)
-	assert.Equal(t, "http://localhost:8081", bff)
-	assert.Equal(t, "http://localhost:8083", cust)
-	assert.Equal(t, "http://localhost:3000", forgejo)
 
 	// Case 5: Explicit flags override unified URL routing
 	srv, bff, cust, forgejo = ResolveRoutingURLs("https://dev.api.oci.local", "https://override.api.oci.local", "https://override.bff.oci.local", "https://override.cust.oci.local", "https://override.forgejo.oci.local")
@@ -74,7 +68,6 @@ func TestConfigValidateTarget(t *testing.T) {
 	// Live mode targeting localhost succeeds
 	localCfg := &Config{
 		Mode:           "live",
-		ServerURL:      "http://localhost:8080",
 		EmployeeBFFURL: "http://localhost:8081",
 		CustomerBFFURL: "http://localhost:8083",
 	}

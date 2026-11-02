@@ -274,7 +274,6 @@ When running locally on a home server, the services bind to the following ports:
        │ PostgreSQL 16           │ localhost:5432                    │
        │ Valkey (Redis)          │ localhost:6379                    │
        │ RabbitMQ                │ localhost:5672 (AMQP) / 15672 (UI)│
-       │ Unified API Server      │ http://localhost:8080             │
        │ Employee BFF            │ http://localhost:8081             │
        │ Pebble Gateway Proxy    │ http://localhost:8082             │
        │ Customer BFF            │ http://localhost:8083             │
@@ -363,11 +362,10 @@ PGPASSWORD=catnip psql -h localhost -U oci -d oci -f scripts/init.sql
 
 You can run each service in separate terminal tabs, in `tmux`/`screen`, or as `systemd` user services.
 
-**1. Unified API Server (`:8080`)**
-Hosts all 4 domains (`core-invest`, `facilities`, `ops`, `workforce`):
+Hosts the workforce domain:
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8080"
+export PORT="50051"
 go run ./cmd/workforce-api
 ```
 
@@ -524,12 +522,12 @@ kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
 kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
 
 # 2. Run the 12-persona platform simulation driver against the live cluster:
-go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
+go run ./simulation/cmd/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
 
 # 3. Execute concurrent load testing (e.g. 10 parallel simulation runs):
 go build -o /tmp/simulator ./simulation/cmd/simulator
 for i in {1..10}; do
-  /tmp/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
+  /tmp/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
 done
 wait
 ```
@@ -572,7 +570,7 @@ go run ./simulation/cmd/simulator -url https://dev.api.oci.local
 
 # 2. Run against local test services:
 go run ./simulation/cmd/simulator \
-  -server-url http://localhost:8080 \
+  \
   -bff-url http://localhost:8081 \
   -cust-bff-url http://localhost:8083 \
   -broker-url http://localhost:8089 \
@@ -588,18 +586,18 @@ Once services are running, verify system operation using `curl`:
 
 **1. Health Check:**
 ```bash
-curl -i http://localhost:8080/healthz
+curl -i http://localhost:8081/healthz
 # Response: HTTP/200 {"status":"ok"}
 ```
 
 **2. List Hardware Assets (Keyset Pagination):**
 ```bash
-curl -s http://localhost:8080/facilities/assets | jq .
+curl -s http://localhost:50052/facilities/assets | jq .
 ```
 
 **3. Submit Offline Maintenance Logs (Field Sync):**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
+curl -s -X POST http://localhost:50052/facilities/sync/maintenance-logs \
   -H "Content-Type: application/json" \
   -d '[{
     "asset_id": "018e0000-0000-7000-8000-000000000001",
@@ -610,7 +608,7 @@ curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
 
 **4. Trigger Edge Device Firmware OTA Update:**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
+curl -s -X POST http://localhost:50052/facilities/firmware/ota-jobs \
   -H "Content-Type: application/json" \
   -d '{
     "asset_ids": ["018e0000-0000-7000-8000-000000000001"],
@@ -620,7 +618,7 @@ curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
 
 **5. Toggle Feline Emergency Medical Hold:**
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
+curl -s -X POST http://localhost:8081/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
   -H "Content-Type: application/json" \
   -d '{"emergency_medical_hold": true}' | jq .
 ```
@@ -904,17 +902,14 @@ Eliminate static and hardcoded historical performance points in `customer-bff` a
 
 ### 7.11 Complete Removal of the Deprecated In-Process Mock Simulator (Technical Debt Cleanup)
 
-The in-process mock simulator mode (`-mode mock`) was previously removed (commit `a4608e8`) because it embedded the entire domain stack (`internal/handler`, `internal/service`, `internal/repository`, and the mock bank/broker engines) inside the simulation binary behind `httptest.Server` instances, which produced false confidence and blurred the line between unit tests and authentic end-to-end verification. That removal was not clean or complete: simulator defaults, flags, and the README quickstart still assume a single "Unified API Server" at `http://localhost:8080` that no longer exists in `cmd/` (all four Domain APIs are now pure gRPC services on `:50051`–`:50054`, and REST traffic only reaches the BFF tiers).
 
 * **Leftover Artifacts:**
-  * `README.md` §6.2 lists "Unified API Server │ http://localhost:8080" in the port topology table; §6.3 Step 4 instructs running `go run ./cmd/workforce-api` with `PORT=8080` and claims it "hosts all 4 domains" — incorrect, since `workforce-api` is a pure gRPC service (default `:50051`) serving the `workforce` schema only.
   * `README.md` §6.6 and §6.7 point simulator invocations and verification `curl`s (`/healthz`, `/facilities/assets`, `/api/v1/workforce/care-schedules/...`) at `http://localhost:8080`.
   * `simulation/config.go`: `ServerURL` (default `http://localhost:8080`) plus the `:8080` port-substitution heuristics in `ResolveRoutingURLs` / `ResolveExternalURLs` encode the retired unified-server routing model.
   * `simulation/cmd/simulator/main.go`: the `-url` "Unified base URL" and `-server-url` "OCI Domain API Server" flags.
-  * `simulation/README.md`: the `-server-url http://localhost:8080` usage example.
+  * `simulation/README.md`: the `` usage example.
 * **Architecture & Objectives:**
   * Eliminate the `ServerURL` / unified-URL routing model from the simulation client: persona REST actions must target only endpoints that actually exist in the architecture (Employee BFF `:8081`, Customer BFF `:8083`, and the external mock broker/bank services).
-  * Purge `:8080` and "Unified API Server" references from all simulator defaults, flag help text, examples, and README sections (§6.2, §6.3, §6.6, §6.7).
   * **Verification:** `grep -rn "8080\|Unified" simulation/ README.md` returns no references to the removed server, and `go test -race ./simulation/...` remains green.
 
 ### 7.12 Realign Local Development & Quickstart With the Production 5-Tier Architecture

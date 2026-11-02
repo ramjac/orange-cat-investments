@@ -148,7 +148,7 @@ go run ./simulation/cmd/simulator -mode live -url https://dev.api.oci.local
 # Target local services with explicit service flags
 go run ./simulation/cmd/simulator \
   -mode live \
-  -server-url http://localhost:8080 \
+  \
   -bff-url http://localhost:8081 \
   -iterations 3 \
   -delay 200
