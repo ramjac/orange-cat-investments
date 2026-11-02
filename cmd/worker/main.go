@@ -170,6 +170,10 @@ func main() {
 		worker.StartRecurringACHProcessor(ctx, router, pubSub, customerBLL, logger)
 		worker.StartEOMStatementBatchGenerator(ctx, router, pubSub, customerBLL, logger)
 	}
+
+	if worker.IsFeatureEnabled("ENABLE_FELINE_WORKFORCE") && worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"log/slog"
 	"math/rand"
@@ -16,6 +15,7 @@ import (
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 )
 
@@ -35,9 +35,10 @@ func main() {
 		internalBLLAddr = "internal-bll-service.oci-core.svc.cluster.local:8086"
 	}
 
-	var tlsConfig *tls.Config
-	if os.Getenv("INSECURE") != "true" {
-		tlsConfig = &tls.Config{InsecureSkipVerify: true}
+	tlsConfig, err := mtls.NewClientTLSConfig(os.Getenv("TLS_CERT_FILE"), os.Getenv("TLS_KEY_FILE"), os.Getenv("CLIENT_CA_FILE"))
+	if err != nil {
+		logger.Error("Failed to configure mTLS", "error", err)
+		os.Exit(1)
 	}
 
 	bllConn, err := grpcutil.Dial(context.Background(), internalBLLAddr, tlsConfig)
