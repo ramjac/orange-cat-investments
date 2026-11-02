@@ -333,3 +333,41 @@ func TestCustomerLifecycle_GenerateForm1099B_TaxLotsFromDatabase(t *testing.T) {
 	assert.Equal(t, 4048.80, chloeStmt.NetGainUSD)
 }
 
+func TestCustomerLifecycle_GenerateMonthlyStatement_HoldingsFromPortfolioFallback(t *testing.T) {
+	repo := core_invest_repo.NewMockRepository()
+	svc := core_invest_svc.NewService(repo)
+	ctx := context.Background()
+
+	// Portfolio with holdings stored only in Portfolio.Holdings (no database holdings rows)
+	portID := "port-fallback-investor"
+	custID := "cust-fallback-01"
+	_, err := repo.CreatePortfolio(ctx, &core_invest_repo.Portfolio{
+		PortfolioID:     portID,
+		CustomerID:      custID,
+		AccountName:     "Legacy In-Memory Portfolio",
+		TotalBalanceUSD: 10000.00,
+		CashBalanceUSD:  1000.00,
+		Status:          "active",
+		Holdings: []map[string]interface{}{
+			{
+				"symbol":        "AAPL",
+				"quantity":      int(50),
+				"avg_price":     float32(150.0),
+				"current_price": float64(180.0),
+				"market_value":  float64(9000.0),
+				"cost_basis":    float64(7500.0),
+			},
+			{
+				// Item with empty symbol should be skipped
+				"symbol":   "",
+				"quantity": 10,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	stmt, pdfBytes, err := svc.GenerateMonthlyStatement(ctx, custID, portID, 2026, 3)
+	require.NoError(t, err)
+	assert.NotEmpty(t, pdfBytes)
+	assert.Equal(t, "monthly_summary", stmt.StatementType)
+}
