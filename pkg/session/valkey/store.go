@@ -325,10 +325,38 @@ func (s *valkeyCustomerSessionStore) PruneStaleSessions(customerID string) int {
 		return 0
 	}
 
+	keys := make([]string, len(tokens))
+	for i, token := range tokens {
+		keys[i] = customerSessionKey(token)
+	}
+
+	vals, err := s.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		s.logger.Warn("valkey error batch fetching customer sessions for pruning", "error", err)
+		return 0
+	}
+
+	now := time.Now()
 	var staleTokens []string
-	for _, token := range tokens {
-		if _, ok := s.Get(token); !ok {
+	var expiredKeys []string
+
+	for i, val := range vals {
+		token := tokens[i]
+		if val == nil {
 			staleTokens = append(staleTokens, token)
+			continue
+		}
+
+		raw, ok := val.(string)
+		if !ok {
+			staleTokens = append(staleTokens, token)
+			continue
+		}
+
+		var sess CustomerSession
+		if err := json.Unmarshal([]byte(raw), &sess); err != nil || now.After(sess.ExpiresAt) {
+			staleTokens = append(staleTokens, token)
+			expiredKeys = append(expiredKeys, keys[i])
 		}
 	}
 
@@ -336,6 +364,9 @@ func (s *valkeyCustomerSessionStore) PruneStaleSessions(customerID string) int {
 		pipe := s.client.Pipeline()
 		for _, token := range staleTokens {
 			pipe.SRem(ctx, indexKey, token)
+		}
+		for _, key := range expiredKeys {
+			pipe.Del(ctx, key)
 		}
 		_, _ = pipe.Exec(ctx)
 	}
@@ -598,10 +629,38 @@ func (s *valkeyEmployeeSessionStore) PruneStaleSessions(employeeID string) int {
 		return 0
 	}
 
+	keys := make([]string, len(tokens))
+	for i, token := range tokens {
+		keys[i] = employeeSessionKey(token)
+	}
+
+	vals, err := s.client.MGet(ctx, keys...).Result()
+	if err != nil {
+		s.logger.Warn("valkey error batch fetching employee sessions for pruning", "error", err)
+		return 0
+	}
+
+	now := time.Now()
 	var staleTokens []string
-	for _, token := range tokens {
-		if _, ok := s.Get(token); !ok {
+	var expiredKeys []string
+
+	for i, val := range vals {
+		token := tokens[i]
+		if val == nil {
 			staleTokens = append(staleTokens, token)
+			continue
+		}
+
+		raw, ok := val.(string)
+		if !ok {
+			staleTokens = append(staleTokens, token)
+			continue
+		}
+
+		var sess EmployeeSession
+		if err := json.Unmarshal([]byte(raw), &sess); err != nil || now.After(sess.ExpiresAt) {
+			staleTokens = append(staleTokens, token)
+			expiredKeys = append(expiredKeys, keys[i])
 		}
 	}
 
@@ -609,6 +668,9 @@ func (s *valkeyEmployeeSessionStore) PruneStaleSessions(employeeID string) int {
 		pipe := s.client.Pipeline()
 		for _, token := range staleTokens {
 			pipe.SRem(ctx, indexKey, token)
+		}
+		for _, key := range expiredKeys {
+			pipe.Del(ctx, key)
 		}
 		_, _ = pipe.Exec(ctx)
 	}

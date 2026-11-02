@@ -117,6 +117,18 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 						conn.Write([]byte("$-1\r\n"))
 					}
 				}
+			case "MGET":
+				if len(args) >= 2 {
+					keys := args[1:]
+					conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(keys))))
+					for _, k := range keys {
+						if val, ok := s.strings[k]; ok {
+							conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+						} else {
+							conn.Write([]byte("$-1\r\n"))
+						}
+					}
+				}
 			case "DEL":
 				count := 0
 				for _, k := range args[1:] {
