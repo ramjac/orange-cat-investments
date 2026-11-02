@@ -20,9 +20,9 @@ var (
 	BracketOrderFills     metric.Int64Counter
 
 	// Feline Metrics
-	FelineBehavioralEvents   metric.Int64Counter
-	CareScheduleUpdates      metric.Int64Counter
-	EmergencyHoldToggles     metric.Int64Counter
+	FelineBehavioralEvents metric.Int64Counter
+	CareScheduleUpdates    metric.Int64Counter
+	EmergencyHoldToggles   metric.Int64Counter
 
 	// Operational Metrics
 	PebbleMTTADuration metric.Float64Histogram

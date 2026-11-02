@@ -149,7 +149,6 @@ func NewOnboardingSagaWithIntegrations(wfSvc wfService.Service, publisher messag
 
 func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*OnboardingResult, error) {
 	s.logger.Info("Executing OnboardingSaga", "first_name", req.FirstName, "type", req.EmployeeType)
-	telemetry.RecordOnboardingAttempt(ctx, true)
 
 	emp := &workforce.Employee{
 		EmployeeID:   req.EmployeeID,
@@ -197,6 +196,7 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 
 	s.publishOnboardingEvent(created.EmployeeID, result)
 
+	telemetry.RecordOnboardingAttempt(ctx, true)
 	return result, nil
 }
 
