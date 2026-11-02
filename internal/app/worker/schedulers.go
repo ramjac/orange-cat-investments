@@ -69,18 +69,6 @@ func StartCARotationWorker(ctx context.Context, router *message.Router, ps PubSu
 	}()
 }
 
-// StartCatSpottedPublisher periodically publishes feline telemetry observation events.
-func StartCatSpottedPublisher(ctx context.Context, router *message.Router, ps PubSub, internalBLL internalbllv1.InternalBLLServiceClient) {
-	go func() {
-		<-router.Running()
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-
-		felineID := os.Getenv("OBSERVATION_FELINE_ID")
-		if felineID == "" && internalBLL != nil {
-			if res, err := internalBLL.GetFelineTarget(ctx, &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
-				felineID = res.FelineID
-			}
 		}
 		if felineID == "" {
 			felineID = "feline-observation-target"

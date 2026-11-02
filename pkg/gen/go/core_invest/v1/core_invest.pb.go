@@ -606,7 +606,6 @@ type CoreInvestServiceClient interface {
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
-	TrackMockDevices(ctx context.Context, in *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
@@ -652,7 +651,6 @@ type CoreInvestServiceServer interface {
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
-	TrackMockDevices(ctx context.Context, in *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
@@ -682,24 +680,3 @@ type CoreInvestService_StreamPortfolioValuationServer interface {
 	Send(*PortfolioValuationEvent) error
 	Context() context.Context
 }
-
-type TrackMockDevicesRequest struct {
-	state         int
-	sizeCache     int
-	unknownFields []byte
-	DeviceId      string `json:"device_id,omitempty"`
-	DeviceType    string `json:"device_type,omitempty"`
-	Status        string `json:"status,omitempty"`
-}
-func (x *TrackMockDevicesRequest) Reset() { *x = TrackMockDevicesRequest{} }
-func (x *TrackMockDevicesRequest) String() string { return "TrackMockDevicesRequest{}" }
-func (*TrackMockDevicesRequest) ProtoMessage() {}
-type TrackMockDevicesResponse struct {
-	state         int
-	sizeCache     int
-	unknownFields []byte
-	Status        string `json:"status,omitempty"`
-}
-func (x *TrackMockDevicesResponse) Reset() { *x = TrackMockDevicesResponse{} }
-func (x *TrackMockDevicesResponse) String() string { return "TrackMockDevicesResponse{}" }
-func (*TrackMockDevicesResponse) ProtoMessage() {}

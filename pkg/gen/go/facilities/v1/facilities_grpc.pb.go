@@ -80,10 +80,6 @@ func (c *facilitiesServiceClient) ListOTAJobs(ctx context.Context, in *ListOTAJo
 func (c *facilitiesServiceClient) UpdateOTAJobStatus(ctx context.Context, in *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error) {
 	return invokeUnary[UpdateOTAJobStatusRequest, UpdateOTAJobStatusResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/UpdateOTAJobStatus", in)
 }
-func (c *facilitiesServiceClient) TrackMockDevices(ctx context.Context, in *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error) {
-	return invokeUnary[TrackMockDevicesRequest, TrackMockDevicesResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/TrackMockDevices", in)
-}
-
 func (c *facilitiesServiceClient) IngestEnvironmentalTelemetry(ctx context.Context, in *IngestTelemetryRequest) (*IngestTelemetryResponse, error) {
 	return invokeUnary[IngestTelemetryRequest, IngestTelemetryResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/IngestEnvironmentalTelemetry", in)
 }
@@ -156,8 +152,6 @@ func (UnimplementedFacilitiesServiceServer) ListOTAJobs(context.Context, *ListOT
 func (UnimplementedFacilitiesServiceServer) UpdateOTAJobStatus(context.Context, *UpdateOTAJobStatusRequest) (*UpdateOTAJobStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateOTAJobStatus not implemented")
 }
-func (UnimplementedFacilitiesServiceServer) TrackMockDevices(context.Context, *TrackMockDevicesRequest) (*TrackMockDevicesResponse, error) { return nil, status.Errorf(codes.Unimplemented, "method TrackMockDevices not implemented") }
-
 func (UnimplementedFacilitiesServiceServer) IngestEnvironmentalTelemetry(context.Context, *IngestTelemetryRequest) (*IngestTelemetryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IngestEnvironmentalTelemetry not implemented")
 }
@@ -224,13 +218,7 @@ var FacilitiesService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "UpdateOTAJobStatus", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/UpdateOTAJobStatus", FacilitiesServiceServer.UpdateOTAJobStatus)
 		}},
-		{MethodName: "TrackMockDevices",
-			Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
-				return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/TrackMockDevices", FacilitiesServiceServer.TrackMockDevices)
-			},
-		},
-		{
-			MethodName: "IngestEnvironmentalTelemetry", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+		{MethodName: "IngestEnvironmentalTelemetry", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/IngestEnvironmentalTelemetry", FacilitiesServiceServer.IngestEnvironmentalTelemetry)
 		}},
 		{MethodName: "ControlPTZ", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
