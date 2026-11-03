@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-hardware
+  namespace: external-sim
+  labels:
+    app: mock-hardware
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-hardware
+  template:
+    metadata:
+      labels:
+        app: mock-hardware
+        environment: simulated-external
+    spec:
+      containers:
+        - name: mock-hardware
+          image: localhost:32000/mock-hardware:latest
+          imagePullPolicy: Always
+          env:
+            - name: RABBITMQ_URL
+              value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+            - name: INTERNAL_BLL_ADDR
+              value: "internal-bll-service.oci-core.svc.cluster.local:8086"
+            - name: TLS_CERT_FILE
+              value: "/certs/tls.crt"
+            - name: TLS_KEY_FILE
+              value: "/certs/tls.key"
+            - name: CLIENT_CA_FILE
+              value: "/certs/ca.crt"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: certs
+              mountPath: "/certs"
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: mock-hardware-tls-certs
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mock-hardware-tls
+  namespace: external-sim
+spec:
+  secretName: mock-hardware-tls-certs
+  duration: 8760h # 1 year
+  renewBefore: 720h # 30 days
+  subject:
+    organizations:
+      - Orange Cat Investments (External Simulation)
+  isCA: false
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - client auth
+  dnsNames:
+    - mock-hardware
+    - mock-hardware.external-sim
+    - mock-hardware.external-sim.svc
+    - mock-hardware.external-sim.svc.cluster.local
+  issuerRef:
+    name: oci-lan-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
