@@ -3,6 +3,7 @@ package employeebff
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 )
@@ -10,6 +11,24 @@ import (
 // RegisterQuantRoutes registers quant, research, and core-invest employee API routes.
 // Invariant: EmployeeBFF delegates all business logic and domain persistence to Internal BLL over gRPC.
 func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
+	sessionAuth := SessionAuthMiddleware(b.sessionStore)
+	csrfProtect := CSRFProtectMiddleware
+	quantRole := RequireRoleMiddleware("investment", "engineering", "admin", "staff", "ops")
+
+	handleProtected := func(method, path string, handler http.HandlerFunc) {
+		var finalHandler http.Handler = quantRole(handler)
+		if method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete || method == http.MethodPatch {
+			finalHandler = csrfProtect(finalHandler)
+		}
+		finalHandler = sessionAuth(finalHandler)
+
+		mux.Handle(method+" "+path, finalHandler)
+		if strings.HasPrefix(path, "/api/v1/") {
+			alias := strings.TrimPrefix(path, "/api/v1")
+			mux.Handle(method+" "+alias, finalHandler)
+		}
+	}
+
 	// Streams
 	listStreams := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -68,10 +87,8 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Stream)
 	}
 
-	mux.HandleFunc("GET /core-invest/streams", listStreams)
-	mux.HandleFunc("GET /api/v1/core-invest/streams", listStreams)
-	mux.HandleFunc("POST /core-invest/streams", createStream)
-	mux.HandleFunc("POST /api/v1/core-invest/streams", createStream)
+	handleProtected("GET", "/api/v1/core-invest/streams", listStreams)
+	handleProtected("POST", "/api/v1/core-invest/streams", createStream)
 
 	getStream := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -90,8 +107,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Stream)
 	}
 
-	mux.HandleFunc("GET /core-invest/streams/{id}", getStream)
-	mux.HandleFunc("GET /api/v1/core-invest/streams/{id}", getStream)
+	handleProtected("GET", "/api/v1/core-invest/streams/{id}", getStream)
 
 	// Brokerage Orders
 	listOrders := func(w http.ResponseWriter, r *http.Request) {
@@ -152,10 +168,8 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Order)
 	}
 
-	mux.HandleFunc("GET /core-invest/brokerage/orders", listOrders)
-	mux.HandleFunc("GET /api/v1/core-invest/brokerage/orders", listOrders)
-	mux.HandleFunc("POST /core-invest/brokerage/orders", createOrder)
-	mux.HandleFunc("POST /api/v1/core-invest/brokerage/orders", createOrder)
+	handleProtected("GET", "/api/v1/core-invest/brokerage/orders", listOrders)
+	handleProtected("POST", "/api/v1/core-invest/brokerage/orders", createOrder)
 
 	getOrder := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -174,8 +188,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Order)
 	}
 
-	mux.HandleFunc("GET /core-invest/brokerage/orders/{id}", getOrder)
-	mux.HandleFunc("GET /api/v1/core-invest/brokerage/orders/{id}", getOrder)
+	handleProtected("GET", "/api/v1/core-invest/brokerage/orders/{id}", getOrder)
 
 	// Backtest Runs
 	listBacktests := func(w http.ResponseWriter, r *http.Request) {
@@ -236,10 +249,8 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Run)
 	}
 
-	mux.HandleFunc("GET /core-invest/backtesting/runs", listBacktests)
-	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs", listBacktests)
-	mux.HandleFunc("POST /core-invest/backtesting/runs", createBacktest)
-	mux.HandleFunc("POST /api/v1/core-invest/backtesting/runs", createBacktest)
+	handleProtected("GET", "/api/v1/core-invest/backtesting/runs", listBacktests)
+	handleProtected("POST", "/api/v1/core-invest/backtesting/runs", createBacktest)
 
 	getBacktest := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -258,8 +269,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Run)
 	}
 
-	mux.HandleFunc("GET /core-invest/backtesting/runs/{id}", getBacktest)
-	mux.HandleFunc("GET /api/v1/core-invest/backtesting/runs/{id}", getBacktest)
+	handleProtected("GET", "/api/v1/core-invest/backtesting/runs/{id}", getBacktest)
 
 	// Recurring Deposits
 	listDeposits := func(w http.ResponseWriter, r *http.Request) {
@@ -315,8 +325,6 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		_ = json.NewEncoder(w).Encode(res.Deposit)
 	}
 
-	mux.HandleFunc("GET /core-invest/recurring-deposits", listDeposits)
-	mux.HandleFunc("GET /api/v1/core-invest/recurring-deposits", listDeposits)
-	mux.HandleFunc("POST /core-invest/recurring-deposits", createDeposit)
-	mux.HandleFunc("POST /api/v1/core-invest/recurring-deposits", createDeposit)
+	handleProtected("GET", "/api/v1/core-invest/recurring-deposits", listDeposits)
+	handleProtected("POST", "/api/v1/core-invest/recurring-deposits", createDeposit)
 }
