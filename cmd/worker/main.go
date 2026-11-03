@@ -6,9 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
@@ -40,6 +43,14 @@ func getWorkerTLSConfig() *tls.Config {
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+	shutdownTelemetry, err := telemetry.InitProvider(ctx, "worker")
+	if err != nil {
+		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry()
+	}
 	logger.Info("starting OCI Background Worker with Watermill Engine (5-Tier BLL Architecture)")
 
 	healthServer := mtls.StartHealthListener(os.Getenv("HEALTH_PORT"), "", logger, "worker")
@@ -169,10 +180,6 @@ func main() {
 	if worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
 		worker.StartRecurringACHProcessor(ctx, router, pubSub, customerBLL, logger)
 		worker.StartEOMStatementBatchGenerator(ctx, router, pubSub, customerBLL, logger)
-	}
-
-	if worker.IsFeatureEnabled("ENABLE_FELINE_WORKFORCE") && worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
-		worker.StartCatSpottedPublisher(ctx, router, pubSub, internalBLL)
 	}
 
 	stop := make(chan os.Signal, 1)
