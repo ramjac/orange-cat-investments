@@ -112,17 +112,12 @@ func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *CustomerBFF) handleListCustomerTickets(w http.ResponseWriter, r *http.Request) {
-	custID := ""
-	if session := CustomerFromContext(r.Context()); session != nil {
-		custID = session.CustomerID
-	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
-	if custID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: customer identity required")
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
 		return
 	}
+	custID := session.CustomerID
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
