@@ -232,6 +232,70 @@ func TestCreateWebhook_WithCoreInvestClient_ErrorFallback(t *testing.T) {
 	assert.NotEmpty(t, res.Subscription.CreatedAt)
 }
 
+func TestCreateWebhook_WithCoreInvestClient_NilResponseFallback(t *testing.T) {
+	ctx := context.Background()
+	mockCI := &mockCoreInvestForWebhook{
+		createWebhookFunc: func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
+			return nil, nil // Nil response, no error
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	req := &customerbllv1.CreateWebhookRequest{
+		CustomerID: "cust-105",
+		TargetURL:  "https://example.com/hooks/nil-resp",
+		Events:     []string{"trade.executed"},
+		Secret:     "whsec_local_secret_1111",
+	}
+
+	res, err := server.CreateWebhook(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Subscription)
+
+	assert.Contains(t, res.Subscription.WebhookID, "sub-")
+	assert.Equal(t, "cust-105", res.Subscription.CustomerID)
+	assert.Equal(t, "https://example.com/hooks/nil-resp", res.Subscription.TargetURL)
+	assert.Equal(t, []string{"trade.executed"}, res.Subscription.EventTypes)
+	assert.Equal(t, "whsec_local_secret_1111", res.Subscription.Secret)
+	assert.Equal(t, "active", res.Subscription.Status)
+	assert.NotEmpty(t, res.Subscription.CreatedAt)
+}
+
+func TestCreateWebhook_WithCoreInvestClient_NilWebhookFallback(t *testing.T) {
+	ctx := context.Background()
+	mockCI := &mockCoreInvestForWebhook{
+		createWebhookFunc: func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
+			return &coreinvestv1.CreateWebhookResponse{Webhook: nil}, nil // Nil webhook, no error
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	req := &customerbllv1.CreateWebhookRequest{
+		CustomerID: "cust-106",
+		TargetURL:  "https://example.com/hooks/nil-webhook",
+		Events:     []string{"order.filled"},
+		Secret:     "whsec_local_secret_2222",
+	}
+
+	res, err := server.CreateWebhook(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Subscription)
+
+	assert.Contains(t, res.Subscription.WebhookID, "sub-")
+	assert.Equal(t, "cust-106", res.Subscription.CustomerID)
+	assert.Equal(t, "https://example.com/hooks/nil-webhook", res.Subscription.TargetURL)
+	assert.Equal(t, []string{"order.filled"}, res.Subscription.EventTypes)
+	assert.Equal(t, "whsec_local_secret_2222", res.Subscription.Secret)
+	assert.Equal(t, "active", res.Subscription.Status)
+	assert.NotEmpty(t, res.Subscription.CreatedAt)
+}
+
 func TestCreateWebhook_NilCoreInvestClient_Fallback(t *testing.T) {
 	ctx := context.Background()
 	server := NewServer(Config{}) // s.ciClient is nil
