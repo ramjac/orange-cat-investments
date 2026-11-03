@@ -63,18 +63,6 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		customerName = session.Name
 	}
 
-	histPoints := resp.HistoricalPerformance
-	if len(histPoints) == 0 {
-		// TODO(Future Work 7.10): Eliminate hardcoded fallback valuation points once dynamic historical NAV snapshots
-		// are computed and supplied by customer-bll.
-		histPoints = []*customerbllv1.ValuationPoint{
-			{Date: "2026-01-01", Valuation: resp.TotalBalanceUSD * 0.78},
-			{Date: "2026-02-01", Valuation: resp.TotalBalanceUSD * 0.85},
-			{Date: "2026-03-01", Valuation: resp.TotalBalanceUSD * 0.92},
-			{Date: "2026-04-01", Valuation: resp.TotalBalanceUSD},
-		}
-	}
-
 	portfolioResp := map[string]any{
 		"portfolio_id":           resp.PortfolioID,
 		"customer_id":            resp.CustomerID,
@@ -84,7 +72,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		"cash_balance_usd":       resp.CashBalanceUSD,
 		"status":                 resp.Status,
 		"holdings":               resp.Holdings,
-		"historical_performance": histPoints,
+		"historical_performance": resp.HistoricalPerformance,
 	}
 
 	if custID != "" && b.cache != nil {
