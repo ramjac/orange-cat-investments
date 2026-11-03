@@ -347,7 +347,7 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 		assert.Equal(t, "first-account-id", resp.PortfolioID)
 	})
 
-	t.Run("fallback default format port-<CustomerID> when broker is nil or errors", func(t *testing.T) {
+	t.Run("fallback default format port-<CustomerID> when broker is nil", func(t *testing.T) {
 		s := NewServer(Config{})
 
 		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
@@ -357,9 +357,46 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "port-cat-55", resp.PortfolioID)
 	})
+
+	t.Run("fallback default format port-<CustomerID> when broker returns error", func(t *testing.T) {
+		brokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer brokerServer.Close()
+
+		s := NewServer(Config{
+			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: brokerServer.URL}),
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cat-err-66",
+			AmountUSD:  150.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "port-cat-err-66", resp.PortfolioID)
+	})
 }
 
 func TestInitiateACHDeposit_BankAndFrequencyResolution(t *testing.T) {
+	t.Run("fetch bank account from bank client when account_id is empty and bank errors out gracefully", func(t *testing.T) {
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer bankServer.Close()
+
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cust-001",
+			AmountUSD:  100.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "pending_settlement", resp.Status)
+		assert.Equal(t, "one_time", resp.Frequency)
+	})
+
 	t.Run("fetch bank account from bank client when account_id is empty", func(t *testing.T) {
 		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
