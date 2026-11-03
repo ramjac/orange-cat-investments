@@ -164,7 +164,7 @@ func (s *Server) ListBankAccounts(ctx context.Context, in *customerbllv1.ListBan
 				AccountID:        fmt.Sprintf("acc_%s_primary", in.CustomerID),
 				InstitutionName:  "Primary Linked Institution",
 				AccountNumber:    "****1001",
-				Name:              "Primary Checking Account",
+				Name:             "Primary Checking Account",
 				AvailableBalance: 10000.00,
 				CurrentBalance:   10000.00,
 			},

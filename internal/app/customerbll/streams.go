@@ -202,6 +202,9 @@ func (s *Server) CompleteBacktestRun(ctx context.Context, in *customerbllv1.Comp
 	if err != nil {
 		return nil, err
 	}
+	if res == nil {
+		return &customerbllv1.CompleteBacktestRunResponse{}, nil
+	}
 	return &customerbllv1.CompleteBacktestRunResponse{Run: res.Run}, nil
 }
 
