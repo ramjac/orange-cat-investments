@@ -162,42 +162,48 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.True(t, mockBLL.listTicketsCalled, "expected ListTickets RPC to be invoked")
 
 	// 5. Quant Streams route
-	reqStreams := httptest.NewRequest(http.MethodGet, "/core-invest/streams", nil)
+	reqStreams := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/streams", nil)
+	reqStreams.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recStreams := httptest.NewRecorder()
 	router.ServeHTTP(recStreams, reqStreams)
 	assert.Equal(t, http.StatusOK, recStreams.Code)
 	assert.True(t, mockBLL.listStreamsCalled, "expected ListStreams RPC to be invoked")
 
 	// 6. Quant Orders route
-	reqOrders := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders", nil)
+	reqOrders := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/brokerage/orders", nil)
+	reqOrders.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recOrders := httptest.NewRecorder()
 	router.ServeHTTP(recOrders, reqOrders)
 	assert.Equal(t, http.StatusOK, recOrders.Code)
 	assert.True(t, mockBLL.listOrdersCalled, "expected ListBrokerageOrders RPC to be invoked")
 
 	// 7. Quant Backtest Runs route
-	reqBacktests := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs", nil)
+	reqBacktests := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/backtesting/runs", nil)
+	reqBacktests.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recBacktests := httptest.NewRecorder()
 	router.ServeHTTP(recBacktests, reqBacktests)
 	assert.Equal(t, http.StatusOK, recBacktests.Code)
 	assert.True(t, mockBLL.listBacktestsCalled, "expected ListBacktestRuns RPC to be invoked")
 
 	// 8. Quant Stream detail route
-	reqStreamDetail := httptest.NewRequest(http.MethodGet, "/core-invest/streams/stream-1", nil)
+	reqStreamDetail := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/streams/stream-1", nil)
+	reqStreamDetail.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recStreamDetail := httptest.NewRecorder()
 	router.ServeHTTP(recStreamDetail, reqStreamDetail)
 	assert.Equal(t, http.StatusOK, recStreamDetail.Code)
 	assert.True(t, mockBLL.getStreamCalled, "expected GetCameraStream RPC to be invoked")
 
 	// 9. Quant Order detail route
-	reqOrderDetail := httptest.NewRequest(http.MethodGet, "/core-invest/brokerage/orders/ord-1", nil)
+	reqOrderDetail := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/brokerage/orders/ord-1", nil)
+	reqOrderDetail.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recOrderDetail := httptest.NewRecorder()
 	router.ServeHTTP(recOrderDetail, reqOrderDetail)
 	assert.Equal(t, http.StatusOK, recOrderDetail.Code)
 	assert.True(t, mockBLL.getOrderCalled, "expected GetBrokerageOrder RPC to be invoked")
 
 	// 10. Quant Backtest Run detail route
-	reqBacktestDetail := httptest.NewRequest(http.MethodGet, "/core-invest/backtesting/runs/run-1", nil)
+	reqBacktestDetail := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/backtesting/runs/run-1", nil)
+	reqBacktestDetail.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recBacktestDetail := httptest.NewRecorder()
 	router.ServeHTTP(recBacktestDetail, reqBacktestDetail)
 	assert.Equal(t, http.StatusOK, recBacktestDetail.Code)

@@ -218,6 +218,22 @@ func TestNewServer_gRPC_Targets(t *testing.T) {
 	srv.Close()
 }
 
+func TestNewServer_GrpcTargets_DialError(t *testing.T) {
+	// target parsing failure or dial failure
+	// We can use an invalid address like "invalid://\x00" which makes CleanTarget or grpcutil.Dial return an error
+	cfg := Config{
+		WorkforceTarget:  "invalid://\x00",
+		CoreInvestTarget: "invalid://\x00",
+		OpsTarget:        "invalid://\x00",
+	}
+
+	srv := NewServer(cfg)
+	assert.Nil(t, srv.wfClient)
+	assert.Nil(t, srv.ciClient)
+	assert.Nil(t, srv.opsClient)
+	assert.Empty(t, srv.conns)
+}
+
 func TestServer_SettersAndLog(t *testing.T) {
 	srv := &Server{}
 
@@ -254,4 +270,29 @@ func TestServer_SettersAndLog(t *testing.T) {
 
 	srv.SetPublisher(nil)
 	assert.Nil(t, srv.publisher)
+}
+
+func TestNewServer_BrokerClient_EnvVars_Overrides(t *testing.T) {
+	t.Setenv("BROKER_API_BASE_URL", "http://mock-broker:8080")
+	t.Setenv("ALPACA_DATA_URL", "http://mock-broker-data:8080")
+	t.Setenv("APCA_API_KEY_ID", "CUSTOM_KEY_OVERRIDE")
+	t.Setenv("APCA_API_SECRET_KEY", "CUSTOM_SECRET_OVERRIDE")
+
+	srv := NewServer(Config{})
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	assert.NotNil(t, srv.brokerClient)
+}
+
+func TestNewServer_BankClient_EnvVars_Overrides(t *testing.T) {
+	t.Setenv("BANK_API_BASE_URL", "http://mock-bank:8081")
+	t.Setenv("PLAID_CLIENT_ID", "CUSTOM_CLIENT_ID_OVERRIDE")
+	t.Setenv("PLAID_SECRET", "CUSTOM_SECRET_OVERRIDE")
+
+	srv := NewServer(Config{})
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	assert.NotNil(t, srv.bankClient)
 }
