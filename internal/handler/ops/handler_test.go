@@ -13,6 +13,7 @@ import (
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/pebble"
 	"github.com/stretchr/testify/assert"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 type mockInternalBLLClient struct {
@@ -390,4 +391,46 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusCreated, recReply.Code)
 	})
+}
+
+func TestExtractCustomerIDPrecedence(t *testing.T) {
+	// 1. Session takes precedence over all
+	req1 := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+	sess := &session.CustomerSession{CustomerID: "session-cust"}
+	req1 = req1.WithContext(session.WithCustomerSession(req1.Context(), sess))
+	req1 = req1.WithContext(context.WithValue(req1.Context(), "customer_id", "ctx-cust"))
+	req1.Header.Set("X-Customer-ID", "header-cust")
+
+	q := req1.URL.Query()
+	q.Add("customer_id", "query-cust")
+	req1.URL.RawQuery = q.Encode()
+
+	assert.Equal(t, "session-cust", extractCustomerID(req1))
+
+	// 2. Context value takes precedence over header/query
+	req2 := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+	req2 = req2.WithContext(context.WithValue(req2.Context(), "customer_id", "ctx-cust"))
+	req2.Header.Set("X-Customer-ID", "header-cust")
+	q2 := req2.URL.Query()
+	q2.Add("customer_id", "query-cust")
+	req2.URL.RawQuery = q2.Encode()
+
+	assert.Equal(t, "ctx-cust", extractCustomerID(req2))
+
+	// 3. Header takes precedence over query
+	req3 := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+	req3.Header.Set("X-Customer-ID", "header-cust")
+	q3 := req3.URL.Query()
+	q3.Add("customer_id", "query-cust")
+	req3.URL.RawQuery = q3.Encode()
+
+	assert.Equal(t, "header-cust", extractCustomerID(req3))
+
+	// 4. Query is fallback
+	req4 := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
+	q4 := req4.URL.Query()
+	q4.Add("customer_id", "query-cust")
+	req4.URL.RawQuery = q4.Encode()
+
+	assert.Equal(t, "query-cust", extractCustomerID(req4))
 }
