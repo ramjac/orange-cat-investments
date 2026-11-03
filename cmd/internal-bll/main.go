@@ -38,7 +38,7 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		defer shutdownTelemetry(ctx)
+		defer shutdownTelemetry()
 	}
 	slog.SetDefault(logger)
 

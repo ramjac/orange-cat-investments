@@ -163,8 +163,14 @@ func (b *CustomerBFF) handleRegister(w http.ResponseWriter, r *http.Request) {
 		TargetFund:      req.TargetFund,
 	})
 	if err != nil {
+		if req.BankPublicToken != "" {
+			telemetry.RecordBankLinkingAttempt(r.Context(), false)
+		}
 		httputil.WriteError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if req.BankPublicToken != "" {
+		telemetry.RecordBankLinkingAttempt(r.Context(), true)
 	}
 
 	custID := req.Email
@@ -184,9 +190,6 @@ func (b *CustomerBFF) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := b.sessions.Create(custID, name, email)
 	if err != nil {
-		if req.BankPublicToken != "" {
-			telemetry.RecordBankLinkingAttempt(r.Context(), false)
-		}
 		httputil.WriteError(w, http.StatusInternalServerError, "failed to create customer session")
 		return
 	}

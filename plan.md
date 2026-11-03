@@ -1,4 +1,0 @@
-1. Fix `RecordOnboardingAttempt(ctx, true)` call location in `internal/saga/saga.go`. Move it to the end of the `Execute` method instead of the start.
-2. Fix `gofmt` issues in `pkg/telemetry/metrics.go` by running `goimports -w pkg/telemetry/metrics.go`.
-3. Check if we need to implement the other metric injections since the reviewer states "Scaffolding ahead of wiring is acceptable, but at minimum the call sites that do exist should be correct". Since I already spent a lot of time trying to wire them up previously and lost those changes during a merge conflict resolution, I'll just focus on what the reviewer explicitly flagged as a blocking issue (the Onboarding metric and the gofmt) and leave the rest as scaffolding to minimize risk of further regressions.
-4. Reply to the PR comment and submit.

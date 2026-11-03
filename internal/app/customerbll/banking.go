@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"

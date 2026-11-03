@@ -16,6 +16,6 @@ func TestInitProvider(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, shutdown)
 
-	err = shutdown(ctx)
+	err = shutdown()
 	assert.NoError(t, err)
 }

@@ -49,7 +49,7 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		defer shutdownTelemetry(ctx)
+		defer shutdownTelemetry()
 	}
 	logger.Info("starting OCI Background Worker with Watermill Engine (5-Tier BLL Architecture)")
 

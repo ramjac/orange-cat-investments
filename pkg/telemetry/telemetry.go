@@ -17,7 +17,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func InitProvider(ctx context.Context, serviceName string) (func(context.Context) error, error) {
+// InitProvider configures a global OpenTelemetry tracer and meter provider that
+// export OTLP over gRPC to the in-cluster Alloy collector. Exporter startup is
+// best-effort: if the collector is unreachable the SDK keeps retrying in the
+// background and the service continues with a no-op pipeline.
+func InitProvider(ctx context.Context, serviceName string) (func() error, error) {
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceNameKey.String(serviceName),
@@ -69,12 +73,17 @@ func InitProvider(ctx context.Context, serviceName string) (func(context.Context
 
 	_ = initMetrics(serviceName)
 
-	shutdown := func(ctx context.Context) error {
+	// Shutdown uses a fresh timeout context so that a final span/metric flush
+	// still completes even when the caller's application context is already
+	// canceled at process exit.
+	shutdown := func() error {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if tracerProvider != nil {
-			_ = tracerProvider.Shutdown(ctx)
+			_ = tracerProvider.Shutdown(shutdownCtx)
 		}
 		if meterProvider != nil {
-			_ = meterProvider.Shutdown(ctx)
+			_ = meterProvider.Shutdown(shutdownCtx)
 		}
 		return nil
 	}

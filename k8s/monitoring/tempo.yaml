@@ -13,6 +13,9 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: 4318
+    - name: http
+      port: 3200
+      targetPort: 3200
   selector:
     app: tempo
 ---
@@ -41,6 +44,7 @@ spec:
           ports:
             - containerPort: 4317
             - containerPort: 4318
+            - containerPort: 3200
           volumeMounts:
             - name: tempo-config
               mountPath: /etc/tempo.yaml
