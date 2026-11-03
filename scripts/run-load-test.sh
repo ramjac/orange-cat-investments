@@ -4,6 +4,7 @@ set -euo pipefail
 TARGET_HOST="${1:-"192.168.1.246"}"
 CONCURRENCY="${2:-32}"
 DURATION_SECONDS="${3:-600}"
+TOKENS_FILE="${TOKENS_FILE:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -44,9 +45,14 @@ for i in $(seq 1 "${CONCURRENCY}"); do
         iter=0
         while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do
             iter=$(( iter + 1 ))
+            extra_args=()
+            if [[ -n "${TOKENS_FILE}" && -f "${TOKENS_FILE}" ]]; then
+                extra_args+=("-tokens-file" "${TOKENS_FILE}")
+            fi
             OCI_INGRESS_IP="${TARGET_HOST}" "${SIMULATOR_BIN}" \
                 -mode live \
-                -url "http://dev.api.oci.local" \
+                -bff-url "http://dev.api.oci.local" \
+                "${extra_args[@]}" \
                 -delay 20 \
                 -verbose=false >> "${worker_log}" 2>&1 || true
         done

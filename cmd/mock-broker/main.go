@@ -60,6 +60,9 @@ func main() {
 
 	// 1. In-memory ledger
 	store := ledger.NewStore()
+	if os.Getenv("SIM_AUTO_REPLENISH") != "false" {
+		store.SetAutoReplenish(true)
+	}
 
 	// 2. Market simulation engine
 	mktEngine := engine.NewMarketEngine(store, tickInterval, engine.DefaultAssets())

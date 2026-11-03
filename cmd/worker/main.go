@@ -182,10 +182,6 @@ func main() {
 		worker.StartEOMStatementBatchGenerator(ctx, router, pubSub, customerBLL, logger)
 	}
 
-	if worker.IsFeatureEnabled("ENABLE_FELINE_WORKFORCE") && worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
-		worker.StartCatSpottedPublisher(ctx, router, pubSub, internalBLL)
-	}
-
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop

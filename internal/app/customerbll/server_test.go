@@ -2,6 +2,7 @@ package customerbll
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"net"
 	"testing"
@@ -27,6 +28,30 @@ func (m *mockPublisher) Close() error {
 
 type mockWorkforceClient struct {
 	workforcev1.WorkforceServiceClient
+	listEmployeesFunc func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error)
+	listVHRRecordsFunc func(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error)
+	listIncidentsFunc func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error)
+}
+
+func (m *mockWorkforceClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
+	if m.listEmployeesFunc != nil {
+		return m.listEmployeesFunc(ctx, in)
+	}
+	return &workforcev1.ListEmployeesResponse{}, nil
+}
+
+func (m *mockWorkforceClient) ListVHRRecords(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error) {
+	if m.listVHRRecordsFunc != nil {
+		return m.listVHRRecordsFunc(ctx, in)
+	}
+	return &workforcev1.ListVHRRecordsResponse{}, nil
+}
+
+func (m *mockWorkforceClient) ListIncidents(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error) {
+	if m.listIncidentsFunc != nil {
+		return m.listIncidentsFunc(ctx, in)
+	}
+	return &workforcev1.ListIncidentsResponse{}, nil
 }
 
 type mockOpsClient struct {

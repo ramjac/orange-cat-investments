@@ -30,7 +30,14 @@ type Client struct {
 	jarsMu          sync.RWMutex
 	personaJars     map[string]http.CookieJar
 	personaCSRF     map[string]string
+	personaTokens   map[string]string
 	activePersonaID string
+}
+
+// TokenState represents serializable tokens and session metadata.
+type TokenState struct {
+	ForgejoTokens map[string]string `json:"forgejo_tokens,omitempty"`
+	CSRFTokens    map[string]string `json:"csrf_tokens,omitempty"`
 }
 
 // NewClient constructs a new simulation client configured to communicate with a running OCI stack.
@@ -56,14 +63,28 @@ func NewClient(cfg *Config) (*Client, error) {
 		brokerURL:   strings.TrimSuffix(cfg.BrokerURL, "/"),
 		bankURL:     strings.TrimSuffix(cfg.BankURL, "/"),
 		forgejoURL:  strings.TrimSuffix(cfg.ForgejoURL, "/"),
-		mode:        cfg.Mode,
-		transport:   transport,
-		personaJars: make(map[string]http.CookieJar),
-		personaCSRF: make(map[string]string),
+		mode:          cfg.Mode,
+		transport:     transport,
+		personaJars:   make(map[string]http.CookieJar),
+		personaCSRF:   make(map[string]string),
+		personaTokens: make(map[string]string),
 		httpClient: &http.Client{
 			Timeout:   10 * time.Second,
 			Transport: transport,
 		},
+	}
+
+	if cfg.ForgejoToken != "" {
+		c.personaTokens["default"] = cfg.ForgejoToken
+	}
+	if cfg.ForgejoEliseToken != "" {
+		c.personaTokens["emp-human-elise"] = cfg.ForgejoEliseToken
+	}
+	if cfg.ForgejoMarcusToken != "" {
+		c.personaTokens["emp-human-marcus"] = cfg.ForgejoMarcusToken
+	}
+	if cfg.TokensFile != "" {
+		_ = c.LoadTokensFile(cfg.TokensFile)
 	}
 
 	return c, nil
@@ -132,6 +153,75 @@ func (c *Client) ResetSession(personaID string) {
 	if c.personaCSRF != nil {
 		delete(c.personaCSRF, personaID)
 	}
+}
+
+// SetPersonaToken stores an API token for a persona (e.g. Forgejo token).
+func (c *Client) SetPersonaToken(personaID, token string) {
+	c.jarsMu.Lock()
+	defer c.jarsMu.Unlock()
+	if c.personaTokens == nil {
+		c.personaTokens = make(map[string]string)
+	}
+	c.personaTokens[personaID] = token
+}
+
+// GetPersonaToken retrieves an API token for a persona.
+func (c *Client) GetPersonaToken(personaID string) string {
+	c.jarsMu.RLock()
+	defer c.jarsMu.RUnlock()
+	if c.personaTokens != nil {
+		return c.personaTokens[personaID]
+	}
+	return ""
+}
+
+// LoadTokensFile loads tokens and session state from a JSON file.
+func (c *Client) LoadTokensFile(filepath string) error {
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		return err
+	}
+	var state TokenState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	c.jarsMu.Lock()
+	defer c.jarsMu.Unlock()
+	if c.personaTokens == nil {
+		c.personaTokens = make(map[string]string)
+	}
+	for k, v := range state.ForgejoTokens {
+		c.personaTokens[k] = v
+	}
+	if c.personaCSRF == nil {
+		c.personaCSRF = make(map[string]string)
+	}
+	for k, v := range state.CSRFTokens {
+		c.personaCSRF[k] = v
+	}
+	return nil
+}
+
+// SaveTokensFile saves active tokens and session state to a JSON file.
+func (c *Client) SaveTokensFile(filepath string) error {
+	c.jarsMu.RLock()
+	state := TokenState{
+		ForgejoTokens: make(map[string]string),
+		CSRFTokens:    make(map[string]string),
+	}
+	for k, v := range c.personaTokens {
+		state.ForgejoTokens[k] = v
+	}
+	for k, v := range c.personaCSRF {
+		state.CSRFTokens[k] = v
+	}
+	c.jarsMu.RUnlock()
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath, data, 0600)
 }
 
 // SetActivePersona binds the active persona ID on the client.
@@ -306,7 +396,17 @@ func (c *Client) DoForgejo(ctx context.Context, method, path string, body any) (
 // DoForgejoAs executes an HTTP request directly against the Forgejo REST API with a specific user token.
 func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string, body any) (*http.Response, []byte, error) {
 	baseURL := c.forgejoURL
-	token := os.Getenv("FORGEJO_TOKEN")
+
+	// 1. Check client personaTokens (from config flags or loaded token state file)
+	token := c.GetPersonaToken(username)
+	if token == "" {
+		token = c.GetPersonaToken("default")
+	}
+
+	// 2. Check environment variables as fallback
+	if token == "" {
+		token = os.Getenv("FORGEJO_TOKEN")
+	}
 	if username == "emp-human-elise" {
 		if t := os.Getenv("FORGEJO_ELISE_TOKEN"); t != "" {
 			token = t
@@ -316,6 +416,7 @@ func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string,
 			token = t
 		}
 	}
+
 	var headers map[string]string
 	if token != "" {
 		headers = map[string]string{
