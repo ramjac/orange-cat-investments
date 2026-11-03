@@ -12,6 +12,7 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/workforce"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 )
 
 type EventEnvelope[T any] struct {
@@ -168,6 +169,7 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 
 	created, err := s.wfSvc.OnboardEmployee(ctx, emp, cs)
 	if err != nil {
+		telemetry.RecordOnboardingAttempt(ctx, false)
 		return nil, fmt.Errorf("onboarding saga failed to create employee: %w", err)
 	}
 
@@ -194,6 +196,7 @@ func (s *OnboardingSaga) Execute(ctx context.Context, req OnboardingRequest) (*O
 
 	s.publishOnboardingEvent(created.EmployeeID, result)
 
+	telemetry.RecordOnboardingAttempt(ctx, true)
 	return result, nil
 }
 
@@ -323,4 +326,3 @@ func (s *OnboardingSaga) publishOnboardingEvent(employeeID string, result *Onboa
 	msg := message.NewMessage(event.EventID, data)
 	_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", msg)
 }
-

@@ -86,6 +86,9 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "gdpr erasure failed: %v", err)
 		}
+		if res == nil {
+			return nil, status.Errorf(codes.Internal, "gdpr erasure failed: received nil response")
+		}
 		return &customerbllv1.ExecuteGDPRErasureResponse{Certificate: res.Certificate}, nil
 	}
 
