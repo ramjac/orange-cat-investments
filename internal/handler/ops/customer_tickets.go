@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 type createCustomerTicketRequest struct {
@@ -21,13 +22,16 @@ type addCustomerCommentRequest struct {
 }
 
 func extractCustomerID(r *http.Request) string {
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		return sess.CustomerID
+	}
+	if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
+		return custID
+	}
 	if custID := r.Header.Get("X-Customer-ID"); custID != "" {
 		return custID
 	}
 	if custID := r.URL.Query().Get("customer_id"); custID != "" {
-		return custID
-	}
-	if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
 		return custID
 	}
 	return ""
