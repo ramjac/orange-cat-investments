@@ -264,17 +264,37 @@ func TestListWebhooks(t *testing.T) {
 		server := NewServer(Config{})
 		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
 
 	t.Run("Success Client", func(t *testing.T) {
+		expectedWebhooks := []*coreinvestv1.CustomerWebhook{
+			{
+				WebhookID:  "sub-1",
+				CustomerID: "cust-201",
+				TargetURL:  "https://example.com/1",
+				EventTypes: []string{"trade.executed"},
+				Status:     "active",
+				Secret:     "secret1",
+				CreatedAt:  "2023-01-01T00:00:00Z",
+			},
+			{
+				WebhookID:  "sub-2",
+				CustomerID: "cust-201",
+				TargetURL:  "https://example.com/2",
+				EventTypes: []string{"order.filled"},
+				Status:     "inactive",
+				Secret:     "secret2",
+				CreatedAt:  "2023-01-02T00:00:00Z",
+			},
+		}
+
 		mockCI := &mockCoreInvestForWebhook{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
+				assert.Equal(t, "cust-201", in.CustomerID)
 				return &coreinvestv1.ListWebhooksResponse{
-					Webhooks: []*coreinvestv1.CustomerWebhook{
-						{WebhookID: "sub-1", CustomerID: in.CustomerID, TargetURL: "https://example.com/1"},
-						{WebhookID: "sub-2", CustomerID: in.CustomerID, TargetURL: "https://example.com/2"},
-					},
+					Webhooks: expectedWebhooks,
 				}, nil
 			},
 		}
@@ -283,22 +303,39 @@ func TestListWebhooks(t *testing.T) {
 
 		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		require.Len(t, res.Subscriptions, 2)
+
 		assert.Equal(t, "sub-1", res.Subscriptions[0].WebhookID)
+		assert.Equal(t, "cust-201", res.Subscriptions[0].CustomerID)
+		assert.Equal(t, "https://example.com/1", res.Subscriptions[0].TargetURL)
+		assert.Equal(t, []string{"trade.executed"}, res.Subscriptions[0].EventTypes)
+		assert.Equal(t, "active", res.Subscriptions[0].Status)
+		assert.Equal(t, "secret1", res.Subscriptions[0].Secret)
+		assert.Equal(t, "2023-01-01T00:00:00Z", res.Subscriptions[0].CreatedAt)
+
 		assert.Equal(t, "sub-2", res.Subscriptions[1].WebhookID)
+		assert.Equal(t, "cust-201", res.Subscriptions[1].CustomerID)
+		assert.Equal(t, "https://example.com/2", res.Subscriptions[1].TargetURL)
+		assert.Equal(t, []string{"order.filled"}, res.Subscriptions[1].EventTypes)
+		assert.Equal(t, "inactive", res.Subscriptions[1].Status)
+		assert.Equal(t, "secret2", res.Subscriptions[1].Secret)
+		assert.Equal(t, "2023-01-02T00:00:00Z", res.Subscriptions[1].CreatedAt)
 	})
 
 	t.Run("Error Client", func(t *testing.T) {
 		mockCI := &mockCoreInvestForWebhook{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
-				return nil, errors.New("db error")
+				assert.Equal(t, "cust-err", in.CustomerID)
+				return nil, errors.New("gRPC connection failure")
 			},
 		}
 		server := NewServer(Config{})
 		server.SetCoreInvestClient(mockCI)
 
-		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
+		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-err"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
 }
