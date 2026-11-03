@@ -486,3 +486,45 @@ func TestGenerateAndListStatements_Lifecycle(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(err))
 }
+
+func TestListStatements_Alternative_NilCoreInvestClient(t *testing.T) {
+	server := NewServer(Config{})
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "test-cust",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
+func TestListStatements_Alternative_ClientError(t *testing.T) {
+	mockCI := &mockCoreInvestClient{
+		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+			return nil, errors.New("simulated list statements error")
+		},
+	}
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "test-cust",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
+
+func TestListStatements_Alternative_NilResponse(t *testing.T) {
+	mockCI := &mockCoreInvestClient{
+		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
+			return nil, nil
+		},
+	}
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
+		CustomerID: "test-cust",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Statements)
+}
