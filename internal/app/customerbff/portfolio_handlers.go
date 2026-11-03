@@ -14,13 +14,12 @@ import (
 )
 
 func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request) {
-	custID := ""
-	if session := CustomerFromContext(r.Context()); session != nil {
-		custID = session.CustomerID
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
+		return
 	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
+	custID := session.CustomerID
 
 	portfolioID := r.URL.Query().Get("portfolio_id")
 	if portfolioID == "" && custID != "" {
@@ -64,18 +63,6 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		customerName = session.Name
 	}
 
-	histPoints := resp.HistoricalPerformance
-	if len(histPoints) == 0 {
-		// TODO(Future Work 7.10): Eliminate hardcoded fallback valuation points once dynamic historical NAV snapshots
-		// are computed and supplied by customer-bll.
-		histPoints = []*customerbllv1.ValuationPoint{
-			{Date: "2026-01-01", Valuation: resp.TotalBalanceUSD * 0.78},
-			{Date: "2026-02-01", Valuation: resp.TotalBalanceUSD * 0.85},
-			{Date: "2026-03-01", Valuation: resp.TotalBalanceUSD * 0.92},
-			{Date: "2026-04-01", Valuation: resp.TotalBalanceUSD},
-		}
-	}
-
 	portfolioResp := map[string]any{
 		"portfolio_id":           resp.PortfolioID,
 		"customer_id":            resp.CustomerID,
@@ -85,7 +72,7 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		"cash_balance_usd":       resp.CashBalanceUSD,
 		"status":                 resp.Status,
 		"holdings":               resp.Holdings,
-		"historical_performance": histPoints,
+		"historical_performance": resp.HistoricalPerformance,
 	}
 
 	if custID != "" && b.cache != nil {
@@ -105,17 +92,12 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 }
 
 func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) {
-	custID := ""
-	if session := CustomerFromContext(r.Context()); session != nil {
-		custID = session.CustomerID
-	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
-	if custID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: customer identity required")
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
 		return
 	}
+	custID := session.CustomerID
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
@@ -185,17 +167,12 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 }
 
 func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Request) {
-	custID := ""
-	if session := CustomerFromContext(r.Context()); session != nil {
-		custID = session.CustomerID
-	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
-	if custID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: customer identity required")
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
 		return
 	}
+	custID := session.CustomerID
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
@@ -216,17 +193,12 @@ func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Reque
 }
 
 func (b *CustomerBFF) handleListStatements(w http.ResponseWriter, r *http.Request) {
-	custID := ""
-	if session := CustomerFromContext(r.Context()); session != nil {
-		custID = session.CustomerID
-	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
-	if custID == "" {
-		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session or customer_id required")
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
 		return
 	}
+	custID := session.CustomerID
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
@@ -303,13 +275,11 @@ func (b *CustomerBFF) handleDownloadStatement(w http.ResponseWriter, r *http.Req
 	}
 
 	session := CustomerFromContext(r.Context())
-	custID := ""
-	if session != nil {
-		custID = session.CustomerID
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
+		return
 	}
-	if custID == "" {
-		custID = r.URL.Query().Get("customer_id")
-	}
+	custID := session.CustomerID
 
 	if b.bllClient == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")

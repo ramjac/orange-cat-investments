@@ -32,5 +32,5 @@ func NewServer(tlsConfig *tls.Config, opts ...grpc.ServerOption) *grpc.Server {
 		allOpts = append(allOpts, grpc.Creds(credentials.NewTLS(cfg)))
 	}
 	allOpts = append(allOpts, opts...)
-	return grpc.NewServer(allOpts...)
+	return grpc.NewServer(append(allOpts, WithTelemetryServerOption())...)
 }

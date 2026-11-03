@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
@@ -347,7 +348,7 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 		assert.Equal(t, "first-account-id", resp.PortfolioID)
 	})
 
-	t.Run("fallback default format port-<CustomerID> when broker is nil or errors", func(t *testing.T) {
+	t.Run("fallback default format port-<CustomerID> when broker is nil", func(t *testing.T) {
 		s := NewServer(Config{})
 
 		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
@@ -357,9 +358,46 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "port-cat-55", resp.PortfolioID)
 	})
+
+	t.Run("fallback default format port-<CustomerID> when broker returns error", func(t *testing.T) {
+		brokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer brokerServer.Close()
+
+		s := NewServer(Config{
+			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: brokerServer.URL}),
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cat-err-66",
+			AmountUSD:  150.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "port-cat-err-66", resp.PortfolioID)
+	})
 }
 
 func TestInitiateACHDeposit_BankAndFrequencyResolution(t *testing.T) {
+	t.Run("fetch bank account from bank client when account_id is empty and bank errors out gracefully", func(t *testing.T) {
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer bankServer.Close()
+
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cust-001",
+			AmountUSD:  100.0,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "pending_settlement", resp.Status)
+		assert.Equal(t, "one_time", resp.Frequency)
+	})
+
 	t.Run("fetch bank account from bank client when account_id is empty", func(t *testing.T) {
 		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -470,6 +508,79 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 	})
 }
 
+func TestListDeposits(t *testing.T) {
+	t.Run("nil core-invest client returns empty list", func(t *testing.T) {
+		s := NewServer(Config{})
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Empty(t, resp.Deposits)
+	})
+
+	t.Run("core-invest error returns Internal status error", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, errors.New("database connection failed")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "failed to list recurring deposits")
+	})
+
+	t.Run("successful core-invest deposit retrieval", func(t *testing.T) {
+		expectedDeposits := []*coreinvestv1.RecurringDeposit{
+			{
+				DepositID:   "dep-1",
+				CustomerID:  "cust-123",
+				PortfolioID: "port-1",
+				AmountUSD:   100.0,
+				Frequency:   "monthly",
+			},
+			{
+				DepositID:   "dep-2",
+				CustomerID:  "cust-123",
+				PortfolioID: "port-1",
+				AmountUSD:   50.0,
+				Frequency:   "weekly",
+			},
+		}
+
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				assert.Equal(t, "cust-123", in.CustomerID)
+				return &coreinvestv1.ListRecurringDepositsResponse{
+					Deposits: expectedDeposits,
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, expectedDeposits, resp.Deposits)
+	})
+}
+
 func TestInitiateACHDeposit_PublisherError(t *testing.T) {
 	pub := newMockRecordingPublisher()
 	pub.publishErr = errors.New("rabbitmq connection down")
@@ -486,4 +597,102 @@ func TestInitiateACHDeposit_PublisherError(t *testing.T) {
 	assert.Nil(t, resp)
 	assert.Equal(t, codes.Internal, status.Code(err))
 	assert.Contains(t, err.Error(), "failed to publish ACH transfer event to message broker")
+}
+
+func TestClaimDueRecurringDeposits(t *testing.T) {
+	s := NewServer(Config{})
+
+	// Test core-invest service unavailable
+	t.Run("core-invest service unavailable", func(t *testing.T) {
+		req := &customerbllv1.ClaimDueRecurringDepositsRequest{}
+		resp, err := s.ClaimDueRecurringDeposits(context.Background(), req)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Unavailable, st.Code())
+	})
+
+	// Test ListRecurringDeposits error
+	t.Run("list recurring deposits fails", func(t *testing.T) {
+		ciClient := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, errors.New("list failed")
+			},
+		}
+		s.SetCoreInvestClient(ciClient)
+
+		req := &customerbllv1.ClaimDueRecurringDepositsRequest{}
+		resp, err := s.ClaimDueRecurringDeposits(context.Background(), req)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
+		assert.Contains(t, st.Message(), "list failed")
+	})
+
+	// Test happy path
+	t.Run("happy path processing", func(t *testing.T) {
+		now := time.Now().UTC()
+		past := now.Add(-1 * time.Hour).Format(time.RFC3339)
+		future := now.Add(1 * time.Hour).Format(time.RFC3339)
+
+		deposits := []*coreinvestv1.RecurringDeposit{
+			{DepositID: "d-inactive", Status: "inactive", NextChargeAt: past},
+			{DepositID: "d-future", Status: "active", NextChargeAt: future},
+			{DepositID: "d-weekly", Status: "active", NextChargeAt: past, Frequency: "weekly"},
+			{DepositID: "d-biweekly", Status: "active", NextChargeAt: past, Frequency: "biweekly"},
+			{DepositID: "d-monthly", Status: "active", NextChargeAt: past, Frequency: "monthly"},
+		}
+
+		advancesCalled := make(map[string]string)
+		ciClient := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return &coreinvestv1.ListRecurringDepositsResponse{Deposits: deposits}, nil
+			},
+			advanceRecurringDepositFunc: func(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error) {
+				advancesCalled[in.DepositID] = in.NextChargeAt
+				return &coreinvestv1.AdvanceRecurringDepositResponse{}, nil
+			},
+		}
+		s.SetCoreInvestClient(ciClient)
+
+		req := &customerbllv1.ClaimDueRecurringDepositsRequest{}
+		resp, err := s.ClaimDueRecurringDeposits(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Len(t, resp.DueDeposits, 3)
+
+		// Assertions on due deposits array
+		dueIDs := []string{}
+		for _, d := range resp.DueDeposits {
+			dueIDs = append(dueIDs, d.DepositID)
+		}
+		assert.Contains(t, dueIDs, "d-weekly")
+		assert.Contains(t, dueIDs, "d-biweekly")
+		assert.Contains(t, dueIDs, "d-monthly")
+		assert.NotContains(t, dueIDs, "d-inactive")
+		assert.NotContains(t, dueIDs, "d-future")
+
+		// Verify correct advance calls
+		assert.Len(t, advancesCalled, 3)
+
+		// For weekly, advance should be ~now + 7 days
+		weeklyTime, err := time.Parse(time.RFC3339, advancesCalled["d-weekly"])
+		require.NoError(t, err)
+		assert.InDelta(t, now.AddDate(0, 0, 7).Unix(), weeklyTime.Unix(), 5) // 5 seconds delta
+
+		// For biweekly, advance should be ~now + 14 days
+		biweeklyTime, err := time.Parse(time.RFC3339, advancesCalled["d-biweekly"])
+		require.NoError(t, err)
+		assert.InDelta(t, now.AddDate(0, 0, 14).Unix(), biweeklyTime.Unix(), 5)
+
+		// For monthly, advance should be ~now + 1 month
+		monthlyTime, err := time.Parse(time.RFC3339, advancesCalled["d-monthly"])
+		require.NoError(t, err)
+		assert.InDelta(t, now.AddDate(0, 1, 0).Unix(), monthlyTime.Unix(), 5)
+	})
 }

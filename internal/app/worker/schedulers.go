@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -69,49 +68,6 @@ func StartCARotationWorker(ctx context.Context, router *message.Router, ps PubSu
 	}()
 }
 
-// StartCatSpottedPublisher periodically publishes feline telemetry observation events.
-func StartCatSpottedPublisher(ctx context.Context, router *message.Router, ps PubSub, internalBLL internalbllv1.InternalBLLServiceClient) {
-	go func() {
-		<-router.Running()
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-
-		felineID := os.Getenv("OBSERVATION_FELINE_ID")
-		if felineID == "" && internalBLL != nil {
-			if res, err := internalBLL.GetFelineTarget(ctx, &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
-				felineID = res.FelineID
-			}
-		}
-		if felineID == "" {
-			felineID = "feline-observation-target"
-		}
-
-		event := EventEnvelope[CatSpottedPayload]{
-			EventType:     "observation.cat_spotted.v1",
-			CorrelationID: "correlation-trace-001",
-			Payload: CatSpottedPayload{
-				CameraID:        "CAM-ORANGE-01",
-				FelineID:        felineID,
-				ActivityType:    "zooming",
-				ConfidenceScore: 0.992,
-			},
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				event.EventID = watermill.NewUUID()
-				event.OccurredAt = time.Now().UTC()
-
-				data, _ := json.Marshal(event)
-				msg := message.NewMessage(event.EventID, data)
-				_ = ps.Publish("events.observation.cat_spotted.v1", msg)
-			}
-		}
-	}()
-}
 
 // StartExecutiveReportingWorker periodically verifies and generates monthly executive reports via Internal BLL.
 func StartExecutiveReportingWorker(ctx context.Context, router *message.Router, ps PubSub, internalBLL internalbllv1.InternalBLLServiceClient, logger *slog.Logger) {
