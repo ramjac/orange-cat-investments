@@ -471,6 +471,79 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 	})
 }
 
+func TestListDeposits(t *testing.T) {
+	t.Run("nil core-invest client returns empty list", func(t *testing.T) {
+		s := NewServer(Config{})
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Empty(t, resp.Deposits)
+	})
+
+	t.Run("core-invest error returns Internal status error", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, errors.New("database connection failed")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "failed to list recurring deposits")
+	})
+
+	t.Run("successful core-invest deposit retrieval", func(t *testing.T) {
+		expectedDeposits := []*coreinvestv1.RecurringDeposit{
+			{
+				DepositID:   "dep-1",
+				CustomerID:  "cust-123",
+				PortfolioID: "port-1",
+				AmountUSD:   100.0,
+				Frequency:   "monthly",
+			},
+			{
+				DepositID:   "dep-2",
+				CustomerID:  "cust-123",
+				PortfolioID: "port-1",
+				AmountUSD:   50.0,
+				Frequency:   "weekly",
+			},
+		}
+
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				assert.Equal(t, "cust-123", in.CustomerID)
+				return &coreinvestv1.ListRecurringDepositsResponse{
+					Deposits: expectedDeposits,
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.NoError(t, err)
+		assert.NotNil(t, resp)
+		assert.Equal(t, expectedDeposits, resp.Deposits)
+	})
+}
+
 func TestInitiateACHDeposit_PublisherError(t *testing.T) {
 	pub := newMockRecordingPublisher()
 	pub.publishErr = errors.New("rabbitmq connection down")
