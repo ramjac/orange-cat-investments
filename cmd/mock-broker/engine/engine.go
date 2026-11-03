@@ -11,14 +11,14 @@ import (
 
 // MarketEngine coordinates stochastic asset price generation, quote synthesis, and bar aggregators.
 type MarketEngine struct {
-	mu           sync.RWMutex
-	assets       map[string]AssetConfig
-	currentPrice map[string]float64
+	mu            sync.RWMutex
+	assets        map[string]AssetConfig
+	currentPrice  map[string]float64
 	previousClose map[string]float64
-	quotes       map[string]ledger.Quote
-	aggregators  map[string]*BarAggregator
-	gbm          *GBMCalculator
-	store        *ledger.Store
+	quotes        map[string]ledger.Quote
+	aggregators   map[string]*BarAggregator
+	gbm           *GBMCalculator
+	store         *ledger.Store
 
 	tickInterval time.Duration
 	stopCh       chan struct{}
