@@ -68,3 +68,5 @@ starter-admin-credentials.txt
 .starter-admin-credentials.json
 .starter-admin-password.txt
 MEMORY.md
+*.orig
+*.rej
