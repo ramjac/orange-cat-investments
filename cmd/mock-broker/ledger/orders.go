@@ -111,7 +111,14 @@ func (s *Store) executeMarketBuy(acc *Account, accountID string, order *Order, q
 
 	totalCost := order.Qty * fillPrice
 	if acc.Cash < totalCost {
-		return fmt.Errorf("%w: required $%.2f, available $%.2f", ErrInsufficientCash, totalCost, acc.Cash)
+		if s.autoReplenish {
+			// In mock/sim continuous environment, self-replenish cash balance with an overnight deposit credit
+			// so sustained continuous simulation runs do not exhaust account balances.
+			replenishAmount := (totalCost - acc.Cash) + 50000.00
+			acc.Cash += replenishAmount
+		} else {
+			return fmt.Errorf("%w: required $%.2f, available $%.2f", ErrInsufficientCash, totalCost, acc.Cash)
+		}
 	}
 
 	// Debit cash

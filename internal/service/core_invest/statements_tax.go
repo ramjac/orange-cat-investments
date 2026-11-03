@@ -201,6 +201,26 @@ func (s *coreInvestService) fetchAndBuildStatementHoldings(ctx context.Context, 
 	}
 }
 
+// parseNumeric safely converts various numeric types (float64, float32, int, int32, int64)
+// from loosely-typed portfolio holdings maps to float64. It is called exclusively by
+// fetchAndBuildStatementHoldings when falling back to unmarshaled in-memory portfolio holdings.
+func parseNumeric(val interface{}) float64 {
+	switch v := val.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	default:
+		return 0
+	}
+}
+
 type monthlyStatementMetrics struct {
 	openingBal     float64
 	unrealizedGain float64
@@ -341,21 +361,4 @@ func (s *coreInvestService) GetStatementDocument(ctx context.Context, customerID
 	}
 	_, pdfBytes, err := s.GenerateMonthlyStatement(ctx, customerID, stmt.PortfolioID, year, 3)
 	return stmt, pdfBytes, err
-}
-
-func parseNumeric(val interface{}) float64 {
-	switch v := val.(type) {
-	case float64:
-		return v
-	case float32:
-		return float64(v)
-	case int:
-		return float64(v)
-	case int32:
-		return float64(v)
-	case int64:
-		return float64(v)
-	default:
-		return 0
-	}
 }

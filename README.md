@@ -274,11 +274,16 @@ When running locally on a home server, the services bind to the following ports:
        │ PostgreSQL 16           │ localhost:5432                    │
        │ Valkey (Redis)          │ localhost:6379                    │
        │ RabbitMQ                │ localhost:5672 (AMQP) / 15672 (UI)│
-       │ Unified API Server      │ http://localhost:8080             │
+       │ Workforce Domain API    │ localhost:50051 (gRPC)            │
+       │ Facilities Domain API   │ localhost:50052 (gRPC)            │
+       │ Core Invest Domain API  │ localhost:50053 (gRPC)            │
+       │ Ops Domain API          │ localhost:50054 (gRPC)            │
+       │ Customer BLL API        │ localhost:8085 (gRPC)             │
+       │ Internal BLL API        │ localhost:8086 (gRPC)             │
        │ Employee BFF            │ http://localhost:8081             │
        │ Pebble Gateway Proxy    │ http://localhost:8082             │
        │ Customer BFF            │ http://localhost:8083             │
-       │ Background Worker       │ (Event subscriber daemon)         │
+       │ Background Worker       │ http://localhost:8080/healthz     │
        │ Vue 3 Employee Portal   │ http://localhost:5173             │
        │ Vue 3 Customer Portal   │ http://localhost:5174             │
        └─────────────────────────┴───────────────────────────────────┘
@@ -359,46 +364,76 @@ PGPASSWORD=catnip psql -h localhost -U oci -d oci -f scripts/init.sql
 
 > **Note:** If testing without a live database, all Go services automatically fall back to built-in in-memory mock persistence when `DATABASE_URL` is omitted.
 
-#### Step 4: Launch Backend Services
+#### Step 4: Launch Backend Services (5-Tier Topology)
 
-You can run each service in separate terminal tabs, in `tmux`/`screen`, or as `systemd` user services.
+You can launch the complete 5-tier backend suite with a single command, or run each tier independently in separate terminal tabs or `tmux` panes.
 
-**1. Unified API Server (`:8080`)**
-Hosts all 4 domains (`core-invest`, `facilities`, `ops`, `workforce`):
+##### Option A: Single-Command Local Topology Launcher (Recommended)
+Launch all 10 backend services with proper inter-tier network wiring, environment configuration, and clean shutdown handling:
+
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8080"
-go run ./cmd/workforce-api
+./scripts/run-local-dev.sh
 ```
 
-**2. Background Event Worker (Watermill & CA Rotation)**
-Handles cat observation triggers, trading execution events, firmware OTA pipelines, and intermediate CA renewal:
-```bash
-go run ./cmd/worker
-```
+##### Option B: Manual Multi-Tab Service Launch
+To run each tier and service in individual terminal tabs or `tmux` panes:
 
-**3. Employee Portal Backend-for-Frontend (`:8081`)**
-Provides session management, CSRF validation, and employee management endpoints:
+**Tier 4 — Domain APIs (Pure gRPC over PostgreSQL Schemas):**
 ```bash
 export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8081"
-go run ./cmd/employee-bff
+
+# 1. Workforce Domain API (:50051)
+PORT=50051 go run ./cmd/workforce-api
+
+# 2. Facilities Domain API (:50052)
+PORT=50052 go run ./cmd/facilities-api
+
+# 3. Core Invest Domain API (:50053)
+PORT=50053 go run ./cmd/core-invest-api
+
+# 4. Ops Domain API (:50054)
+PORT=50054 go run ./cmd/ops-api
 ```
 
-**4. Pebble Companion Watch Gateway Proxy (`:8082`)**
-Translates IT tickets into smartwatch AppMessage alert packets and processes physical ACK button presses:
+**Tier 3 — Business Logic Layer (BLL Services):**
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8082"
-go run ./cmd/pebble-proxy
+export WORKFORCE_API_URL="localhost:50051"
+export FACILITIES_API_URL="localhost:50052"
+export CORE_INVEST_API_URL="localhost:50053"
+export OPS_API_URL="localhost:50054"
+export RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
+
+# 5. Customer BLL (:8085)
+PORT=8085 go run ./cmd/customer-bll
+
+# 6. Internal BLL (:8086)
+PORT=8086 go run ./cmd/internal-bll
 ```
 
-**5. Customer Portal Backend-for-Frontend (`:8083`)**
-Provides investor portfolio analytics, trading terminal feeds, recurring deposits, and ESG transparency endpoints:
+**Tier 2 — Backend-for-Frontend (BFF Proxies):**
 ```bash
-export DATABASE_URL="postgres://oci:catnip@localhost:5432/oci?sslmode=disable"
-export PORT="8083"
-go run ./cmd/customer-bff
+export VALKEY_ADDR="localhost:6379"
+export CUSTOMER_BLL_URL="localhost:8085"
+export INTERNAL_BLL_URL="localhost:8086"
+
+# 7. Employee BFF (:8081)
+PORT=8081 go run ./cmd/employee-bff
+
+# 8. Pebble Watch Companion Gateway Proxy (:8082)
+PORT=8082 go run ./cmd/pebble-proxy
+
+# 9. Customer BFF (:8083)
+PORT=8083 go run ./cmd/customer-bff
+```
+
+**Tier 5 — Async Background Worker:**
+```bash
+export CUSTOMER_BLL_URL="localhost:8085"
+export INTERNAL_BLL_URL="localhost:8086"
+export RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
+
+# 10. Background Event Worker (Watermill, OTA, CA Rotation, ACH queue)
+HEALTH_PORT=8080 go run ./cmd/worker
 ```
 
 #### Step 5: Launch the Web Portals (Employee & Customer)
@@ -524,12 +559,12 @@ kubectl port-forward -n oci-core svc/oci-customer-bff-service 8083:8083 &
 kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &
 
 # 2. Run the 12-persona platform simulation driver against the live cluster:
-go run ./simulation/cmd/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
+go run ./simulation/cmd/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083
 
 # 3. Execute concurrent load testing (e.g. 10 parallel simulation runs):
 go build -o /tmp/simulator ./simulation/cmd/simulator
 for i in {1..10}; do
-  /tmp/simulator -mode live -server-url http://localhost:8080 -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
+  /tmp/simulator -mode live -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083 -delay 5 &
 done
 wait
 ```
@@ -568,11 +603,10 @@ The repository includes a comprehensive simulation driver (`simulation/cmd/simul
 
 ```bash
 # 1. Run against Kubernetes oci-dev Staging (smart URL routing):
-go run ./simulation/cmd/simulator -url https://dev.api.oci.local
+go run ./simulation/cmd/simulator -bff-url https://dev.employee-bff.oci.local -cust-bff-url https://dev.customer-bff.oci.local
 
 # 2. Run against local test services:
 go run ./simulation/cmd/simulator \
-  -server-url http://localhost:8080 \
   -bff-url http://localhost:8081 \
   -cust-bff-url http://localhost:8083 \
   -broker-url http://localhost:8089 \
@@ -588,18 +622,18 @@ Once services are running, verify system operation using `curl`:
 
 **1. Health Check:**
 ```bash
-curl -i http://localhost:8080/healthz
+curl -i http://localhost:8081/healthz
 # Response: HTTP/200 {"status":"ok"}
 ```
 
 **2. List Hardware Assets (Keyset Pagination):**
 ```bash
-curl -s http://localhost:8080/facilities/assets | jq .
+curl -s http://localhost:8081/facilities/assets | jq .
 ```
 
 **3. Submit Offline Maintenance Logs (Field Sync):**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
+curl -s -X POST http://localhost:8081/facilities/sync/maintenance-logs \
   -H "Content-Type: application/json" \
   -d '[{
     "asset_id": "018e0000-0000-7000-8000-000000000001",
@@ -610,7 +644,7 @@ curl -s -X POST http://localhost:8080/facilities/sync/maintenance-logs \
 
 **4. Trigger Edge Device Firmware OTA Update:**
 ```bash
-curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
+curl -s -X POST http://localhost:8081/facilities/firmware/ota-jobs \
   -H "Content-Type: application/json" \
   -d '{
     "asset_ids": ["018e0000-0000-7000-8000-000000000001"],
@@ -620,7 +654,7 @@ curl -s -X POST http://localhost:8080/facilities/firmware/ota-jobs \
 
 **5. Toggle Feline Emergency Medical Hold:**
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
+curl -s -X POST http://localhost:8081/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold \
   -H "Content-Type: application/json" \
   -d '{"emergency_medical_hold": true}' | jq .
 ```
@@ -680,6 +714,7 @@ The remaining items are prioritized in the execution order that maximizes engine
 3. **Phase 3 — Full-Stack Infrastructure, Database & Application Observability (`7.5`–`7.7`):** Instrument self-hosted Kubernetes blind spots (`7.5`), stateful data stores (`7.6`), and OpenTelemetry distributed tracing/metrics (`7.7`) across all completed domain services.
 4. **Phase 4 — Chaos Engineering & Zero-Trust Hardening (`7.8`–`7.9`):** Execute fault injection and chaos resilience verification against the fully instrumented alerting stack (`7.8`), followed by dynamic secret management and workload identity mesh hardening (`7.9`).
 5. **Phase 5 — Developer Experience & Technical Debt Cleanup (`7.11`–`7.12`):** Finish removing the deprecated in-process mock simulator artifacts still lingering in simulator defaults and documentation (`7.11`), then realign the local quickstart with the production 5-tier topology so local development is no longer a special, non-conforming means of running the application (`7.12`).
+6. **Phase 6 — Load Testing & Simulation Run Hardening (`7.13`):** Provision simulation fixtures, credentials, and seed data so all persona workflows execute cleanly under sustained high-concurrency load, and restore in-cluster resource telemetry for load test verification.
 
 ---
 
@@ -777,6 +812,15 @@ Design and implement mock hardware assets that generate data, such as interprete
     * Introduce realistic variance and probabilistic behavior into the mock generators to ensure unpredictable, lifelike event distributions for the simulation engine.
 
 ### 7.5 Common Self-Hosted K8s Monitoring Blind Spots (Infrastructure Catch-All)
+
+> [!NOTE]
+> **Status: Completed**
+> Self-hosted Kubernetes monitoring blind spots and automated infrastructure catch-all alerts are fully implemented and documented:
+> 1. **Persistent Volume (PVC) Disk Saturation:** Configured Prometheus scrape jobs for Kubelet metrics (`kubelet_volume_stats_available_bytes`, `kubelet_volume_stats_capacity_bytes`) in [`k8s/monitoring/prometheus.yaml`](k8s/monitoring/prometheus.yaml), backed by `PVCCapacityWarning` (< 15% free space) and `PVCCapacityPrediction` (linear exhaustion within 24h) alerts.
+> 2. **Kubernetes Object State & OOMKills:** Deployed `kube-state-metrics` in [`k8s/monitoring/kube-state-metrics.yaml`](k8s/monitoring/kube-state-metrics.yaml) scraped by Prometheus, alerting on `PodCrashLoopBackOff` (> 5m), `PodImagePullBackOff` (> 5m), `PodPending` (> 10m), and container `OOMKilled` evictions.
+> 3. **Automated Backup Verification:** Configured `BackupFailedOrStale` alert rule in Prometheus triggering if `backup_last_successful_timestamp_seconds` is older than 26 hours.
+> 4. **Operational Runbooks & External Heartbeats:** Documented Kubernetes API event shipping to Loki (`loki.source.kubernetes_events`), Prometheus Pushgateway backup timestamp emissions, and Alertmanager `Watchdog` dead man's switch integration to external monitoring services (Healthchecks.io/Better Stack) in [`docs/runbooks/k8s-monitoring-blind-spots.md`](docs/runbooks/k8s-monitoring-blind-spots.md).
+
 Address critical Kubernetes infrastructure failure modes commonly overlooked when transitioning from managed cloud platforms (EKS, GKE, Cloud SQL) to bare-metal / self-hosted environments. While application telemetry surfaces service-level issues, self-hosted clusters require explicit instrumentation for the silent infrastructure failures that managed cloud providers automatically abstract:
 
 * **Why Fifth:** Protects the underlying bare-metal Kubernetes host and storage volumes first—serving as the foundation of the observability phase before database exporters (`7.6`), application tracing (`7.7`), and chaos engineering (`7.8`).
@@ -904,6 +948,13 @@ Eliminate static and hardcoded historical performance points in `customer-bff` a
 
 ### 7.11 Complete Removal of the Deprecated In-Process Mock Simulator (Technical Debt Cleanup)
 
+> [!NOTE]
+> **Status: Completed**
+> The deprecated in-process mock simulator artifacts and retired unified-server routing models have been completely eliminated:
+> 1. **Simulator Configuration & Flags (`simulation/config.go`, `simulation/cmd/simulator/main.go`):** The retired `ServerURL` property, legacy `:8080` port-substitution heuristics, and deprecated `-url` / `-server-url` CLI flags have been removed. The simulator exclusively targets authentic tiered services via dedicated flags (`-bff-url` `:8081`, `-cust-bff-url` `:8083`, `-broker-url` `:8089`, `-bank-url` `:8088`).
+> 2. **Client Routing Alignment (`simulation/client.go`):** All persona actions route exclusively through authentic HTTP boundaries (Employee BFF, Customer BFF, or external mock financial APIs), enforcing layer isolation and cookie/CSRF authentication.
+> 3. **Documentation Cleansing (`simulation/README.md`, `README.md`):** Usage examples, flag references, and verification curl examples target explicit BFF endpoints instead of the non-existent `:8080` server. All simulation tests (`go test -race ./simulation/...`) run green.
+
 The in-process mock simulator mode (`-mode mock`) was previously removed (commit `a4608e8`) because it embedded the entire domain stack (`internal/handler`, `internal/service`, `internal/repository`, and the mock bank/broker engines) inside the simulation binary behind `httptest.Server` instances, which produced false confidence and blurred the line between unit tests and authentic end-to-end verification. That removal was not clean or complete: simulator defaults, flags, and the README quickstart still assume a single "Unified API Server" at `http://localhost:8080` that no longer exists in `cmd/` (all four Domain APIs are now pure gRPC services on `:50051`–`:50054`, and REST traffic only reaches the BFF tiers).
 
 * **Leftover Artifacts:**
@@ -919,6 +970,13 @@ The in-process mock simulator mode (`-mode mock`) was previously removed (commit
 
 ### 7.12 Realign Local Development & Quickstart With the Production 5-Tier Architecture
 
+> [!NOTE]
+> **Status: Completed**
+> Local development quickstart and documentation have been aligned directly with the production 5-tier architecture (`Frontends -> BFF -> BLL -> Domain APIs -> Workers`).
+> 1. **Local Topology Launcher (`scripts/run-local-dev.sh`):** Provides a single-command launcher running all 10 services in the background (`workforce-api` :50051, `facilities-api` :50052, `core-invest-api` :50053, `ops-api` :50054, `customer-bll` :8085, `internal-bll` :8086, `employee-bff` :8081, `customer-bff` :8083, `pebble-proxy` :8082, and `worker` :8080) with signal trapping (`SIGINT`, `SIGTERM`, `EXIT`) and graceful child shutdown.
+> 2. **Port Topology & Quickstart Documentation (README §6.2, §6.3, §6.7):** Updated all standalone setup instructions to document the explicit ports and inter-tier environment wiring, eliminating any references to legacy unified HTTP servers or inaccurate ports.
+> 3. **Live Persona Verification:** Verified end-to-end persona simulation workflows against the 5-tier stack with zero architectural drift from the Kubernetes environment.
+
 The standalone quickstart (README §6.3) documents a special, separate means of running the platform — a single unified HTTP entry point fronting all four domains — which does not match the mandated tiered topology (Frontends → BFF → BLL → gRPC Domain APIs → Workers). Local development must be a scaled-down replica of the production `oci-core` deployment so that local verification carries over to the cluster and no special run mode with different boundaries is maintained.
 
 * **Why:** Maintaining a distinct local runtime topology (the unified server) means defects that only surface at the real BFF/BLL/gRPC boundaries are never caught locally, and it directly contradicts the Domain API isolation and BFF isolation invariants in `AGENTS.md` §2 (four separate gRPC Domain APIs, each owning its own PostgreSQL schema, with BFFs strictly prohibited from bypassing the BLL).
@@ -928,4 +986,22 @@ The standalone quickstart (README §6.3) documents a special, separate means of 
   * Provide a single-command local topology launcher (e.g. `scripts/run-local-dev.sh` or a Docker Compose profile) that starts the complete local stack mirroring the Kubernetes deployment, so "local development" and "production" are the same architecture at different scales.
   * **Verification:** a clean local bootstrap followed by `go run ./simulation/cmd/simulator -bff-url http://localhost:8081 -cust-bff-url http://localhost:8083` passes all persona workflows against the same per-tier services (and ports) used in the cluster, with no unified-server fallback.
 
+### 7.13 Load Testing & Simulation Run Hardening
+
+> [!NOTE]
+> **Status: Completed**
+> The platform simulator, development fixtures, and cluster load-testing workflow have been hardened: Domain API memory limits are promoted at 512Mi in version control, developer personas support persistent session/token state files and flag overrides without hardcoding credentials, mid-iteration 401 re-authentication resilience prevents cascaded customer session drops, mock broker cash balances auto-replenish to support continuous simulation runs, Barneby feline care schedule seed data is complete, and in-cluster resource monitoring (MicroK8s metrics-server, cAdvisor PromQL, OOMKill audits, pod restart checks) is documented in [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md).
+
+Harden the platform simulator and the cluster load-testing workflow so that sustained high-concurrency runs (e.g. a 10-minute continuous 13-persona run executed per the external-execution rules in [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md)) produce clean, reproducible signal: infrastructure failures (OOMKills, 5xx, dropped connections) are separated from deterministic fixture/config failures, and every persona workflow executes to completion against the staging cluster:
+
+* **Why Thirteenth:** A 10-minute continuous simulator load test (77 persona-day iterations, 5,571 actions) confirmed the raised Domain API memory limits (`256Mi` $\rightarrow$ `512Mi`) eliminated OOM pressure (zero OOMKilled events, zero pod restarts, zero 5xx responses, `core-invest-api` peaking at 95Mi). However, 21.5% of actions still failed for deterministic fixture and configuration reasons that mask real load signal and make run-over-run comparisons unreliable.
+* **The Problem:**
+  The continuous load run surfaced a consistent failure profile unrelated to cluster capacity: 456 Forgejo developer-persona actions failing `401 token is required` (no valid Forgejo API token provisioned for the Elise / Marcus developer personas), 444 customer actions failing `invalid or expired customer session` (customer BFF session invalidation cascading under rapid re-login cycles), 151+ mock-broker business rejections from exhausted account balances (`insufficient cash balance`) as repeat buy orders drain the `external-sim` accounts each iteration, 77 deterministic `404` failures from a missing care-schedule seed row, and 73 expected `429` rate-limiter responses. Additionally, the test cluster has no working `metrics-server` (the runbook's `kubectl top` monitoring guidance is unusable), forcing ad-hoc kubelet stats sampling during load runs.
+* **Architecture & Objectives:**
+  * **Land the Domain API Memory Limit Increase:** Commit and promote the verified `256Mi` $\rightarrow$ `512Mi` resource limit changes for the four Domain APIs (`k8s/oci-core/domain-apis.yaml`, `k8s/oci-dev/domain-apis.yaml`) from the working tree into version control so the fix is reproducible across fresh cluster provisions, and re-verify with a sustained load run after promotion.
+  * **Forgejo Developer Persona Credentials:** Provision a valid Forgejo API token for the developer personas (Elise, Marcus) in the simulation fixtures and wire it through the simulation client's Forgejo REST calls (`/api/v1/repos/...` issue, branch, contents, pull-request, review, and merge endpoints) so the full developer workflow (Kanban card $\rightarrow$ feature branch $\rightarrow$ commit $\rightarrow$ PR $\rightarrow$ review $\rightarrow$ merge) executes instead of failing authentication.
+  * **Customer Session Resilience Under Rapid Re-Login:** Investigate and resolve `__Host-customer-session` invalidation observed in Valkey under continuous zero-delay execution (session TTL / concurrent login revocation behavior in `customer-bff`), and harden the simulation driver to transparently re-authenticate a persona on a mid-iteration `401` instead of cascading the failure across the remainder of the persona's action list.
+  * **Sustainable External-Sim Balances in Continuous Mode:** Make mock broker / mock bank accounts (`external-sim`) balance-aware or self-replenishing (e.g. periodic deposit settlement between simulation iterations, or order sizing clamped to available balances) so indefinite `-mode continuous` runs do not degrade into `insufficient cash balance` business rejections.
+  * **Simulation Seed Data Completeness:** Add the missing care-schedule row for the Barneby feline executive to the development seed scripts so `barneby_care_schedule_review` resolves, and audit all persona actions for other deterministic `404` seed gaps.
+  * **In-Cluster Load Test Telemetry:** Restore the MicroK8s `metrics-server` addon (or add a kubelet cAdvisor scrape to the existing `monitoring` Prometheus stack) so `kubectl top` / Prometheus per-container memory queries work during load runs, and extend the post-test analysis section of [`docs/runbooks/cluster-load-testing.md`](docs/runbooks/cluster-load-testing.md) with mandatory resource verification: per-container memory peaks vs. limits, OOMKill event audit, and pod restart counts for each run.
 

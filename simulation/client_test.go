@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,8 +100,8 @@ func TestClientDoWithBody(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	c := &Client{
-		serverURL:  server.URL,
+	c := &Client{bffURL: server.URL,
+
 		httpClient: server.Client(),
 	}
 
@@ -111,7 +112,7 @@ func TestClientDoWithBody(t *testing.T) {
 		ShareWith: []string{"emp-human-alice", "emp-human-rick", "emp-human-bob"},
 	}
 
-	resp, respBytes, err := c.Do(context.Background(), false, "POST", "/test", payload)
+	resp, respBytes, err := c.Do(context.Background(), "POST", "/test", payload)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.JSONEq(t, `{"status":"ok"}`, string(respBytes))
@@ -127,7 +128,7 @@ func TestDoForgejoAsTokenHandling(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	c := &Client{
+	c := &Client{bffURL: server.URL,
 		forgejoURL: server.URL,
 		httpClient: server.Client(),
 	}
@@ -183,4 +184,29 @@ func TestDoForgejoAsTokenHandling(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "token general-token", capturedAuth)
 	})
+}
+
+func TestClient_TokensFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "tokens-*.json")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	client, err := NewClient(&Config{})
+	require.NoError(t, err)
+
+	client.SetPersonaToken("emp-human-elise", "elise-tok-123")
+	client.SetPersonaToken("emp-human-marcus", "marcus-tok-456")
+	client.SetCSRFToken("cust-active-chloe", "csrf-chloe-789")
+
+	err = client.SaveTokensFile(tmpFile.Name())
+	require.NoError(t, err)
+
+	newClient, err := NewClient(&Config{
+		TokensFile: tmpFile.Name(),
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "elise-tok-123", newClient.GetPersonaToken("emp-human-elise"))
+	assert.Equal(t, "marcus-tok-456", newClient.GetPersonaToken("emp-human-marcus"))
+	assert.Equal(t, "csrf-chloe-789", newClient.GetCSRFToken("cust-active-chloe"))
 }

@@ -25,9 +25,13 @@ type mockRedisServer struct {
 	closed   bool
 }
 
-func startMockRedisServer(t *testing.T) *mockRedisServer {
+func startMockRedisServer(t testing.TB) *mockRedisServer {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	if t != nil {
+		require.NoError(t, err)
+	} else if err != nil {
+		panic(err)
+	}
 
 	s := &mockRedisServer{
 		listener: ln,
@@ -112,6 +116,16 @@ func (s *mockRedisServer) handleConn(conn net.Conn) {
 			case "GET":
 				if len(args) >= 2 {
 					if val, ok := s.strings[args[1]]; ok {
+						conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
+					} else {
+						conn.Write([]byte("$-1\r\n"))
+					}
+				}
+			case "MGET":
+				keys := args[1:]
+				conn.Write([]byte(fmt.Sprintf("*%d\r\n", len(keys))))
+				for _, k := range keys {
+					if val, ok := s.strings[k]; ok {
 						conn.Write([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(val), val)))
 					} else {
 						conn.Write([]byte("$-1\r\n"))
