@@ -150,9 +150,6 @@ jobs:
           kubectl apply -f k8s/external-sim/mock-hardware.yaml
           kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
           kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
-          kubectl apply -f k8s/external-sim/mock-hardware.yaml
-          kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
-          kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
           echo "Waiting for oci-dev workloads to reach ready state..."
           for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff-dev oci-employee-bff-dev oci-customer-portal-dev oci-employee-portal-dev oci-pebble-proxy-dev oci-worker-dev oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-dev --timeout=120s
@@ -205,7 +202,7 @@ jobs:
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Promoting verified release sha-${COMMIT_SHA} to production :prod-stable and :latest"
-          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware; do
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:prod-stable
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:latest
             docker push localhost:32000/${app}:prod-stable

@@ -12,11 +12,20 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
-	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
-	"github.com/orange-cat-investments/oci/pkg/envelope"
+)
+
+// Simulation fixture identifiers for the emulated edge devices. Hardcoded fixture
+// data is permitted inside isolated external-sim mock services (see AGENTS.md).
+const (
+	fixtureCameraID = "CAM-ORANGE-01"
+	// Seeded demo location zone ("Alpha Sunbeam Lounge", see scripts/seed-dev.sql).
+	fixtureZoneID   = "018f3a9a-1111-7000-8000-000000000001"
+	fixtureFelineID = "feline-observation-target"
 )
 
 func main() {
@@ -25,10 +34,9 @@ func main() {
 
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
-		amqpURL = "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+		logger.Warn("RABBITMQ_URL not configured; events will be dropped (in-memory publisher fallback)")
 	}
-
-	pub, _ := envelope.NewPubSubWithFallback(amqpURL, logger)
+	pub := envelope.NewPublisherWithFallback(amqpURL, logger)
 
 	internalBLLAddr := os.Getenv("INTERNAL_BLL_ADDR")
 	if internalBLLAddr == "" {
@@ -63,27 +71,17 @@ func main() {
 	logger.Info("Shutting down mock hardware generator...")
 }
 
-func getFelineTarget(bllClient internalbllv1.InternalBLLServiceClient) string {
-	felineID := os.Getenv("OBSERVATION_FELINE_ID")
-	if felineID == "" && bllClient != nil {
-		if res, err := bllClient.GetFelineTarget(context.Background(), &internalbllv1.GetFelineTargetRequest{}); err == nil && res.FelineID != "" {
-			felineID = res.FelineID
-		}
+// fetchFelineTarget resolves the observation target from Internal BLL, falling back
+// to the simulation fixture when the platform is unreachable.
+func fetchFelineTarget(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) string {
+	res, err := bllClient.GetFelineTarget(ctx, &internalbllv1.GetFelineTargetRequest{})
+	if err == nil && res != nil && res.FelineID != "" {
+		return res.FelineID
 	}
-	if felineID == "" {
-		felineID = "feline-observation-target"
+	if err != nil {
+		logger.Warn("failed to resolve feline target from Internal BLL, using simulation fixture", "error", err)
 	}
-	return felineID
-}
-
-func getZoneTarget() string {
-	// In a real app we'd fetch this dynamically.
-	return "zone-alpha"
-}
-
-func getCameraAsset() string {
-	// Ideally fetched dynamically via ListAssets
-	return "CAM-ORANGE-01"
+	return fixtureFelineID
 }
 
 func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) {
@@ -91,13 +89,16 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 	defer ticker.Stop()
 	activities := []string{"zooming", "sleeping", "eating", "playing", "grooming"}
 
+	felineID := os.Getenv("OBSERVATION_FELINE_ID")
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			felineID := getFelineTarget(bllClient)
-			cameraID := getCameraAsset()
+			if felineID == "" {
+				felineID = fetchFelineTarget(ctx, bllClient, logger)
+			}
 
 			activity := activities[rand.Intn(len(activities))]
 			confidence := 0.8 + rand.Float64()*0.19 // between 0.80 and 0.99
@@ -108,7 +109,7 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 				OccurredAt:    time.Now().UTC(),
 				CorrelationID: "correlation-trace-" + uuid.Must(uuid.NewV7()).String()[:8],
 				Payload: envelope.CatSpottedPayload{
-					CameraID:        cameraID,
+					CameraID:        fixtureCameraID,
 					FelineID:        felineID,
 					ActivityType:    activity,
 					ConfidenceScore: confidence,
@@ -133,22 +134,21 @@ func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.Inte
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if bllClient == nil {
-				continue
+			zoneID := os.Getenv("OBSERVATION_ZONE_ID")
+			if zoneID == "" {
+				zoneID = fixtureZoneID
 			}
-
-			zoneID := getZoneTarget()
-			temp := 22.0 + rand.Float64()*3.0 // 22-25 C
+			temp := 22.0 + rand.Float64()*3.0      // 22-25 C
 			humidity := 40.0 + rand.Float64()*20.0 // 40-60%
 			lux := 200.0 + rand.Float64()*100.0
 			noise := 30.0 + rand.Float64()*20.0
 
 			_, err := bllClient.IngestEnvironmentalTelemetry(ctx, &facilitiesv1.IngestTelemetryRequest{
-				ZoneID: zoneID,
-				TemperatureC: temp,
+				ZoneID:              zoneID,
+				TemperatureC:        temp,
 				RelativeHumidityPct: humidity,
-				LightIntensityLux: lux,
-				NoiseLevelDB: noise,
+				LightIntensityLux:   lux,
+				NoiseLevelDB:        noise,
 			})
 			if err != nil {
 				logger.Error("Failed to ingest environmental telemetry via BLL", "error", err)
