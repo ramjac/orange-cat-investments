@@ -542,6 +542,35 @@ func TestCreateAPIKey_NilResponseFallback(t *testing.T) {
 	assert.Equal(t, "fallback_secret_456", res.RawSecret)
 }
 
+func TestCreateAPIKey_NilAPIKeyFallback(t *testing.T) {
+	mockClient := &mockCoreInvestClient{
+		createAPIKeyFn: func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error) {
+			return &coreinvestv1.CreateAPIKeyResponse{
+				APIKey: nil,
+			}, nil
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockClient)
+
+	req := &customerbllv1.CreateAPIKeyRequest{
+		CustomerID:  "cust-103-nil-key",
+		Name:        "test-key-nil-apikey",
+		Permissions: []string{"read"},
+		KeyPrefix:   "oci_sim_",
+		APIKey:      "fallback_secret_789",
+	}
+
+	res, err := server.CreateAPIKey(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Key)
+	assert.Equal(t, "cust-103-nil-key", res.Key.CustomerID)
+	assert.Equal(t, "test-key-nil-apikey", res.Key.Label)
+	assert.Equal(t, "fallback_secret_789", res.RawSecret)
+}
+
 func TestCreateAPIKey_NilClientFallback(t *testing.T) {
 	server := NewServer(Config{}) // ciClient is nil
 
