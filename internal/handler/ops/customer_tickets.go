@@ -40,7 +40,7 @@ func extractCustomerID(r *http.Request) string {
 func (h *Handler) ListCustomerTickets(w http.ResponseWriter, r *http.Request) {
 	customerID := extractCustomerID(r)
 	if customerID == "" {
-		http.Error(w, "customer_id is required via X-Customer-ID header or query parameter", http.StatusUnauthorized)
+		http.Error(w, "customer identity required", http.StatusUnauthorized)
 		return
 	}
 
