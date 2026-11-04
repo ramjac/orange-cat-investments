@@ -418,6 +418,21 @@ func TestListWebhooks(t *testing.T) {
 		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
+
+	t.Run("Nil Request", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
+				return &coreinvestv1.ListWebhooksResponse{Webhooks: []*coreinvestv1.CustomerWebhook{}}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.ListWebhooks(ctx, nil)
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.Empty(t, res.Subscriptions)
+	})
 }
 
 func TestDeleteWebhook(t *testing.T) {

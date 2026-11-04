@@ -246,6 +246,9 @@ func (s *Server) RevokeAPIKey(ctx context.Context, in *customerbllv1.RevokeAPIKe
 }
 
 func (s *Server) ListWebhooks(ctx context.Context, in *customerbllv1.ListWebhooksRequest) (*customerbllv1.ListWebhooksResponse, error) {
+	if in == nil {
+		in = &customerbllv1.ListWebhooksRequest{}
+	}
 	if s.ciClient == nil {
 		return &customerbllv1.ListWebhooksResponse{Subscriptions: []*coreinvestv1.CustomerWebhook{}}, nil
 	}
