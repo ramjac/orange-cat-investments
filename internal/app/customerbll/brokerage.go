@@ -287,6 +287,9 @@ func (s *Server) CreateWebhook(ctx context.Context, in *customerbllv1.CreateWebh
 }
 
 func (s *Server) DeleteWebhook(ctx context.Context, in *customerbllv1.DeleteWebhookRequest) (*customerbllv1.DeleteWebhookResponse, error) {
+	if in == nil {
+		in = &customerbllv1.DeleteWebhookRequest{}
+	}
 	if s.ciClient != nil {
 		res, err := s.ciClient.DeleteWebhook(ctx, &coreinvestv1.DeleteWebhookRequest{
 			CustomerID: in.CustomerID,
