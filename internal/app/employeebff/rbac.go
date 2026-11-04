@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/orange-cat-investments/oci/pkg/session"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 )
 
@@ -20,19 +21,12 @@ func NewSessionStore() SessionStore {
 	return sessionvalkey.NewMemoryEmployeeSessionStore()
 }
 
-type contextKey string
-
-const employeeContextKey contextKey = "employee_session"
-
 func EmployeeFromContext(ctx context.Context) *EmployeeSession {
-	if s, ok := ctx.Value(employeeContextKey).(*EmployeeSession); ok {
-		return s
-	}
-	return nil
+	return session.EmployeeFromContext(ctx)
 }
 
-func WithEmployeeSession(ctx context.Context, session *EmployeeSession) context.Context {
-	return context.WithValue(ctx, employeeContextKey, session)
+func WithEmployeeSession(ctx context.Context, sess *EmployeeSession) context.Context {
+	return session.WithEmployeeSession(ctx, sess)
 }
 
 func GenerateRandomToken(n int) (string, error) {
@@ -110,7 +104,7 @@ func SessionAuthMiddleware(store SessionStore) func(http.Handler) http.Handler {
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), employeeContextKey, sess)
+			ctx := session.WithEmployeeSession(r.Context(), sess)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
