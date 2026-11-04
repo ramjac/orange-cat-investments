@@ -402,6 +402,22 @@ func TestListWebhooks(t *testing.T) {
 		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
+
+	t.Run("Nil Response Fallback", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
+				assert.Equal(t, "cust-nil-res", in.CustomerID)
+				return nil, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-nil-res"})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.Empty(t, res.Subscriptions)
+	})
 }
 
 func TestDeleteWebhook(t *testing.T) {
@@ -442,6 +458,51 @@ func TestDeleteWebhook(t *testing.T) {
 		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-invalid"})
 		require.Error(t, err)
 		assert.Nil(t, res)
+	})
+
+	t.Run("Nil Response Fallback", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return nil, nil // Nil response, no error
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
+	t.Run("Empty Status Fallback", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return &coreinvestv1.DeleteWebhookResponse{Status: ""}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
+	t.Run("Custom Status", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return &coreinvestv1.DeleteWebhookResponse{Status: "pending"}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "pending", res.Status)
 	})
 }
 
