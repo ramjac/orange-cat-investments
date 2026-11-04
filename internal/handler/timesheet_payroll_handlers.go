@@ -7,10 +7,31 @@ import (
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
+func isElevatedRole(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	for _, r := range []string{"admin", "hr", "ops", "engineering"} {
+		if role == r {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	empID := r.URL.Query().Get("employee_id")
+	if !isElevatedRole(sess.Role) {
+		empID = sess.EmployeeID
+	}
+
 	status := r.URL.Query().Get("status")
 	fromDate := r.URL.Query().Get("from_date")
 	toDate := r.URL.Query().Get("to_date")
@@ -43,10 +64,20 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 }
 
 func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	var ts frappe.Timesheet
 	if err := json.NewDecoder(r.Body).Decode(&ts); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
+	}
+
+	if !isElevatedRole(sess.Role) {
+		ts.EmployeeID = sess.EmployeeID
 	}
 
 	if h.bllClient == nil {
@@ -63,6 +94,12 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "timesheet id parameter is required")
@@ -79,10 +116,27 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
+	if !isElevatedRole(sess.Role) && resp.Timesheet.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's timesheet")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, resp.Timesheet)
 }
 
 func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
+	if !isElevatedRole(sess.Role) {
+		writeError(w, http.StatusForbidden, "forbidden: elevated role required to update timesheet status")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "timesheet id parameter is required")
@@ -151,7 +205,16 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 }
 
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	employeeID := r.URL.Query().Get("employee_id")
+	if !isElevatedRole(sess.Role) {
+		employeeID = sess.EmployeeID
+	}
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
@@ -174,6 +237,12 @@ func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "salary slip id parameter is required")
@@ -188,6 +257,11 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 	resp, err := h.bllClient.GetSalarySlip(r.Context(), &internalbllv1.GetSalarySlipRequest{SlipID: id})
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if !isElevatedRole(sess.Role) && resp.SalarySlip.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's salary slip")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.SalarySlip)
