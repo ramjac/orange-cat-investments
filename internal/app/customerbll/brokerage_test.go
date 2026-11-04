@@ -460,6 +460,28 @@ func TestDeleteWebhook(t *testing.T) {
 		assert.Nil(t, res)
 	})
 
+	t.Run("Nil Request", func(t *testing.T) {
+		server := NewServer(Config{})
+		res, err := server.DeleteWebhook(ctx, nil)
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
+	t.Run("Nil Request with Client", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return &coreinvestv1.DeleteWebhookResponse{Status: "deleted"}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+		res, err := server.DeleteWebhook(ctx, nil)
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
 	t.Run("Nil Response Fallback", func(t *testing.T) {
 		mockCI := &mockCoreInvestForWebhook{
 			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
