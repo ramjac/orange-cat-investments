@@ -218,6 +218,33 @@ func TestNewServer_gRPC_Targets(t *testing.T) {
 	srv.Close()
 }
 
+func TestNewServer_ClientTLS(t *testing.T) {
+	t.Setenv("BROKER_API_BASE_URL", "")
+	t.Setenv("ALPACA_BASE_URL", "")
+	t.Setenv("BANK_API_BASE_URL", "")
+	t.Setenv("PLAID_BASE_URL", "")
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	grpcSrv := grpc.NewServer()
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	cfg := Config{
+		WorkforceTarget: lis.Addr().String(),
+		ClientTLS:       nil,
+	}
+
+	srv := NewServer(cfg)
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	assert.Len(t, srv.conns, 1)
+	assert.NotNil(t, srv.wfClient)
+}
+
 func TestNewServer_GrpcTargets_DialError(t *testing.T) {
 	// target parsing failure or dial failure
 	// We can use an invalid address like "invalid://\x00" which makes CleanTarget or grpcutil.Dial return an error
