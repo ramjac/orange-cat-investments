@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/orange-cat-investments/oci/pkg/session"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 )
 
@@ -111,6 +112,7 @@ func SessionAuthMiddleware(store SessionStore) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), employeeContextKey, sess)
+			ctx = session.WithEmployeeSession(ctx, sess)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

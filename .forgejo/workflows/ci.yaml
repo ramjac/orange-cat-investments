@@ -174,14 +174,8 @@ jobs:
       - name: Run Full Persona Live Simulation Suite against oci-dev
         run: |
           STAGING_URL="${STAGING_URL:-http://dev.api.oci.local}"
-          export OCI_INGRESS_IP="${OCI_INGRESS_IP:-192.168.1.246}"
-          echo "Executing automated live simulation against oci-dev endpoints (${STAGING_URL}, ingress ${OCI_INGRESS_IP})..."
-          go run ./simulation/cmd/simulator -mode live \
-            -bff-url "${STAGING_URL}" \
-            -cust-bff-url "${STAGING_URL}" \
-            -forgejo-url "http://forgejo.oci.local" \
-            -broker-url "http://broker-api.sim.oci.local" \
-            -bank-url "http://bank-api.sim.oci.local" || \
+          echo "Executing automated live simulation against oci-dev endpoints (${STAGING_URL})..."
+          go run ./simulation/cmd/simulator -mode live -url "${STAGING_URL}" || \
           (echo "Simulation regression detected in oci-dev! Halting production promotion gate." && exit 1)
 
   promote-oci-core:

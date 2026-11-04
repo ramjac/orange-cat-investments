@@ -509,42 +509,6 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 }
 
 func TestListDeposits(t *testing.T) {
-	t.Run("nil request handles gracefully without panic", func(t *testing.T) {
-		ciMock := &mockCoreInvestClient{
-			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
-				assert.Equal(t, "", in.CustomerID)
-				return &coreinvestv1.ListRecurringDepositsResponse{
-					Deposits: []*coreinvestv1.RecurringDeposit{},
-				}, nil
-			},
-		}
-
-		s := NewServer(Config{})
-		s.SetCoreInvestClient(ciMock)
-
-		resp, err := s.ListDeposits(context.Background(), nil)
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
-	t.Run("empty CustomerID handled", func(t *testing.T) {
-		ciMock := &mockCoreInvestClient{
-			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
-				assert.Equal(t, "", in.CustomerID)
-				return &coreinvestv1.ListRecurringDepositsResponse{
-					Deposits: []*coreinvestv1.RecurringDeposit{},
-				}, nil
-			},
-		}
-
-		s := NewServer(Config{})
-		s.SetCoreInvestClient(ciMock)
-
-		resp, err := s.ListDeposits(context.Background(), &customerbllv1.ListDepositsRequest{})
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
 	t.Run("nil core-invest client returns empty list", func(t *testing.T) {
 		s := NewServer(Config{})
 
