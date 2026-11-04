@@ -9,6 +9,7 @@ import (
 
 	opshandler "github.com/orange-cat-investments/oci/internal/handler/ops"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 func TestRegisterProtectedOpsRoutes(t *testing.T) {
@@ -32,6 +33,15 @@ func TestRegisterProtectedOpsRoutes(t *testing.T) {
 	addAuthAndCSRF := func(req *http.Request, sess *EmployeeSession, withCSRF bool) {
 		if sess != nil {
 			req.AddCookie(&http.Cookie{Name: "employee_session", Value: sess.SessionID})
+			ctx := session.WithEmployeeSession(req.Context(), &session.EmployeeSession{
+				SessionID:  sess.SessionID,
+				EmployeeID: sess.EmployeeID,
+				Email:      sess.Email,
+				Name:       sess.Name,
+				Role:       sess.Role,
+				Department: sess.Department,
+			})
+			*req = *req.WithContext(ctx)
 		}
 		if withCSRF {
 			req.AddCookie(&http.Cookie{Name: "employee_csrf_token", Value: csrfToken})
