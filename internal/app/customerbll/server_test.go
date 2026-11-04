@@ -323,3 +323,63 @@ func TestNewServer_BankClient_EnvVars_Overrides(t *testing.T) {
 
 	assert.NotNil(t, srv.bankClient)
 }
+
+func TestNewServer_LoggerOutput(t *testing.T) {
+	t.Setenv("BROKER_API_BASE_URL", "")
+	t.Setenv("ALPACA_BASE_URL", "")
+	t.Setenv("BANK_API_BASE_URL", "")
+	t.Setenv("PLAID_BASE_URL", "")
+
+	lis1, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis1.Close()
+
+	lis2, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis2.Close()
+
+	lis3, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis3.Close()
+
+	grpcSrv1 := grpc.NewServer()
+	go func() { _ = grpcSrv1.Serve(lis1) }()
+	defer grpcSrv1.Stop()
+
+	grpcSrv2 := grpc.NewServer()
+	go func() { _ = grpcSrv2.Serve(lis2) }()
+	defer grpcSrv2.Stop()
+
+	grpcSrv3 := grpc.NewServer()
+	go func() { _ = grpcSrv3.Serve(lis3) }()
+	defer grpcSrv3.Stop()
+
+	buf := new(bytes.Buffer)
+	logger := slog.New(slog.NewTextHandler(buf, nil))
+
+	cfg := Config{
+		Logger:           logger,
+		WorkforceTarget:  lis1.Addr().String(),
+		CoreInvestTarget: lis2.Addr().String(),
+		OpsTarget:        lis3.Addr().String(),
+	}
+
+	t.Setenv("BROKER_API_BASE_URL", "http://mock-broker:8080")
+	t.Setenv("BANK_API_BASE_URL", "http://mock-bank:8081")
+
+	srv := NewServer(cfg)
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	logOutput := buf.String()
+	assert.Contains(t, logOutput, "Customer BLL connected to workforce domain API via gRPC")
+	assert.Contains(t, logOutput, lis1.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to core-invest domain API via gRPC")
+	assert.Contains(t, logOutput, lis2.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to ops domain API via gRPC")
+	assert.Contains(t, logOutput, lis3.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to broker")
+	assert.Contains(t, logOutput, "http://mock-broker:8080")
+	assert.Contains(t, logOutput, "Customer BLL connected to bank")
+	assert.Contains(t, logOutput, "http://mock-bank:8081")
+}
