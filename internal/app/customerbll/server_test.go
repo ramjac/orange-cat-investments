@@ -28,9 +28,9 @@ func (m *mockPublisher) Close() error {
 
 type mockWorkforceClient struct {
 	workforcev1.WorkforceServiceClient
-	listEmployeesFunc func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error)
+	listEmployeesFunc  func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error)
 	listVHRRecordsFunc func(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error)
-	listIncidentsFunc func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error)
+	listIncidentsFunc  func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error)
 }
 
 func (m *mockWorkforceClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -90,10 +90,10 @@ func TestNewServer(t *testing.T) {
 	defer grpcSrv3.Stop()
 
 	tests := []struct {
-		name    string
-		env     map[string]string
-		cfg     Config
-		verify  func(t *testing.T, srv *Server)
+		name   string
+		env    map[string]string
+		cfg    Config
+		verify func(t *testing.T, srv *Server)
 	}{
 		{
 			name: "Defaults",
@@ -267,6 +267,33 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
+func TestNewServer_ClientTLS(t *testing.T) {
+	t.Setenv("BROKER_API_BASE_URL", "")
+	t.Setenv("ALPACA_BASE_URL", "")
+	t.Setenv("BANK_API_BASE_URL", "")
+	t.Setenv("PLAID_BASE_URL", "")
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	grpcSrv := grpc.NewServer()
+	go func() { _ = grpcSrv.Serve(lis) }()
+	defer grpcSrv.Stop()
+
+	cfg := Config{
+		WorkforceTarget: lis.Addr().String(),
+		ClientTLS:       nil,
+	}
+
+	srv := NewServer(cfg)
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	assert.Len(t, srv.conns, 1)
+	assert.NotNil(t, srv.wfClient)
+}
+
 func TestServer_SettersAndLog(t *testing.T) {
 	srv := &Server{}
 
@@ -305,3 +332,62 @@ func TestServer_SettersAndLog(t *testing.T) {
 	assert.Nil(t, srv.publisher)
 }
 
+func TestNewServer_LoggerOutput(t *testing.T) {
+	t.Setenv("BROKER_API_BASE_URL", "")
+	t.Setenv("ALPACA_BASE_URL", "")
+	t.Setenv("BANK_API_BASE_URL", "")
+	t.Setenv("PLAID_BASE_URL", "")
+
+	lis1, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis1.Close()
+
+	lis2, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis2.Close()
+
+	lis3, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis3.Close()
+
+	grpcSrv1 := grpc.NewServer()
+	go func() { _ = grpcSrv1.Serve(lis1) }()
+	defer grpcSrv1.Stop()
+
+	grpcSrv2 := grpc.NewServer()
+	go func() { _ = grpcSrv2.Serve(lis2) }()
+	defer grpcSrv2.Stop()
+
+	grpcSrv3 := grpc.NewServer()
+	go func() { _ = grpcSrv3.Serve(lis3) }()
+	defer grpcSrv3.Stop()
+
+	buf := new(bytes.Buffer)
+	logger := slog.New(slog.NewTextHandler(buf, nil))
+
+	cfg := Config{
+		Logger:           logger,
+		WorkforceTarget:  lis1.Addr().String(),
+		CoreInvestTarget: lis2.Addr().String(),
+		OpsTarget:        lis3.Addr().String(),
+	}
+
+	t.Setenv("BROKER_API_BASE_URL", "http://mock-broker:8080")
+	t.Setenv("BANK_API_BASE_URL", "http://mock-bank:8081")
+
+	srv := NewServer(cfg)
+	require.NotNil(t, srv)
+	defer srv.Close()
+
+	logOutput := buf.String()
+	assert.Contains(t, logOutput, "Customer BLL connected to workforce domain API via gRPC")
+	assert.Contains(t, logOutput, lis1.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to core-invest domain API via gRPC")
+	assert.Contains(t, logOutput, lis2.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to ops domain API via gRPC")
+	assert.Contains(t, logOutput, lis3.Addr().String())
+	assert.Contains(t, logOutput, "Customer BLL connected to broker")
+	assert.Contains(t, logOutput, "http://mock-broker:8080")
+	assert.Contains(t, logOutput, "Customer BLL connected to bank")
+	assert.Contains(t, logOutput, "http://mock-bank:8081")
+}
