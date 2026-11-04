@@ -121,6 +121,9 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 }
 
 func (s *Server) ListDeposits(ctx context.Context, in *customerbllv1.ListDepositsRequest) (*customerbllv1.ListDepositsResponse, error) {
+	if in == nil {
+		in = &customerbllv1.ListDepositsRequest{}
+	}
 	if s.ciClient == nil {
 		return &customerbllv1.ListDepositsResponse{Deposits: []*coreinvestv1.RecurringDeposit{}}, nil
 	}
