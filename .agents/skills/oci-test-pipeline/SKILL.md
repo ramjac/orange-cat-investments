@@ -70,18 +70,9 @@ kubectl cluster-info --request-timeout=3s
 Validate persona interactions and multi-tier platform flows with the simulator driver against the running OCI stack:
 
 * **If Kubernetes was deployed and reachable:**
-  Run against the staging ingress from the workstation (never on the test server host).
-  `OCI_INGRESS_IP` makes the sim client dial `*.oci.local` hosts at the cluster ingress IP
-  (no `/etc/hosts` edits); Forgejo persona PATs are required for the developer personas:
+  Run against the staging ingress:
   ```bash
-  OCI_INGRESS_IP=192.168.1.246 \
-  FORGEJO_ELISE_TOKEN=<pat> FORGEJO_MARCUS_TOKEN=<pat> \
-  go run ./simulation/cmd/simulator -mode live \
-    -bff-url http://dev.api.oci.local \
-    -cust-bff-url http://dev.api.oci.local \
-    -forgejo-url http://forgejo.oci.local \
-    -broker-url http://broker-api.sim.oci.local \
-    -bank-url http://bank-api.sim.oci.local
+  go run ./simulation/cmd/simulator -mode live -url http://dev.api.oci.local
   ```
 * **If cluster is unavailable:**
   Note that cluster/stack is unreachable and simulation execution is skipped. In-process mock simulation has been removed so that the simulator acts exclusively as a true integration test against running services.
