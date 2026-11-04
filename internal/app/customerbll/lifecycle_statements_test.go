@@ -2,7 +2,10 @@ package customerbll
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
@@ -161,8 +164,18 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		cert := resp.Certificate
 		assert.Equal(t, "cust-12345", cert.CustomerID)
 		assert.NotEmpty(t, cert.CertificateID)
-		assert.NotEmpty(t, cert.CustomerIDHash)
-		assert.NotEmpty(t, cert.CustomerEmailHash)
+
+		h := sha256.Sum256([]byte("cust-12345"))
+		expectedCustHash := hex.EncodeToString(h[:])
+		eh := sha256.Sum256([]byte("test@example.com"))
+		expectedEmailHash := hex.EncodeToString(eh[:])
+		expectedComplianceHash := fmt.Sprintf("hmac-sha256:%s", expectedCustHash[:32])
+
+		assert.Equal(t, expectedCustHash, cert.CustomerIDHash)
+		assert.Equal(t, expectedEmailHash, cert.CustomerEmailHash)
+		assert.Equal(t, expectedComplianceHash, cert.ComplianceHash)
+		assert.Equal(t, "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.", cert.ComplianceStatement)
+
 		assert.Equal(t, "erased", cert.Status)
 		assert.Contains(t, cert.LegalBasis, "GDPR Article 17")
 		assert.NotEmpty(t, cert.AnonymizedTables)
@@ -219,6 +232,28 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, codes.Internal, st.Code())
 		assert.Contains(t, st.Message(), "gdpr erasure failed")
+	})
+
+	t.Run("integrated mode with ciClient nil response", func(t *testing.T) {
+		mockCI := &mockGDPRCoreInvestClient{
+			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+				return nil, nil // No error but nil response
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockCI)
+
+		resp, err := s.ExecuteGDPRErasure(context.Background(), &customerbllv1.ExecuteGDPRErasureRequest{
+			CustomerID: "cust-nil",
+			Email:      "nil@example.com",
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.Internal, st.Code())
+		assert.Contains(t, st.Message(), "received nil response")
 	})
 }
 

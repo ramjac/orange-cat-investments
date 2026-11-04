@@ -232,6 +232,70 @@ func TestCreateWebhook_WithCoreInvestClient_ErrorFallback(t *testing.T) {
 	assert.NotEmpty(t, res.Subscription.CreatedAt)
 }
 
+func TestCreateWebhook_WithCoreInvestClient_NilResponseFallback(t *testing.T) {
+	ctx := context.Background()
+	mockCI := &mockCoreInvestForWebhook{
+		createWebhookFunc: func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
+			return nil, nil // Nil response, no error
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	req := &customerbllv1.CreateWebhookRequest{
+		CustomerID: "cust-105",
+		TargetURL:  "https://example.com/hooks/nil-resp",
+		Events:     []string{"trade.executed"},
+		Secret:     "whsec_local_secret_1111",
+	}
+
+	res, err := server.CreateWebhook(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Subscription)
+
+	assert.Contains(t, res.Subscription.WebhookID, "sub-")
+	assert.Equal(t, "cust-105", res.Subscription.CustomerID)
+	assert.Equal(t, "https://example.com/hooks/nil-resp", res.Subscription.TargetURL)
+	assert.Equal(t, []string{"trade.executed"}, res.Subscription.EventTypes)
+	assert.Equal(t, "whsec_local_secret_1111", res.Subscription.Secret)
+	assert.Equal(t, "active", res.Subscription.Status)
+	assert.NotEmpty(t, res.Subscription.CreatedAt)
+}
+
+func TestCreateWebhook_WithCoreInvestClient_NilWebhookFallback(t *testing.T) {
+	ctx := context.Background()
+	mockCI := &mockCoreInvestForWebhook{
+		createWebhookFunc: func(ctx context.Context, in *coreinvestv1.CreateWebhookRequest) (*coreinvestv1.CreateWebhookResponse, error) {
+			return &coreinvestv1.CreateWebhookResponse{Webhook: nil}, nil // Nil webhook, no error
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockCI)
+
+	req := &customerbllv1.CreateWebhookRequest{
+		CustomerID: "cust-106",
+		TargetURL:  "https://example.com/hooks/nil-webhook",
+		Events:     []string{"order.filled"},
+		Secret:     "whsec_local_secret_2222",
+	}
+
+	res, err := server.CreateWebhook(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Subscription)
+
+	assert.Contains(t, res.Subscription.WebhookID, "sub-")
+	assert.Equal(t, "cust-106", res.Subscription.CustomerID)
+	assert.Equal(t, "https://example.com/hooks/nil-webhook", res.Subscription.TargetURL)
+	assert.Equal(t, []string{"order.filled"}, res.Subscription.EventTypes)
+	assert.Equal(t, "whsec_local_secret_2222", res.Subscription.Secret)
+	assert.Equal(t, "active", res.Subscription.Status)
+	assert.NotEmpty(t, res.Subscription.CreatedAt)
+}
+
 func TestCreateWebhook_NilCoreInvestClient_Fallback(t *testing.T) {
 	ctx := context.Background()
 	server := NewServer(Config{}) // s.ciClient is nil
@@ -264,17 +328,37 @@ func TestListWebhooks(t *testing.T) {
 		server := NewServer(Config{})
 		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
 
 	t.Run("Success Client", func(t *testing.T) {
+		expectedWebhooks := []*coreinvestv1.CustomerWebhook{
+			{
+				WebhookID:  "sub-1",
+				CustomerID: "cust-201",
+				TargetURL:  "https://example.com/1",
+				EventTypes: []string{"trade.executed"},
+				Status:     "active",
+				Secret:     "secret1",
+				CreatedAt:  "2023-01-01T00:00:00Z",
+			},
+			{
+				WebhookID:  "sub-2",
+				CustomerID: "cust-201",
+				TargetURL:  "https://example.com/2",
+				EventTypes: []string{"order.filled"},
+				Status:     "inactive",
+				Secret:     "secret2",
+				CreatedAt:  "2023-01-02T00:00:00Z",
+			},
+		}
+
 		mockCI := &mockCoreInvestForWebhook{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
+				assert.Equal(t, "cust-201", in.CustomerID)
 				return &coreinvestv1.ListWebhooksResponse{
-					Webhooks: []*coreinvestv1.CustomerWebhook{
-						{WebhookID: "sub-1", CustomerID: in.CustomerID, TargetURL: "https://example.com/1"},
-						{WebhookID: "sub-2", CustomerID: in.CustomerID, TargetURL: "https://example.com/2"},
-					},
+					Webhooks: expectedWebhooks,
 				}, nil
 			},
 		}
@@ -283,22 +367,39 @@ func TestListWebhooks(t *testing.T) {
 
 		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		require.Len(t, res.Subscriptions, 2)
+
 		assert.Equal(t, "sub-1", res.Subscriptions[0].WebhookID)
+		assert.Equal(t, "cust-201", res.Subscriptions[0].CustomerID)
+		assert.Equal(t, "https://example.com/1", res.Subscriptions[0].TargetURL)
+		assert.Equal(t, []string{"trade.executed"}, res.Subscriptions[0].EventTypes)
+		assert.Equal(t, "active", res.Subscriptions[0].Status)
+		assert.Equal(t, "secret1", res.Subscriptions[0].Secret)
+		assert.Equal(t, "2023-01-01T00:00:00Z", res.Subscriptions[0].CreatedAt)
+
 		assert.Equal(t, "sub-2", res.Subscriptions[1].WebhookID)
+		assert.Equal(t, "cust-201", res.Subscriptions[1].CustomerID)
+		assert.Equal(t, "https://example.com/2", res.Subscriptions[1].TargetURL)
+		assert.Equal(t, []string{"order.filled"}, res.Subscriptions[1].EventTypes)
+		assert.Equal(t, "inactive", res.Subscriptions[1].Status)
+		assert.Equal(t, "secret2", res.Subscriptions[1].Secret)
+		assert.Equal(t, "2023-01-02T00:00:00Z", res.Subscriptions[1].CreatedAt)
 	})
 
 	t.Run("Error Client", func(t *testing.T) {
 		mockCI := &mockCoreInvestForWebhook{
 			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
-				return nil, errors.New("db error")
+				assert.Equal(t, "cust-err", in.CustomerID)
+				return nil, errors.New("gRPC connection failure")
 			},
 		}
 		server := NewServer(Config{})
 		server.SetCoreInvestClient(mockCI)
 
-		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-201"})
+		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-err"})
 		require.NoError(t, err)
+		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
 }
@@ -476,6 +577,35 @@ func TestCreateAPIKey_NilResponseFallback(t *testing.T) {
 	assert.Equal(t, "cust-103", res.Key.CustomerID)
 	assert.Equal(t, "test-key-nil-res", res.Key.Label)
 	assert.Equal(t, "fallback_secret_456", res.RawSecret)
+}
+
+func TestCreateAPIKey_NilAPIKeyFallback(t *testing.T) {
+	mockClient := &mockCoreInvestClient{
+		createAPIKeyFn: func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error) {
+			return &coreinvestv1.CreateAPIKeyResponse{
+				APIKey: nil,
+			}, nil
+		},
+	}
+
+	server := NewServer(Config{})
+	server.SetCoreInvestClient(mockClient)
+
+	req := &customerbllv1.CreateAPIKeyRequest{
+		CustomerID:  "cust-103-nil-key",
+		Name:        "test-key-nil-apikey",
+		Permissions: []string{"read"},
+		KeyPrefix:   "oci_sim_",
+		APIKey:      "fallback_secret_789",
+	}
+
+	res, err := server.CreateAPIKey(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.NotNil(t, res.Key)
+	assert.Equal(t, "cust-103-nil-key", res.Key.CustomerID)
+	assert.Equal(t, "test-key-nil-apikey", res.Key.Label)
+	assert.Equal(t, "fallback_secret_789", res.RawSecret)
 }
 
 func TestCreateAPIKey_NilClientFallback(t *testing.T) {
@@ -689,6 +819,12 @@ func TestGetPortfolio_HistoricalPerformanceFallback(t *testing.T) {
 
 	// Should fallback to default 4 points calculated from current balance
 	require.Len(t, resp.HistoricalPerformance, 4)
+
+	now := time.Now().UTC()
+	assert.Equal(t, now.AddDate(0, -3, 0).Format("2006-01-02"), resp.HistoricalPerformance[0].Date)
+	assert.Equal(t, now.AddDate(0, -2, 0).Format("2006-01-02"), resp.HistoricalPerformance[1].Date)
+	assert.Equal(t, now.AddDate(0, -1, 0).Format("2006-01-02"), resp.HistoricalPerformance[2].Date)
+	assert.Equal(t, now.Format("2006-01-02"), resp.HistoricalPerformance[3].Date)
 	assert.Equal(t, 7800.0, resp.HistoricalPerformance[0].Valuation)
 	assert.Equal(t, 8500.0, resp.HistoricalPerformance[1].Valuation)
 	assert.Equal(t, 9200.0, resp.HistoricalPerformance[2].Valuation)

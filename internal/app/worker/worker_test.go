@@ -351,7 +351,6 @@ func TestSchedulers(t *testing.T) {
 	mockCustomerBLL := &mockCustomerBLL{}
 	mockInternalBLL := &mockInternalBLL{}
 
-	worker.StartCatSpottedPublisher(ctx, router, pubSub, mockInternalBLL)
 	worker.StartExecutiveReportingWorker(ctx, router, pubSub, mockInternalBLL, logger)
 	worker.StartRecurringACHProcessor(ctx, router, pubSub, mockCustomerBLL, logger)
 	worker.StartEOMStatementBatchGenerator(ctx, router, pubSub, mockCustomerBLL, logger)

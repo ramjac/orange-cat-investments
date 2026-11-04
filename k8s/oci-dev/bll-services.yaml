@@ -281,3 +281,14 @@ spec:
           port: 8085
         - protocol: TCP
           port: 8086
+    # Simulated edge hardware (external-sim) ingests environmental telemetry via Internal BLL gRPC.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-sim
+          podSelector:
+            matchLabels:
+              app: mock-hardware
+      ports:
+        - protocol: TCP
+          port: 8086

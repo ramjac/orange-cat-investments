@@ -3,7 +3,9 @@ package customerbll
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
+	"time"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
@@ -11,31 +13,34 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
 type mockCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
-	getStatementDocFunc         func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error)
-	listStatementsFunc          func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
-	listAPIKeysFunc             func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
-	createAPIKeyFn              func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error)
-	listCameraStreamsFunc       func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
-	generateMonthlyFunc         func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error)
-	generate1099BFunc           func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error)
-	listPortfoliosFunc          func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error)
-	generateStmtFunc            func(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error)
-	registerCustFunc            func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error)
-	closeAccountFunc            func(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error)
-	executeGDPRFunc             func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
-	getGDPRCertFunc             func(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error)
-	createRecurringDepositFunc  func(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error)
-	listRecurringDepositsFunc   func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error)
-	updatePortfolioBalanceFunc  func(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error)
-	advanceRecurringDepositFunc func(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error)
-	completeBacktestRunFn       func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error)
-	revokeFunc                  func(ctx context.Context, in *coreinvestv1.RevokeAPIKeyRequest) (*coreinvestv1.RevokeAPIKeyResponse, error)
-	lastRevokeReq               *coreinvestv1.RevokeAPIKeyRequest
+	getStatementDocFunc          func(ctx context.Context, in *coreinvestv1.GetStatementDocumentRequest) (*coreinvestv1.GetStatementDocumentResponse, error)
+	listStatementsFunc           func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error)
+	listAPIKeysFunc              func(ctx context.Context, in *coreinvestv1.ListAPIKeysRequest) (*coreinvestv1.ListAPIKeysResponse, error)
+	createAPIKeyFn               func(ctx context.Context, in *coreinvestv1.CreateAPIKeyRequest) (*coreinvestv1.CreateAPIKeyResponse, error)
+	listCameraStreamsFunc        func(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
+	generateMonthlyFunc          func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error)
+	generate1099BFunc            func(ctx context.Context, in *coreinvestv1.GenerateForm1099BRequest) (*coreinvestv1.GenerateForm1099BResponse, error)
+	listPortfoliosFunc           func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error)
+	generateStmtFunc             func(ctx context.Context, in *coreinvestv1.GenerateStatementRequest) (*coreinvestv1.GenerateStatementResponse, error)
+	registerCustFunc             func(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error)
+	closeAccountFunc             func(ctx context.Context, in *coreinvestv1.CloseAndLiquidateAccountRequest) (*coreinvestv1.CloseAndLiquidateAccountResponse, error)
+	executeGDPRFunc              func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
+	getGDPRCertFunc              func(ctx context.Context, in *coreinvestv1.GetGDPRErasureCertificateRequest) (*coreinvestv1.GetGDPRErasureCertificateResponse, error)
+	createRecurringDepositFunc   func(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error)
+	listRecurringDepositsFunc    func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error)
+	updatePortfolioBalanceFunc   func(ctx context.Context, in *coreinvestv1.UpdatePortfolioBalanceRequest) (*coreinvestv1.UpdatePortfolioBalanceResponse, error)
+	advanceRecurringDepositFunc  func(ctx context.Context, in *coreinvestv1.AdvanceRecurringDepositRequest) (*coreinvestv1.AdvanceRecurringDepositResponse, error)
+	completeBacktestRunFn        func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error)
+	streamPortfolioValuationFn   func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error)
+	streamPortfolioValuationFunc func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error)
+	revokeFunc                   func(ctx context.Context, in *coreinvestv1.RevokeAPIKeyRequest) (*coreinvestv1.RevokeAPIKeyResponse, error)
+	lastRevokeReq                *coreinvestv1.RevokeAPIKeyRequest
 }
 
 func (m *mockCoreInvestClient) ListCameraStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -170,6 +175,16 @@ func (m *mockCoreInvestClient) AdvanceRecurringDeposit(ctx context.Context, in *
 func (m *mockCoreInvestClient) CompleteBacktestRun(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
 	if m.completeBacktestRunFn != nil {
 		return m.completeBacktestRunFn(ctx, in)
+	}
+	return nil, status.Error(codes.Unimplemented, "unimplemented")
+}
+
+func (m *mockCoreInvestClient) StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+	if m.streamPortfolioValuationFn != nil {
+		return m.streamPortfolioValuationFn(ctx, in)
+	}
+	if m.streamPortfolioValuationFunc != nil {
+		return m.streamPortfolioValuationFunc(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "unimplemented")
 }
@@ -343,6 +358,29 @@ func TestCompleteBacktestRun(t *testing.T) {
 
 		req := &customerbllv1.CompleteBacktestRunRequest{
 			RunID:   "run-nil-run",
+			Status:  "UNKNOWN",
+			Results: `{}`,
+		}
+
+		resp, err := s.CompleteBacktestRun(ctx, req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.Nil(t, resp.Run)
+	})
+
+	t.Run("successful completion with nil overall response avoids panic", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			completeBacktestRunFn: func(ctx context.Context, in *coreinvestv1.CompleteBacktestRunRequest) (*coreinvestv1.CompleteBacktestRunResponse, error) {
+				return nil, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		ctx := context.Background()
+
+		req := &customerbllv1.CompleteBacktestRunRequest{
+			RunID:   "run-nil-res",
 			Status:  "UNKNOWN",
 			Results: `{}`,
 		}
@@ -649,5 +687,336 @@ func TestGetESGTransparency(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, resp2.FelineExecutives, 1)
 		assert.Equal(t, 1, callCount)
+	})
+}
+
+// mockStreamPortfolioValuationClient mocks the downstream client stream
+type mockStreamPortfolioValuationClient struct {
+	recvFunc func() (*coreinvestv1.PortfolioValuationEvent, error)
+}
+
+func (m *mockStreamPortfolioValuationClient) Recv() (*coreinvestv1.PortfolioValuationEvent, error) {
+	if m.recvFunc != nil {
+		return m.recvFunc()
+	}
+	return nil, nil
+}
+
+// mockStreamPortfolioValuationServer mocks the server stream to the client
+type mockStreamPortfolioValuationServer struct {
+	customerbllv1.CustomerBLLService_StreamPortfolioValuationServer
+	ctx      context.Context
+	sendFunc func(*coreinvestv1.PortfolioValuationEvent) error
+}
+
+func (m *mockStreamPortfolioValuationServer) Context() context.Context {
+	if m.ctx != nil {
+		return m.ctx
+	}
+	return context.Background()
+}
+
+func (m *mockStreamPortfolioValuationServer) Send(evt *coreinvestv1.PortfolioValuationEvent) error {
+	if m.sendFunc != nil {
+		return m.sendFunc(evt)
+	}
+	return nil
+}
+
+func TestServer_StreamPortfolioValuation(t *testing.T) {
+	t.Run("missing portfolio ID", func(t *testing.T) {
+		s := NewServer(Config{})
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{}, nil)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("fallback ticker implementation when ciClient is nil", func(t *testing.T) {
+		s := NewServer(Config{})
+
+		events := []*coreinvestv1.PortfolioValuationEvent{}
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: context.Background(),
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				events = append(events, evt)
+				return nil
+			},
+		}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.NoError(t, err)
+		assert.Len(t, events, 5)
+		assert.Equal(t, "port-123", events[0].PortfolioID)
+		assert.Equal(t, 154200.50, events[0].TotalBalanceUSD)
+	})
+
+	t.Run("fallback ticker implementation when ciClient returns error", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFunc: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return nil, errors.New("upstream failure")
+			},
+		}
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		events := []*coreinvestv1.PortfolioValuationEvent{}
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: context.Background(),
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				events = append(events, evt)
+				return nil
+			},
+		}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.NoError(t, err)
+		assert.Len(t, events, 5)
+	})
+
+	t.Run("fallback ticker implementation context cancellation", func(t *testing.T) {
+		s := NewServer(Config{})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: ctx,
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				return nil
+			},
+		}
+
+		// Cancel immediately so the loop breaks quickly
+		cancel()
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.NoError(t, err)
+	})
+
+	t.Run("successful proxying of events from downstream ciClient", func(t *testing.T) {
+		mockEvt := &coreinvestv1.PortfolioValuationEvent{PortfolioID: "port-123", TotalBalanceUSD: 1000}
+		sent := 0
+
+		mockUpstreamClient := &mockStreamPortfolioValuationClient{
+			recvFunc: func() (*coreinvestv1.PortfolioValuationEvent, error) {
+				if sent < 2 {
+					sent++
+					return mockEvt, nil
+				}
+				return nil, errors.New("EOF")
+			},
+		}
+
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFunc: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return mockUpstreamClient, nil
+			},
+		}
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		proxiedEvents := []*coreinvestv1.PortfolioValuationEvent{}
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: context.Background(),
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				proxiedEvents = append(proxiedEvents, evt)
+				return nil
+			},
+		}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.NoError(t, err)
+		assert.Len(t, proxiedEvents, 2)
+	})
+
+	t.Run("error from Recv correctly terminates proxy loop", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFunc: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return &mockStreamPortfolioValuationClient{
+					recvFunc: func() (*coreinvestv1.PortfolioValuationEvent, error) {
+						return nil, errors.New("recv error")
+					},
+				}, nil
+			},
+		}
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: context.Background(),
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				return nil
+			},
+		}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.NoError(t, err)
+	})
+
+	t.Run("error from Send propagates error back to caller", func(t *testing.T) {
+		mockEvt := &coreinvestv1.PortfolioValuationEvent{PortfolioID: "port-123", TotalBalanceUSD: 1000}
+
+		mockUpstreamClient := &mockStreamPortfolioValuationClient{
+			recvFunc: func() (*coreinvestv1.PortfolioValuationEvent, error) {
+				return mockEvt, nil
+			},
+		}
+
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFunc: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return mockUpstreamClient, nil
+			},
+		}
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		mockStream := &mockStreamPortfolioValuationServer{
+			ctx: context.Background(),
+			sendFunc: func(evt *coreinvestv1.PortfolioValuationEvent) error {
+				return errors.New("send error")
+			},
+		}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "port-123"}, mockStream)
+		require.Error(t, err)
+		assert.Equal(t, "send error", err.Error())
+	})
+}
+
+type mockStreamServer struct {
+	customerbllv1.CustomerBLLService_StreamPortfolioValuationServer
+	events []*coreinvestv1.PortfolioValuationEvent
+	ctx    context.Context
+}
+
+func (m *mockStreamServer) Context() context.Context {
+	if m.ctx == nil {
+		return context.Background()
+	}
+	return m.ctx
+}
+
+func (m *mockStreamServer) Send(evt *coreinvestv1.PortfolioValuationEvent) error {
+	m.events = append(m.events, evt)
+	return nil
+}
+
+// These methods satisfy the grpc.ServerStream interface embedded by CustomerBLLService_StreamPortfolioValuationServer
+func (m *mockStreamServer) SetHeader(metadata.MD) error  { return nil }
+func (m *mockStreamServer) SendHeader(metadata.MD) error { return nil }
+func (m *mockStreamServer) SetTrailer(metadata.MD)       {}
+
+type mockUpstreamClient struct {
+	coreinvestv1.CoreInvestService_StreamPortfolioValuationClient
+	events []*coreinvestv1.PortfolioValuationEvent
+	index  int
+}
+
+func (m *mockUpstreamClient) Recv() (*coreinvestv1.PortfolioValuationEvent, error) {
+	if m.index >= len(m.events) {
+		return nil, io.EOF
+	}
+	evt := m.events[m.index]
+	m.index++
+	return evt, nil
+}
+
+func TestStreamPortfolioValuation(t *testing.T) {
+	t.Run("invalid argument for empty portfolio_id", func(t *testing.T) {
+		s := NewServer(Config{})
+		stream := &mockStreamServer{}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: ""}, stream)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("invalid argument for nil request", func(t *testing.T) {
+		s := NewServer(Config{})
+		stream := &mockStreamServer{}
+
+		err := s.StreamPortfolioValuation(nil, stream)
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+
+	t.Run("successful upstream proxying", func(t *testing.T) {
+		expectedEvents := []*coreinvestv1.PortfolioValuationEvent{
+			{PortfolioID: "p-01", TotalBalanceUSD: 100.0},
+			{PortfolioID: "p-01", TotalBalanceUSD: 105.0},
+		}
+
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFn: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				assert.Equal(t, "p-01", in.PortfolioID)
+				return &mockUpstreamClient{events: expectedEvents}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		stream := &mockStreamServer{}
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "p-01"}, stream)
+		require.NoError(t, err)
+		assert.Equal(t, expectedEvents, stream.events)
+	})
+
+	t.Run("upstream error fallback to mock ticker", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFn: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return nil, status.Error(codes.Unavailable, "core invest domain down")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+		stream := &mockStreamServer{}
+
+		start := time.Now()
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "p-mock"}, stream)
+		duration := time.Since(start)
+
+		require.NoError(t, err)
+		assert.Len(t, stream.events, 5)
+		assert.GreaterOrEqual(t, duration, 2*time.Second) // 5 ticks * 500ms = ~2.5s
+
+		for i, evt := range stream.events {
+			assert.Equal(t, "p-mock", evt.PortfolioID)
+			assert.Equal(t, 154200.50+float64(i)*2.75, evt.TotalBalanceUSD)
+			assert.Equal(t, 15000.00, evt.CashBalanceUSD)
+			assert.Equal(t, evt.TotalBalanceUSD-15000.00, evt.InvestedBalanceUSD)
+			assert.Equal(t, 1.42, evt.ChangePct)
+		}
+	})
+
+	t.Run("context cancellation during ticker fallback", func(t *testing.T) {
+		mockClient := &mockCoreInvestClient{
+			streamPortfolioValuationFn: func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error) {
+				return nil, status.Error(codes.Unavailable, "core invest domain down")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockClient)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		stream := &mockStreamServer{ctx: ctx}
+
+		// Cancel the context shortly after the stream starts
+		go func() {
+			time.Sleep(750 * time.Millisecond) // Should allow ~1 tick
+			cancel()
+		}()
+
+		err := s.StreamPortfolioValuation(&coreinvestv1.StreamPortfolioValuationRequest{PortfolioID: "p-cancel"}, stream)
+		require.NoError(t, err)
+
+		// The stream was canceled, it should have fewer than 5 events
+		assert.Less(t, len(stream.events), 5)
 	})
 }
