@@ -483,6 +483,9 @@ func TestCreateAPIKey_SuccessWithRawSecret(t *testing.T) {
 	assert.Equal(t, "key-grpc-123", res.Key.KeyID)
 	assert.Equal(t, "cust-100", res.Key.CustomerID)
 	assert.Equal(t, "test-key-label", res.Key.Label)
+	assert.Equal(t, "oci_live_", res.Key.KeyPrefix)
+	assert.Equal(t, "active", res.Key.Status)
+	assert.Equal(t, []string{"read", "trade"}, res.Key.Scopes)
 	assert.Equal(t, "secret_grpc_raw_456", res.RawSecret)
 }
 
@@ -519,6 +522,11 @@ func TestCreateAPIKey_SuccessWithEmptyRawSecretFallback(t *testing.T) {
 	require.NotNil(t, res)
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "key-grpc-456", res.Key.KeyID)
+	assert.Equal(t, "cust-101", res.Key.CustomerID)
+	assert.Equal(t, "test-key-fallback-raw", res.Key.Label)
+	assert.Equal(t, "oci_live_", res.Key.KeyPrefix)
+	assert.Equal(t, "active", res.Key.Status)
+	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_input_raw_secret", res.RawSecret)
 }
 
@@ -576,6 +584,9 @@ func TestCreateAPIKey_NilResponseFallback(t *testing.T) {
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "cust-103", res.Key.CustomerID)
 	assert.Equal(t, "test-key-nil-res", res.Key.Label)
+	assert.Equal(t, "oci_sim_", res.Key.KeyPrefix)
+	assert.Equal(t, "active", res.Key.Status)
+	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_secret_456", res.RawSecret)
 }
 
@@ -605,6 +616,9 @@ func TestCreateAPIKey_NilAPIKeyFallback(t *testing.T) {
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "cust-103-nil-key", res.Key.CustomerID)
 	assert.Equal(t, "test-key-nil-apikey", res.Key.Label)
+	assert.Equal(t, "oci_sim_", res.Key.KeyPrefix)
+	assert.Equal(t, "active", res.Key.Status)
+	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_secret_789", res.RawSecret)
 }
 
