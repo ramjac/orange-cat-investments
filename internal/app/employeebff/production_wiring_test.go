@@ -145,18 +145,23 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recLeave.Code)
 	assert.True(t, mockBLL.listLeaveRequestsCalled, "expected ListLeaveRequests RPC to be invoked")
 
-	// 3. Facilities Assets route
+	// Session required for Operations & Facilities routes
+	sessStore := bff.SessionStore()
+	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
+	require.NoError(t, err)
+
+	// 3. Facilities Assets route (requires authenticated employee session)
 	reqAssets := httptest.NewRequest(http.MethodGet, "/api/v1/facilities/assets", nil)
+	reqAssets.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recAssets := httptest.NewRecorder()
 	router.ServeHTTP(recAssets, reqAssets)
 	assert.Equal(t, http.StatusOK, recAssets.Code)
 	assert.True(t, mockBLL.listAssetsCalled, "expected ListAssets RPC to be invoked")
 
 	// 4. Operations Tickets route (requires authenticated employee session)
-	sessStore := bff.SessionStore()
-	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
-	require.NoError(t, err)
-
 	reqTickets := httptest.NewRequest(http.MethodGet, "/api/v1/ops/tickets", nil)
 	reqTickets.AddCookie(&http.Cookie{
 		Name:  "__Host-employee-session",
