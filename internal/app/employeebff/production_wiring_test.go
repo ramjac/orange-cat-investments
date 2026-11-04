@@ -151,8 +151,12 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recLeave.Code)
 	assert.True(t, mockBLL.listLeaveRequestsCalled, "expected ListLeaveRequests RPC to be invoked")
 
-	// 3. Facilities Assets route
+	// 3. Facilities Assets route (requires authenticated employee session)
 	reqAssets := httptest.NewRequest(http.MethodGet, "/api/v1/facilities/assets", nil)
+	reqAssets.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
 	recAssets := httptest.NewRecorder()
 	router.ServeHTTP(recAssets, reqAssets)
 	assert.Equal(t, http.StatusOK, recAssets.Code)
