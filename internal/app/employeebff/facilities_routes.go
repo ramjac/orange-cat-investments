@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
@@ -15,24 +14,6 @@ import (
 // RegisterFacilitiesRoutes mounts Facilities domain endpoints onto the Employee BFF mux.
 // All business logic and domain persistence are delegated to the Tier 3 internal-bll over gRPC.
 func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
-	sessionAuth := SessionAuthMiddleware(b.sessionStore)
-	csrfProtect := CSRFProtectMiddleware
-	facilitiesRole := RequireRoleMiddleware("facilities", "admin", "ops", "engineering", "staff")
-
-	handleProtected := func(method, path string, handler http.HandlerFunc) {
-		var finalHandler http.Handler = facilitiesRole(handler)
-		if method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete || method == http.MethodPatch {
-			finalHandler = csrfProtect(finalHandler)
-		}
-		finalHandler = sessionAuth(finalHandler)
-
-		mux.Handle(method+" "+path, finalHandler)
-		if strings.HasPrefix(path, "/api/v1/") {
-			alias := strings.TrimPrefix(path, "/api/v1")
-			mux.Handle(method+" "+alias, finalHandler)
-		}
-	}
-
 	// Assets: List & Create
 	listAssets := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -55,7 +36,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			"total": len(assets),
 		})
 	}
-	handleProtected("GET", "/api/v1/facilities/assets", listAssets)
+	mux.HandleFunc("GET /facilities/assets", listAssets)
+	mux.HandleFunc("GET /api/v1/facilities/assets", listAssets)
 
 	createAsset := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -112,7 +94,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(respMap)
 	}
-	handleProtected("POST", "/api/v1/facilities/assets", createAsset)
+	mux.HandleFunc("POST /facilities/assets", createAsset)
+	mux.HandleFunc("POST /api/v1/facilities/assets", createAsset)
 
 	// Asset Maintenance Ticket
 	maintenanceHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +144,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(tResp.Ticket)
 	}
-	handleProtected("POST", "/api/v1/facilities/assets/{id}/maintenance", maintenanceHandler)
+	mux.HandleFunc("POST /facilities/assets/{id}/maintenance", maintenanceHandler)
+	mux.HandleFunc("POST /api/v1/facilities/assets/{id}/maintenance", maintenanceHandler)
 
 	// Offline Maintenance Logs Sync
 	syncLogs := func(w http.ResponseWriter, r *http.Request) {
@@ -238,8 +222,10 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			"synced": resp.SyncedCount,
 		})
 	}
-	handleProtected("POST", "/api/v1/facilities/logs/sync", syncLogs)
-	handleProtected("POST", "/api/v1/facilities/sync/maintenance-logs", syncLogs)
+	mux.HandleFunc("POST /facilities/logs/sync", syncLogs)
+	mux.HandleFunc("POST /api/v1/facilities/logs/sync", syncLogs)
+	mux.HandleFunc("POST /facilities/sync/maintenance-logs", syncLogs)
+	mux.HandleFunc("POST /api/v1/facilities/sync/maintenance-logs", syncLogs)
 
 	// Firmware Releases
 	listFirmware := func(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +248,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			"total": len(releases),
 		})
 	}
-	handleProtected("GET", "/api/v1/facilities/firmware/releases", listFirmware)
+	mux.HandleFunc("GET /facilities/firmware/releases", listFirmware)
+	mux.HandleFunc("GET /api/v1/facilities/firmware/releases", listFirmware)
 
 	createFirmware := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -302,7 +289,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(resp.Release)
 	}
-	handleProtected("POST", "/api/v1/facilities/firmware/releases", createFirmware)
+	mux.HandleFunc("POST /facilities/firmware/releases", createFirmware)
+	mux.HandleFunc("POST /api/v1/facilities/firmware/releases", createFirmware)
 
 	// OTA Jobs: Trigger & List
 	triggerOTA := func(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +323,8 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			"jobs":   resp.Jobs,
 		})
 	}
-	handleProtected("POST", "/api/v1/facilities/ota/trigger", triggerOTA)
+	mux.HandleFunc("POST /facilities/ota/trigger", triggerOTA)
+	mux.HandleFunc("POST /api/v1/facilities/ota/trigger", triggerOTA)
 
 	listOTAJobs := func(w http.ResponseWriter, r *http.Request) {
 		if b.bllClient == nil {
@@ -364,5 +353,6 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			"total": len(jobs),
 		})
 	}
-	handleProtected("GET", "/api/v1/facilities/ota/jobs", listOTAJobs)
+	mux.HandleFunc("GET /facilities/ota/jobs", listOTAJobs)
+	mux.HandleFunc("GET /api/v1/facilities/ota/jobs", listOTAJobs)
 }

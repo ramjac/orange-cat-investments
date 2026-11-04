@@ -250,7 +250,7 @@ func (s *Server) ListWebhooks(ctx context.Context, in *customerbllv1.ListWebhook
 		return &customerbllv1.ListWebhooksResponse{Subscriptions: []*coreinvestv1.CustomerWebhook{}}, nil
 	}
 	res, err := s.ciClient.ListWebhooks(ctx, &coreinvestv1.ListWebhooksRequest{CustomerID: in.CustomerID})
-	if err != nil || res == nil {
+	if err != nil {
 		return &customerbllv1.ListWebhooksResponse{Subscriptions: []*coreinvestv1.CustomerWebhook{}}, nil
 	}
 	return &customerbllv1.ListWebhooksResponse{Subscriptions: res.Webhooks}, nil
@@ -284,9 +284,6 @@ func (s *Server) CreateWebhook(ctx context.Context, in *customerbllv1.CreateWebh
 }
 
 func (s *Server) DeleteWebhook(ctx context.Context, in *customerbllv1.DeleteWebhookRequest) (*customerbllv1.DeleteWebhookResponse, error) {
-	if in == nil {
-		in = &customerbllv1.DeleteWebhookRequest{}
-	}
 	if s.ciClient != nil {
 		res, err := s.ciClient.DeleteWebhook(ctx, &coreinvestv1.DeleteWebhookRequest{
 			CustomerID: in.CustomerID,
