@@ -28,9 +28,9 @@ func (m *mockPublisher) Close() error {
 
 type mockWorkforceClient struct {
 	workforcev1.WorkforceServiceClient
-	listEmployeesFunc func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error)
+	listEmployeesFunc  func(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error)
 	listVHRRecordsFunc func(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error)
-	listIncidentsFunc func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error)
+	listIncidentsFunc  func(ctx context.Context, in *workforcev1.ListIncidentsRequest) (*workforcev1.ListIncidentsResponse, error)
 }
 
 func (m *mockWorkforceClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -58,125 +58,13 @@ type mockOpsClient struct {
 	opsv1.OpsServiceClient
 }
 
-func TestNewServer_Defaults(t *testing.T) {
-	// Clear any environment variables that might trigger client initialization
-	t.Setenv("BROKER_API_BASE_URL", "")
-	t.Setenv("ALPACA_BASE_URL", "")
-	t.Setenv("BANK_API_BASE_URL", "")
-	t.Setenv("PLAID_BASE_URL", "")
-
-	srv := NewServer(Config{})
-	require.NotNil(t, srv)
-	defer srv.Close()
-
-	assert.NotNil(t, srv.logger)
-	assert.Nil(t, srv.publisher)
-	assert.Nil(t, srv.brokerClient)
-	assert.Nil(t, srv.bankClient)
-	assert.Empty(t, srv.defaultFelineID)
-	assert.Nil(t, srv.wfClient)
-	assert.Nil(t, srv.ciClient)
-	assert.Nil(t, srv.opsClient)
-
-	// Verify log() helper fallback and behavior
-	assert.NotNil(t, srv.log())
-}
-
-func TestNewServer_ExplicitConfig(t *testing.T) {
+func TestNewServer(t *testing.T) {
 	buf := new(bytes.Buffer)
 	customLogger := slog.New(slog.NewTextHandler(buf, nil))
 	customBroker := alpaca.NewClient(alpaca.Config{BaseURL: "http://localhost:8080"})
 	customBank := plaid.NewClient(plaid.Config{BaseURL: "http://localhost:8081"})
-	customFelineID := "feline-99"
 
-	cfg := Config{
-		Logger:          customLogger,
-		BrokerClient:    customBroker,
-		BankClient:      customBank,
-		DefaultFelineID: customFelineID,
-	}
-
-	srv := NewServer(cfg)
-	require.NotNil(t, srv)
-	defer srv.Close()
-
-	assert.Equal(t, customLogger, srv.logger)
-	assert.Equal(t, customBroker, srv.brokerClient)
-	assert.Equal(t, customBank, srv.bankClient)
-	assert.Equal(t, customFelineID, srv.defaultFelineID)
-	assert.Equal(t, customLogger, srv.log())
-}
-
-func TestNewServer_BrokerClient_EnvVars(t *testing.T) {
-	t.Run("BROKER_API_BASE_URL with explicit keys", func(t *testing.T) {
-		t.Setenv("BROKER_API_BASE_URL", "http://mock-broker:8080")
-		t.Setenv("ALPACA_DATA_URL", "http://mock-broker-data:8080")
-		t.Setenv("APCA_API_KEY_ID", "CUSTOM_KEY")
-		t.Setenv("APCA_API_SECRET_KEY", "CUSTOM_SECRET")
-		t.Setenv("BANK_API_BASE_URL", "")
-		t.Setenv("PLAID_BASE_URL", "")
-
-		srv := NewServer(Config{})
-		require.NotNil(t, srv)
-		defer srv.Close()
-
-		assert.NotNil(t, srv.brokerClient)
-	})
-
-	t.Run("ALPACA_BASE_URL with default keys", func(t *testing.T) {
-		t.Setenv("BROKER_API_BASE_URL", "")
-		t.Setenv("ALPACA_BASE_URL", "http://alpaca-mock:8080")
-		t.Setenv("APCA_API_KEY_ID", "")
-		t.Setenv("APCA_API_SECRET_KEY", "")
-		t.Setenv("BANK_API_BASE_URL", "")
-		t.Setenv("PLAID_BASE_URL", "")
-
-		srv := NewServer(Config{})
-		require.NotNil(t, srv)
-		defer srv.Close()
-
-		assert.NotNil(t, srv.brokerClient)
-	})
-}
-
-func TestNewServer_BankClient_EnvVars(t *testing.T) {
-	t.Run("BANK_API_BASE_URL with explicit keys", func(t *testing.T) {
-		t.Setenv("BROKER_API_BASE_URL", "")
-		t.Setenv("ALPACA_BASE_URL", "")
-		t.Setenv("BANK_API_BASE_URL", "http://mock-bank:8081")
-		t.Setenv("PLAID_CLIENT_ID", "CUSTOM_CLIENT_ID")
-		t.Setenv("PLAID_SECRET", "CUSTOM_SECRET")
-
-		srv := NewServer(Config{})
-		require.NotNil(t, srv)
-		defer srv.Close()
-
-		assert.NotNil(t, srv.bankClient)
-	})
-
-	t.Run("PLAID_BASE_URL with default keys", func(t *testing.T) {
-		t.Setenv("BROKER_API_BASE_URL", "")
-		t.Setenv("ALPACA_BASE_URL", "")
-		t.Setenv("BANK_API_BASE_URL", "")
-		t.Setenv("PLAID_BASE_URL", "http://plaid-mock:8081")
-		t.Setenv("PLAID_CLIENT_ID", "")
-		t.Setenv("PLAID_SECRET", "")
-
-		srv := NewServer(Config{})
-		require.NotNil(t, srv)
-		defer srv.Close()
-
-		assert.NotNil(t, srv.bankClient)
-	})
-}
-
-func TestNewServer_gRPC_Targets(t *testing.T) {
-	t.Setenv("BROKER_API_BASE_URL", "")
-	t.Setenv("ALPACA_BASE_URL", "")
-	t.Setenv("BANK_API_BASE_URL", "")
-	t.Setenv("PLAID_BASE_URL", "")
-
-	// Create test listeners for workforce, core-invest, and ops gRPC targets
+	// Setup for gRPC target testing
 	lis1, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer lis1.Close()
@@ -201,21 +89,182 @@ func TestNewServer_gRPC_Targets(t *testing.T) {
 	go func() { _ = grpcSrv3.Serve(lis3) }()
 	defer grpcSrv3.Stop()
 
-	cfg := Config{
-		WorkforceTarget:  lis1.Addr().String(),
-		CoreInvestTarget: lis2.Addr().String(),
-		OpsTarget:        lis3.Addr().String(),
+	tests := []struct {
+		name   string
+		env    map[string]string
+		cfg    Config
+		verify func(t *testing.T, srv *Server)
+	}{
+		{
+			name: "Defaults",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "",
+				"ALPACA_BASE_URL":     "",
+				"BANK_API_BASE_URL":   "",
+				"PLAID_BASE_URL":      "",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.logger)
+				assert.Nil(t, srv.publisher)
+				assert.Nil(t, srv.brokerClient)
+				assert.Nil(t, srv.bankClient)
+				assert.Empty(t, srv.defaultFelineID)
+				assert.Nil(t, srv.wfClient)
+				assert.Nil(t, srv.ciClient)
+				assert.Nil(t, srv.opsClient)
+				assert.NotNil(t, srv.log())
+			},
+		},
+		{
+			name: "Explicit Config",
+			env:  map[string]string{},
+			cfg: Config{
+				Logger:          customLogger,
+				BrokerClient:    customBroker,
+				BankClient:      customBank,
+				DefaultFelineID: "feline-99",
+			},
+			verify: func(t *testing.T, srv *Server) {
+				assert.Equal(t, customLogger, srv.logger)
+				assert.Equal(t, customBroker, srv.brokerClient)
+				assert.Equal(t, customBank, srv.bankClient)
+				assert.Equal(t, "feline-99", srv.defaultFelineID)
+				assert.Equal(t, customLogger, srv.log())
+			},
+		},
+		{
+			name: "BrokerClient via BROKER_API_BASE_URL with explicit keys",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "http://mock-broker:8080",
+				"ALPACA_DATA_URL":     "http://mock-broker-data:8080",
+				"APCA_API_KEY_ID":     "CUSTOM_KEY",
+				"APCA_API_SECRET_KEY": "CUSTOM_SECRET",
+				"BANK_API_BASE_URL":   "",
+				"PLAID_BASE_URL":      "",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.brokerClient)
+			},
+		},
+		{
+			name: "BrokerClient via ALPACA_BASE_URL with default keys",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "",
+				"ALPACA_BASE_URL":     "http://alpaca-mock:8080",
+				"APCA_API_KEY_ID":     "",
+				"APCA_API_SECRET_KEY": "",
+				"BANK_API_BASE_URL":   "",
+				"PLAID_BASE_URL":      "",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.brokerClient)
+			},
+		},
+		{
+			name: "BrokerClient EnvVars Overrides",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "http://mock-broker:8080",
+				"ALPACA_DATA_URL":     "http://mock-broker-data:8080",
+				"APCA_API_KEY_ID":     "CUSTOM_KEY_OVERRIDE",
+				"APCA_API_SECRET_KEY": "CUSTOM_SECRET_OVERRIDE",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.brokerClient)
+			},
+		},
+		{
+			name: "BankClient via BANK_API_BASE_URL with explicit keys",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "",
+				"ALPACA_BASE_URL":     "",
+				"BANK_API_BASE_URL":   "http://mock-bank:8081",
+				"PLAID_CLIENT_ID":     "CUSTOM_CLIENT_ID",
+				"PLAID_SECRET":        "CUSTOM_SECRET",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.bankClient)
+			},
+		},
+		{
+			name: "BankClient via PLAID_BASE_URL with default keys",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "",
+				"ALPACA_BASE_URL":     "",
+				"BANK_API_BASE_URL":   "",
+				"PLAID_BASE_URL":      "http://plaid-mock:8081",
+				"PLAID_CLIENT_ID":     "",
+				"PLAID_SECRET":        "",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.bankClient)
+			},
+		},
+		{
+			name: "BankClient EnvVars Overrides",
+			env: map[string]string{
+				"BANK_API_BASE_URL": "http://mock-bank:8081",
+				"PLAID_CLIENT_ID":   "CUSTOM_CLIENT_ID_OVERRIDE",
+				"PLAID_SECRET":      "CUSTOM_SECRET_OVERRIDE",
+			},
+			cfg: Config{},
+			verify: func(t *testing.T, srv *Server) {
+				assert.NotNil(t, srv.bankClient)
+			},
+		},
+		{
+			name: "gRPC Targets Success",
+			env: map[string]string{
+				"BROKER_API_BASE_URL": "",
+				"ALPACA_BASE_URL":     "",
+				"BANK_API_BASE_URL":   "",
+				"PLAID_BASE_URL":      "",
+			},
+			cfg: Config{
+				WorkforceTarget:  lis1.Addr().String(),
+				CoreInvestTarget: lis2.Addr().String(),
+				OpsTarget:        lis3.Addr().String(),
+			},
+			verify: func(t *testing.T, srv *Server) {
+				assert.Len(t, srv.conns, 3)
+				assert.NotNil(t, srv.wfClient)
+				assert.NotNil(t, srv.ciClient)
+				assert.NotNil(t, srv.opsClient)
+			},
+		},
+		{
+			name: "gRPC Targets DialError",
+			env:  map[string]string{},
+			cfg: Config{
+				WorkforceTarget:  "invalid://\x00",
+				CoreInvestTarget: "invalid://\x00",
+				OpsTarget:        "invalid://\x00",
+			},
+			verify: func(t *testing.T, srv *Server) {
+				assert.Nil(t, srv.wfClient)
+				assert.Nil(t, srv.ciClient)
+				assert.Nil(t, srv.opsClient)
+				assert.Empty(t, srv.conns)
+			},
+		},
 	}
 
-	srv := NewServer(cfg)
-	require.NotNil(t, srv)
-	assert.Len(t, srv.conns, 3)
-	assert.NotNil(t, srv.wfClient)
-	assert.NotNil(t, srv.ciClient)
-	assert.NotNil(t, srv.opsClient)
-
-	// Test Close() closes all gRPC connections
-	srv.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			srv := NewServer(tt.cfg)
+			require.NotNil(t, srv)
+			defer srv.Close()
+			tt.verify(t, srv)
+		})
+	}
 }
 
 func TestNewServer_ClientTLS(t *testing.T) {
@@ -243,22 +292,6 @@ func TestNewServer_ClientTLS(t *testing.T) {
 
 	assert.Len(t, srv.conns, 1)
 	assert.NotNil(t, srv.wfClient)
-}
-
-func TestNewServer_GrpcTargets_DialError(t *testing.T) {
-	// target parsing failure or dial failure
-	// We can use an invalid address like "invalid://\x00" which makes CleanTarget or grpcutil.Dial return an error
-	cfg := Config{
-		WorkforceTarget:  "invalid://\x00",
-		CoreInvestTarget: "invalid://\x00",
-		OpsTarget:        "invalid://\x00",
-	}
-
-	srv := NewServer(cfg)
-	assert.Nil(t, srv.wfClient)
-	assert.Nil(t, srv.ciClient)
-	assert.Nil(t, srv.opsClient)
-	assert.Empty(t, srv.conns)
 }
 
 func TestServer_SettersAndLog(t *testing.T) {
@@ -297,31 +330,6 @@ func TestServer_SettersAndLog(t *testing.T) {
 
 	srv.SetPublisher(nil)
 	assert.Nil(t, srv.publisher)
-}
-
-func TestNewServer_BrokerClient_EnvVars_Overrides(t *testing.T) {
-	t.Setenv("BROKER_API_BASE_URL", "http://mock-broker:8080")
-	t.Setenv("ALPACA_DATA_URL", "http://mock-broker-data:8080")
-	t.Setenv("APCA_API_KEY_ID", "CUSTOM_KEY_OVERRIDE")
-	t.Setenv("APCA_API_SECRET_KEY", "CUSTOM_SECRET_OVERRIDE")
-
-	srv := NewServer(Config{})
-	require.NotNil(t, srv)
-	defer srv.Close()
-
-	assert.NotNil(t, srv.brokerClient)
-}
-
-func TestNewServer_BankClient_EnvVars_Overrides(t *testing.T) {
-	t.Setenv("BANK_API_BASE_URL", "http://mock-bank:8081")
-	t.Setenv("PLAID_CLIENT_ID", "CUSTOM_CLIENT_ID_OVERRIDE")
-	t.Setenv("PLAID_SECRET", "CUSTOM_SECRET_OVERRIDE")
-
-	srv := NewServer(Config{})
-	require.NotNil(t, srv)
-	defer srv.Close()
-
-	assert.NotNil(t, srv.bankClient)
 }
 
 func TestNewServer_LoggerOutput(t *testing.T) {
