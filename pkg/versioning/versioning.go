@@ -36,6 +36,7 @@ type versionCandidate struct {
 	order   int
 }
 
+// Deprecated: Overly complex function, refactoring poses regression risks.
 // Middleware returns an HTTP middleware enforcing API versioning and content negotiation.
 func Middleware(cfg Config) func(http.Handler) http.Handler {
 	if cfg.DefaultVersion == "" {
