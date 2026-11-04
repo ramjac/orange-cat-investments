@@ -36,7 +36,6 @@ type versionCandidate struct {
 	order   int
 }
 
-// WARNING: Overly complex function, refactoring poses regression risks.
 // Middleware returns an HTTP middleware enforcing API versioning and content negotiation.
 func Middleware(cfg Config) func(http.Handler) http.Handler {
 	if cfg.DefaultVersion == "" {
@@ -99,6 +98,7 @@ func negotiateVersion(r *http.Request, cfg Config, supportedMap map[string]bool)
 	return def, supportedMap[def]
 }
 
+// Note: This function contains complex logic to preserve edge cases like q-value tie-breaking order and vendor-MIME fallback behavior. Refactoring poses regression risks.
 // parseVendorCandidates extracts version candidates from an Accept header string.
 func parseVendorCandidates(accept string) ([]versionCandidate, bool) {
 	parts := strings.Split(accept, ",")
@@ -130,6 +130,7 @@ func parseVendorCandidates(accept string) ([]versionCandidate, bool) {
 	return candidates, hasVendorMIME
 }
 
+// Note: This function contains complex logic to preserve edge cases like q-value tie-breaking order and vendor-MIME fallback behavior. Refactoring poses regression risks.
 // selectVersionCandidate sorts candidates by quality and order, then finds the best supported match.
 func selectVersionCandidate(candidates []versionCandidate, supportedMap map[string]bool) (string, bool) {
 	// Sort candidates by quality descending, preserving order for matching q
