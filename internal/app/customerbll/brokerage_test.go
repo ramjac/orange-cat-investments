@@ -443,6 +443,51 @@ func TestDeleteWebhook(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, res)
 	})
+
+	t.Run("Nil Response Fallback", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return nil, nil // Nil response, no error
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
+	t.Run("Empty Status Fallback", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return &coreinvestv1.DeleteWebhookResponse{Status: ""}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "deleted", res.Status)
+	})
+
+	t.Run("Custom Status", func(t *testing.T) {
+		mockCI := &mockCoreInvestForWebhook{
+			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
+				return &coreinvestv1.DeleteWebhookResponse{Status: "pending"}, nil
+			},
+		}
+		server := NewServer(Config{})
+		server.SetCoreInvestClient(mockCI)
+
+		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
+		require.NoError(t, err)
+		assert.True(t, res.Success)
+		assert.Equal(t, "pending", res.Status)
+	})
 }
 
 func TestCreateAPIKey_SuccessWithRawSecret(t *testing.T) {
