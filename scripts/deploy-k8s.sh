@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+FAILED_ROLLOUTS=()
+wait_rollout() {
+    local cmd=("$@")
+    echo "Running: ${cmd[*]}"
+    if ! "${cmd[@]}"; then
+        echo "WARNING: Rollout failed for: ${cmd[*]}"
+        FAILED_ROLLOUTS+=("${cmd[*]}")
+    fi
+}
+
+
 # Direct Kubernetes Deployment Script for Orange Cat Investments (OCI)
 # Targets any existing Kubernetes cluster (MicroK8s, Minikube, kind, or cloud K8s)
 # using standard kubectl without requiring host SSH or Ansible.
@@ -40,6 +51,46 @@ if ! command -v kubectl &>/dev/null; then
     exit 1
 fi
 
+echo ""
+echo "Checking container registry pre-flight..."
+REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
+MANIFEST_DIRS=()
+if [[ "$PROFILE" == "dev" || "$PROFILE" == "staging" ]]; then
+    MANIFEST_DIRS=("k8s/oci-dev" "k8s/external-sim")
+elif [[ "$PROFILE" == "business-only" ]]; then
+    MANIFEST_DIRS=("k8s/oci-internal")
+else
+    MANIFEST_DIRS=("k8s/oci-core" "k8s/oci-internal" "k8s/external-sim" "k8s/monitoring" "k8s/logging" "k8s/oci-dev")
+fi
+
+MISSING_IMAGES=()
+for dir in "${MANIFEST_DIRS[@]}"; do
+    if [ ! -d "${REPO_ROOT}/${dir}" ]; then continue; fi
+    IMAGES=$(grep -rhoE "localhost:32000/[^\"[:space:]]+" "${REPO_ROOT}/${dir}" | sort -u || true)
+    for image in $IMAGES; do
+        temp="${image#localhost:32000/}"; REPO="${temp%:*}"
+        TAG="${image##*:}"
+        HTTP_CODE=$(curl -s -o /tmp/registry_resp -w "%{http_code}" "http://${REGISTRY_HOST}:32000/v2/${REPO}/tags/list")
+        if [ "$HTTP_CODE" -ne 200 ]; then
+            MISSING_IMAGES+=("$image")
+            continue
+        fi
+        if ! grep -q "\"${TAG}\"" /tmp/registry_resp; then
+            MISSING_IMAGES+=("$image")
+        fi
+    done
+done
+
+if [ ${#MISSING_IMAGES[@]} -gt 0 ]; then
+    echo "ERROR: The following images are missing from the local registry (${REGISTRY_HOST}:32000):"
+    for img in "${MISSING_IMAGES[@]}"; do
+        echo "  - $img"
+    done
+    echo ""
+    echo "Hint: Run scripts/sync-repo-to-forgejo.sh to build and push these images via CI, or build them manually."
+    exit 1
+fi
+echo "Pre-flight checks passed."
 echo ""
 echo "1. Checking Kubernetes cluster connectivity..."
 kubectl cluster-info
@@ -91,7 +142,7 @@ if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
+    wait_rollout kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
     echo "Staging environment deployed. Production (oci-core) and internal COTS left untouched."
 elif [[ "${PROFILE}" == "business-only" ]]; then
     echo ""
@@ -110,7 +161,7 @@ else
     echo ""
     echo "5. Deploying External Simulation Mocks (external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/"
-    kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
+    wait_rollout kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
 
     echo ""
     echo "6. Deploying Monitoring & Logging Stacks (Prometheus, Grafana, Loki, Promtail)..."
@@ -126,30 +177,30 @@ echo ""
 echo "8. Waiting for database and messaging workloads to become ready..."
 if [[ "${PROFILE}" == "business-only" ]]; then
     echo "Waiting for Internal PostgreSQL (postgres-internal)..."
-    kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s || true
+    wait_rollout kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s
 elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo "Waiting for Dev PostgreSQL..."
-    kubectl rollout status statefulset/postgres-dev -n oci-dev --timeout=120s || true
+    wait_rollout kubectl rollout status statefulset/postgres-dev -n oci-dev --timeout=120s
     echo "Waiting for Dev Valkey..."
-    kubectl rollout status deployment/valkey -n oci-dev --timeout=120s || true
+    wait_rollout kubectl rollout status deployment/valkey -n oci-dev --timeout=120s
     echo "Waiting for Dev RabbitMQ..."
-    kubectl rollout status deployment/rabbitmq -n oci-dev --timeout=120s || true
+    wait_rollout kubectl rollout status deployment/rabbitmq -n oci-dev --timeout=120s
 else
     echo "Waiting for OCI Core PostgreSQL..."
-    kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s || true
+    wait_rollout kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s
     echo "Waiting for Internal PostgreSQL..."
-    kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s || true
+    wait_rollout kubectl rollout status statefulset/postgres-internal -n oci-internal --timeout=120s
     echo "Waiting for Valkey..."
-    kubectl rollout status deployment/valkey -n oci-core --timeout=120s || true
+    wait_rollout kubectl rollout status deployment/valkey -n oci-core --timeout=120s
     echo "Waiting for RabbitMQ..."
-    kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s || true
+    wait_rollout kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s
 fi
 
 # Provision starter platform administrator in Forgejo IdP if deployed
 if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-admin-credentials -n oci-internal &>/dev/null; then
     echo ""
     echo "9. Provisioning starter platform administrator account in Forgejo IdP..."
-    if kubectl rollout status deployment/forgejo -n oci-internal --timeout=90s 2>/dev/null; then
+    if wait_rollout kubectl rollout status deployment/forgejo -n oci-internal --timeout=90s 2>/dev/null; then
         ADMIN_PWD=$(kubectl get secret starter-admin-credentials -n oci-internal -o jsonpath='{.data.ADMIN_PASSWORD}' | base64 -d 2>/dev/null || true)
         if [[ -n "${ADMIN_PWD}" ]]; then
             kubectl exec -n oci-internal deployment/forgejo -- \
@@ -215,3 +266,14 @@ else
     echo "  kubectl port-forward -n oci-internal svc/forgejo-service 3000:3000 &"
 fi
 echo "=============================================================="
+if [ ${#FAILED_ROLLOUTS[@]} -gt 0 ]; then
+    echo ""
+    echo "=============================================================="
+    echo "  Deployment completed with ERRORS!                           "
+    echo "=============================================================="
+    echo "The following rollouts failed:"
+    for f in "${FAILED_ROLLOUTS[@]}"; do
+        echo "  - $f"
+    done
+    exit 1
+fi
