@@ -1,0 +1,20 @@
+--- pkg/session/valkey/store.go
++++ pkg/session/valkey/store.go
+@@ -37,6 +37,18 @@
+	ExpiresAt   time.Time `json:"expires_at"`
+ }
+
++// IsElevated returns true if the employee holds an elevated administrative role.
++func (s *EmployeeSession) IsElevated() bool {
++	role := strings.ToLower(strings.TrimSpace(s.Role))
++	for _, r := range []string{"admin", "hr", "ops", "engineering"} {
++		if role == r {
++			return true
++		}
++	}
++	return false
++}
++
++
+ // CustomerSessionStore defines the interface for managing customer sessions.
+ type CustomerSessionStore interface {

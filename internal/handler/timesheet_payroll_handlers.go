@@ -10,16 +10,6 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
-func isElevatedRole(role string) bool {
-	role = strings.ToLower(strings.TrimSpace(role))
-	for _, r := range []string{"admin", "hr", "ops", "engineering"} {
-		if role == r {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
 	sess := session.EmployeeFromContext(r.Context())
 	if sess == nil {
@@ -28,7 +18,7 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	}
 
 	empID := r.URL.Query().Get("employee_id")
-	if !isElevatedRole(sess.Role) {
+	if !sess.IsElevated() {
 		empID = sess.EmployeeID
 	}
 
@@ -76,7 +66,7 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if !isElevatedRole(sess.Role) {
+	if !sess.IsElevated() {
 		ts.EmployeeID = sess.EmployeeID
 	}
 
@@ -117,7 +107,7 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !isElevatedRole(sess.Role) && resp.Timesheet.EmployeeID != sess.EmployeeID {
+	if !sess.IsElevated() && resp.Timesheet.EmployeeID != sess.EmployeeID {
 		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's timesheet")
 		return
 	}
@@ -132,7 +122,7 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if !isElevatedRole(sess.Role) {
+	if !sess.IsElevated() {
 		writeError(w, http.StatusForbidden, "forbidden: elevated role required to update timesheet status")
 		return
 	}
@@ -212,7 +202,7 @@ func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Reques
 	}
 
 	employeeID := r.URL.Query().Get("employee_id")
-	if !isElevatedRole(sess.Role) {
+	if !sess.IsElevated() {
 		employeeID = sess.EmployeeID
 	}
 
@@ -260,7 +250,7 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !isElevatedRole(sess.Role) && resp.SalarySlip.EmployeeID != sess.EmployeeID {
+	if !sess.IsElevated() && resp.SalarySlip.EmployeeID != sess.EmployeeID {
 		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's salary slip")
 		return
 	}
