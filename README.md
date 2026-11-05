@@ -253,6 +253,10 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 ### 5.17 Self-Hosted Kubernetes Infrastructure Blind-Spot Telemetry
 * **Storage, Pod State & Backup Alerting (`k8s/monitoring/`):** Configured kubelet volume capacity scraping (`PVCCapacityWarning` `< 15%` free and `PVCCapacityPrediction` 24h linear exhaustion), `kube-state-metrics` (`PodCrashLoopBackOff`, `PodImagePullBackOff`, `PodPending`, `OOMKilled`), and `BackupFailedOrStale` (`> 26h`) rules alongside operational runbooks in [`docs/runbooks/k8s-monitoring-blind-spots.md`](docs/runbooks/k8s-monitoring-blind-spots.md).
 
+### 5.18 Container Builds & Image Promotion for All External-Sim Mocks
+* **External-Sim Dockerfiles (`cmd/mock-bank/Dockerfile`, `cmd/mock-broker/Dockerfile`):** Added container build definitions consistent with `mock-hardware` for external mock integration testing.
+* **Pipeline Integration (`ci.yaml` & `verify-ci-contracts.sh`):** Integrated mock container builds into deployment pipelines ensuring complete integration tracking in `oci-dev`.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -767,15 +771,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [cluster] Deleting the Forgejo pod preserves repositories and prior Actions logs.
 
 #### 7.3 Container Builds & Image Promotion for All External-Sim Mocks
-* **Depends On:** `7.1`.
-* **Current Codebase State:** `k8s/external-sim/mock-bank.yaml` and `mock-broker.yaml` reference `localhost:32000/mock-bank:latest` and `mock-broker:latest`, but `cmd/mock-bank/` and `cmd/mock-broker/` have **no Dockerfile** and `ci.yaml` never builds them. Code changes to either mock can therefore never reach the cluster. `mock-hardware` is already built.
-* **PR Scope:**
-  1. Add `cmd/mock-bank/Dockerfile` and `cmd/mock-broker/Dockerfile`, following the `cmd/mock-hardware/Dockerfile` pattern (with the `GO_VERSION` arg from `7.1`).
-  2. Add both images to the build/push loop in `deploy-oci-dev`, and add `kubectl set image ... :sha-${COMMIT_SHA} -n external-sim` plus `rollout status` for `mock-bank` and `mock-broker`.
-  3. Extend `scripts/verify-ci-contracts.sh` to assert that every `localhost:32000/<image>` referenced under `k8s/` has a matching `docker build -t localhost:32000/<image>` line in `ci.yaml`.
-* **Verification Gate:**
-  * [offline] `docker build -f cmd/mock-bank/Dockerfile .` and `docker build -f cmd/mock-broker/Dockerfile .` succeed.
-  * [offline] `./scripts/verify-ci-contracts.sh` passes, and fails if the `mock-bank` build line is removed.
+> [!NOTE] **Status: Completed**
 
 #### 7.4 Honest Immutable-SHA Promotion & Post-Deploy Image Verification
 * **Depends On:** `7.1`, `7.3`.
