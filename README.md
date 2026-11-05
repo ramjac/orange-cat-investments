@@ -958,20 +958,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] GoChannel router tests: malformed, missing-field, and handler-error messages land in `.dlq`; a following valid message is still processed; and captured log output contains no payload bytes.
 
 #### 7.19 Sandboxed Chaos Suite for `oci-dev`
-* **Depends On:** `7.14`, `7.17`, `7.18`.
-* **Current Codebase State:** No chaos tooling exists. In `oci-dev`, only `internal-bll` calls `oci-internal` (Nextcloud, Forgejo, ERPNext, Snipe-IT URLs in `k8s/oci-dev/bll-services.yaml`).
-* **PR Scope:**
-  1. Add `scripts/run-chaos-suite.sh`. It wraps every mutating `kubectl` call in a guard function that refuses any namespace other than `oci-dev`, and refuses `external-sim` resources not suffixed `-dev`. It installs `trap` cleanup on `EXIT`/`INT`/`ERR` that deletes every applied chaos policy and restores replica counts. Scenarios:
-     * **COTS outage:** apply `k8s/chaos/oci-dev-deny-internal-egress.yaml` (selects `app: internal-bll` in `oci-dev`, allows egress everywhere except the `oci-internal` namespace) and verify that employee-portal COTS features degrade with clean errors.
-     * **Tier partitions:** temporary `NetworkPolicy`s in `oci-dev` blocking BFF→BLL and BLL→Domain API traffic; verify bounded gRPC errors and recovery after removal.
-     * **Database restart:** scale `statefulset/postgres-dev` to 0 and back to 1; verify the Domain APIs reconnect without crash loops.
-     * **Pod kills:** delete one pod each of a Domain API, a BLL, and a BFF in `oci-dev`; verify they are replaced and become Ready.
-     * **External outage:** use `7.17` faults on the `-dev` mocks.
-     * After all scenarios, run the simulator against `oci-dev` and require it to pass.
-  2. Document scenarios, guards, and expected alerts in `docs/runbooks/chaos-engineering.md`.
-* **Verification Gate:**
-  * [offline] `bash -n`. A test with a stub `kubectl` proves the guard rejects `-n oci-core`, `-n oci-internal`, and `-n external-sim` resources without the `-dev` suffix, and that cleanup runs on simulated failure.
-  * [cluster] A full suite run against `oci-dev` ends with the simulator passing and no chaos `NetworkPolicy` left behind.
+> [!NOTE] **Status: Completed**
 
 ---
 
