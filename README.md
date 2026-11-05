@@ -803,7 +803,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 ### Phase 2: Core Domain Completion
 
-#### 7.6 Dedicated Dev Instances of External-Sim Mocks
+#### 7.6 Dedicated Dev Instances of External-Sim Mocks (Completed)
 * **Depends On:** `7.4`.
 * **Current Codebase State:** `external-sim` runs a single `mock-bank`, `mock-broker`, and `mock-hardware`. `oci-core` and `oci-dev` `customer-bll` both point at the same `mock-broker-service` / `mock-bank-service`, and `mock-hardware` publishes only to `oci-core` RabbitMQ and `internal-bll`. As a result, `oci-dev` gets no hardware events, and any fault injected into a mock (Phase 4) would also hit prod. In addition, `mock-bank`'s `OCI_WEBHOOK_URL` points at `unified-api.oci-core.svc.cluster.local:8080`, a service that no longer exists. No Go code receives `/api/v1/bank/webhooks`.
 * **PR Scope:**
