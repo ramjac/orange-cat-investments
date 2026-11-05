@@ -20,6 +20,23 @@ data:
         type: tempo
         access: proxy
         url: http://tempo.monitoring.svc.cluster.local:3200
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: Loki
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            filterByTraceID: false
+            filterBySpanID: false
+            customQuery: true
+            query: '{$${__tags}} |~ "$${__trace.traceId}"'
+          tracesToMetrics:
+            datasourceUid: Prometheus
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            tags: [{ key: 'service.name', value: 'service' }]
+            queries:
+              - name: 'Sample query'
+                query: 'sum(rate(traces_spanmetrics_latency_bucket{$${__tags}}[5m]))'
 ---
 apiVersion: apps/v1
 kind: Deployment
