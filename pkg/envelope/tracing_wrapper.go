@@ -1,7 +1,6 @@
 package envelope
 
 import (
-	"context"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 )
