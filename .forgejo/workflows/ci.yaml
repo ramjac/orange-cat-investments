@@ -25,9 +25,13 @@ jobs:
         run: |
           if ! command -v go &>/dev/null; then
             echo "Installing Go..."
-            curl -fsSL https://go.dev/dl/go1.23.6.linux-amd64.tar.gz | tar -C /usr/local -xz
+            GO_VERSION=$(cat .go-version)
+            curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
             echo "/usr/local/go/bin" >> $GITHUB_PATH
           fi
+
+      - name: Verify CI Contracts
+        run: ./scripts/verify-ci-contracts.sh
 
       - name: Verify Node.js Environment
         run: |
@@ -176,7 +180,8 @@ jobs:
         run: |
           if ! command -v go &>/dev/null; then
             echo "Installing Go..."
-            curl -fsSL https://go.dev/dl/go1.23.6.linux-amd64.tar.gz | tar -C /usr/local -xz
+            GO_VERSION=$(cat .go-version)
+            curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
             echo "/usr/local/go/bin" >> $GITHUB_PATH
           fi
 
@@ -184,7 +189,7 @@ jobs:
         run: |
           STAGING_URL="${STAGING_URL:-http://dev.api.oci.local}"
           echo "Executing automated live simulation against oci-dev endpoints (${STAGING_URL})..."
-          go run ./simulation/cmd/simulator -mode live -url "${STAGING_URL}" || \
+          go run ./simulation/cmd/simulator -mode live -bff-url "${STAGING_URL}" -cust-bff-url "${STAGING_URL}" || \
           (echo "Simulation regression detected in oci-dev! Halting production promotion gate." && exit 1)
 
   promote-oci-core:
