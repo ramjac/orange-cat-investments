@@ -817,16 +817,6 @@ func TestGetPortfolio_HistoricalPerformanceFallback(t *testing.T) {
 	assert.Equal(t, "acc-456", resp.PortfolioID)
 	assert.Equal(t, 10000.0, resp.TotalBalanceUSD)
 
-	// Should fallback to default 4 points calculated from current balance
-	require.Len(t, resp.HistoricalPerformance, 4)
-
-	now := time.Now().UTC()
-	assert.Equal(t, now.AddDate(0, -3, 0).Format("2006-01-02"), resp.HistoricalPerformance[0].Date)
-	assert.Equal(t, now.AddDate(0, -2, 0).Format("2006-01-02"), resp.HistoricalPerformance[1].Date)
-	assert.Equal(t, now.AddDate(0, -1, 0).Format("2006-01-02"), resp.HistoricalPerformance[2].Date)
-	assert.Equal(t, now.Format("2006-01-02"), resp.HistoricalPerformance[3].Date)
-	assert.Equal(t, 7800.0, resp.HistoricalPerformance[0].Valuation)
-	assert.Equal(t, 8500.0, resp.HistoricalPerformance[1].Valuation)
-	assert.Equal(t, 9200.0, resp.HistoricalPerformance[2].Valuation)
-	assert.Equal(t, 10000.0, resp.HistoricalPerformance[3].Valuation)
+	// Should fallback to empty array
+	require.Empty(t, resp.HistoricalPerformance)
 }
