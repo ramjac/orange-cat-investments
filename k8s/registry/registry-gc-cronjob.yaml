@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: registry-gc
+  namespace: kube-system
+spec:
+  schedule: "@daily"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: gc
+            image: registry:2
+            command:
+            - /bin/sh
+            - -c
+            - |
+              for repo in /var/lib/registry/docker/registry/v2/repositories/*; do
+                tags_dir="$repo/_manifests/tags"
+                if [ -d "$tags_dir" ]; then
+                  ls -1t "$tags_dir" | grep '^sha-' | tail -n +11 | while read tag; do
+                    rm -rf "$tags_dir/$tag"
+                  done
+                fi
+              done
+              registry garbage-collect /etc/docker/registry/config.yml -m
+            volumeMounts:
+            - name: registry-storage
+              mountPath: /var/lib/registry
+          restartPolicy: OnFailure
+          volumes:
+          - name: registry-storage
+            persistentVolumeClaim:
+              claimName: container-registry-pvc

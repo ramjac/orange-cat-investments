@@ -101,6 +101,7 @@ jobs:
 
       - name: Build & Tag Development Images
         run: |
+          docker system prune -af --filter "until=24h"
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Building development images for commit: sha-${COMMIT_SHA}"
           
@@ -119,9 +120,11 @@ jobs:
           docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile .
           docker build -t localhost:32000/oci-marketing:dev-latest -t localhost:32000/oci-marketing:sha-${COMMIT_SHA} -f web/marketing/Dockerfile .
           docker build -t localhost:32000/mock-hardware:dev-latest -t localhost:32000/mock-hardware:sha-${COMMIT_SHA} -f cmd/mock-hardware/Dockerfile .
+          docker build -t localhost:32000/mock-bank:dev-latest -t localhost:32000/mock-bank:sha-${COMMIT_SHA} -f cmd/mock-bank/Dockerfile .
+          docker build -t localhost:32000/mock-broker:dev-latest -t localhost:32000/mock-broker:sha-${COMMIT_SHA} -f cmd/mock-broker/Dockerfile .
 
           echo "Pushing images directly to in-cluster container registry (localhost:32000)..."
-          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
             docker push localhost:32000/${app}:dev-latest
             docker push localhost:32000/${app}:sha-${COMMIT_SHA}
           done
@@ -154,6 +157,12 @@ jobs:
           kubectl apply -f k8s/external-sim/mock-hardware.yaml
           kubectl set image deployment/mock-hardware mock-hardware=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
           kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
+          kubectl apply -f k8s/external-sim/mock-bank.yaml
+          kubectl set image deployment/mock-bank mock-bank=localhost:32000/mock-bank:sha-${COMMIT_SHA} -n external-sim
+          kubectl rollout status deployment/mock-bank -n external-sim --timeout=120s
+          kubectl apply -f k8s/external-sim/mock-broker.yaml
+          kubectl set image deployment/mock-broker mock-broker=localhost:32000/mock-broker:sha-${COMMIT_SHA} -n external-sim
+          kubectl rollout status deployment/mock-broker -n external-sim --timeout=120s
           echo "Waiting for oci-dev workloads to reach ready state..."
           for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff-dev oci-employee-bff-dev oci-customer-portal-dev oci-employee-portal-dev oci-pebble-proxy-dev oci-worker-dev oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-dev --timeout=120s
