@@ -97,6 +97,7 @@ jobs:
 
       - name: Build & Tag Development Images
         run: |
+          docker system prune -af --filter "until=24h"
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Building development images for commit: sha-${COMMIT_SHA}"
           
