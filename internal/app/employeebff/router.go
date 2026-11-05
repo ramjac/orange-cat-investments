@@ -50,7 +50,8 @@ func (b *EmployeeBFF) RegisterRoutes(mux *http.ServeMux) {
 		mux.Handle("/employee/", sessionAuth(wfMux))
 		mux.Handle("/api/v1/nextcloud/", sessionAuth(wfMux))
 		mux.Handle("/nextcloud/", sessionAuth(wfMux))
-		mux.Handle("/webhooks/", wfMux) // Webhooks generally use signature verification, not session auth
+		mux.Handle("/api/v1/webhooks/", wfMux) // Webhooks generally use signature verification, not session auth
+		mux.Handle("/webhooks/", wfMux)
 	}
 
 	// 4. Operations domain routes
