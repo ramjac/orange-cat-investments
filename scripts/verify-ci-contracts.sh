@@ -32,13 +32,12 @@ grep -o "go run ./simulation/cmd/simulator[^\|]*" .forgejo/workflows/ci.yaml | w
   # Using eval here because $cmd can contain quotes and env vars that we want bash to evaluate if we export them,
   # but here we'll just remove the env vars to avoid undefined behavior or we can just export a dummy var.
   # Let's clean up $cmd to remove `\` continuation if any, though grep -o avoids trailing \|
-  cmd=$(echo "$cmd" | sed 's/\\$//')
+  cmd="${cmd//\\/}"
 
   EVAL_CMD="${cmd} -validate-flags"
   echo "Running: STAGING_URL=http://test $EVAL_CMD"
 
-  STAGING_URL=http://test eval "$EVAL_CMD"
-  if [ $? -ne 0 ]; then
+  if ! STAGING_URL=http://test eval "$EVAL_CMD"; then
     echo "Error: Command failed to validate flags: $EVAL_CMD"
     exit 1
   fi
