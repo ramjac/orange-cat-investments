@@ -68,8 +68,8 @@ for dir in "${MANIFEST_DIRS[@]}"; do
     if [ ! -d "${REPO_ROOT}/${dir}" ]; then continue; fi
     IMAGES=$(grep -rhoE "localhost:32000/[^\"[:space:]]+" "${REPO_ROOT}/${dir}" | sort -u || true)
     for image in $IMAGES; do
-        REPO=$(echo "$image" | sed "s/localhost:32000\/\(.*\):.*/\1/")
-        TAG=$(echo "$image" | sed "s/.*:\(.*\)/\1/")
+        temp="${image#localhost:32000/}"; REPO="${temp%:*}"
+        TAG="${image##*:}"
         HTTP_CODE=$(curl -s -o /tmp/registry_resp -w "%{http_code}" "http://${REGISTRY_HOST}:32000/v2/${REPO}/tags/list")
         if [ "$HTTP_CODE" -ne 200 ]; then
             MISSING_IMAGES+=("$image")

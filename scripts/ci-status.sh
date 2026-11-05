@@ -30,7 +30,7 @@ if [[ -z "$RUNS_JSON" || "$RUNS_JSON" == "[]" ]]; then
     exit 0
 fi
 
-read RUN_ID RUN_STATUS < <(python3 -c "
+read -r RUN_ID RUN_STATUS < <(python3 -c "
 import sys, json
 try:
     data = json.loads(sys.argv[1])
