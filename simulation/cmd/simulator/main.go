@@ -31,10 +31,15 @@ func main() {
 		tokensFile   = flag.String("tokens-file", "", "Path to saved tokens and session state JSON file for persistent runs")
 		forgejoToken = flag.String("forgejo-token", "", "Forgejo REST API authentication token override")
 		eliseToken   = flag.String("forgejo-elise-token", "", "Forgejo REST API token override for Elise Dev")
-		marcusToken  = flag.String("forgejo-marcus-token", "", "Forgejo REST API token override for Marcus Lead")
+		marcusToken   = flag.String("forgejo-marcus-token", "", "Forgejo REST API token override for Marcus Lead")
+		validateFlags = flag.Bool("validate-flags", false, "Validate flags and exit immediately")
 	)
 
 	flag.Parse()
+
+	if *validateFlags {
+		os.Exit(0)
+	}
 
 	if *seedSearch {
 		mURL := *meiliURL

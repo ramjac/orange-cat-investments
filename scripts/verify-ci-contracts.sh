@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+failed=0
+
+# 1. Verify every localhost:32000 image referenced under k8s/ has a matching docker build target in ci.yaml
+IMAGES=$(grep -r "image: localhost:32000/" k8s/ | grep -o "localhost:32000/[^:]*" | sort | uniq)
+
+echo "Verifying docker build targets for k8s deployment images..."
+for img in $IMAGES; do
+    if ! grep -q "docker build -t ${img}:" .forgejo/workflows/ci.yaml; then
+        echo "ERROR: Missing docker build target in .forgejo/workflows/ci.yaml for $img"
+        failed=1
+    fi
+done
+
+# 2. Check every Go Dockerfile to ensure GO_VERSION matches go.mod major.minor
+GOMOD_VERSION=$(grep -m1 "^go " go.mod | awk '{print $2}' | cut -d. -f1,2)
+
+echo "Expected GO_VERSION: ${GOMOD_VERSION}"
+for dockerfile in cmd/*/Dockerfile web/marketing/Dockerfile; do
+  if [ -f "$dockerfile" ]; then
+    DOCKERFILE_VERSION=$(grep -m1 "^ARG GO_VERSION" "$dockerfile" | cut -d= -f2 | tr -d '\r\n')
+    if [ "$DOCKERFILE_VERSION" != "$GOMOD_VERSION" ]; then
+      echo "Error: $dockerfile has ARG GO_VERSION=$DOCKERFILE_VERSION, expected $GOMOD_VERSION"
+      failed=1
+    fi
+  fi
+done
+
+# 3. Extract go run ./simulation/cmd/simulator commands from ci.yaml and run them with -validate-flags
+echo "Testing simulation commands in ci.yaml with -validate-flags..."
+if grep -q "go run ./simulation/cmd/simulator" .forgejo/workflows/ci.yaml; then
+  grep -o "go run ./simulation/cmd/simulator[^\|]*" .forgejo/workflows/ci.yaml | while read -r cmd; do
+    cmd="${cmd//\\/}"
+
+    EVAL_CMD="${cmd} -validate-flags"
+    echo "Running: STAGING_URL=http://test $EVAL_CMD"
+
+    if ! STAGING_URL=http://test eval "$EVAL_CMD"; then
+      echo "Error: Command failed to validate flags: $EVAL_CMD"
+      exit 1
+    fi
+  done
+fi
+
+if [ "$failed" -eq 1 ]; then
+    echo "CI contracts verification failed."
+    exit 1
+fi
+
+echo "CI contracts verification passed."
