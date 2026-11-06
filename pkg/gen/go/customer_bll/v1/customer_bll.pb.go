@@ -331,7 +331,6 @@ type GetESGTransparencyResponse struct {
 	PerchComfortRating     string                           `json:"perch_comfort_rating"`
 	WorkplaceIncidentsCnt  int32                            `json:"workplace_incidents_cnt"`
 	MedicalHoldsIssuedYTD  int32                            `json:"medical_holds_issued_ytd"`
-	FelineExecutives       []*FelineExecutiveSummary        `json:"feline_executives"`
 	Incidents              []*workforcev1.WorkplaceIncident `json:"incidents"`
 }
 

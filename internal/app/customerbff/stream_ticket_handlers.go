@@ -47,7 +47,6 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 		"perch_comfort_rating":     resp.PerchComfortRating,
 		"workplace_incidents_cnt":  resp.WorkplaceIncidentsCnt,
 		"medical_holds_issued_ytd": resp.MedicalHoldsIssuedYTD,
-		"feline_executives":        resp.FelineExecutives,
 	}
 
 	data, err := json.Marshal(esgResp)

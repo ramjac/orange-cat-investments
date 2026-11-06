@@ -25,11 +25,6 @@ func TestCustomerBFF_GetESGTransparency(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, resp, "overall_welfare_score")
 	assert.Contains(t, resp, "veterinary_adherence_pct")
-	assert.Contains(t, resp, "feline_executives")
-
-	execs, ok := resp["feline_executives"].([]interface{})
-	assert.True(t, ok)
-	assert.NotEmpty(t, execs)
 }
 
 func BenchmarkGetESGTransparency(b *testing.B) {

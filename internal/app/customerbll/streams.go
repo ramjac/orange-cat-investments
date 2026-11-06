@@ -85,48 +85,7 @@ func (s *Server) getVHRRecordsByFeline(ctx context.Context) (map[string][]*workf
 	return vhrByFeline, nil
 }
 
-// buildFelineExecutiveSummary constructs an executive wellbeing summary for a feline employee
-// based on their historical veterinary health records (VHR). If emp is nil, it returns nil.
-func buildFelineExecutiveSummary(emp *workforcev1.Employee, records []*workforcev1.VHRRecord) *customerbllv1.FelineExecutiveSummary {
-	if emp == nil {
-		return nil
-	}
-
-	healthStatus := "ACTIVE"
-	whiskerSymmetry := "100%"
-	purrFreq := 25.0
-	preferredSunbeam := "Observation Lounge"
-
-	if len(records) > 0 {
-		latest := records[0]
-		if latest.DentalScore >= 4 {
-			healthStatus = "PEAK_PERFORMER"
-			whiskerSymmetry = "99.8%"
-			purrFreq = 26.2
-		} else {
-			healthStatus = "UNDER_OBSERVATION"
-			whiskerSymmetry = "95.0%"
-			purrFreq = 22.0
-		}
-		if latest.ClinicalNotes != "" {
-			preferredSunbeam = latest.ClinicalNotes
-		}
-	}
-
-	return &customerbllv1.FelineExecutiveSummary{
-		EmployeeID:       emp.EmployeeID,
-		Name:             emp.FirstName,
-		Role:             emp.RoleTitle,
-		HealthStatus:     healthStatus,
-		WhiskerSymmetry:  whiskerSymmetry,
-		PurrFrequencyHz:  purrFreq,
-		PreferredSunbeam: preferredSunbeam,
-		VHRRecordsCnt:    int32(len(records)),
-	}
-}
-
 func (s *Server) GetESGTransparency(ctx context.Context, in *customerbllv1.GetESGTransparencyRequest) (*customerbllv1.GetESGTransparencyResponse, error) {
-	felinesList := []*customerbllv1.FelineExecutiveSummary{}
 	vhrRecordsCount := 0
 
 	emps, _ := s.getActiveFelines(ctx)
@@ -141,9 +100,6 @@ func (s *Server) GetESGTransparency(ctx context.Context, in *customerbllv1.GetES
 			records = vhrByFeline[emp.EmployeeID]
 		}
 		vhrRecordsCount += len(records)
-		if summary := buildFelineExecutiveSummary(emp, records); summary != nil {
-			felinesList = append(felinesList, summary)
-		}
 	}
 
 	var incidents []*workforcev1.WorkplaceIncident
@@ -162,7 +118,7 @@ func (s *Server) GetESGTransparency(ctx context.Context, in *customerbllv1.GetES
 	}
 
 	adherencePct := 100.0
-	if vhrRecordsCount == 0 && len(felinesList) > 0 {
+	if vhrRecordsCount == 0 && len(emps) > 0 {
 		adherencePct = 98.5
 	}
 
@@ -174,7 +130,6 @@ func (s *Server) GetESGTransparency(ctx context.Context, in *customerbllv1.GetES
 		PerchComfortRating:     "5.0 / 5.0 (Ergonomic Thermal Cushioning)",
 		WorkplaceIncidentsCnt:  int32(incidentsCnt),
 		MedicalHoldsIssuedYTD:  0,
-		FelineExecutives:       felinesList,
 		Incidents:              incidents,
 	}, nil
 }

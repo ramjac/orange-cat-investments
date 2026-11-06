@@ -65,9 +65,6 @@ func (m *mockCustomerBLLClient) GetESGTransparency(ctx context.Context, in *cust
 		PerchComfortRating:     "5.0 / 5.0 (Ergonomic Thermal Cushioning)",
 		WorkplaceIncidentsCnt:  0,
 		MedicalHoldsIssuedYTD:  0,
-		FelineExecutives: []*customerbllv1.FelineExecutiveSummary{
-			{EmployeeID: "fel-01", Name: "Barnaby", Role: "Chief Happiness Officer", HealthStatus: "excellent", PurrFrequencyHz: 26.5, PreferredSunbeam: "Library South Perch"},
-		},
 	}, nil
 }
 
