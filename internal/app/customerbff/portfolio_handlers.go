@@ -305,3 +305,47 @@ func (b *CustomerBFF) handleDownloadStatement(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resp.PDFBytes)
 }
+
+func (b *CustomerBFF) handleGetPortfolioHistory(w http.ResponseWriter, r *http.Request) {
+	session := CustomerFromContext(r.Context())
+	if session == nil || session.CustomerID == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: valid customer session required")
+		return
+	}
+	custID := session.CustomerID
+
+	portfolioID := r.URL.Query().Get("portfolio_id")
+	if portfolioID == "" && custID != "" {
+		portfolioID = fmt.Sprintf("port-%s", custID)
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "3M"
+	}
+
+	validPeriods := map[string]bool{"1M": true, "3M": true, "6M": true, "1Y": true, "YTD": true}
+	if !validPeriods[period] {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid period")
+		return
+	}
+
+	if b.bllClient == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "customer bll service unavailable")
+		return
+	}
+
+	resp, err := b.bllClient.GetPortfolioHistory(r.Context(), &customerbllv1.GetPortfolioHistoryRequest{
+		CustomerID:  custID,
+		PortfolioID: portfolioID,
+		Period:      period,
+	})
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to get portfolio history")
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		"points": resp.Points,
+	})
+}

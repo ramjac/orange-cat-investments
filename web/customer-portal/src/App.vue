@@ -129,11 +129,24 @@
       </div>
 
       <div class="card">
-        <h3>Historical Performance</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <h3 style="margin: 0;">Historical Performance</h3>
+          <div class="period-selector" style="display: flex; gap: 0.25rem;">
+            <button v-for="p in ['1M', '3M', '6M', '1Y', 'YTD']" :key="p"
+                    class="btn-secondary"
+                    :style="period === p ? 'background: #0284c7; color: white;' : 'padding: 0.25rem 0.5rem; font-size: 0.8rem;'"
+                    @click="fetchPortfolioHistory(p)">
+              {{ p }}
+            </button>
+          </div>
+        </div>
         <p class="subtext">Portfolio valuation growth driven by observation alpha.</p>
 
         <div class="chart-mock">
-          <div v-for="(p, idx) in portfolio.historical_performance" :key="idx" class="chart-bar-container">
+          <div v-if="!portfolio.historical_performance || portfolio.historical_performance.length === 0" style="width: 100%; text-align: center; color: #94a3b8; padding: 2rem 0;">
+            No historical data available for this period.
+          </div>
+          <div v-else v-for="(p, idx) in portfolio.historical_performance" :key="idx" class="chart-bar-container">
             <div class="chart-bar" :style="{ height: (p.valuation / 1500) + 'px' }"></div>
             <span class="chart-label">{{ p.date }}</span>
           </div>
@@ -1066,6 +1079,7 @@ const streamStatus = ref('connecting');
 const isAudioMuted = ref(true);
 const selectedStreamId = ref('str-018f-0001');
 
+const period = ref('3M');
 const portfolio = ref({
   portfolio_id: '018f3a9a-2222-7000-8000-000000000002',
   account_name: 'OCI Alpha Growth Fund',
@@ -1368,7 +1382,19 @@ async function fetchPortfolio() {
       const data = await res.json();
       if (data && data.portfolio_id) {
         portfolio.value = data;
+        await fetchPortfolioHistory(period.value);
       }
+    }
+  } catch (e) {}
+}
+
+async function fetchPortfolioHistory(p) {
+  period.value = p;
+  try {
+    const res = await fetch(`/api/v1/customer/portfolio/history?portfolio_id=${portfolio.value.portfolio_id}&period=${p}`);
+    if (res.ok) {
+      const data = await res.json();
+      portfolio.value.historical_performance = data.points || [];
     }
   } catch (e) {}
 }

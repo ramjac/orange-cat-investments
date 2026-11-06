@@ -867,13 +867,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
 
 #### 7.12 Portfolio History in Customer BFF & Portal
-* **Depends On:** `7.11`.
-* **Current Codebase State:** `internal/app/customerbff/portfolio_handlers.go` returns the BLL's `HistoricalPerformance` without a period selector. The customer portal renders a fixed chart.
-* **PR Scope:**
-  1. Add `GET /api/v1/customer/portfolio/history?period=1M|3M|6M|1Y|YTD` (default `3M`; 400 on invalid values) in `portfolio_handlers.go`, calling `GetPortfolioHistory`, and document it in `api/openapi.yaml`.
-  2. In `web/customer-portal`, add period buttons to the portfolio chart, fetch from the new endpoint, and show an empty state when there are no points.
-* **Verification Gate:**
-  * [offline] BFF handler tests for each period and for an invalid period. `npm test` in `web/customer-portal`.
+> [!NOTE] **Status: Completed**
 
 ---
 

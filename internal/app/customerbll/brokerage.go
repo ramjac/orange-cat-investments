@@ -294,3 +294,51 @@ func (s *Server) DeleteWebhook(ctx context.Context, in *customerbllv1.DeleteWebh
 	}
 	return &customerbllv1.DeleteWebhookResponse{Success: true, Status: "deleted"}, nil
 }
+
+func (s *Server) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetPortfolioHistoryRequest) (*customerbllv1.GetPortfolioHistoryResponse, error) {
+	if in == nil {
+		in = &customerbllv1.GetPortfolioHistoryRequest{}
+	}
+	portfolioID := in.PortfolioID
+	period := in.Period
+
+	if portfolioID == "" && s.brokerClient != nil && in.CustomerID != "" {
+		accs, err := s.brokerClient.ListAccounts(ctx)
+		if err == nil {
+			for _, a := range accs {
+				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID)) {
+					portfolioID = a.ID
+					break
+				}
+			}
+			if portfolioID == "" && len(accs) > 0 {
+				portfolioID = accs[0].ID
+			}
+		}
+	}
+	if portfolioID == "" && in.CustomerID != "" {
+		portfolioID = fmt.Sprintf("port-%s", in.CustomerID)
+	}
+
+	if period == "" {
+		period = "3M"
+	}
+
+	points := make([]*customerbllv1.ValuationPoint, 0)
+	if s.brokerClient != nil && portfolioID != "" {
+		history, err := s.brokerClient.GetPortfolioHistory(ctx, portfolioID, period)
+		if err == nil && history != nil && len(history.Timestamp) > 0 && len(history.Timestamp) == len(history.Equity) {
+			for i, ts := range history.Timestamp {
+				dateStr := time.Unix(ts, 0).UTC().Format("2006-01-02")
+				points = append(points, &customerbllv1.ValuationPoint{
+					Date:      dateStr,
+					Valuation: math.Round(history.Equity[i]*100) / 100,
+				})
+			}
+		}
+	}
+
+	return &customerbllv1.GetPortfolioHistoryResponse{
+		Points: points,
+	}, nil
+}
