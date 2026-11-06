@@ -201,6 +201,15 @@ data:
 
       - name: infrastructure_pvc_alerts
         rules:
+          - alert: NodeFilesystemLowSpace
+            expr: (container_fs_limit_bytes{id="/"} - container_fs_usage_bytes{id="/"}) / container_fs_limit_bytes{id="/"} < 0.2
+            for: 5m
+            labels:
+              severity: warning
+              tier: infrastructure
+            annotations:
+              summary: "Node filesystem available space < 20%"
+              description: "Node {{ $labels.instance }} has less than 20% available space."
           - alert: PVCCapacityWarning
             expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.15
             for: 5m

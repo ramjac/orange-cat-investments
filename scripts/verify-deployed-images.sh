@@ -9,35 +9,25 @@ fi
 NAMESPACE="$1"
 SHA_TAG="$2"
 shift 2
-DEPS=("$@")
+DEPLOYMENTS=("$@")
 
-if [ ${#DEPS[@]} -eq 0 ]; then
-  # If no deployments provided, fetch all deployments in the namespace
-  DEPS_STR=$(kubectl get deployment -n "${NAMESPACE}" -o jsonpath='{.items[*].metadata.name}')
-  if [ -n "$DEPS_STR" ]; then
-    read -ra DEPS <<< "$DEPS_STR"
-  fi
+if [ ${#DEPLOYMENTS[@]} -eq 0 ]; then
+    mapfile -t DEPLOYMENTS < <(kubectl get deployment -n "$NAMESPACE" -o custom-columns=NAME:.metadata.name --no-headers)
 fi
 
-FAILED=0
-
-for dep in "${DEPS[@]}"; do
-  # Get all images for the deployment
-  IMAGES_STR=$(kubectl get deployment "${dep}" -n "${NAMESPACE}" -o jsonpath='{..image}')
-  if [ -n "$IMAGES_STR" ]; then
-    read -ra IMAGES <<< "$IMAGES_STR"
-    for img in "${IMAGES[@]}"; do
-      if [[ "$img" != *":${SHA_TAG}" ]]; then
-        echo "ERROR: Deployment ${dep} in namespace ${NAMESPACE} is using image ${img} (expected tag :${SHA_TAG})"
-        FAILED=1
-      fi
+HAS_ERROR=0
+for deploy in "${DEPLOYMENTS[@]}"; do
+    IMAGES=$(kubectl get deployment "$deploy" -n "$NAMESPACE" -o jsonpath='{.spec.template.spec.containers[*].image}' || true)
+    for image in $IMAGES; do
+        if [[ "$image" != *":$SHA_TAG" ]]; then
+            echo "ERROR: Deployment $deploy in $NAMESPACE uses image $image which does not end in :$SHA_TAG"
+            HAS_ERROR=1
+        fi
     done
-  fi
 done
 
-if [ "$FAILED" -ne 0 ]; then
-  exit 1
+if [ $HAS_ERROR -eq 1 ]; then
+    exit 1
 fi
-
-echo "All specified deployments in namespace ${NAMESPACE} are correctly pinned to :${SHA_TAG}"
+echo "All checked deployments in $NAMESPACE are running images with tag :$SHA_TAG."
 exit 0
