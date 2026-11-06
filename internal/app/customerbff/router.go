@@ -60,6 +60,7 @@ func (b *CustomerBFF) Routes() http.Handler {
 
 		pr.Get("/api/v1/customer/auth/session", b.handleGetSession)
 		pr.Get("/api/v1/customer/portfolio", b.handleGetPortfolio)
+		pr.Get("/api/v1/customer/portfolio/history", b.handleGetPortfolioHistory)
 		pr.Get("/api/v1/customer/trade-logs", b.handleGetTradeLogs)
 		pr.Get("/api/v1/customer/ticker", b.handleTickerSSE)
 		pr.Get("/api/v1/customer/zoomie-index", b.handleGetZoomieIndex)

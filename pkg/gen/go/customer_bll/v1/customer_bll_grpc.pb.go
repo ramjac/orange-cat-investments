@@ -31,6 +31,9 @@ func invokeUnary[Req any, Resp any](ctx context.Context, cc grpc.ClientConnInter
 func (c *customerBLLServiceClient) GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error) {
 	return invokeUnary[GetPortfolioRequest, GetPortfolioResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolio", in)
 }
+func (c *customerBLLServiceClient) GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error) {
+	return invokeUnary[GetPortfolioHistoryRequest, GetPortfolioHistoryResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioHistory", in)
+}
 func (c *customerBLLServiceClient) GetPortfolioMetrics(ctx context.Context, in *GetPortfolioMetricsRequest) (*GetPortfolioMetricsResponse, error) {
 	return invokeUnary[GetPortfolioMetricsRequest, GetPortfolioMetricsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioMetrics", in)
 }

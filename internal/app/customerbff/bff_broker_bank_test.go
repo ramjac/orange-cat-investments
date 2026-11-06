@@ -27,6 +27,19 @@ func TestCustomerBFF_PortfolioAndTickerRoutes(t *testing.T) {
 	assert.Greater(t, portResp["total_balance_usd"].(float64), 0.0)
 	assert.Greater(t, portResp["cash_balance_usd"].(float64), 0.0)
 
+	// 1.5 GET /api/v1/customer/portfolio/history
+	reqHist := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history?period=1Y", nil)
+	reqHist.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	recHist := httptest.NewRecorder()
+	mux.ServeHTTP(recHist, reqHist)
+	assert.Equal(t, http.StatusOK, recHist.Code)
+
+	reqHistInvalid := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history?period=invalid", nil)
+	reqHistInvalid.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	recHistInvalid := httptest.NewRecorder()
+	mux.ServeHTTP(recHistInvalid, reqHistInvalid)
+	assert.Equal(t, http.StatusBadRequest, recHistInvalid.Code)
+
 	// 2. GET /api/v1/customer/ticker
 	tReq := httptest.NewRequest(http.MethodGet, "/api/v1/customer/ticker", nil)
 	tReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})

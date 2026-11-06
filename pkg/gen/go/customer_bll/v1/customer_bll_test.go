@@ -46,3 +46,9 @@ func TestCustomerBLLGRPC_RoundTrip(t *testing.T) {
 	assert.Equal(t, "port-cust-01", res.PortfolioID)
 	assert.Equal(t, 25000.0, res.TotalBalanceUSD)
 }
+
+func (m *mockCustomerBLLServer) GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error) {
+	return &GetPortfolioHistoryResponse{
+		Points: []*ValuationPoint{},
+	}, nil
+}
