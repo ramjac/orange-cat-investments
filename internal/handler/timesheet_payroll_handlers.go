@@ -10,6 +10,11 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
+func isPayrollAdmin(role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	return role == "admin" || role == "hr"
+}
+
 func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request) {
 	sess := session.EmployeeFromContext(r.Context())
 	if sess == nil {
@@ -18,7 +23,7 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	}
 
 	empID := r.URL.Query().Get("employee_id")
-	if !sess.IsElevated() {
+	if !isPayrollAdmin(sess.Role) {
 		empID = sess.EmployeeID
 	}
 
@@ -66,7 +71,7 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if !sess.IsElevated() {
+	if !isPayrollAdmin(sess.Role) {
 		ts.EmployeeID = sess.EmployeeID
 	}
 
@@ -107,7 +112,7 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !sess.IsElevated() && resp.Timesheet.EmployeeID != sess.EmployeeID {
+	if !isPayrollAdmin(sess.Role) && resp.Timesheet.EmployeeID != sess.EmployeeID {
 		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's timesheet")
 		return
 	}
@@ -122,7 +127,7 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if !sess.IsElevated() {
+	if !isPayrollAdmin(sess.Role) {
 		writeError(w, http.StatusForbidden, "forbidden: elevated role required to update timesheet status")
 		return
 	}
@@ -202,7 +207,7 @@ func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Reques
 	}
 
 	employeeID := r.URL.Query().Get("employee_id")
-	if !sess.IsElevated() {
+	if !isPayrollAdmin(sess.Role) {
 		employeeID = sess.EmployeeID
 	}
 
@@ -250,7 +255,7 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if !sess.IsElevated() && resp.SalarySlip.EmployeeID != sess.EmployeeID {
+	if !isPayrollAdmin(sess.Role) && resp.SalarySlip.EmployeeID != sess.EmployeeID {
 		writeError(w, http.StatusForbidden, "forbidden: cannot access another employee's salary slip")
 		return
 	}
@@ -258,6 +263,17 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *WorkforceHandler) processPayrollRun(w http.ResponseWriter, r *http.Request) {
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session required")
+		return
+	}
+
+	if !isPayrollAdmin(sess.Role) {
+		writeError(w, http.StatusForbidden, "forbidden: hr or admin role required for payroll runs")
+		return
+	}
+
 	var pe frappe.PayrollEntry
 	if err := json.NewDecoder(r.Body).Decode(&pe); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
