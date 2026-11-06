@@ -132,13 +132,7 @@ func getHistoricalValuationPoints(ctx context.Context, brokerClient *alpaca.Clie
 		}
 	}
 
-	now := time.Now().UTC()
-	return []*customerbllv1.ValuationPoint{
-		{Date: now.AddDate(0, -3, 0).Format("2006-01-02"), Valuation: math.Round(currentPortfolioValue * 0.78)},
-		{Date: now.AddDate(0, -2, 0).Format("2006-01-02"), Valuation: math.Round(currentPortfolioValue * 0.85)},
-		{Date: now.AddDate(0, -1, 0).Format("2006-01-02"), Valuation: math.Round(currentPortfolioValue * 0.92)},
-		{Date: now.Format("2006-01-02"), Valuation: currentPortfolioValue},
-	}
+	return []*customerbllv1.ValuationPoint{}
 }
 
 func bPositions(ctx context.Context, s *Server, portfolioID string) ([]*coreinvestv1.PortfolioHolding, error) {
