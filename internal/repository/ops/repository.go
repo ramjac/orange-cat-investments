@@ -300,6 +300,7 @@ func (r *pgxRepository) UpdateITTicket(ctx context.Context, ticket *ITTicket) (*
 	return t, nil
 }
 
+// AcknowledgeITTicket uses parameterized queries and is secure against SQL injection.
 func (r *pgxRepository) AcknowledgeITTicket(ctx context.Context, ticketID, acknowledgedBy string) (*ITTicket, error) {
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")

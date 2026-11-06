@@ -144,6 +144,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		assert.Equal(t, "rejected", rejected.Status)
 	})
 
+
 	t.Run("Security: 401 without session", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/timesheets", nil)
 		rec := httptest.NewRecorder()
@@ -188,8 +189,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		listRec := httptest.NewRecorder()
 		mux.ServeHTTP(listRec, listReq)
 
-		// Wait, because we override empID = sess.EmployeeID, it actually queries alice's timesheets (which might be empty).
-		// We can just assert OK, but let's check it doesn't return Bob's.
+		// The empID override should ensure Alice only queries her own timesheets, preventing access to Bob's.
 		assert.Equal(t, http.StatusOK, listRec.Code)
 		var listResp struct {
 			Items []*frappe.Timesheet `json:"items"`
@@ -204,7 +204,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 	t.Run("Security: 403 non-elevated update status", func(t *testing.T) {
 		updatePayload := map[string]any{
-			"status":      "approved",
+			"status": "approved",
 			"approver_id": "emp-alice-01",
 		}
 		updateData, _ := json.Marshal(updatePayload)
