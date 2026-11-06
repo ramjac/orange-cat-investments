@@ -46,6 +46,29 @@ if grep -q "go run ./simulation/cmd/simulator" .forgejo/workflows/ci.yaml; then
   done
 fi
 
+
+# 4. Verify mock environment wiring (7.6)
+echo "Verifying mock environment wiring..."
+if grep -qrE "mock-(bank|broker|hardware)-service" k8s/oci-dev/; then
+  echo "ERROR: k8s/oci-dev/ references unsuffixed mock services"
+  failed=1
+fi
+
+if grep -qrE "mock-(bank|broker|hardware)-dev-service" k8s/oci-core/; then
+  echo "ERROR: k8s/oci-core/ references -dev mock services"
+  failed=1
+fi
+
+if grep -q "\.oci-core\." k8s/external-sim/mock-*-dev.yaml; then
+  echo "ERROR: mock-*-dev.yaml references .oci-core. hosts"
+  failed=1
+fi
+
+if grep -q "\.oci-dev\." k8s/external-sim/mock-bank.yaml k8s/external-sim/mock-broker.yaml k8s/external-sim/mock-hardware.yaml; then
+  echo "ERROR: unsuffixed mock manifests reference .oci-dev. hosts"
+  failed=1
+fi
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1
