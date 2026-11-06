@@ -154,6 +154,7 @@ jobs:
           for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff-dev oci-employee-bff-dev oci-customer-portal-dev oci-employee-portal-dev oci-pebble-proxy-dev oci-worker-dev oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-dev --timeout=120s
           done
+          ./scripts/verify-deployed-images.sh oci-dev sha-${COMMIT_SHA}
 
   integration-test-gate:
     name: Automated Live Integration Testing Gate
@@ -217,8 +218,16 @@ jobs:
           kubectl apply -f k8s/external-sim/mock-hardware.yaml
           kubectl rollout status deployment/mock-hardware -n external-sim --timeout=120s
           echo "Rolling out verified stable release to oci-core..."
-          kubectl apply -f k8s/oci-core/
+
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-customer-portal oci-employee-portal oci-pebble-proxy oci-worker oci-marketing; do
+            kubectl set image deployment/${app} ${app}=localhost:32000/${app}:sha-${COMMIT_SHA} -n oci-core
+          done
+          for app in mock-hardware mock-bank mock-broker; do
+            kubectl set image deployment/${app} ${app}=localhost:32000/${app}:sha-${COMMIT_SHA} -n external-sim
+          done
           for dep in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-customer-portal oci-employee-portal oci-pebble-proxy oci-worker oci-marketing; do
             kubectl rollout status deployment/${dep} -n oci-core --timeout=180s
           done
+          ./scripts/verify-deployed-images.sh oci-core sha-${COMMIT_SHA}
+          ./scripts/verify-deployed-images.sh external-sim sha-${COMMIT_SHA} mock-hardware mock-bank mock-broker
           echo "Production deployment to oci-core completed successfully."
