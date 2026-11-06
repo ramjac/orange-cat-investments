@@ -1,9 +1,6 @@
 package worker
 
 import (
-	"context"
-	"encoding/json"
-
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	"go.opentelemetry.io/otel"
@@ -12,28 +9,18 @@ import (
 
 // TraceContextMiddleware extracts distributed trace context from incoming messages
 // and starts a child consumer span for the worker handler execution.
-// It explicitly injects the current active trace ID into the correlation_id field.
+// It sets the active trace ID into the message context, so that if the handler
+// needs to publish another message or query a database, the parent trace context
+// is correctly propagated. It does not overwrite the business correlation_id.
 func TraceContextMiddleware(h message.HandlerFunc) message.HandlerFunc {
 	return func(msg *message.Message) ([]*message.Message, error) {
-		ctx := envelope.ExtractTraceContext(context.Background(), msg)
+		ctx := envelope.ExtractTraceContext(msg.Context(), msg)
 
 		tracer := otel.Tracer("watermill-worker")
 		ctx, span := tracer.Start(ctx, "worker-consumer", trace.WithSpanKind(trace.SpanKindConsumer))
 		defer span.End()
 
-		if span.SpanContext().HasTraceID() {
-			traceID := span.SpanContext().TraceID().String()
-
-			// Set correlation_id without logging payload
-			var payloadMap map[string]interface{}
-			if err := json.Unmarshal(msg.Payload, &payloadMap); err == nil {
-				payloadMap["correlation_id"] = traceID
-				if newPayload, err := json.Marshal(payloadMap); err == nil {
-					msg.Payload = newPayload
-				}
-			}
-		}
-
+		// Do not mutate business payload correlation_id
 		msg.SetContext(ctx)
 		return h(msg)
 	}
