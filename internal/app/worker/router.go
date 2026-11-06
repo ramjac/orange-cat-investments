@@ -2,16 +2,84 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
+
+// ValidationMiddleware rejects messages that fail to unmarshal as envelopes or lack EventID/OccurredAt.
+func ValidationMiddleware(logger *slog.Logger) message.HandlerMiddleware {
+	return func(h message.HandlerFunc) message.HandlerFunc {
+		return func(msg *message.Message) ([]*message.Message, error) {
+			var env struct {
+				EventID       string    `json:"event_id"`
+				OccurredAt    time.Time `json:"occurred_at"`
+				CorrelationID string    `json:"correlation_id"`
+			}
+			err := json.Unmarshal(msg.Payload, &env)
+			if err != nil || env.EventID == "" || env.OccurredAt.IsZero() {
+				topic := message.SubscribeTopicFromCtx(msg.Context())
+
+				logFields := []any{
+					slog.String("topic", topic),
+				}
+				if env.EventID != "" {
+					logFields = append(logFields, slog.String("event_id", env.EventID))
+				}
+				if env.CorrelationID != "" {
+					logFields = append(logFields, slog.String("correlation_id", env.CorrelationID))
+				}
+				if err != nil {
+					logFields = append(logFields, slog.String("error", err.Error()))
+				} else {
+					logFields = append(logFields, slog.String("error", "missing required envelope fields"))
+				}
+
+				logger.Error("Envelope validation failed", logFields...)
+				return nil, errors.New("invalid envelope")
+			}
+
+			return h(msg)
+		}
+	}
+}
+
+// DynamicPoisonQueue creates a middleware that catches errors and publishes the message
+// to a Dead Letter Queue (DLQ) topic derived from the original topic plus ".dlq".
+// The original message is then acked so it is not re-processed.
+func DynamicPoisonQueue(pub PubSub) message.HandlerMiddleware {
+	return func(h message.HandlerFunc) message.HandlerFunc {
+		return func(msg *message.Message) ([]*message.Message, error) {
+			events, err := h(msg)
+			if err != nil {
+				topic := message.SubscribeTopicFromCtx(msg.Context())
+				dlqTopic := topic + ".dlq"
+
+				// Publish a copy of the message to DLQ
+				dlqMsg := msg.Copy()
+				publishErr := pub.Publish(dlqTopic, dlqMsg)
+				if publishErr != nil {
+					// If we can't write to the DLQ, return the original error so the message is NACKed
+					return nil, err
+				}
+
+				// Acknowledge original message to remove it from the broker
+				return nil, nil
+			}
+			return events, nil
+		}
+	}
+}
 
 // AMQPPubSubWrapper wraps Watermill AMQP publisher and subscriber.
 type AMQPPubSubWrapper struct {
@@ -76,6 +144,18 @@ func CreateRouter(
 	if err != nil {
 		return nil, err
 	}
+
+	router.AddMiddleware(DynamicPoisonQueue(ps))
+	router.AddMiddleware(ValidationMiddleware(logger))
+
+	retryMiddleware := middleware.Retry{
+		MaxRetries:      3,
+		InitialInterval: time.Millisecond * 50,
+		MaxInterval:     time.Second * 1,
+		Multiplier:      2.0,
+		Logger:          watermillLogger,
+	}
+	router.AddMiddleware(retryMiddleware.Middleware)
 
 	if enableFelineWorkforce && enableCoreInvest {
 		router.AddHandler(

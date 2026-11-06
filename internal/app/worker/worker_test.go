@@ -333,6 +333,131 @@ func TestBatchJobs(t *testing.T) {
 	})
 }
 
+func TestDLQAndValidation(t *testing.T) {
+	watermillLogger := watermill.NewStdLogger(false, false)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 10}, watermillLogger)
+
+	mockCustomerBLL := &mockCustomerBLL{}
+	mockInternalBLL := &mockInternalBLL{}
+
+	// CreateRouter wires our DynamicPoisonQueue and ValidationMiddleware
+	router, err := worker.CreateRouter(pubSub, watermillLogger, logger, mockCustomerBLL, mockInternalBLL, "", "", nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = router.Run(ctx)
+	}()
+
+	select {
+	case <-router.Running():
+	case <-time.After(2 * time.Second):
+		t.Fatal("router failed to start")
+	}
+
+	dlqTopic := "events.investment.backtest_requested.v1.dlq"
+	messages, err := pubSub.Subscribe(context.Background(), dlqTopic)
+	require.NoError(t, err)
+
+	t.Run("Malformed JSON sends to DLQ", func(t *testing.T) {
+		msg := message.NewMessage(watermill.NewUUID(), []byte("{invalid_json: true}"))
+		// Since we publish directly to pubSub instead of receiving from router,
+		// the router itself will set SubscribeTopicFromCtx before calling middlewares.
+		err := pubSub.Publish("events.investment.backtest_requested.v1", msg)
+		require.NoError(t, err)
+
+		select {
+		case dlqMsg := <-messages:
+			assert.Equal(t, string(msg.Payload), string(dlqMsg.Payload))
+			dlqMsg.Ack()
+		case <-time.After(1 * time.Second):
+			t.Fatal("expected message in DLQ")
+		}
+	})
+
+	t.Run("Missing Envelope Fields sends to DLQ", func(t *testing.T) {
+		// Missing EventID and OccurredAt
+		payload := []byte(`{"correlation_id": "corr-1"}`)
+		msg := message.NewMessage(watermill.NewUUID(), payload)
+		err := pubSub.Publish("events.investment.backtest_requested.v1", msg)
+		require.NoError(t, err)
+
+		select {
+		case dlqMsg := <-messages:
+			assert.Equal(t, string(msg.Payload), string(dlqMsg.Payload))
+			dlqMsg.Ack()
+		case <-time.After(1 * time.Second):
+			t.Fatal("expected message in DLQ")
+		}
+	})
+
+	t.Run("Handler Error retries and sends to DLQ", func(t *testing.T) {
+		// Setup mock to fail
+		mockCustomerBLL.completeBacktestFunc = func(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error) {
+			return nil, assert.AnError
+		}
+
+		env := worker.EventEnvelope[worker.BacktestRequestedPayload]{
+			EventID:       watermill.NewUUID(),
+			OccurredAt:    time.Now().UTC(),
+			CorrelationID: "corr-2",
+			Payload: worker.BacktestRequestedPayload{
+				BacktestID: "back-1",
+				StrategyID: "strat-1",
+			},
+		}
+		payloadBytes, _ := json.Marshal(env)
+		msg := message.NewMessage(watermill.NewUUID(), payloadBytes)
+		err := pubSub.Publish("events.investment.backtest_requested.v1", msg)
+		require.NoError(t, err)
+
+		select {
+		case dlqMsg := <-messages:
+			assert.Equal(t, string(msg.Payload), string(dlqMsg.Payload))
+			dlqMsg.Ack()
+		case <-time.After(2 * time.Second):
+			t.Fatal("expected message in DLQ after retries")
+		}
+	})
+
+	t.Run("Following Valid Message is Processed", func(t *testing.T) {
+		// Setup mock to succeed
+		mockCustomerBLL.completeBacktestFunc = nil
+
+		env := worker.EventEnvelope[worker.BacktestRequestedPayload]{
+			EventID:       watermill.NewUUID(),
+			OccurredAt:    time.Now().UTC(),
+			CorrelationID: "corr-3",
+			Payload: worker.BacktestRequestedPayload{
+				BacktestID: "back-2",
+				StrategyID: "strat-2",
+			},
+		}
+		payloadBytes, _ := json.Marshal(env)
+		msg := message.NewMessage(watermill.NewUUID(), payloadBytes)
+
+		outTopic := "events.investment.backtest_completed.v1"
+		outMsgs, err := pubSub.Subscribe(context.Background(), outTopic)
+		require.NoError(t, err)
+
+		err = pubSub.Publish("events.investment.backtest_requested.v1", msg)
+		require.NoError(t, err)
+
+		select {
+		case outMsg := <-outMsgs:
+			assert.NotEmpty(t, outMsg.Payload)
+			outMsg.Ack()
+		case <-time.After(1 * time.Second):
+			t.Fatal("expected valid message to be processed")
+		}
+	})
+
+	_ = router.Close()
+}
+
 func TestSchedulers(t *testing.T) {
 	watermillLogger := watermill.NewStdLogger(false, false)
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

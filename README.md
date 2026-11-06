@@ -952,7 +952,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] Mock handler tests cover enabled/disabled registration and each fault type. BLL tests check error mapping. `./scripts/verify-ci-contracts.sh`.
   * [cluster] `-fault-scenarios` against `oci-dev` passes and leaves `/sim/faults` healthy.
 
-#### 7.18 RabbitMQ Poison-Pill & Dead-Letter Handling
+#### 7.18 RabbitMQ Poison-Pill & Dead-Letter Handling (Completed)
 * **Depends On:** `7.16`.
 * **Current Codebase State:** `internal/app/worker/router.go` uses no `PoisonQueue` or `Retry` middleware. `RabbitMQDeadLetterQueueNotEmpty` exists in Prometheus and expects queues matching `.*dlq.*`.
 * **PR Scope:**
