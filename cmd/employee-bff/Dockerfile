@@ -1,5 +1,6 @@
+ARG GO_VERSION=1.26
 # Multi-stage build for Orange Cat Investments - Employee BFF
-FROM golang:1.26-alpine AS builder
+FROM golang:${GO_VERSION}-alpine AS builder
 
 WORKDIR /app
 

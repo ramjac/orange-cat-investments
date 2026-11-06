@@ -76,6 +76,8 @@ func Middleware(cfg Config) func(http.Handler) http.Handler {
 	}
 }
 
+// Note: Refactoring must preserve the vendor-MIME fallback-to-default decision logic.
+
 // negotiateVersion resolves the requested API version considering explicit headers,
 // Accept vendor MIME types, quality (q) parameters, and supported version constraints.
 func negotiateVersion(r *http.Request, cfg Config, supportedMap map[string]bool) (string, bool) {
@@ -97,6 +99,8 @@ func negotiateVersion(r *http.Request, cfg Config, supportedMap map[string]bool)
 	def := normalizeVersion(cfg.DefaultVersion)
 	return def, supportedMap[def]
 }
+
+// Note: Refactoring must ensure accurate extraction of version, quality (q), and original header order, as well as correctly identifying vendor MIME types.
 
 // parseVendorCandidates extracts version candidates from an Accept header string.
 func parseVendorCandidates(accept string) ([]versionCandidate, bool) {
@@ -128,6 +132,8 @@ func parseVendorCandidates(accept string) ([]versionCandidate, bool) {
 	}
 	return candidates, hasVendorMIME
 }
+
+// Note: Refactoring must preserve the stable sort which keeps original header order as the q tie-breaker.
 
 // selectVersionCandidate sorts candidates by quality and order, then finds the best supported match.
 func selectVersionCandidate(candidates []versionCandidate, supportedMap map[string]bool) (string, bool) {

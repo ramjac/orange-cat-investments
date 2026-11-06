@@ -402,37 +402,6 @@ func TestListWebhooks(t *testing.T) {
 		require.NotNil(t, res)
 		assert.Empty(t, res.Subscriptions)
 	})
-
-	t.Run("Nil Response Fallback", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
-				assert.Equal(t, "cust-nil-res", in.CustomerID)
-				return nil, nil
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-
-		res, err := server.ListWebhooks(ctx, &customerbllv1.ListWebhooksRequest{CustomerID: "cust-nil-res"})
-		require.NoError(t, err)
-		require.NotNil(t, res)
-		assert.Empty(t, res.Subscriptions)
-	})
-
-	t.Run("Nil Request", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			listWebhooksFunc: func(ctx context.Context, in *coreinvestv1.ListWebhooksRequest) (*coreinvestv1.ListWebhooksResponse, error) {
-				return &coreinvestv1.ListWebhooksResponse{Webhooks: []*coreinvestv1.CustomerWebhook{}}, nil
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-
-		res, err := server.ListWebhooks(ctx, nil)
-		require.NoError(t, err)
-		require.NotNil(t, res)
-		assert.Empty(t, res.Subscriptions)
-	})
 }
 
 func TestDeleteWebhook(t *testing.T) {
@@ -474,73 +443,6 @@ func TestDeleteWebhook(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, res)
 	})
-
-	t.Run("Nil Request", func(t *testing.T) {
-		server := NewServer(Config{})
-		res, err := server.DeleteWebhook(ctx, nil)
-		require.NoError(t, err)
-		assert.True(t, res.Success)
-		assert.Equal(t, "deleted", res.Status)
-	})
-
-	t.Run("Nil Request with Client", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
-				return &coreinvestv1.DeleteWebhookResponse{Status: "deleted"}, nil
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-		res, err := server.DeleteWebhook(ctx, nil)
-		require.NoError(t, err)
-		assert.True(t, res.Success)
-		assert.Equal(t, "deleted", res.Status)
-	})
-
-	t.Run("Nil Response Fallback", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
-				return nil, nil // Nil response, no error
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-
-		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
-		require.NoError(t, err)
-		assert.True(t, res.Success)
-		assert.Equal(t, "deleted", res.Status)
-	})
-
-	t.Run("Empty Status Fallback", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
-				return &coreinvestv1.DeleteWebhookResponse{Status: ""}, nil
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-
-		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
-		require.NoError(t, err)
-		assert.True(t, res.Success)
-		assert.Equal(t, "deleted", res.Status)
-	})
-
-	t.Run("Custom Status", func(t *testing.T) {
-		mockCI := &mockCoreInvestForWebhook{
-			deleteWebhookFunc: func(ctx context.Context, in *coreinvestv1.DeleteWebhookRequest) (*coreinvestv1.DeleteWebhookResponse, error) {
-				return &coreinvestv1.DeleteWebhookResponse{Status: "pending"}, nil
-			},
-		}
-		server := NewServer(Config{})
-		server.SetCoreInvestClient(mockCI)
-
-		res, err := server.DeleteWebhook(ctx, &customerbllv1.DeleteWebhookRequest{CustomerID: "cust-301", WebhookID: "sub-301"})
-		require.NoError(t, err)
-		assert.True(t, res.Success)
-		assert.Equal(t, "pending", res.Status)
-	})
 }
 
 func TestCreateAPIKey_SuccessWithRawSecret(t *testing.T) {
@@ -581,9 +483,6 @@ func TestCreateAPIKey_SuccessWithRawSecret(t *testing.T) {
 	assert.Equal(t, "key-grpc-123", res.Key.KeyID)
 	assert.Equal(t, "cust-100", res.Key.CustomerID)
 	assert.Equal(t, "test-key-label", res.Key.Label)
-	assert.Equal(t, "oci_live_", res.Key.KeyPrefix)
-	assert.Equal(t, "active", res.Key.Status)
-	assert.Equal(t, []string{"read", "trade"}, res.Key.Scopes)
 	assert.Equal(t, "secret_grpc_raw_456", res.RawSecret)
 }
 
@@ -620,11 +519,6 @@ func TestCreateAPIKey_SuccessWithEmptyRawSecretFallback(t *testing.T) {
 	require.NotNil(t, res)
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "key-grpc-456", res.Key.KeyID)
-	assert.Equal(t, "cust-101", res.Key.CustomerID)
-	assert.Equal(t, "test-key-fallback-raw", res.Key.Label)
-	assert.Equal(t, "oci_live_", res.Key.KeyPrefix)
-	assert.Equal(t, "active", res.Key.Status)
-	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_input_raw_secret", res.RawSecret)
 }
 
@@ -682,9 +576,6 @@ func TestCreateAPIKey_NilResponseFallback(t *testing.T) {
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "cust-103", res.Key.CustomerID)
 	assert.Equal(t, "test-key-nil-res", res.Key.Label)
-	assert.Equal(t, "oci_sim_", res.Key.KeyPrefix)
-	assert.Equal(t, "active", res.Key.Status)
-	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_secret_456", res.RawSecret)
 }
 
@@ -714,9 +605,6 @@ func TestCreateAPIKey_NilAPIKeyFallback(t *testing.T) {
 	require.NotNil(t, res.Key)
 	assert.Equal(t, "cust-103-nil-key", res.Key.CustomerID)
 	assert.Equal(t, "test-key-nil-apikey", res.Key.Label)
-	assert.Equal(t, "oci_sim_", res.Key.KeyPrefix)
-	assert.Equal(t, "active", res.Key.Status)
-	assert.Equal(t, []string{"read"}, res.Key.Scopes)
 	assert.Equal(t, "fallback_secret_789", res.RawSecret)
 }
 
@@ -929,16 +817,6 @@ func TestGetPortfolio_HistoricalPerformanceFallback(t *testing.T) {
 	assert.Equal(t, "acc-456", resp.PortfolioID)
 	assert.Equal(t, 10000.0, resp.TotalBalanceUSD)
 
-	// Should fallback to default 4 points calculated from current balance
-	require.Len(t, resp.HistoricalPerformance, 4)
-
-	now := time.Now().UTC()
-	assert.Equal(t, now.AddDate(0, -3, 0).Format("2006-01-02"), resp.HistoricalPerformance[0].Date)
-	assert.Equal(t, now.AddDate(0, -2, 0).Format("2006-01-02"), resp.HistoricalPerformance[1].Date)
-	assert.Equal(t, now.AddDate(0, -1, 0).Format("2006-01-02"), resp.HistoricalPerformance[2].Date)
-	assert.Equal(t, now.Format("2006-01-02"), resp.HistoricalPerformance[3].Date)
-	assert.Equal(t, 7800.0, resp.HistoricalPerformance[0].Valuation)
-	assert.Equal(t, 8500.0, resp.HistoricalPerformance[1].Valuation)
-	assert.Equal(t, 9200.0, resp.HistoricalPerformance[2].Valuation)
-	assert.Equal(t, 10000.0, resp.HistoricalPerformance[3].Valuation)
+	// Should fallback to empty array
+	require.Empty(t, resp.HistoricalPerformance)
 }

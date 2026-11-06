@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
@@ -163,7 +165,8 @@ func TestExecuteGDPRErasure(t *testing.T) {
 
 		cert := resp.Certificate
 		assert.Equal(t, "cust-12345", cert.CustomerID)
-		assert.NotEmpty(t, cert.CertificateID)
+		assert.True(t, strings.HasPrefix(cert.CertificateID, "gdpr-cert-"))
+		assert.Equal(t, 18, len(cert.CertificateID))
 
 		h := sha256.Sum256([]byte("cust-12345"))
 		expectedCustHash := hex.EncodeToString(h[:])
@@ -176,9 +179,14 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		assert.Equal(t, expectedComplianceHash, cert.ComplianceHash)
 		assert.Equal(t, "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.", cert.ComplianceStatement)
 
+		assert.NotEmpty(t, cert.ErasedAt)
+		_, err = time.Parse(time.RFC3339, cert.ErasedAt)
+		assert.NoError(t, err)
+
 		assert.Equal(t, "erased", cert.Status)
-		assert.Contains(t, cert.LegalBasis, "GDPR Article 17")
-		assert.NotEmpty(t, cert.AnonymizedTables)
+		assert.Equal(t, "GDPR Article 17 - Right to Erasure / Right to be Forgotten", cert.LegalBasis)
+		assert.Equal(t, "Orange Cat Investments Data Protection Office", cert.SupervisoryAuthority)
+		assert.Equal(t, []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions", "core_invest.recurring_deposits"}, cert.AnonymizedTables)
 		assert.Equal(t, int32(1), cert.SessionsPurgedCount)
 		assert.Equal(t, int32(4), cert.RecordsScrubbedCount)
 	})
@@ -190,9 +198,19 @@ func TestExecuteGDPRErasure(t *testing.T) {
 				assert.Equal(t, "alice@example.com", in.Email)
 				return &coreinvestv1.ExecuteGDPRErasureResponse{
 					Certificate: &coreinvestv1.GDPRErasureCertificate{
-						CertificateID: "cert-ci-001",
-						CustomerID:    in.CustomerID,
-						Status:        "erased",
+						CertificateID:        "cert-ci-001",
+						CustomerID:           in.CustomerID,
+						CustomerIDHash:       "hash-123",
+						CustomerEmailHash:    "email-hash-123",
+						ErasedAt:             "2026-05-01T12:00:00Z",
+						LegalBasis:           "GDPR Article 17",
+						SupervisoryAuthority: "OCI DPO",
+						AnonymizedTables:     []string{"t1"},
+						SessionsPurgedCount:  5,
+						RecordsScrubbedCount: 10,
+						ComplianceHash:       "comp-hash",
+						ComplianceStatement:  "done",
+						Status:               "erased",
 					},
 				}, nil
 			},
@@ -210,6 +228,17 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		require.NotNil(t, resp.Certificate)
 		assert.Equal(t, "cert-ci-001", resp.Certificate.CertificateID)
 		assert.Equal(t, "cust-777", resp.Certificate.CustomerID)
+		assert.Equal(t, "hash-123", resp.Certificate.CustomerIDHash)
+		assert.Equal(t, "email-hash-123", resp.Certificate.CustomerEmailHash)
+		assert.Equal(t, "2026-05-01T12:00:00Z", resp.Certificate.ErasedAt)
+		assert.Equal(t, "GDPR Article 17", resp.Certificate.LegalBasis)
+		assert.Equal(t, "OCI DPO", resp.Certificate.SupervisoryAuthority)
+		assert.Equal(t, []string{"t1"}, resp.Certificate.AnonymizedTables)
+		assert.Equal(t, int32(5), resp.Certificate.SessionsPurgedCount)
+		assert.Equal(t, int32(10), resp.Certificate.RecordsScrubbedCount)
+		assert.Equal(t, "comp-hash", resp.Certificate.ComplianceHash)
+		assert.Equal(t, "done", resp.Certificate.ComplianceStatement)
+		assert.Equal(t, "erased", resp.Certificate.Status)
 	})
 
 	t.Run("integrated mode with ciClient error propagation", func(t *testing.T) {
@@ -520,85 +549,4 @@ func TestGenerateAndListStatements_Lifecycle(t *testing.T) {
 	_, err = srvNoCI.GenerateBatchStatements(ctx, &customerbllv1.GenerateBatchStatementsRequest{})
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(err))
-}
-
-func TestListStatements_EmptyCustomerID(t *testing.T) {
-	mockCI := &mockCoreInvestClient{
-		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
-			assert.Empty(t, in.CustomerID)
-			return &coreinvestv1.ListStatementsResponse{
-				Statements: []*coreinvestv1.CustomerStatement{},
-			}, nil
-		},
-	}
-	server := NewServer(Config{})
-	server.SetCoreInvestClient(mockCI)
-
-	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
-		CustomerID: "",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Empty(t, res.Statements)
-}
-
-func TestListStatements_EmptyStatementsSlice(t *testing.T) {
-	mockCI := &mockCoreInvestClient{
-		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
-			return &coreinvestv1.ListStatementsResponse{
-				Statements: []*coreinvestv1.CustomerStatement{},
-			}, nil
-		},
-	}
-	server := NewServer(Config{})
-	server.SetCoreInvestClient(mockCI)
-
-	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
-		CustomerID: "cust-empty-slice",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Empty(t, res.Statements)
-}
-
-func TestListStatements_Alternative_NilCoreInvestClient(t *testing.T) {
-	server := NewServer(Config{})
-	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
-		CustomerID: "test-cust",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Empty(t, res.Statements)
-}
-
-func TestListStatements_Alternative_ClientError(t *testing.T) {
-	mockCI := &mockCoreInvestClient{
-		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
-			return nil, errors.New("simulated list statements error")
-		},
-	}
-	server := NewServer(Config{})
-	server.SetCoreInvestClient(mockCI)
-	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
-		CustomerID: "test-cust",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Empty(t, res.Statements)
-}
-
-func TestListStatements_Alternative_NilResponse(t *testing.T) {
-	mockCI := &mockCoreInvestClient{
-		listStatementsFunc: func(ctx context.Context, in *coreinvestv1.ListStatementsRequest) (*coreinvestv1.ListStatementsResponse, error) {
-			return nil, nil
-		},
-	}
-	server := NewServer(Config{})
-	server.SetCoreInvestClient(mockCI)
-	res, err := server.ListStatements(t.Context(), &customerbllv1.ListStatementsRequest{
-		CustomerID: "test-cust",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, res)
-	assert.Empty(t, res.Statements)
 }

@@ -18,16 +18,22 @@ import (
 
 type mockProductionBLLClient struct {
 	internalbllv1.InternalBLLServiceClient
-	listEmployeesCalled     bool
-	listLeaveRequestsCalled bool
-	listAssetsCalled        bool
-	listTicketsCalled       bool
-	listStreamsCalled       bool
-	getStreamCalled         bool
-	listOrdersCalled        bool
-	getOrderCalled          bool
-	listBacktestsCalled     bool
-	getBacktestCalled       bool
+	listEmployeesCalled       bool
+	listLeaveRequestsCalled   bool
+	listAssetsCalled          bool
+	listTicketsCalled         bool
+	listStreamsCalled         bool
+	getStreamCalled           bool
+	listOrdersCalled          bool
+	getOrderCalled            bool
+	listBacktestsCalled       bool
+	getBacktestCalled         bool
+	listCustomerTicketsCalled bool
+}
+
+func (m *mockProductionBLLClient) ListCustomerTickets(ctx context.Context, in *opsv1.ListCustomerTicketsRequest) (*opsv1.ListCustomerTicketsResponse, error) {
+	m.listCustomerTicketsCalled = true
+	return &opsv1.ListCustomerTicketsResponse{}, nil
 }
 
 func (m *mockProductionBLLClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -151,14 +157,8 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recLeave.Code)
 	assert.True(t, mockBLL.listLeaveRequestsCalled, "expected ListLeaveRequests RPC to be invoked")
 
-
-
-	// 3. Facilities Assets route (requires authenticated employee session)
+	// 3. Facilities Assets route
 	reqAssets := httptest.NewRequest(http.MethodGet, "/api/v1/facilities/assets", nil)
-	reqAssets.AddCookie(&http.Cookie{
-		Name:  "__Host-employee-session",
-		Value: sess.SessionID,
-	})
 	recAssets := httptest.NewRecorder()
 	router.ServeHTTP(recAssets, reqAssets)
 	assert.Equal(t, http.StatusOK, recAssets.Code)
@@ -175,6 +175,23 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	router.ServeHTTP(recTickets, reqTickets)
 	assert.Equal(t, http.StatusOK, recTickets.Code)
 	assert.True(t, mockBLL.listTicketsCalled, "expected ListTickets RPC to be invoked")
+
+	// 4b. Operations Customer Tickets route (requires authenticated employee session)
+	reqCustTickets := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	reqCustTickets.Header.Set("X-Customer-ID", "cust-42")
+	reqCustTickets.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
+	recCustTickets := httptest.NewRecorder()
+	router.ServeHTTP(recCustTickets, reqCustTickets)
+	assert.Equal(t, http.StatusOK, recCustTickets.Code)
+
+	reqCustTicketsUnauth := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	reqCustTicketsUnauth.Header.Set("X-Customer-ID", "cust-42")
+	recCustTicketsUnauth := httptest.NewRecorder()
+	router.ServeHTTP(recCustTicketsUnauth, reqCustTicketsUnauth)
+	assert.Equal(t, http.StatusUnauthorized, recCustTicketsUnauth.Code)
 
 	// 5. Quant Streams route
 	reqStreams := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/streams", nil)

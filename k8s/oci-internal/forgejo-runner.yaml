@@ -65,6 +65,21 @@ data:
     host:
       workdir: /tmp/runner/workspace
 ---
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-runner-docker-pvc
+  namespace: oci-internal
+  labels:
+    app: forgejo-runner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -74,6 +89,8 @@ metadata:
     app: forgejo-runner
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: forgejo-runner
@@ -82,6 +99,7 @@ spec:
       labels:
         app: forgejo-runner
     spec:
+      priorityClassName: system-cluster-critical
       serviceAccountName: forgejo-runner-sa
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
@@ -192,6 +210,7 @@ spec:
         - name: runner-data
           emptyDir: {}
         - name: docker-storage
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: forgejo-runner-docker-pvc
         - name: docker-sock
           emptyDir: {}
