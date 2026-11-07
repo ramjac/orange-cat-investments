@@ -147,7 +147,7 @@
             No historical data available for this period.
           </div>
           <div v-else v-for="(p, idx) in portfolio.historical_performance" :key="idx" class="chart-bar-container">
-            <div class="chart-bar" :style="{ height: (p.valuation / 1500) + 'px' }"></div>
+            <div class="chart-bar" :style="{ height: (p.valuation / (Math.max(...portfolio.historical_performance.map(vp => vp.valuation)) || 1) * 100) + 'px' }"></div>
             <span class="chart-label">{{ p.date }}</span>
           </div>
         </div>

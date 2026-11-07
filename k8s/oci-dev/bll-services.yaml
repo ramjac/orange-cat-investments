@@ -35,9 +35,9 @@ spec:
             - name: OPS_API_URL
               value: "https://ops-api-service.oci-dev.svc.cluster.local:50054"
             - name: BROKER_API_BASE_URL
-              value: "http://mock-broker-dev-service.external-sim.svc.cluster.local:8089"
+              value: "http://mock-broker-service.external-sim.svc.cluster.local:8089"
             - name: BANK_API_BASE_URL
-              value: "http://mock-bank-dev-service.external-sim.svc.cluster.local:8088"
+              value: "http://mock-bank-service.external-sim.svc.cluster.local:8088"
             - name: APCA_API_KEY_ID
               value: "CK_OCI_TEST_KEY_01"
             - name: APCA_API_SECRET_KEY
@@ -288,7 +288,7 @@ spec:
               kubernetes.io/metadata.name: external-sim
           podSelector:
             matchLabels:
-              app: mock-hardware-dev
+              app: mock-hardware
       ports:
         - protocol: TCP
           port: 8086
