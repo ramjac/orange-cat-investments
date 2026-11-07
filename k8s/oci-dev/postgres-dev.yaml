@@ -97,7 +97,7 @@ spec:
 
             - name: DATA_SOURCE_NAME
 
-              value: "postgresql://oci_monitor:$(POSTGRES_PASSWORD)@localhost:5432/oci_dev?sslmode=disable"
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/oci_dev?sslmode=disable"
 
           ports:
 

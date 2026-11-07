@@ -43,6 +43,8 @@ spec:
               value: development
             - name: MEILI_EXPERIMENTAL_ENABLE_METRICS
               value: "true"
+            - name: MEILI_DATA_DIR
+              value: /meili_data
           volumeMounts:
             - name: meilisearch-storage
               mountPath: /meili_data
