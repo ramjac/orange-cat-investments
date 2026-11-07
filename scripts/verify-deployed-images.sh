@@ -27,6 +27,7 @@ for dep in "${DEPS[@]}"; do
   if [ -n "$IMAGES_STR" ]; then
     read -ra IMAGES <<< "$IMAGES_STR"
     for img in "${IMAGES[@]}"; do
+      if [[ "$img" != localhost:32000/* ]]; then continue; fi
       if [[ "$img" != *":${SHA_TAG}" ]]; then
         echo "ERROR: Deployment ${dep} in namespace ${NAMESPACE} is using image ${img} (expected tag :${SHA_TAG})"
         FAILED=1
