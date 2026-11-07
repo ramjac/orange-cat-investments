@@ -90,6 +90,22 @@ data:
         static_configs:
           - targets: ['zitadel-service.oci-core.svc.cluster.local:8080']
 
+      - job_name: 'meilisearch'
+        metrics_path: '/metrics'
+        authorization:
+          credentials_file: /etc/secrets/meilisearch/MEILI_METRICS_KEY
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: meilisearch
+          - source_labels: [__address__]
+            action: replace
+            regex: ([^:]+)(?::\d+)?
+            replacement: $1:7700
+            target_label: __address__
+
 
       - job_name: 'kubernetes-nodes'
         scheme: https
@@ -325,6 +341,7 @@ spec:
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
+            - "--web.enable-remote-write-receiver"
           ports:
             - containerPort: 9090
               name: http
@@ -333,6 +350,8 @@ spec:
               mountPath: /etc/prometheus
             - name: storage-volume
               mountPath: /prometheus
+            - name: meili-secret
+              mountPath: /etc/secrets/meilisearch
           resources:
             requests:
               cpu: 100m
@@ -346,6 +365,9 @@ spec:
             name: prometheus-config
         - name: storage-volume
           emptyDir: {}
+        - name: meili-secret
+          secret:
+            secretName: meili-metrics-secret
 ---
 apiVersion: v1
 kind: Service

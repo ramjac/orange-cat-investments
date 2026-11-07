@@ -879,7 +879,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 ### Phase 3: Stateful Store & OpenTelemetry Observability
 
-#### 7.13 Stateful Store Exporter Hardening
+#### 7.13 Stateful Store Exporter Hardening - [x] Completed
 * **Depends On:** `7.4`.
 * **Current Codebase State:** The `redis_exporter` sidecar (both `valkey.yaml`), the `postgres-exporter` sidecars (`postgres-core.yaml`, `postgres-dev.yaml`, `postgres-internal.yaml`), `shared_preload_libraries=pg_stat_statements`, and `CREATE EXTENSION pg_stat_statements` (all SQL copies) are **already in place**. Remaining gaps: (a) `postgres-exporter` connects as the database superuser; (b) Meilisearch (`MEILI_EXPERIMENTAL_ENABLE_METRICS=true`, `MEILI_ENV=production` in `oci-core`) is scraped through pod annotations with no credentials; (c) Meilisearch has **no persistent volume** in either namespace, so indexes are lost on restart; (d) Prometheus runs without `--web.enable-remote-write-receiver`, while `k8s/monitoring/alloy.yaml` forwards OTLP metrics with `prometheus.remote_write`, so application OTel metrics are probably being dropped.
 * **PR Scope:**
