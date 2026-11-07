@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
-	"github.com/orange-cat-investments/oci/pkg/session"
 )
 
 type createCustomerTicketRequest struct {
@@ -22,19 +21,14 @@ type addCustomerCommentRequest struct {
 }
 
 func extractCustomerID(r *http.Request) string {
-	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
-		return sess.CustomerID
+	if custID := r.Header.Get("X-Customer-ID"); custID != "" {
+		return custID
 	}
-	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
-		if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
-			return custID
-		}
-		if custID := r.Header.Get("X-Customer-ID"); custID != "" {
-			return custID
-		}
-		if custID := r.URL.Query().Get("customer_id"); custID != "" {
-			return custID
-		}
+	if custID := r.URL.Query().Get("customer_id"); custID != "" {
+		return custID
+	}
+	if custID, ok := r.Context().Value("customer_id").(string); ok && custID != "" {
+		return custID
 	}
 	return ""
 }
@@ -75,14 +69,8 @@ func (h *Handler) CreateCustomerTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
-		req.CustomerID = sess.CustomerID
-	} else if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
-		if req.CustomerID == "" {
-			req.CustomerID = extractCustomerID(r)
-		}
-	} else {
-		req.CustomerID = ""
+	if req.CustomerID == "" {
+		req.CustomerID = extractCustomerID(r)
 	}
 	if req.CustomerID == "" {
 		http.Error(w, "customer_id is required", http.StatusUnauthorized)
@@ -187,14 +175,8 @@ func (h *Handler) AddCustomerTicketComment(w http.ResponseWriter, r *http.Reques
 	}
 
 	author := req.AuthorUsername
-	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
-		author = sess.CustomerID
-	} else if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
-		if author == "" {
-			author = extractCustomerID(r)
-		}
-	} else {
-		author = ""
+	if author == "" {
+		author = extractCustomerID(r)
 	}
 	resp, err := h.bllClient.AddTicketComment(r.Context(), &opsv1.AddTicketCommentRequest{
 		TicketID:       id,

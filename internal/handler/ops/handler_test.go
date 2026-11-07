@@ -12,7 +12,6 @@ import (
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/pebble"
-	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -354,7 +353,6 @@ func TestOpsHandler(t *testing.T) {
 		req := httptest.NewRequest("POST", "/api/v1/customer/support/tickets", bytes.NewReader(data))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Customer-ID", "cust-longterm-arthur")
-		req = req.WithContext(session.WithCustomerSession(req.Context(), &session.CustomerSession{CustomerID: "cust-longterm-arthur"}))
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -367,7 +365,6 @@ func TestOpsHandler(t *testing.T) {
 		// GET Customer Tickets
 		reqList := httptest.NewRequest("GET", "/api/v1/customer/support/tickets", nil)
 		reqList.Header.Set("X-Customer-ID", "cust-longterm-arthur")
-		reqList = reqList.WithContext(session.WithCustomerSession(reqList.Context(), &session.CustomerSession{CustomerID: "cust-longterm-arthur"}))
 		recList := httptest.NewRecorder()
 		mux.ServeHTTP(recList, reqList)
 
@@ -388,7 +385,6 @@ func TestOpsHandler(t *testing.T) {
 		reqReply := httptest.NewRequest("POST", "/api/v1/customer/support/tickets/cust-ticket-999/comments", bytes.NewReader(dataReply))
 		reqReply.Header.Set("Content-Type", "application/json")
 		reqReply.Header.Set("X-Customer-ID", "cust-longterm-arthur")
-		reqReply = reqReply.WithContext(session.WithCustomerSession(reqReply.Context(), &session.CustomerSession{CustomerID: "cust-longterm-arthur"}))
 		recReply := httptest.NewRecorder()
 		mux.ServeHTTP(recReply, reqReply)
 
