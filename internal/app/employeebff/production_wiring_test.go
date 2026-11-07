@@ -151,7 +151,7 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recLeave.Code)
 	assert.True(t, mockBLL.listLeaveRequestsCalled, "expected ListLeaveRequests RPC to be invoked")
 
-
+	// Session required for Operations & Facilities routes
 
 	// 3. Facilities Assets route (requires authenticated employee session)
 	reqAssets := httptest.NewRequest(http.MethodGet, "/api/v1/facilities/assets", nil)
@@ -165,7 +165,6 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.True(t, mockBLL.listAssetsCalled, "expected ListAssets RPC to be invoked")
 
 	// 4. Operations Tickets route (requires authenticated employee session)
-
 	reqTickets := httptest.NewRequest(http.MethodGet, "/api/v1/ops/tickets", nil)
 	reqTickets.AddCookie(&http.Cookie{
 		Name:  "__Host-employee-session",
