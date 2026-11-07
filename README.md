@@ -257,6 +257,12 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **External-Sim Dockerfiles (`cmd/mock-bank/Dockerfile`, `cmd/mock-broker/Dockerfile`):** Added container build definitions consistent with `mock-hardware` for external mock integration testing.
 * **Pipeline Integration (`ci.yaml` & `verify-ci-contracts.sh`):** Integrated mock container builds into deployment pipelines ensuring complete integration tracking in `oci-dev`.
 
+### 5.19 Lifelike Mock Hardware Behavior
+* **BehaviorModel (`cmd/mock-hardware/behavior.go`):** Replaced uniform random generator with a realistic Markov chain activity model for Mock Hardware to simulate lifelike transitions between activities (`sleeping`, `zooming`, etc.), and added bounding and directional drift to mock environmental telemetry correlating directly with current activities.
+
+### 5.20 Trace Context Propagation Over RabbitMQ & Grafana Correlation
+* **Tracing (`pkg/envelope/tracing.go`, `internal/app/worker/tracing_middleware.go`):** Propagates OpenTelemetry context via Watermill `message.Metadata` and adds Loki/Prometheus cross-datasource links to Tempo.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -800,7 +806,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 ### Phase 2: Core Domain Completion
 
-#### 7.6 Dedicated Dev Instances of External-Sim Mocks
+#### 7.6 Dedicated Dev Instances of External-Sim Mocks (Completed)
 * **Depends On:** `7.4`.
 * **Current Codebase State:** `external-sim` runs a single `mock-bank`, `mock-broker`, and `mock-hardware`. `oci-core` and `oci-dev` `customer-bll` both point at the same `mock-broker-service` / `mock-bank-service`, and `mock-hardware` publishes only to `oci-core` RabbitMQ and `internal-bll`. As a result, `oci-dev` gets no hardware events, and any fault injected into a mock (Phase 4) would also hit prod. In addition, `mock-bank`'s `OCI_WEBHOOK_URL` points at `unified-api.oci-core.svc.cluster.local:8080`, a service that no longer exists. No Go code receives `/api/v1/bank/webhooks`.
 * **PR Scope:**
@@ -814,14 +820,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [cluster] `oci-dev` RabbitMQ shows `events.observation.cat_spotted.v1` traffic from `mock-hardware-dev`, and `oci-core` still receives events from `mock-hardware`.
 
 #### 7.7 Lifelike Mock Hardware Behavior
-* **Depends On:** `7.6`.
-* **Current Codebase State:** `cmd/mock-hardware/main.go` (single file, no tests) picks activities uniformly with `rand.Intn` every 15s and environmental readings independently every 20s. It emits `envelope.EventEnvelope[envelope.CatSpottedPayload]` on `events.observation.cat_spotted.v1` (`pkg/envelope/events.go`), which the worker consumes via `cat_spotted_handler`.
-* **PR Scope:**
-  1. Move generation logic into `cmd/mock-hardware/behavior.go`: a Markov activity model with a configurable transition matrix (e.g. `sleeping` mostly stays `sleeping`; `zooming` comes in short bursts), and environmental readings that drift from the previous value and correlate with activity (e.g. `zooming` raises `noise_db`). Inject a `*rand.Rand` so tests are deterministic.
-  2. Keep the topic, envelope type, and payload fields unchanged.
-  3. Add `cmd/mock-hardware/behavior_test.go`: a seeded run produces only valid transitions, the long-run activity distribution is within tolerance of the matrix's stationary distribution, environmental values stay in range, and envelopes carry a UUIDv7 `EventID` and UTC `OccurredAt`.
-* **Verification Gate:**
-  * [offline] `go test -race ./cmd/mock-hardware/...`
+> [!NOTE] **Status: Completed**
 
 #### 7.8 Edge Device Heartbeats — Domain Layer
 * **Depends On:** `7.4`.
@@ -923,13 +922,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] `go test -race ./pkg/telemetry/... ./internal/app/... ./cmd/pebble-proxy/...`. Every `Record*` function in `metrics.go` has at least one non-test caller (checked with `grep`).
 
 #### 7.16 Trace Context Propagation Over RabbitMQ & Grafana Correlation
-* **Depends On:** `7.15`.
-* **Current Codebase State:** Synchronous HTTP/gRPC spans propagate, but `pkg/envelope/` (`envelope.go`, `pubsub.go`) does not inject or extract trace context into Watermill `message.Metadata`, so worker spans start new traces. `k8s/monitoring/grafana.yaml` already provisions Loki and Tempo datasources, but without trace-to-logs or trace-to-metrics links.
-* **PR Scope:**
-  1. In `pkg/envelope/`, add a `propagation.TextMapCarrier` over `message.Metadata`. Inject on publish and extract in a Watermill middleware registered in `internal/app/worker/router.go`, which starts a consumer span as a child of the extracted context. When a span is active, set `CorrelationID` to its trace ID. Never log payloads.
-  2. In the Grafana datasources ConfigMap, add `tracesToLogsV2` (Tempo → Loki) and `tracesToMetrics` (Tempo → Prometheus). Add Prometheus as a datasource if it is not already present.
-* **Verification Gate:**
-  * [offline] A test with `tracetest.NewInMemoryExporter()` and a GoChannel pub/sub shows the consumer span shares the publisher's trace ID.
+> [!NOTE]
+> **Status: Completed**
+> OpenTelemetry `TextMapCarrier` implemented for Watermill metadata. Publisher context injection and router trace extraction middleware implemented with `correlation_id` injection from spans. Grafana tempo datasource updated for cross-datasource correlation to Loki and Prometheus.
 
 ---
 
@@ -962,20 +957,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] GoChannel router tests: malformed, missing-field, and handler-error messages land in `.dlq`; a following valid message is still processed; and captured log output contains no payload bytes.
 
 #### 7.19 Sandboxed Chaos Suite for `oci-dev`
-* **Depends On:** `7.14`, `7.17`, `7.18`.
-* **Current Codebase State:** No chaos tooling exists. In `oci-dev`, only `internal-bll` calls `oci-internal` (Nextcloud, Forgejo, ERPNext, Snipe-IT URLs in `k8s/oci-dev/bll-services.yaml`).
-* **PR Scope:**
-  1. Add `scripts/run-chaos-suite.sh`. It wraps every mutating `kubectl` call in a guard function that refuses any namespace other than `oci-dev`, and refuses `external-sim` resources not suffixed `-dev`. It installs `trap` cleanup on `EXIT`/`INT`/`ERR` that deletes every applied chaos policy and restores replica counts. Scenarios:
-     * **COTS outage:** apply `k8s/chaos/oci-dev-deny-internal-egress.yaml` (selects `app: internal-bll` in `oci-dev`, allows egress everywhere except the `oci-internal` namespace) and verify that employee-portal COTS features degrade with clean errors.
-     * **Tier partitions:** temporary `NetworkPolicy`s in `oci-dev` blocking BFF→BLL and BLL→Domain API traffic; verify bounded gRPC errors and recovery after removal.
-     * **Database restart:** scale `statefulset/postgres-dev` to 0 and back to 1; verify the Domain APIs reconnect without crash loops.
-     * **Pod kills:** delete one pod each of a Domain API, a BLL, and a BFF in `oci-dev`; verify they are replaced and become Ready.
-     * **External outage:** use `7.17` faults on the `-dev` mocks.
-     * After all scenarios, run the simulator against `oci-dev` and require it to pass.
-  2. Document scenarios, guards, and expected alerts in `docs/runbooks/chaos-engineering.md`.
-* **Verification Gate:**
-  * [offline] `bash -n`. A test with a stub `kubectl` proves the guard rejects `-n oci-core`, `-n oci-internal`, and `-n external-sim` resources without the `-dev` suffix, and that cleanup runs on simulated failure.
-  * [cluster] A full suite run against `oci-dev` ends with the simulator passing and no chaos `NetworkPolicy` left behind.
+> [!NOTE] **Status: Completed**
 
 ---
 
