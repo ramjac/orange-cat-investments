@@ -14,15 +14,26 @@ type BankFaults struct {
 	RejectTransfers bool `json:"reject_transfers"`
 }
 
+type BankFaultsResponse struct {
+	Outage          bool `json:"outage"`
+	LatencyMs       int  `json:"latency_ms"`
+	RejectTransfers bool `json:"reject_transfers"`
+}
+
 func (f *BankFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		f.mu.RLock()
-		defer f.mu.RUnlock()
+		resp := BankFaultsResponse{
+			Outage:          f.Outage,
+			LatencyMs:       f.LatencyMs,
+			RejectTransfers: f.RejectTransfers,
+		}
+		f.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(f)
+		json.NewEncoder(w).Encode(resp)
 	case http.MethodPut:
-		var req BankFaults
+		var req BankFaultsResponse
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

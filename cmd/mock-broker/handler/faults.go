@@ -15,15 +15,28 @@ type BrokerFaults struct {
 	HaltedSymbols []string `json:"halted_symbols"`
 }
 
+type BrokerFaultsResponse struct {
+	Outage        bool     `json:"outage"`
+	LatencyMs     int      `json:"latency_ms"`
+	RejectOrders  bool     `json:"reject_orders"`
+	HaltedSymbols []string `json:"halted_symbols"`
+}
+
 func (f *BrokerFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		f.mu.RLock()
-		defer f.mu.RUnlock()
+		resp := BrokerFaultsResponse{
+			Outage:        f.Outage,
+			LatencyMs:     f.LatencyMs,
+			RejectOrders:  f.RejectOrders,
+			HaltedSymbols: f.HaltedSymbols,
+		}
+		f.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(f)
+		json.NewEncoder(w).Encode(resp)
 	case http.MethodPut:
-		var req BrokerFaults
+		var req BrokerFaultsResponse
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
