@@ -12,15 +12,21 @@ import (
 	"github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
 )
 
+import (
+	"os"
+)
+
 type Handler struct {
 	store  *ledger.Store
 	engine *engine.MarketEngine
+	faults *BrokerFaults
 }
 
 func NewHandler(store *ledger.Store, engine *engine.MarketEngine) *Handler {
 	return &Handler{
 		store:  store,
 		engine: engine,
+		faults: &BrokerFaults{},
 	}
 }
 
@@ -28,6 +34,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Health check
 	mux.HandleFunc("GET /healthz", h.handleHealthz)
 	mux.HandleFunc("GET /health", h.handleHealthz)
+
+	if os.Getenv("ENABLE_FAULT_INJECTION") == "true" {
+		mux.Handle("/sim/faults", h.faults)
+	}
 
 	// Accounts API
 	mux.HandleFunc("POST /v1/accounts", h.handleCreateAccount)
@@ -75,6 +85,9 @@ func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // -------------------------------------------------------------
 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -113,12 +126,18 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListAccounts(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accounts := h.store.ListAccounts()
 	_ = json.NewEncoder(w).Encode(accounts)
 }
 
 func (h *Handler) handleGetAccount(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 
@@ -148,6 +167,10 @@ func (h *Handler) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Symbol = strings.ToUpper(strings.TrimSpace(req.Symbol))
+
+	if h.faults.check(w, "order", req.Symbol) {
+		return
+	}
 	quote, ok := h.engine.GetQuote(req.Symbol)
 	if !ok {
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -179,6 +202,9 @@ func (h *Handler) handleCreateOrderV2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListOrders(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 	status := r.URL.Query().Get("status")
@@ -205,6 +231,9 @@ func (h *Handler) handleListOrdersV2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetOrder(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 	orderID := r.PathValue("order_id")
@@ -220,6 +249,9 @@ func (h *Handler) handleGetOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 	orderID := r.PathValue("order_id")
@@ -239,6 +271,9 @@ func (h *Handler) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 // -------------------------------------------------------------
 
 func (h *Handler) handleListPositions(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 
@@ -247,6 +282,9 @@ func (h *Handler) handleListPositions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetPosition(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 	symbol := strings.ToUpper(r.PathValue("symbol"))
@@ -262,6 +300,9 @@ func (h *Handler) handleGetPosition(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetPortfolioHistory(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	accountID := r.PathValue("account_id")
 	period := r.URL.Query().Get("period")
@@ -284,6 +325,9 @@ func (h *Handler) handleGetPortfolioHistory(w http.ResponseWriter, r *http.Reque
 // -------------------------------------------------------------
 
 func (h *Handler) handleGetLatestBars(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	symbolsParam := r.URL.Query().Get("symbols")
 	symbols := strings.Split(symbolsParam, ",")
@@ -303,6 +347,9 @@ func (h *Handler) handleGetLatestBars(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetLatestQuotes(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	symbolsParam := r.URL.Query().Get("symbols")
 	symbols := strings.Split(symbolsParam, ",")
@@ -322,6 +369,9 @@ func (h *Handler) handleGetLatestQuotes(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleGetLatestQuote(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	symbol := strings.ToUpper(r.PathValue("symbol"))
 
@@ -339,6 +389,9 @@ func (h *Handler) handleGetLatestQuote(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetBars(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	symbol := strings.ToUpper(r.PathValue("symbol"))
 	timeframe := r.URL.Query().Get("timeframe")
@@ -367,6 +420,9 @@ func (h *Handler) handleGetBars(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetSnapshots(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "", "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	symbolsParam := r.URL.Query().Get("symbols")
 	symbols := strings.Split(symbolsParam, ",")
