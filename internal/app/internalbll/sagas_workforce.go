@@ -176,7 +176,7 @@ func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardE
 	}
 
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", envelope.NewEventEnvelope(
+		_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", envelope.NewEventEnvelope(ctx,
 			fmt.Sprintf("evt-onboard-%d", time.Now().UnixNano()),
 			"events.workforce.employee_onboarded.v1",
 			"",
