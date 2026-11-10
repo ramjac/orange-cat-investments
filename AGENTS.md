@@ -179,6 +179,31 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.
 
+### Go Monorepo & gopls MCP Toolchain Standards
+When developing, refactoring, or navigating Go code across the OCI monorepo, autonomous agents should leverage the connected `gopls` Model Context Protocol (MCP) server tools:
+
+1. **Absolute Paths Mandatory:**
+   All gopls tools accepting file or directory arguments (`file`, `files`, `dir`) **must** receive absolute paths (e.g., `/home/ramjac/orange-cat-investments/cmd/worker/main.go`). Relative paths will cause resolution errors in `gopls`.
+
+2. **Workspace & Dependency Inspection:**
+   - Use `go_workspace` to identify active module roots and workspace layout when starting work in the Go workspace.
+   - Run `go_vulncheck` whenever `go.mod` or `go.sum` dependencies are modified, or during security evaluations, to identify known vulnerabilities.
+
+3. **Symbol Navigation & Package Understanding:**
+   - **Fuzzy Symbol Search (`go_search`):** Search for types, structs, interfaces, methods, or functions across the entire monorepo without guessing file locations.
+   - **Intra-Package Dependencies (`go_file_context`):** When opening an unfamiliar Go file, use `go_file_context` to inspect declarations and intra-package cross-file relationships.
+   - **Exported Package Contracts (`go_package_api`):** Query public package APIs (both internal packages and third-party dependencies) to understand their exported types and signatures without reading every source implementation.
+
+4. **Refactoring & Symbol Integrity:**
+   - **Call Site Discovery (`go_symbol_references`):** Before changing or deleting any function signature, struct field, or interface method, use `go_symbol_references` to inspect all call sites and evaluate blast radius.
+   - **Workspace Renames (`go_rename_symbol`):** For renaming identifiers across packages, use `go_rename_symbol` to compute safe workspace-wide edits rather than manual find-and-replace.
+   - **Protobuf Boundary Reminder:** In accordance with Rule 7, never edit generated `*.pb.go` or `*.pb.gw.go` files even if gopls locates symbols in them. Make changes to the relevant `.proto` files and regenerate code.
+
+5. **Iterative Diagnostics & Rapid Test Inner Loop:**
+   - Immediately after editing any Go file, call `go_diagnostics` passing the absolute paths of modified files. Resolve any compilation, type, or lint errors reported before running tests.
+   - During iterative development, execute tests only for the impacted packages (`go test -race ./pkg/<name>/...`) to maintain fast feedback loops.
+   - Monorepo-wide test runs (`go test -v -race ./...`) should be executed during final verification prior to creating pull requests.
+
 ---
 
 ## 4. Verification & Testing Procedures
@@ -202,11 +227,16 @@ Before marking any task as complete or submitting code changes, agents must veri
    ```bash
    python3 -c "import yaml; yaml.safe_load(open('api/openapi.yaml'))"
    ```
-3. **Go Code Quality & Race Detection:**
-   Run full test suite with race detector enabled:
+3. **Go Code Quality, Diagnostics & Race Detection:**
+   - Run `go_diagnostics` across all modified Go files to verify zero compilation, type check, or linter errors.
+   - Run full test suite with race detector enabled:
    ```bash
    go test -v -race ./...
    go vet ./...
+   ```
+   - If dependencies in `go.mod` or `go.sum` were touched, run vulnerability scanning:
+   ```json
+   go_vulncheck({"pattern": "./..."})
    ```
 4. **Platform Simulation Driver Validation:**
    Run the simulation test suite:
@@ -219,7 +249,9 @@ Before marking any task as complete or submitting code changes, agents must veri
    node scripts/generate-theme.js
    ```
 6. **General Rule:** Always inspect modified files after editing to verify formatting, content accuracy, and absence of syntax errors.
-7. **Protocol BUffers** ONly use the .proto files. Ignore the generated *.pb.go and *.pb.gw.go files.
+7. **Protocol Buffers** Only use the .proto files. Ignore the generated *.pb.go and *.pb.gw.go files.
+8. **Pull Requests** If a pull request is merged, then delete the branch. If it is closed, leave the branch.
+9. **Git branch protection** Never commit changes on main. Changes should only happen on main by merging Pull Requests. If you have changes and main is checked out, then make a new feature branch.
 
 ---
 

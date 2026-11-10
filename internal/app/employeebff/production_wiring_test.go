@@ -28,6 +28,12 @@ type mockProductionBLLClient struct {
 	getOrderCalled          bool
 	listBacktestsCalled     bool
 	getBacktestCalled       bool
+	listCustomerTicketsCalled bool
+}
+
+func (m *mockProductionBLLClient) ListCustomerTickets(ctx context.Context, in *opsv1.ListCustomerTicketsRequest) (*opsv1.ListCustomerTicketsResponse, error) {
+	m.listCustomerTicketsCalled = true
+	return &opsv1.ListCustomerTicketsResponse{}, nil
 }
 
 func (m *mockProductionBLLClient) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
@@ -125,8 +131,19 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	bff := employeebff.NewEmployeeBFF(mockBLL, nil)
 	router := bff.SetupRouter()
 
-	// 1. Workforce Employees route
+	// 1. Workforce Employees route (Requires authenticated employee session)
+	sessStore := bff.SessionStore()
+	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
+	require.NoError(t, err)
+
+	// Ensure missing session yields 401
+	reqMissingAuth := httptest.NewRequest(http.MethodGet, "/api/v1/workforce/employees", nil)
+	recMissingAuth := httptest.NewRecorder()
+	router.ServeHTTP(recMissingAuth, reqMissingAuth)
+	assert.Equal(t, http.StatusUnauthorized, recMissingAuth.Code)
+
 	reqEmp := httptest.NewRequest(http.MethodGet, "/api/v1/workforce/employees", nil)
+	reqEmp.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recEmp := httptest.NewRecorder()
 	router.ServeHTTP(recEmp, reqEmp)
 	assert.Equal(t, http.StatusOK, recEmp.Code)
@@ -134,6 +151,7 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 
 	// 2. Workforce Leave Requests route
 	reqLeave := httptest.NewRequest(http.MethodGet, "/api/v1/workforce/leave-requests", nil)
+	reqLeave.AddCookie(&http.Cookie{Name: "__Host-employee-session", Value: sess.SessionID})
 	recLeave := httptest.NewRecorder()
 	router.ServeHTTP(recLeave, reqLeave)
 	assert.Equal(t, http.StatusOK, recLeave.Code)
@@ -147,9 +165,6 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	assert.True(t, mockBLL.listAssetsCalled, "expected ListAssets RPC to be invoked")
 
 	// 4. Operations Tickets route (requires authenticated employee session)
-	sessStore := bff.SessionStore()
-	sess, err := sessStore.Create("emp-test-1", "testuser@example.com", "Test User", "engineering", "Engineering")
-	require.NoError(t, err)
 
 	reqTickets := httptest.NewRequest(http.MethodGet, "/api/v1/ops/tickets", nil)
 	reqTickets.AddCookie(&http.Cookie{
@@ -160,6 +175,23 @@ func TestEmployeeBFF_ProductionWiring(t *testing.T) {
 	router.ServeHTTP(recTickets, reqTickets)
 	assert.Equal(t, http.StatusOK, recTickets.Code)
 	assert.True(t, mockBLL.listTicketsCalled, "expected ListTickets RPC to be invoked")
+
+	// 4b. Operations Customer Tickets route (requires authenticated employee session)
+	reqCustTickets := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	reqCustTickets.Header.Set("X-Customer-ID", "cust-42")
+	reqCustTickets.AddCookie(&http.Cookie{
+		Name:  "__Host-employee-session",
+		Value: sess.SessionID,
+	})
+	recCustTickets := httptest.NewRecorder()
+	router.ServeHTTP(recCustTickets, reqCustTickets)
+	assert.Equal(t, http.StatusOK, recCustTickets.Code)
+
+	reqCustTicketsUnauth := httptest.NewRequest(http.MethodGet, "/api/v1/customer/support/tickets", nil)
+	reqCustTicketsUnauth.Header.Set("X-Customer-ID", "cust-42")
+	recCustTicketsUnauth := httptest.NewRecorder()
+	router.ServeHTTP(recCustTicketsUnauth, reqCustTicketsUnauth)
+	assert.Equal(t, http.StatusUnauthorized, recCustTicketsUnauth.Code)
 
 	// 5. Quant Streams route
 	reqStreams := httptest.NewRequest(http.MethodGet, "/api/v1/core-invest/streams", nil)

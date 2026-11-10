@@ -8,8 +8,19 @@ import (
 	"testing"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/session"
+	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
 	"github.com/stretchr/testify/assert"
 )
+
+func setContext(req *http.Request, empID string, role string) *http.Request {
+	sess := &sessionvalkey.EmployeeSession{
+		EmployeeID: empID,
+		Role:       role,
+	}
+	ctx := session.WithEmployeeSession(req.Context(), sess)
+	return req.WithContext(ctx)
+}
 
 func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 	mux := setupTestServer()
@@ -28,6 +39,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		req = setContext(req, "emp-bob-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -43,6 +55,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 		// Get by ID
 		getReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets/"+created.TimesheetID, nil)
+		getReq = setContext(getReq, "emp-bob-01", "staff")
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
@@ -54,12 +67,14 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 		// Direct alias get
 		aliasReq := httptest.NewRequest("GET", "/workforce/timesheets/"+created.TimesheetID, nil)
+		aliasReq = setContext(aliasReq, "emp-bob-01", "staff")
 		aliasRec := httptest.NewRecorder()
 		mux.ServeHTTP(aliasRec, aliasReq)
 		assert.Equal(t, http.StatusOK, aliasRec.Code)
 
 		// List
 		listReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-bob-01", nil)
+		listReq = setContext(listReq, "emp-bob-01", "staff")
 		listRec := httptest.NewRecorder()
 		mux.ServeHTTP(listRec, listReq)
 
@@ -79,6 +94,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		}
 		approveData, _ := json.Marshal(approvePayload)
 		approveReq := httptest.NewRequest("PUT", "/api/v1/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(approveData))
+		approveReq = setContext(approveReq, "emp-manager-01", "admin")
 		approveRec := httptest.NewRecorder()
 		mux.ServeHTTP(approveRec, approveReq)
 
@@ -102,6 +118,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/workforce/timesheets", bytes.NewReader(data))
+		req = setContext(req, "emp-alice-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -117,6 +134,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		}
 		rejectData, _ := json.Marshal(rejectPayload)
 		rejectReq := httptest.NewRequest("PUT", "/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(rejectData))
+		rejectReq = setContext(rejectReq, "emp-lead-01", "admin")
 		rejectRec := httptest.NewRecorder()
 		mux.ServeHTTP(rejectRec, rejectReq)
 
@@ -124,6 +142,78 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		var rejected frappe.Timesheet
 		_ = json.Unmarshal(rejectRec.Body.Bytes(), &rejected)
 		assert.Equal(t, "rejected", rejected.Status)
+	})
+
+
+	t.Run("Security: 401 without session", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/v1/workforce/timesheets", nil)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	})
+
+	t.Run("Security: 403 cross-employee read", func(t *testing.T) {
+		// Create a timesheet for bob
+		payload := map[string]any{
+			"employee_id":   "emp-bob-01",
+			"shift_date":    "2026-10-15",
+			"start_time":    "2026-10-15T08:00:00Z",
+			"end_time":      "2026-10-15T16:30:00Z",
+			"break_minutes": 30,
+			"task_code":     "habitat_maintenance",
+			"billable":      true,
+			"notes":         "notes",
+		}
+		data, _ := json.Marshal(payload)
+		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		req = setContext(req, "emp-bob-01", "staff")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusCreated, rec.Code)
+
+		var created frappe.Timesheet
+		json.Unmarshal(rec.Body.Bytes(), &created)
+
+		// Alice tries to read Bob's timesheet
+		getReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets/"+created.TimesheetID, nil)
+		getReq = setContext(getReq, "emp-alice-01", "staff")
+		getRec := httptest.NewRecorder()
+		mux.ServeHTTP(getRec, getReq)
+		assert.Equal(t, http.StatusForbidden, getRec.Code)
+	})
+
+	t.Run("Security: IDOR query override", func(t *testing.T) {
+		// Alice tries to list Bob's timesheets
+		listReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-bob-01", nil)
+		listReq = setContext(listReq, "emp-alice-01", "staff")
+		listRec := httptest.NewRecorder()
+		mux.ServeHTTP(listRec, listReq)
+
+		// The empID override should ensure Alice only queries her own timesheets, preventing access to Bob's.
+		assert.Equal(t, http.StatusOK, listRec.Code)
+		var listResp struct {
+			Items []*frappe.Timesheet `json:"items"`
+			Total int                 `json:"total"`
+		}
+		json.Unmarshal(listRec.Body.Bytes(), &listResp)
+		// Should have 0 of Bob's
+		for _, item := range listResp.Items {
+			assert.NotEqual(t, "emp-bob-01", item.EmployeeID)
+		}
+	})
+
+	t.Run("Security: 403 non-elevated update status", func(t *testing.T) {
+		updatePayload := map[string]any{
+			"status": "approved",
+			"approver_id": "emp-alice-01",
+		}
+		updateData, _ := json.Marshal(updatePayload)
+		updateReq := httptest.NewRequest("PUT", "/api/v1/workforce/timesheets/dummy-id/status", bytes.NewReader(updateData))
+		updateReq = setContext(updateReq, "emp-alice-01", "staff")
+		updateRec := httptest.NewRecorder()
+		mux.ServeHTTP(updateRec, updateReq)
+
+		assert.Equal(t, http.StatusForbidden, updateRec.Code)
 	})
 
 	t.Run("Validation Error - Invalid Task Code", func(t *testing.T) {
@@ -137,6 +227,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		req = setContext(req, "emp-bob-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -156,6 +247,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/payroll/run", bytes.NewReader(data))
+		req = setContext(req, "emp-admin", "admin")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -169,6 +261,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 
 	t.Run("List Salary Slips for Employee", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil)
+		req = setContext(req, "emp-human-bob", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -184,6 +277,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 
 		// Test employee BFF path alias
 		aliasReq := httptest.NewRequest("GET", "/api/v1/employee/payroll/slips?employee_id=emp-human-bob", nil)
+		aliasReq = setContext(aliasReq, "emp-human-bob", "staff")
 		aliasRec := httptest.NewRecorder()
 		mux.ServeHTTP(aliasRec, aliasReq)
 		assert.Equal(t, http.StatusOK, aliasRec.Code)
@@ -191,6 +285,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		// Get specific salary slip by ID
 		slipID := resp.Items[0].SalarySlipID
 		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/"+slipID, nil)
+		getReq = setContext(getReq, "emp-human-bob", "staff")
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
