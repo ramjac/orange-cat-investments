@@ -113,24 +113,6 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
-	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
-
-	if !isElevated {
-		// we need to verify ownership, but the endpoint only has timesheet ID, so we fetch it and check
-		resp, err := h.bllClient.GetTimesheet(r.Context(), &internalbllv1.GetTimesheetRequest{TimesheetID: id})
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if resp.Timesheet.EmployeeID != sess.EmployeeID {
-			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own timesheets")
-			return
-		}
-		writeJSON(w, http.StatusOK, resp.Timesheet)
-		return
-	}
-
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -139,6 +121,13 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 	resp, err := h.bllClient.GetTimesheet(r.Context(), &internalbllv1.GetTimesheetRequest{TimesheetID: id})
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+	if !isElevated && resp.Timesheet.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own timesheets")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.Timesheet)
@@ -281,23 +270,6 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
-	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
-
-	if !isElevated {
-		resp, err := h.bllClient.GetSalarySlip(r.Context(), &internalbllv1.GetSalarySlipRequest{SlipID: id})
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		if resp.SalarySlip.EmployeeID != sess.EmployeeID {
-			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own salary slips")
-			return
-		}
-		writeJSON(w, http.StatusOK, resp.SalarySlip)
-		return
-	}
-
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -306,6 +278,13 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 	resp, err := h.bllClient.GetSalarySlip(r.Context(), &internalbllv1.GetSalarySlipRequest{SlipID: id})
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+	if !isElevated && resp.SalarySlip.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own salary slips")
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.SalarySlip)

@@ -36,9 +36,11 @@ func (b *EmployeeBFF) RegisterRoutes(mux *http.ServeMux) {
 		b.authHandler.RegisterAuthRoutes(mux)
 	}
 
-	// 3. Workforce domain routes
+	// 3. Workforce domain routes. The sensitive timesheet & payroll routes are
+	// wrapped with session authentication so their ownership checks see a real
+	// session; the remaining workforce routes keep their existing behavior.
 	if b.wfHandler != nil {
-		b.wfHandler.RegisterRoutes(mux)
+		b.wfHandler.RegisterRoutes(mux, SessionAuthMiddleware(b.sessionStore))
 	}
 
 	// 4. Operations domain routes
