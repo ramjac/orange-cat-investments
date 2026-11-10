@@ -84,7 +84,7 @@ func (s *Server) TriggerOTARollout(ctx context.Context, in *facilitiesv1.CreateO
 				ScheduledAt: time.Now().UTC().Format(time.RFC3339),
 			})
 			if s.publisher != nil {
-				_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(
+				_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(ctx,
 					fmt.Sprintf("evt-ota-%d-%d", time.Now().UnixNano(), i),
 					"events.facilities.ota_triggered.v1",
 					"",
@@ -105,7 +105,7 @@ func (s *Server) TriggerOTARollout(ctx context.Context, in *facilitiesv1.CreateO
 	}
 	if s.publisher != nil {
 		for _, job := range resp.Jobs {
-			_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(
+			_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(ctx,
 				fmt.Sprintf("evt-ota-%d", time.Now().UnixNano()),
 				"events.facilities.ota_triggered.v1",
 				"",
