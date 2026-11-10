@@ -736,6 +736,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 1. **Phase 1 — CI/CD Supply Chain (`7.1`–`7.5`):** toolchain alignment, Forgejo/runner storage hygiene, container builds for every mock, honest immutable-SHA promotion, and registry pre-flight checks. This phase comes first so every later PR is built and promoted reliably.
 2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
+   - [x] **7.13** Stateful Store Exporter Hardening
 4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
 5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
 
@@ -875,29 +876,14 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
 
 #### 7.12 Portfolio History in Customer BFF & Portal
-* **Depends On:** `7.11`.
-* **Current Codebase State:** `internal/app/customerbff/portfolio_handlers.go` returns the BLL's `HistoricalPerformance` without a period selector. The customer portal renders a fixed chart.
-* **PR Scope:**
-  1. Add `GET /api/v1/customer/portfolio/history?period=1M|3M|6M|1Y|YTD` (default `3M`; 400 on invalid values) in `portfolio_handlers.go`, calling `GetPortfolioHistory`, and document it in `api/openapi.yaml`.
-  2. In `web/customer-portal`, add period buttons to the portfolio chart, fetch from the new endpoint, and show an empty state when there are no points.
-* **Verification Gate:**
-  * [offline] BFF handler tests for each period and for an invalid period. `npm test` in `web/customer-portal`.
+> [!NOTE] **Status: Completed**
 
 ---
 
 ### Phase 3: Stateful Store & OpenTelemetry Observability
 
 #### 7.13 Stateful Store Exporter Hardening
-* **Depends On:** `7.4`.
-* **Current Codebase State:** The `redis_exporter` sidecar (both `valkey.yaml`), the `postgres-exporter` sidecars (`postgres-core.yaml`, `postgres-dev.yaml`, `postgres-internal.yaml`), `shared_preload_libraries=pg_stat_statements`, and `CREATE EXTENSION pg_stat_statements` (all SQL copies) are **already in place**. Remaining gaps: (a) `postgres-exporter` connects as the database superuser; (b) Meilisearch (`MEILI_EXPERIMENTAL_ENABLE_METRICS=true`, `MEILI_ENV=production` in `oci-core`) is scraped through pod annotations with no credentials; (c) Meilisearch has **no persistent volume** in either namespace, so indexes are lost on restart; (d) Prometheus runs without `--web.enable-remote-write-receiver`, while `k8s/monitoring/alloy.yaml` forwards OTLP metrics with `prometheus.remote_write`, so application OTel metrics are probably being dropped.
-* **PR Scope:**
-  1. Create an `oci_monitor` role with `GRANT pg_monitor` in all three `postgres-core`/`postgres-dev` SQL copies and in the `postgres-internal` init ConfigMap, with its password from the existing secrets. Add `scripts/migrations/002-monitoring-role.sql`. Switch each exporter's `DATA_SOURCE_NAME` to `oci_monitor`.
-  2. Add `meilisearch-data-pvc` (5Gi) mounted at `/meili_data` in both `meilisearch.yaml` files.
-  3. Replace the Meilisearch annotation scrape with a dedicated `meilisearch` scrape job that sends `Authorization: Bearer` from a secret mounted into Prometheus, and remove the `prometheus.io/scrape` annotation from the Meilisearch pods.
-  4. Add `--web.enable-remote-write-receiver` to the Prometheus args.
-* **Verification Gate:**
-  * [offline] Manifests parse; `grep -n "enable-remote-write-receiver" k8s/monitoring/prometheus.yaml`.
-  * [cluster] Prometheus targets for the postgres exporters, valkey, and meilisearch are `UP`. `oci_customer_onboarding_total` (or any `oci_*` OTel metric) is queryable in Prometheus.
+> [!NOTE] **Status: Completed**
 
 #### 7.14 Stateful Store Alert Rules
 * **Depends On:** `7.13`.

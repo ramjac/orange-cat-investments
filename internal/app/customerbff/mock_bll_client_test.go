@@ -127,6 +127,19 @@ func (m *mockCustomerBLLClient) GetPortfolio(ctx context.Context, in *customerbl
 	return p, nil
 }
 
+func (m *mockCustomerBLLClient) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetPortfolioHistoryRequest) (*customerbllv1.GetPortfolioHistoryResponse, error) {
+	if in.Period == "invalid" {
+		return nil, status.Error(codes.InvalidArgument, "invalid period")
+	}
+
+	return &customerbllv1.GetPortfolioHistoryResponse{
+		Points: []*customerbllv1.ValuationPoint{
+			{Date: "2026-01-01", Valuation: 120000.0},
+			{Date: "2026-04-01", Valuation: 154200.50},
+		},
+	}, nil
+}
+
 func (m *mockCustomerBLLClient) GetPortfolioMetrics(ctx context.Context, in *customerbllv1.GetPortfolioMetricsRequest) (*customerbllv1.GetPortfolioMetricsResponse, error) {
 	return &customerbllv1.GetPortfolioMetricsResponse{
 		PortfolioID:     in.PortfolioID,

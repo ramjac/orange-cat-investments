@@ -2276,6 +2276,45 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
 
+  /api/v1/customer/portfolio/history:
+    get:
+      summary: Get Portfolio Historical Performance
+      description: Returns the portfolio valuation points for the specified period.
+      operationId: getCustomerPortfolioHistory
+      tags:
+        - Customer Portfolio
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [1M, 3M, 6M, 1Y, YTD]
+            default: 3M
+      responses:
+        '200':
+          description: A list of valuation points for the portfolio
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        valuation:
+                          type: number
+                          format: float
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
   /api/v1/customer/webhooks:
     get:
       summary: List Registered Webhooks
