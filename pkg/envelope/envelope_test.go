@@ -3,6 +3,7 @@ package envelope_test
 import (
 	"encoding/json"
 	"testing"
+	"context"
 
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestEventEnvelope(t *testing.T) {
 		Reading:  42.5,
 	}
 
-	env := envelope.NewEventEnvelope("evt-123", "facilities.sensor_read.v1", "corr-999", payload)
+	env := envelope.NewEventEnvelope(context.Background(), "evt-123", "facilities.sensor_read.v1", "corr-999", payload)
 
 	assert.Equal(t, "evt-123", env.EventID)
 	assert.Equal(t, "facilities.sensor_read.v1", env.EventType)

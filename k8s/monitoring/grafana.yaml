@@ -8,18 +8,38 @@ data:
     apiVersion: 1
     datasources:
       - name: Prometheus
+        uid: prometheus-uid
         type: prometheus
         access: proxy
         url: http://prometheus-service.monitoring.svc.cluster.local:9090
         isDefault: true
       - name: Loki
+        uid: loki-uid
         type: loki
         access: proxy
         url: http://loki-service.logging.svc.cluster.local:3100
       - name: Tempo
+        uid: tempo-uid
         type: tempo
         access: proxy
         url: http://tempo.monitoring.svc.cluster.local:3200
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki-uid
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            filterByTraceID: false
+            filterBySpanID: false
+            customQuery: true
+            query: '{$${__tags}} |~ "$${__trace.traceId}"'
+          tracesToMetrics:
+            datasourceUid: prometheus-uid
+            spanStartTimeShift: '1h'
+            spanEndTimeShift: '-1h'
+            tags: [{ key: 'service.name', value: 'service' }]
+            queries:
+              - name: 'Latency query'
+                query: 'sum(rate(traces_spanmetrics_latency_bucket{$${__tags}}[5m]))'
 ---
 apiVersion: apps/v1
 kind: Deployment
