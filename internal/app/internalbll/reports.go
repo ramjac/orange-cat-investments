@@ -125,7 +125,7 @@ func (s *Server) TriggerMonthlyReport(ctx context.Context, in *internalbllv1.Tri
 	}
 
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.reporting.generate_monthly_requested.v1", envelope.NewEventEnvelope(ctx,
+		_ = s.publisher.Publish("events.reporting.generate_monthly_requested.v1", envelope.NewEventEnvelope(
 			fmt.Sprintf("evt-rep-req-%d", time.Now().UnixNano()),
 			"events.reporting.generate_monthly_requested.v1",
 			"",
@@ -260,7 +260,7 @@ func (s *Server) GenerateMonthlyReport(ctx context.Context, in *internalbllv1.Ge
 	}
 
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.reporting.report_archived.v1", envelope.NewEventEnvelope(ctx,
+		_ = s.publisher.Publish("events.reporting.report_archived.v1", envelope.NewEventEnvelope(
 			fmt.Sprintf("evt-rep-%d", time.Now().UnixNano()),
 			"reporting.report_archived.v1",
 			"",

@@ -198,7 +198,7 @@ func TestInvalidationListener(t *testing.T) {
 	_ = cache.Set(ctx, KeyActiveIncidents(), "incidents-data", time.Hour)
 
 	// 1. Emit trade order placed -> evicts portfolio
-	tradeEnv := envelope.NewEventEnvelope(context.Background(), "evt-1", "events.investment.order_placed.v1", "ord-1", map[string]string{
+	tradeEnv := envelope.NewEventEnvelope("evt-1", "events.investment.order_placed.v1", "ord-1", map[string]string{
 		"customer_id": "cust-99",
 	})
 	tradeBytes, _ := json.Marshal(tradeEnv)
@@ -206,7 +206,7 @@ func TestInvalidationListener(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Emit care schedule updated -> evicts care schedule
-	careEnv := envelope.NewEventEnvelope(context.Background(), "evt-2", "events.workforce.care_schedule_updated.v1", "cs-1", map[string]string{
+	careEnv := envelope.NewEventEnvelope("evt-2", "events.workforce.care_schedule_updated.v1", "cs-1", map[string]string{
 		"feline_id": "fel-42",
 	})
 	careBytes, _ := json.Marshal(careEnv)
@@ -214,7 +214,7 @@ func TestInvalidationListener(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Emit incident created -> evicts active incidents
-	incEnv := envelope.NewEventEnvelope(context.Background(), "evt-3", "events.workforce.incident_created.v1", "inc-1", map[string]string{
+	incEnv := envelope.NewEventEnvelope("evt-3", "events.workforce.incident_created.v1", "inc-1", map[string]string{
 		"incident_id": "inc-1",
 	})
 	incBytes, _ := json.Marshal(incEnv)
@@ -241,7 +241,7 @@ func TestInvalidationListener(t *testing.T) {
 	require.NoError(t, err)
 
 	// Malformed inner payload JSON
-	badPayloadEnv := envelope.NewEventEnvelope(context.Background(), "evt-4", "events.investment.order_placed.v1", "ord-bad", "not-a-map")
+	badPayloadEnv := envelope.NewEventEnvelope("evt-4", "events.investment.order_placed.v1", "ord-bad", "not-a-map")
 	badPayloadBytes, _ := json.Marshal(badPayloadEnv)
 	badPayloadMsg := message.NewMessage("bad-msg-2", badPayloadBytes)
 	err = pubsub.Publish("events.investment.order_placed.v1", badPayloadMsg)

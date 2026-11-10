@@ -1,7 +1,6 @@
 package internalbll
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -35,19 +34,6 @@ func (a *watermillPublisherAdapter) Publish(topic string, payload any) error {
 		return err
 	}
 	msg := message.NewMessage(fmt.Sprintf("msg-%d", time.Now().UnixNano()), data)
-	return a.pub.Publish(topic, msg)
-}
-
-func (a *watermillPublisherAdapter) PublishWithContext(ctx context.Context, topic string, payload any) error {
-	if a.pub == nil {
-		return nil
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	msg := message.NewMessage(fmt.Sprintf("msg-%d", time.Now().UnixNano()), data)
-	msg.SetContext(ctx)
 	return a.pub.Publish(topic, msg)
 }
 

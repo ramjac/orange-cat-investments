@@ -73,9 +73,6 @@ func CreateRouter(
 	enableFelineWorkforce := IsFeatureEnabled("ENABLE_FELINE_WORKFORCE")
 
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
-	if err == nil {
-		router.AddMiddleware(TraceContextMiddleware)
-	}
 	if err != nil {
 		return nil, err
 	}

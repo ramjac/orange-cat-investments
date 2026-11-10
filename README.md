@@ -253,16 +253,6 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 ### 5.17 Self-Hosted Kubernetes Infrastructure Blind-Spot Telemetry
 * **Storage, Pod State & Backup Alerting (`k8s/monitoring/`):** Configured kubelet volume capacity scraping (`PVCCapacityWarning` `< 15%` free and `PVCCapacityPrediction` 24h linear exhaustion), `kube-state-metrics` (`PodCrashLoopBackOff`, `PodImagePullBackOff`, `PodPending`, `OOMKilled`), and `BackupFailedOrStale` (`> 26h`) rules alongside operational runbooks in [`docs/runbooks/k8s-monitoring-blind-spots.md`](docs/runbooks/k8s-monitoring-blind-spots.md).
 
-### 5.18 Container Builds & Image Promotion for All External-Sim Mocks
-* **External-Sim Dockerfiles (`cmd/mock-bank/Dockerfile`, `cmd/mock-broker/Dockerfile`):** Added container build definitions consistent with `mock-hardware` for external mock integration testing.
-* **Pipeline Integration (`ci.yaml` & `verify-ci-contracts.sh`):** Integrated mock container builds into deployment pipelines ensuring complete integration tracking in `oci-dev`.
-
-### 5.19 Lifelike Mock Hardware Behavior
-* **BehaviorModel (`cmd/mock-hardware/behavior.go`):** Replaced uniform random generator with a realistic Markov chain activity model for Mock Hardware to simulate lifelike transitions between activities (`sleeping`, `zooming`, etc.), and added bounding and directional drift to mock environmental telemetry correlating directly with current activities.
-
-### 5.20 Trace Context Propagation Over RabbitMQ & Grafana Correlation
-* **Tracing (`pkg/envelope/tracing.go`, `internal/app/worker/tracing_middleware.go`):** Propagates OpenTelemetry context via Watermill `message.Metadata` and adds Loki/Prometheus cross-datasource links to Tempo.
-
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -937,9 +927,13 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] `go test -race ./pkg/telemetry/... ./internal/app/... ./cmd/pebble-proxy/...`. Every `Record*` function in `metrics.go` has at least one non-test caller (checked with `grep`).
 
 #### 7.16 Trace Context Propagation Over RabbitMQ & Grafana Correlation
-> [!NOTE]
-> **Status: Completed**
-> OpenTelemetry `TextMapCarrier` implemented for Watermill metadata. Publisher context injection and router trace extraction middleware implemented with `correlation_id` injection from spans. Grafana tempo datasource updated for cross-datasource correlation to Loki and Prometheus.
+* **Depends On:** `7.15`.
+* **Current Codebase State:** Synchronous HTTP/gRPC spans propagate, but `pkg/envelope/` (`envelope.go`, `pubsub.go`) does not inject or extract trace context into Watermill `message.Metadata`, so worker spans start new traces. `k8s/monitoring/grafana.yaml` already provisions Loki and Tempo datasources, but without trace-to-logs or trace-to-metrics links.
+* **PR Scope:**
+  1. In `pkg/envelope/`, add a `propagation.TextMapCarrier` over `message.Metadata`. Inject on publish and extract in a Watermill middleware registered in `internal/app/worker/router.go`, which starts a consumer span as a child of the extracted context. When a span is active, set `CorrelationID` to its trace ID. Never log payloads.
+  2. In the Grafana datasources ConfigMap, add `tracesToLogsV2` (Tempo → Loki) and `tracesToMetrics` (Tempo → Prometheus). Add Prometheus as a datasource if it is not already present.
+* **Verification Gate:**
+  * [offline] A test with `tracetest.NewInMemoryExporter()` and a GoChannel pub/sub shows the consumer span shares the publisher's trace ID.
 
 ---
 

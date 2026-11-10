@@ -285,7 +285,7 @@ func (s *workforceService) ApproveTimesheet(ctx context.Context, timesheetID, ap
 	}
 
 	if s.publisher != nil {
-		evt := envelope.NewEventEnvelope(ctx,
+		evt := envelope.NewEventEnvelope(
 			fmt.Sprintf("evt-ts-%d", time.Now().UnixNano()),
 			"workforce.timesheet_approved",
 			"",

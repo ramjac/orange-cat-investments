@@ -99,7 +99,7 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 		"frequency":     freq,
 	}
 	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicACHTransferRequested, transferID, achPayload)
+	event := envelope.NewEventEnvelope(eventID, envelope.TopicACHTransferRequested, transferID, achPayload)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
 		if err := s.publisher.Publish(envelope.TopicACHTransferRequested, message.NewMessage(event.EventID, eventBytes)); err != nil {

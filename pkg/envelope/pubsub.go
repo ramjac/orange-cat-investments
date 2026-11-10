@@ -27,11 +27,11 @@ func NewPublisherWithFallback(amqpURL string, logger *slog.Logger) message.Publi
 		pub, err := amqp.NewPublisher(amqpConfig, wmLogger)
 		if err == nil {
 			logger.Info("connected to RabbitMQ event bus", "url", amqpURL)
-			return NewPublisherWithTracing(pub)
+			return pub
 		}
 		logger.Warn("failed to connect to RabbitMQ, falling back to GoChannel", "error", err)
 	}
-	return NewPublisherWithTracing(gochannel.NewGoChannel(gochannel.Config{}, wmLogger))
+	return gochannel.NewGoChannel(gochannel.Config{}, wmLogger)
 }
 
 // NewPubSubWithFallback returns a durable AMQP PubSub when amqpURL is configured and reachable,
@@ -47,10 +47,10 @@ func NewPubSubWithFallback(amqpURL string, logger *slog.Logger) (message.Publish
 		sub, subErr := amqp.NewSubscriber(amqpConfig, wmLogger)
 		if pubErr == nil && subErr == nil {
 			logger.Info("connected worker to RabbitMQ event bus", "url", amqpURL)
-			return NewPublisherWithTracing(pub), sub
+			return pub, sub
 		}
 		logger.Warn("failed to connect to RabbitMQ, falling back to GoChannel", "pub_err", pubErr, "sub_err", subErr)
 	}
 	ch := gochannel.NewGoChannel(gochannel.Config{Persistent: true}, wmLogger)
-	return NewPublisherWithTracing(ch), ch
+	return ch, ch
 }

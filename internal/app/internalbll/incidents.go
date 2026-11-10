@@ -65,7 +65,7 @@ func (s *Server) CreateIncident(ctx context.Context, in *workforcev1.CreateIncid
 			})
 		}
 		if s.publisher != nil {
-			env := envelope.NewEventEnvelope(ctx,
+			env := envelope.NewEventEnvelope(
 				fmt.Sprintf("evt-inc-%d", time.Now().UnixNano()),
 				"events.workforce.incident_created.v1",
 				"",
