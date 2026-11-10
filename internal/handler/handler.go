@@ -34,7 +34,14 @@ func NewWorkforceHandlerWithBLL(bllClient internalbllv1.InternalBLLServiceClient
 	return NewWorkforceHandler(bllClient)
 }
 
-func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
+// RegisterRoutes registers the workforce endpoints. protect, when non-nil, is
+// applied to the employee-sensitive timesheet & payroll routes so that a
+// session-authentication middleware runs before them; the ownership checks in
+// those handlers depend on the authenticated session being present in context.
+func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux, protect func(http.Handler) http.Handler) {
+	if protect == nil {
+		protect = func(next http.Handler) http.Handler { return next }
+	}
 	mux.HandleFunc("GET /api/v1/workforce/employees", h.listEmployees)
 	mux.HandleFunc("GET /api/v1/workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /api/v1/workforce/leave-requests", h.createLeaveRequest)
@@ -59,15 +66,15 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/workforce/incidents", h.createIncident)
 	mux.HandleFunc("GET /api/v1/workforce/incidents", h.listIncidents)
 	mux.HandleFunc("PUT /api/v1/workforce/incidents/{id}/status", h.updateIncidentStatus)
-	mux.HandleFunc("GET /api/v1/workforce/timesheets", h.listTimesheets)
-	mux.HandleFunc("POST /api/v1/workforce/timesheets", h.submitTimesheet)
-	mux.HandleFunc("GET /api/v1/workforce/timesheets/{id}", h.getTimesheet)
-	mux.HandleFunc("PUT /api/v1/workforce/timesheets/{id}/status", h.updateTimesheetStatus)
-	mux.HandleFunc("GET /api/v1/workforce/payroll/slips", h.listSalarySlips)
-	mux.HandleFunc("GET /api/v1/workforce/payroll/slips/{id}", h.getSalarySlip)
-	mux.HandleFunc("POST /api/v1/workforce/payroll/run", h.processPayrollRun)
-	mux.HandleFunc("GET /api/v1/employee/payroll/slips", h.listSalarySlips)
-	mux.HandleFunc("GET /api/v1/employee/payroll/slips/{id}", h.getSalarySlip)
+	mux.Handle("GET /api/v1/workforce/timesheets", protect(http.HandlerFunc(h.listTimesheets)))
+	mux.Handle("POST /api/v1/workforce/timesheets", protect(http.HandlerFunc(h.submitTimesheet)))
+	mux.Handle("GET /api/v1/workforce/timesheets/{id}", protect(http.HandlerFunc(h.getTimesheet)))
+	mux.Handle("PUT /api/v1/workforce/timesheets/{id}/status", protect(http.HandlerFunc(h.updateTimesheetStatus)))
+	mux.Handle("GET /api/v1/workforce/payroll/slips", protect(http.HandlerFunc(h.listSalarySlips)))
+	mux.Handle("GET /api/v1/workforce/payroll/slips/{id}", protect(http.HandlerFunc(h.getSalarySlip)))
+	mux.Handle("POST /api/v1/workforce/payroll/run", protect(http.HandlerFunc(h.processPayrollRun)))
+	mux.Handle("GET /api/v1/employee/payroll/slips", protect(http.HandlerFunc(h.listSalarySlips)))
+	mux.Handle("GET /api/v1/employee/payroll/slips/{id}", protect(http.HandlerFunc(h.getSalarySlip)))
 	mux.HandleFunc("POST /api/v1/workforce/employees/onboard", h.handleOnboardEmployee)
 	mux.HandleFunc("POST /api/v1/workforce/employees/{id}/offboard", h.handleOffboardEmployee)
 	mux.HandleFunc("GET /api/v1/workforce/employees/{id}/lifecycle", h.handleGetEmployeeLifecycle)

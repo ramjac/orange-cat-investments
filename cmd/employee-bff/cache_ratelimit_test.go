@@ -25,7 +25,7 @@ func TestEmployeeBFF_CareScheduleCachingAndETag(t *testing.T) {
 	wfHandler.SetCache(cache)
 
 	mux := http.NewServeMux()
-	wfHandler.RegisterRoutes(mux)
+	wfHandler.RegisterRoutes(mux, nil)
 
 	// Seed care schedule in mock client
 	_, err := bllClient.UpdateCareSchedule(context.Background(), &workforcev1.UpdateCareScheduleRequest{
@@ -84,7 +84,7 @@ func TestEmployeeBFF_NextcloudCOTSCaching(t *testing.T) {
 	wfHandler.SetCache(cache)
 
 	mux := http.NewServeMux()
-	wfHandler.RegisterRoutes(mux)
+	wfHandler.RegisterRoutes(mux, nil)
 
 	// 1. Initial GET
 	req1 := httptest.NewRequest("GET", "/api/v1/workforce/hub/folders", nil)

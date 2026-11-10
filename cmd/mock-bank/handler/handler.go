@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/engine"
@@ -14,6 +15,7 @@ import (
 type Handler struct {
 	store  *ledger.LedgerStore
 	engine *engine.SettlementEngine
+	faults *BankFaults
 }
 
 // NewHandler creates a new Handler instance.
@@ -21,12 +23,17 @@ func NewHandler(store *ledger.LedgerStore, eng *engine.SettlementEngine) *Handle
 	return &Handler{
 		store:  store,
 		engine: eng,
+		faults: &BankFaults{},
 	}
 }
 
 // RegisterRoutes registers banking endpoints on an http.ServeMux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", h.handleHealthz)
+
+	if os.Getenv("ENABLE_FAULT_INJECTION") == "true" {
+		mux.Handle("/sim/faults", h.faults)
+	}
 
 	// Plaid-style Auth & Link
 	mux.HandleFunc("POST /link/token/create", h.handleCreateLinkToken)
@@ -58,6 +65,9 @@ func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleCreateLinkToken(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -78,6 +88,9 @@ func (h *Handler) handleCreateLinkToken(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleExchangePublicToken(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -109,6 +122,9 @@ func (h *Handler) handleExchangePublicToken(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	ownerID := r.URL.Query().Get("owner_id")
@@ -150,6 +166,9 @@ func (h *Handler) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetBalances(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -206,6 +225,9 @@ func (h *Handler) handleGetBalances(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleTransferAuthorization(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "transfer") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -259,6 +281,9 @@ func (h *Handler) handleTransferAuthorization(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "transfer") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
@@ -304,6 +329,9 @@ func (h *Handler) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetTransfer(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	transferID := r.URL.Query().Get("transfer_id")
@@ -334,6 +362,9 @@ func (h *Handler) handleGetTransfer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListTransfers(w http.ResponseWriter, r *http.Request) {
+	if h.faults.check(w, "") {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	accountID := r.URL.Query().Get("account_id")

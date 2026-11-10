@@ -820,3 +820,84 @@ func TestGetPortfolio_HistoricalPerformanceFallback(t *testing.T) {
 	// Should fallback to empty array
 	require.Empty(t, resp.HistoricalPerformance)
 }
+
+func TestGetPortfolioHistory(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nil brokerClient returns empty points list", func(t *testing.T) {
+		srv := NewServer(Config{})
+		res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+			CustomerID: "cust-123",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.Empty(t, res.Points)
+	})
+
+	t.Run("maps broker history points in date order per period", func(t *testing.T) {
+		var requestedPeriod string
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/trading/accounts/acc-123/portfolio/history":
+				requestedPeriod = r.URL.Query().Get("period")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{
+					"timestamp": [1767225600, 1769904000],
+					"equity": [4000.555, 5000.0],
+					"profit_loss": [0.0, 0.0],
+					"profit_loss_pct": [0.0, 0.0],
+					"base_value": 4000.555,
+					"timeframe": "1D"
+				}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer ts.Close()
+
+		srv := NewServer(Config{
+			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+		})
+
+		for _, period := range []string{"1M", "3M", "6M", "1Y", "YTD"} {
+			res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+				CustomerID:  "cust-123",
+				PortfolioID: "acc-123",
+				Period:      period,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, res)
+			assert.Equal(t, period, requestedPeriod, "period must be passed through to the broker")
+			require.Len(t, res.Points, 2)
+			assert.Equal(t, "2026-01-01", res.Points[0].Date)
+			assert.Equal(t, 4000.56, res.Points[0].Valuation)
+			assert.Equal(t, "2026-02-01", res.Points[1].Date)
+			assert.Equal(t, 5000.0, res.Points[1].Valuation)
+		}
+	})
+
+	t.Run("empty broker history returns no synthetic points", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/v1/trading/accounts/acc-123/portfolio/history" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"timestamp": [], "equity": []}`))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer ts.Close()
+
+		srv := NewServer(Config{
+			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+		})
+
+		res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+			CustomerID:  "cust-123",
+			PortfolioID: "acc-123",
+			Period:      "3M",
+		})
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.Empty(t, res.Points)
+	})
+}
