@@ -15,7 +15,7 @@ func setupTestServer() *http.ServeMux {
 	mockBLL := newMockInternalBLLClient()
 	h := NewWorkforceHandler(mockBLL)
 	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+	h.RegisterRoutes(mux, nil)
 	return mux
 }
 

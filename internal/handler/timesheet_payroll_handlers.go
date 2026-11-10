@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
@@ -15,6 +16,25 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	fromDate := r.URL.Query().Get("from_date")
 	toDate := r.URL.Query().Get("to_date")
 	taskCode := r.URL.Query().Get("task_code")
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		if empID == "" {
+			empID = sess.EmployeeID
+		} else if empID != sess.EmployeeID {
+			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own timesheets")
+			return
+		}
+	}
+
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
@@ -49,6 +69,24 @@ func (h *WorkforceHandler) submitTimesheet(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		if ts.EmployeeID == "" {
+			ts.EmployeeID = sess.EmployeeID
+		} else if ts.EmployeeID != sess.EmployeeID {
+			writeError(w, http.StatusForbidden, "forbidden: standard employees can only submit their own timesheets")
+			return
+		}
+	}
+
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -69,6 +107,12 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -79,6 +123,13 @@ func (h *WorkforceHandler) getTimesheet(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+	if !isElevated && resp.Timesheet.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own timesheets")
+		return
+	}
 	writeJSON(w, http.StatusOK, resp.Timesheet)
 }
 
@@ -86,6 +137,20 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 	id := r.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "timesheet id parameter is required")
+		return
+	}
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		writeError(w, http.StatusForbidden, "forbidden: only elevated roles can update timesheet status")
 		return
 	}
 
@@ -153,6 +218,25 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
 
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		if employeeID == "" {
+			employeeID = sess.EmployeeID
+		} else if employeeID != sess.EmployeeID {
+			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own salary slips")
+			return
+		}
+	}
+
+
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -180,6 +264,12 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
 		return
@@ -190,6 +280,13 @@ func (h *WorkforceHandler) getSalarySlip(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+	if !isElevated && resp.SalarySlip.EmployeeID != sess.EmployeeID {
+		writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own salary slips")
+		return
+	}
 	writeJSON(w, http.StatusOK, resp.SalarySlip)
 }
 
@@ -197,6 +294,20 @@ func (h *WorkforceHandler) processPayrollRun(w http.ResponseWriter, r *http.Requ
 	var pe frappe.PayrollEntry
 	if err := json.NewDecoder(r.Body).Decode(&pe); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		writeError(w, http.StatusForbidden, "forbidden: only elevated roles can trigger payroll runs")
 		return
 	}
 
