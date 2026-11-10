@@ -230,7 +230,7 @@ func (s *workforceService) GenerateMonthlyReport(ctx context.Context, period, ge
 	}
 
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.reporting.report_archived.v1", envelope.NewEventEnvelope(
+		_ = s.publisher.Publish("events.reporting.report_archived.v1", envelope.NewEventEnvelope(ctx,
 			fmt.Sprintf("evt-rep-%d", time.Now().UnixNano()),
 			"reporting.report_archived.v1",
 			"",

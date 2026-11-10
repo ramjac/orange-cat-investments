@@ -579,6 +579,35 @@ func TestListDeposits(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.Equal(t, expectedDeposits, resp.Deposits)
 	})
+
+	t.Run("context cancellation propagated to core-invest", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				select {
+				case <-ctx.Done():
+					return nil, status.Error(codes.Canceled, ctx.Err().Error())
+				case <-time.After(1 * time.Second): // Simulate work
+					return &coreinvestv1.ListRecurringDepositsResponse{}, nil
+				}
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		resp, err := s.ListDeposits(ctx, &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "failed to list recurring deposits")
+		assert.Contains(t, err.Error(), "context canceled")
+	})
 }
 
 func TestInitiateACHDeposit_PublisherError(t *testing.T) {
