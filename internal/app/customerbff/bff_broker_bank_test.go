@@ -28,11 +28,20 @@ func TestCustomerBFF_PortfolioAndTickerRoutes(t *testing.T) {
 	assert.Greater(t, portResp["cash_balance_usd"].(float64), 0.0)
 
 	// 1.5 GET /api/v1/customer/portfolio/history
-	reqHist := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history?period=1Y", nil)
-	reqHist.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
-	recHist := httptest.NewRecorder()
-	mux.ServeHTTP(recHist, reqHist)
-	assert.Equal(t, http.StatusOK, recHist.Code)
+	for _, period := range []string{"1M", "3M", "6M", "1Y", "YTD"} {
+		reqHist := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history?period="+period, nil)
+		reqHist.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+		recHist := httptest.NewRecorder()
+		mux.ServeHTTP(recHist, reqHist)
+		assert.Equal(t, http.StatusOK, recHist.Code)
+	}
+
+	// default period (no query parameter) must be accepted
+	reqHistDefault := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history", nil)
+	reqHistDefault.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+	recHistDefault := httptest.NewRecorder()
+	mux.ServeHTTP(recHistDefault, reqHistDefault)
+	assert.Equal(t, http.StatusOK, recHistDefault.Code)
 
 	reqHistInvalid := httptest.NewRequest(http.MethodGet, "/api/v1/customer/portfolio/history?period=invalid", nil)
 	reqHistInvalid.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
