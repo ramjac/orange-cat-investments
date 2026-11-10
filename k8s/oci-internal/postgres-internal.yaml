@@ -6,6 +6,18 @@ metadata:
 data:
   init.sql: |
     CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'oci_monitor') THEN
+        CREATE ROLE oci_monitor WITH LOGIN PASSWORD 'oci_secure_pass';
+      ELSE
+        ALTER ROLE oci_monitor WITH PASSWORD 'oci_secure_pass';
+      END IF;
+    END
+    $$;
+    GRANT pg_monitor TO oci_monitor;
+
     -- Initialize individual databases for internal COTS business applications
     SELECT 'CREATE DATABASE nextcloud' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'nextcloud')\gexec
     SELECT 'CREATE DATABASE forgejo' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'forgejo')\gexec
@@ -125,7 +137,7 @@ spec:
 
             - name: DATA_SOURCE_NAME
 
-              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@localhost:5432/oci_internal?sslmode=disable"
+              value: "postgresql://oci_monitor:$(POSTGRES_PASSWORD)@localhost:5432/oci_internal?sslmode=disable"
 
           ports:
 

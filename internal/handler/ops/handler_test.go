@@ -66,6 +66,7 @@ func (m *mockInternalBLLClient) GetTicket(ctx context.Context, in *opsv1.GetTick
 	return &opsv1.GetTicketResponse{
 		Ticket: &opsv1.ITTicket{
 			TicketID:       in.TicketID,
+			CustomerID:     "cust-longterm-arthur",
 			ForgejoRepo:    "infra/microk8s",
 			Title:          "Sample Ticket",
 			State:          "open",
@@ -375,6 +376,8 @@ func TestOpsHandler(t *testing.T) {
 
 		// GET Customer Ticket Comments (Scrubbed)
 		reqComm := httptest.NewRequest("GET", "/api/v1/customer/support/tickets/cust-ticket-999/comments", nil)
+		reqComm.Header.Set("X-Customer-ID", "cust-longterm-arthur")
+		reqComm = reqComm.WithContext(session.WithCustomerSession(reqComm.Context(), &session.CustomerSession{CustomerID: "cust-longterm-arthur"}))
 		recComm := httptest.NewRecorder()
 		mux.ServeHTTP(recComm, reqComm)
 
