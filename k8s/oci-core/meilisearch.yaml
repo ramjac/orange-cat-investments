@@ -1,3 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: meilisearch-data-pvc
+  namespace: oci-core
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,10 +26,6 @@ spec:
     metadata:
       labels:
         app: meilisearch
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "7700"
-        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: meilisearch
@@ -35,6 +43,11 @@ spec:
               value: production
             - name: MEILI_EXPERIMENTAL_ENABLE_METRICS
               value: "true"
+            - name: MEILI_DATA_DIR
+              value: /meili_data
+          volumeMounts:
+            - name: meilisearch-storage
+              mountPath: /meili_data
           resources:
             requests:
               cpu: 100m
@@ -42,6 +55,10 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
+      volumes:
+        - name: meilisearch-storage
+          persistentVolumeClaim:
+            claimName: meilisearch-data-pvc
 ---
 apiVersion: v1
 kind: Service

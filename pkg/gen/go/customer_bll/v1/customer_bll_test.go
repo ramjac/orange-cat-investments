@@ -46,3 +46,33 @@ func TestCustomerBLLGRPC_RoundTrip(t *testing.T) {
 	assert.Equal(t, "port-cust-01", res.PortfolioID)
 	assert.Equal(t, 25000.0, res.TotalBalanceUSD)
 }
+
+func (m *mockCustomerBLLServer) GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error) {
+	return &GetPortfolioHistoryResponse{
+		Points: []*ValuationPoint{},
+	}, nil
+}
+
+func TestCustomerBLLGRPC_GetPortfolioHistory(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lis.Close()
+
+	srv := grpcutil.NewServer(nil)
+	RegisterCustomerBLLServiceServer(srv, &mockCustomerBLLServer{})
+	go func() { _ = srv.Serve(lis) }()
+	defer srv.Stop()
+
+	conn, err := grpcutil.Dial(context.Background(), lis.Addr().String(), nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := NewCustomerBLLServiceClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	res, err := client.GetPortfolioHistory(ctx, &GetPortfolioHistoryRequest{CustomerID: "cust-01"})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Empty(t, res.Points)
+}

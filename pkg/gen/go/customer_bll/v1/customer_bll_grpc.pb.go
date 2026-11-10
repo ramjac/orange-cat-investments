@@ -31,6 +31,9 @@ func invokeUnary[Req any, Resp any](ctx context.Context, cc grpc.ClientConnInter
 func (c *customerBLLServiceClient) GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error) {
 	return invokeUnary[GetPortfolioRequest, GetPortfolioResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolio", in)
 }
+func (c *customerBLLServiceClient) GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error) {
+	return invokeUnary[GetPortfolioHistoryRequest, GetPortfolioHistoryResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioHistory", in)
+}
 func (c *customerBLLServiceClient) GetPortfolioMetrics(ctx context.Context, in *GetPortfolioMetricsRequest) (*GetPortfolioMetricsResponse, error) {
 	return invokeUnary[GetPortfolioMetricsRequest, GetPortfolioMetricsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioMetrics", in)
 }
@@ -159,6 +162,9 @@ type UnimplementedCustomerBLLServiceServer struct{}
 
 func (UnimplementedCustomerBLLServiceServer) GetPortfolio(context.Context, *GetPortfolioRequest) (*GetPortfolioResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPortfolio not implemented")
+}
+func (UnimplementedCustomerBLLServiceServer) GetPortfolioHistory(context.Context, *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPortfolioHistory not implemented")
 }
 func (UnimplementedCustomerBLLServiceServer) GetPortfolioMetrics(context.Context, *GetPortfolioMetricsRequest) (*GetPortfolioMetricsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPortfolioMetrics not implemented")
@@ -308,6 +314,9 @@ var CustomerBLLService_ServiceDesc = grpc.ServiceDesc{
 	Methods: []grpc.MethodDesc{
 		{MethodName: "GetPortfolio", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolio", CustomerBLLServiceServer.GetPortfolio)
+		}},
+		{MethodName: "GetPortfolioHistory", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioHistory", CustomerBLLServiceServer.GetPortfolioHistory)
 		}},
 		{MethodName: "GetPortfolioMetrics", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/GetPortfolioMetrics", CustomerBLLServiceServer.GetPortfolioMetrics)
