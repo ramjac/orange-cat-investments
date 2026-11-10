@@ -39,10 +39,25 @@ func extractCustomerID(r *http.Request) string {
 	return ""
 }
 
+func isAuthorizedForCustomerTicket(r *http.Request, ticketCustomerID string) bool {
+	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		return true
+	}
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		return sess.CustomerID == ticketCustomerID
+	}
+	return false
+}
+
 func (h *Handler) ListCustomerTickets(w http.ResponseWriter, r *http.Request) {
 	customerID := extractCustomerID(r)
 	if customerID == "" {
 		http.Error(w, "customer_id is required via X-Customer-ID header or query parameter", http.StatusUnauthorized)
+		return
+	}
+
+	if !isAuthorizedForCustomerTicket(r, customerID) {
+		http.Error(w, "forbidden: cannot list tickets for another customer", http.StatusForbidden)
 		return
 	}
 
@@ -126,6 +141,11 @@ func (h *Handler) GetCustomerTicket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+
+	if !isAuthorizedForCustomerTicket(r, resp.Ticket.CustomerID) {
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp.Ticket)
@@ -142,6 +162,16 @@ func (h *Handler) ListCustomerTicketComments(w http.ResponseWriter, r *http.Requ
 
 	if h.bllClient == nil {
 		http.Error(w, "ops service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	ticketResp, err := h.bllClient.GetTicket(r.Context(), &opsv1.GetTicketRequest{TicketID: id})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !isAuthorizedForCustomerTicket(r, ticketResp.Ticket.CustomerID) {
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
 		return
 	}
 
@@ -183,6 +213,16 @@ func (h *Handler) AddCustomerTicketComment(w http.ResponseWriter, r *http.Reques
 
 	if h.bllClient == nil {
 		http.Error(w, "ops service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	ticketResp, err := h.bllClient.GetTicket(r.Context(), &opsv1.GetTicketRequest{TicketID: id})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if !isAuthorizedForCustomerTicket(r, ticketResp.Ticket.CustomerID) {
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
 		return
 	}
 
