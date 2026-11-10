@@ -10,6 +10,7 @@ import "oci/workforce/v1/workforce.proto";
 
 service CustomerBLLService {
   rpc GetPortfolio(GetPortfolioRequest) returns (GetPortfolioResponse);
+  rpc GetPortfolioHistory(GetPortfolioHistoryRequest) returns (GetPortfolioHistoryResponse);
   rpc GetPortfolioMetrics(GetPortfolioMetricsRequest) returns (GetPortfolioMetricsResponse);
   rpc StreamPortfolioValuation(oci.core_invest.v1.StreamPortfolioValuationRequest) returns (stream oci.core_invest.v1.ValuationEvent);
 
@@ -55,6 +56,16 @@ service CustomerBLLService {
 message ValuationPoint {
   string date = 1;
   double valuation = 2;
+}
+
+message GetPortfolioHistoryRequest {
+  string customer_id = 1 [json_name = "customer_id"];
+  string portfolio_id = 2 [json_name = "portfolio_id"];
+  string period = 3 [json_name = "period"];
+}
+
+message GetPortfolioHistoryResponse {
+  repeated ValuationPoint points = 1 [json_name = "points"];
 }
 
 message GetPortfolioRequest {

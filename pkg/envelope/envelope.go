@@ -1,7 +1,9 @@
 package envelope
 
 import (
+	"context"
 	"time"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // EventEnvelope standardizes event messaging across RabbitMQ and internal event brokers.
@@ -15,7 +17,14 @@ type EventEnvelope[T any] struct {
 }
 
 // NewEventEnvelope constructs a new EventEnvelope with a given ID, event type, correlation trace ID, and payload.
-func NewEventEnvelope[T any](eventID, eventType, correlationID string, payload T) EventEnvelope[T] {
+// If the context contains a trace ID and correlationID is empty, it uses the trace ID as the correlationID.
+func NewEventEnvelope[T any](ctx context.Context, eventID, eventType, correlationID string, payload T) EventEnvelope[T] {
+	if correlationID == "" && ctx != nil {
+		spanCtx := trace.SpanFromContext(ctx).SpanContext()
+		if spanCtx.HasTraceID() {
+			correlationID = spanCtx.TraceID().String()
+		}
+	}
 	return EventEnvelope[T]{
 		EventID:       eventID,
 		EventType:     eventType,

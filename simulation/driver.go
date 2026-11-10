@@ -174,6 +174,13 @@ func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 		}
 	}
 
+	if d.cfg.FaultScenarios {
+		if err := d.testFaultScenarios(ctx); err != nil {
+			d.logger.Error("fault scenario tests failed", "error", err)
+			return summary, err
+		}
+	}
+
 	summary.Duration = time.Since(startTime)
 	d.logger.Info("simulation drive completed",
 		"total_actions", summary.TotalActions,

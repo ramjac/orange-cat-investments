@@ -33,6 +33,7 @@ func main() {
 		eliseToken   = flag.String("forgejo-elise-token", "", "Forgejo REST API token override for Elise Dev")
 		marcusToken   = flag.String("forgejo-marcus-token", "", "Forgejo REST API token override for Marcus Lead")
 		validateFlags = flag.Bool("validate-flags", false, "Validate flags and exit immediately")
+		faultScenarios = flag.Bool("fault-scenarios", false, "Inject faults to -dev mock endpoints, assert BFF errors, and reset")
 	)
 
 	flag.Parse()
@@ -86,6 +87,7 @@ func main() {
 		Iterations:         *iterations,
 		ActionDelay:        time.Duration(*delayMs) * time.Millisecond,
 		Verbose:            *verbose,
+		FaultScenarios:     *faultScenarios,
 	}
 
 	driver, err := simulation.NewDriver(cfg)

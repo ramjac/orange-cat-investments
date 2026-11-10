@@ -69,6 +69,38 @@ if grep -q "\.oci-dev\." k8s/external-sim/mock-bank.yaml k8s/external-sim/mock-b
   failed=1
 fi
 
+# 5. Verify scripts/verify-deployed-images.sh tag matching with a stub kubectl
+echo "Testing scripts/verify-deployed-images.sh with a stub kubectl..."
+STUB_DIR=$(mktemp -d)
+cat > "$STUB_DIR/kubectl" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"-o jsonpath={..image}"*) echo "${STUB_IMAGES:-}" ;;
+  *) echo "" ;;
+esac
+STUB
+chmod +x "$STUB_DIR/kubectl"
+
+# Matching tag (plus an external image that must be ignored) must pass.
+if ! STUB_IMAGES="registry.k8s.io/pause:3.9 localhost:32000/app-one:sha-abc123" PATH="$STUB_DIR:$PATH" ./scripts/verify-deployed-images.sh test-ns sha-abc123 app-one >/dev/null 2>&1; then
+  echo "ERROR: verify-deployed-images.sh rejected a matching :sha-abc123 tag"
+  failed=1
+fi
+
+# A :latest image must fail.
+if STUB_IMAGES="localhost:32000/app-one:latest" PATH="$STUB_DIR:$PATH" ./scripts/verify-deployed-images.sh test-ns sha-abc123 app-one >/dev/null 2>&1; then
+  echo "ERROR: verify-deployed-images.sh accepted a :latest image"
+  failed=1
+fi
+
+# A different SHA must fail.
+if STUB_IMAGES="localhost:32000/app-one:sha-000000" PATH="$STUB_DIR:$PATH" ./scripts/verify-deployed-images.sh test-ns sha-abc123 app-one >/dev/null 2>&1; then
+  echo "ERROR: verify-deployed-images.sh accepted a different SHA tag"
+  failed=1
+fi
+
+rm -rf "$STUB_DIR"
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1

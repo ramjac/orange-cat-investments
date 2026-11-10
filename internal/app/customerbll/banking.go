@@ -99,7 +99,7 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 		"frequency":     freq,
 	}
 	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(eventID, envelope.TopicACHTransferRequested, transferID, achPayload)
+	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicACHTransferRequested, transferID, achPayload)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
 		if err := s.publisher.Publish(envelope.TopicACHTransferRequested, message.NewMessage(event.EventID, eventBytes)); err != nil {
@@ -128,6 +128,9 @@ func (s *Server) ListDeposits(ctx context.Context, in *customerbllv1.ListDeposit
 		CustomerID: in.CustomerID,
 	})
 	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			return nil, status.Errorf(st.Code(), "failed to list recurring deposits: %s", st.Message())
+		}
 		return nil, status.Errorf(codes.Internal, "failed to list recurring deposits: %v", err)
 	}
 	return &customerbllv1.ListDepositsResponse{Deposits: res.Deposits}, nil
