@@ -104,7 +104,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      tier: api
+      tier: domain-api
   policyTypes:
   - Ingress
   ingress:
@@ -129,7 +129,7 @@ sleep 15
 
 # 4. Pod kills
 echo "Scenario: Pod kills"
-safe_kubectl get pod -l tier=api --field-selector=status.phase=Running -n oci-dev --no-headers | head -n 1 | awk '{print $1}' | xargs -I {} safe_kubectl delete pod {} -n oci-dev || true
+safe_kubectl get pod -l tier=domain-api --field-selector=status.phase=Running -n oci-dev --no-headers | head -n 1 | awk '{print $1}' | xargs -I {} safe_kubectl delete pod {} -n oci-dev || true
 safe_kubectl get pod -l tier=bll --field-selector=status.phase=Running -n oci-dev --no-headers | head -n 1 | awk '{print $1}' | xargs -I {} safe_kubectl delete pod {} -n oci-dev || true
 safe_kubectl get pod -l tier=bff --field-selector=status.phase=Running -n oci-dev --no-headers | head -n 1 | awk '{print $1}' | xargs -I {} safe_kubectl delete pod {} -n oci-dev || true
 sleep 15

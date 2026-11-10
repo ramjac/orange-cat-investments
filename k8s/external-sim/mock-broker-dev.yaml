@@ -35,6 +35,8 @@ spec:
             - containerPort: 8089
               name: http
           env:
+            - name: ENABLE_FAULT_INJECTION
+              value: "true"
             - name: PORT
               value: "8089"
             - name: APCA_API_KEY_ID

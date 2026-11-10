@@ -53,6 +53,9 @@ type Config struct {
 
 	// Verbose controls detailed logging of request/response payloads.
 	Verbose bool
+
+	// FaultScenarios indicates whether to inject and test fault scenarios against dev mocks.
+	FaultScenarios bool
 }
 
 // DefaultConfig returns reasonable defaults for local simulation runs.
