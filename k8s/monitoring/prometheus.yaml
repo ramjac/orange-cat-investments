@@ -100,6 +100,9 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
             regex: meilisearch
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: keep
+            regex: Running
           - source_labels: [__address__]
             action: replace
             regex: ([^:]+)(?::\d+)?
