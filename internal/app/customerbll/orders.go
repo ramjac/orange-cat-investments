@@ -163,7 +163,7 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 
 	// 4. Emit asynchronous event
 	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(eventID, envelope.TopicOrderPlaced, orderID, result)
+	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicOrderPlaced, orderID, result)
 	eventBytes, _ := json.Marshal(event)
 	if s.publisher != nil {
 		_ = s.publisher.Publish(envelope.TopicOrderPlaced, message.NewMessage(event.EventID, eventBytes))
