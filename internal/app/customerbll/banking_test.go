@@ -579,6 +579,50 @@ func TestListDeposits(t *testing.T) {
 		assert.NotNil(t, resp)
 		assert.Equal(t, expectedDeposits, resp.Deposits)
 	})
+
+	t.Run("context cancellation propagates Canceled status code", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, status.Error(codes.Canceled, "context canceled")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		resp, err := s.ListDeposits(ctx, &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Canceled, status.Code(err))
+	})
+
+	t.Run("context timeout propagates DeadlineExceeded status code", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, status.Error(codes.DeadlineExceeded, "context deadline exceeded")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 0)
+		defer cancel()
+
+		resp, err := s.ListDeposits(ctx, &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
+	})
 }
 
 func TestInitiateACHDeposit_PublisherError(t *testing.T) {
