@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
-	"github.com/google/uuid"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -62,8 +61,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go runCatSpottedGenerator(ctx, pub, bllClient, logger)
-	go runEnvironmentalGenerator(ctx, bllClient, logger)
+	b := NewBehaviorModel(rand.New(rand.NewSource(time.Now().UnixNano())))
+
+	go runCatSpottedGenerator(ctx, pub, bllClient, logger, b)
+	go runEnvironmentalGenerator(ctx, bllClient, logger, b)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -84,10 +85,9 @@ func fetchFelineTarget(ctx context.Context, bllClient internalbllv1.InternalBLLS
 	return fixtureFelineID
 }
 
-func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) {
+func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger, b *BehaviorModel) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	activities := []string{"zooming", "sleeping", "eating", "playing", "grooming"}
 
 	felineID := os.Getenv("OBSERVATION_FELINE_ID")
 
@@ -100,33 +100,20 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 				felineID = fetchFelineTarget(ctx, bllClient, logger)
 			}
 
-			activity := activities[rand.Intn(len(activities))]
-			confidence := 0.8 + rand.Float64()*0.19 // between 0.80 and 0.99
+			event := b.NextActivityEnvelope(fixtureCameraID, felineID)
 
-			event := envelope.EventEnvelope[envelope.CatSpottedPayload]{
-				EventID:       uuid.Must(uuid.NewV7()).String(),
-				EventType:     "observation.cat_spotted.v1",
-				OccurredAt:    time.Now().UTC(),
-				CorrelationID: "correlation-trace-" + uuid.Must(uuid.NewV7()).String()[:8],
-				Payload: envelope.CatSpottedPayload{
-					CameraID:        fixtureCameraID,
-					FelineID:        felineID,
-					ActivityType:    activity,
-					ConfidenceScore: confidence,
-				},
-			}
 			data, _ := json.Marshal(event)
 			msg := message.NewMessage(event.EventID, data)
 			if err := pub.Publish("events.observation.cat_spotted.v1", msg); err != nil {
 				logger.Error("Failed to publish cat spotted event", "error", err)
 			} else {
-				logger.Info("Published cat spotted event", "activity", activity, "confidence", confidence)
+				logger.Info("Published cat spotted event", "activity", event.Payload.ActivityType, "confidence", event.Payload.ConfidenceScore)
 			}
 		}
 	}
 }
 
-func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) {
+func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger, b *BehaviorModel) {
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -138,10 +125,8 @@ func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.Inte
 			if zoneID == "" {
 				zoneID = fixtureZoneID
 			}
-			temp := 22.0 + rand.Float64()*3.0      // 22-25 C
-			humidity := 40.0 + rand.Float64()*20.0 // 40-60%
-			lux := 200.0 + rand.Float64()*100.0
-			noise := 30.0 + rand.Float64()*20.0
+
+			temp, humidity, lux, noise := b.NextEnvironment()
 
 			_, err := bllClient.IngestEnvironmentalTelemetry(ctx, &facilitiesv1.IngestTelemetryRequest{
 				ZoneID:              zoneID,

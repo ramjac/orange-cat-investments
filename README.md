@@ -253,6 +253,16 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 ### 5.17 Self-Hosted Kubernetes Infrastructure Blind-Spot Telemetry
 * **Storage, Pod State & Backup Alerting (`k8s/monitoring/`):** Configured kubelet volume capacity scraping (`PVCCapacityWarning` `< 15%` free and `PVCCapacityPrediction` 24h linear exhaustion), `kube-state-metrics` (`PodCrashLoopBackOff`, `PodImagePullBackOff`, `PodPending`, `OOMKilled`), and `BackupFailedOrStale` (`> 26h`) rules alongside operational runbooks in [`docs/runbooks/k8s-monitoring-blind-spots.md`](docs/runbooks/k8s-monitoring-blind-spots.md).
 
+### 5.18 Container Builds & Image Promotion for All External-Sim Mocks
+* **External-Sim Dockerfiles (`cmd/mock-bank/Dockerfile`, `cmd/mock-broker/Dockerfile`):** Added container build definitions consistent with `mock-hardware` for external mock integration testing.
+* **Pipeline Integration (`ci.yaml` & `verify-ci-contracts.sh`):** Integrated mock container builds into deployment pipelines ensuring complete integration tracking in `oci-dev`.
+
+### 5.19 Lifelike Mock Hardware Behavior
+* **BehaviorModel (`cmd/mock-hardware/behavior.go`):** Replaced uniform random generator with a realistic Markov chain activity model for Mock Hardware to simulate lifelike transitions between activities (`sleeping`, `zooming`, etc.), and added bounding and directional drift to mock environmental telemetry correlating directly with current activities.
+
+### 5.20 Trace Context Propagation Over RabbitMQ & Grafana Correlation
+* **Tracing (`pkg/envelope/tracing.go`, `internal/app/worker/tracing_middleware.go`):** Propagates OpenTelemetry context via Watermill `message.Metadata` and adds Loki/Prometheus cross-datasource links to Tempo.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -768,26 +778,10 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [cluster] Deleting the Forgejo pod preserves repositories and prior Actions logs.
 
 #### 7.3 Container Builds & Image Promotion for All External-Sim Mocks
-* **Depends On:** `7.1`.
-* **Current Codebase State:** `k8s/external-sim/mock-bank.yaml` and `mock-broker.yaml` reference `localhost:32000/mock-bank:latest` and `mock-broker:latest`, but `cmd/mock-bank/` and `cmd/mock-broker/` have **no Dockerfile** and `ci.yaml` never builds them. Code changes to either mock can therefore never reach the cluster. `mock-hardware` is already built.
-* **PR Scope:**
-  1. Add `cmd/mock-bank/Dockerfile` and `cmd/mock-broker/Dockerfile`, following the `cmd/mock-hardware/Dockerfile` pattern (with the `GO_VERSION` arg from `7.1`).
-  2. Add both images to the build/push loop in `deploy-oci-dev`, and add `kubectl set image ... :sha-${COMMIT_SHA} -n external-sim` plus `rollout status` for `mock-bank` and `mock-broker`.
-  3. Extend `scripts/verify-ci-contracts.sh` to assert that every `localhost:32000/<image>` referenced under `k8s/` has a matching `docker build -t localhost:32000/<image>` line in `ci.yaml`.
-* **Verification Gate:**
-  * [offline] `docker build -f cmd/mock-bank/Dockerfile .` and `docker build -f cmd/mock-broker/Dockerfile .` succeed.
-  * [offline] `./scripts/verify-ci-contracts.sh` passes, and fails if the `mock-bank` build line is removed.
+> [!NOTE] **Status: Completed**
 
 #### 7.4 Honest Immutable-SHA Promotion & Post-Deploy Image Verification
-* **Depends On:** `7.1`, `7.3`.
-* **Current Codebase State:** `promote-oci-core` in `ci.yaml` retags images to `:latest`/`:prod-stable` and runs `kubectl apply -f k8s/oci-core/`. That is a no-op when the manifests already say `:latest`, so `oci-core` keeps running the previous build. Its 13 application Deployments are: `workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`, `customer-bll`, `internal-bll`, `oci-customer-bff`, `oci-employee-bff`, `oci-customer-portal`, `oci-employee-portal`, `oci-pebble-proxy`, `oci-worker`, `oci-marketing`. Promotion also re-applies `k8s/external-sim/mock-hardware.yaml`. That is correct, because prod is fed by mocks (§7.0 rule 1), but it is done without pinning a SHA.
-* **PR Scope:**
-  1. Keep the `:prod-stable` retag. Replace the `kubectl apply` rollout with `kubectl set image deployment/<app> <container>=localhost:32000/<image>:sha-${COMMIT_SHA} -n oci-core` for all 13 Deployments, followed by `rollout status`.
-  2. Pin the prod-serving mocks in `external-sim` (`mock-hardware`, `mock-bank`, `mock-broker`) to the same SHA in `promote-oci-core`.
-  3. Add `scripts/verify-deployed-images.sh <namespace> <sha-tag> [deployment...]`. It reads each Deployment's container images via `kubectl get deployment -o jsonpath` and exits non-zero on any image not ending in `:<sha-tag>`. Call it at the end of `deploy-oci-dev` (for `oci-dev`) and `promote-oci-core` (for `oci-core` and the `external-sim` mocks).
-* **Verification Gate:**
-  * [offline] A test with a stub `kubectl` on `PATH` shows the script exits `0` for matching tags and `1` for `:latest` or a different SHA.
-  * [cluster] After a pipeline run, `kubectl get deploy -n oci-core -o jsonpath='{..image}'` shows only `:sha-<commit>` tags.
+> [!NOTE] **Status: Completed**
 
 #### 7.5 Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
 * **Depends On:** `7.4`.
@@ -805,7 +799,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 ### Phase 2: Core Domain Completion
 
-#### 7.6 Dedicated Dev Instances of External-Sim Mocks
+#### 7.6 Dedicated Dev Instances of External-Sim Mocks (Completed)
 * **Depends On:** `7.4`.
 * **Current Codebase State:** `external-sim` runs a single `mock-bank`, `mock-broker`, and `mock-hardware`. `oci-core` and `oci-dev` `customer-bll` both point at the same `mock-broker-service` / `mock-bank-service`, and `mock-hardware` publishes only to `oci-core` RabbitMQ and `internal-bll`. As a result, `oci-dev` gets no hardware events, and any fault injected into a mock (Phase 4) would also hit prod. In addition, `mock-bank`'s `OCI_WEBHOOK_URL` points at `unified-api.oci-core.svc.cluster.local:8080`, a service that no longer exists. No Go code receives `/api/v1/bank/webhooks`.
 * **PR Scope:**
@@ -819,14 +813,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [cluster] `oci-dev` RabbitMQ shows `events.observation.cat_spotted.v1` traffic from `mock-hardware-dev`, and `oci-core` still receives events from `mock-hardware`.
 
 #### 7.7 Lifelike Mock Hardware Behavior
-* **Depends On:** `7.6`.
-* **Current Codebase State:** `cmd/mock-hardware/main.go` (single file, no tests) picks activities uniformly with `rand.Intn` every 15s and environmental readings independently every 20s. It emits `envelope.EventEnvelope[envelope.CatSpottedPayload]` on `events.observation.cat_spotted.v1` (`pkg/envelope/events.go`), which the worker consumes via `cat_spotted_handler`.
-* **PR Scope:**
-  1. Move generation logic into `cmd/mock-hardware/behavior.go`: a Markov activity model with a configurable transition matrix (e.g. `sleeping` mostly stays `sleeping`; `zooming` comes in short bursts), and environmental readings that drift from the previous value and correlate with activity (e.g. `zooming` raises `noise_db`). Inject a `*rand.Rand` so tests are deterministic.
-  2. Keep the topic, envelope type, and payload fields unchanged.
-  3. Add `cmd/mock-hardware/behavior_test.go`: a seeded run produces only valid transitions, the long-run activity distribution is within tolerance of the matrix's stationary distribution, environmental values stay in range, and envelopes carry a UUIDv7 `EventID` and UTC `OccurredAt`.
-* **Verification Gate:**
-  * [offline] `go test -race ./cmd/mock-hardware/...`
+> [!NOTE] **Status: Completed**
 
 #### 7.8 Edge Device Heartbeats — Domain Layer
 * **Depends On:** `7.4`.
@@ -913,13 +900,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] `go test -race ./pkg/telemetry/... ./internal/app/... ./cmd/pebble-proxy/...`. Every `Record*` function in `metrics.go` has at least one non-test caller (checked with `grep`).
 
 #### 7.16 Trace Context Propagation Over RabbitMQ & Grafana Correlation
-* **Depends On:** `7.15`.
-* **Current Codebase State:** Synchronous HTTP/gRPC spans propagate, but `pkg/envelope/` (`envelope.go`, `pubsub.go`) does not inject or extract trace context into Watermill `message.Metadata`, so worker spans start new traces. `k8s/monitoring/grafana.yaml` already provisions Loki and Tempo datasources, but without trace-to-logs or trace-to-metrics links.
-* **PR Scope:**
-  1. In `pkg/envelope/`, add a `propagation.TextMapCarrier` over `message.Metadata`. Inject on publish and extract in a Watermill middleware registered in `internal/app/worker/router.go`, which starts a consumer span as a child of the extracted context. When a span is active, set `CorrelationID` to its trace ID. Never log payloads.
-  2. In the Grafana datasources ConfigMap, add `tracesToLogsV2` (Tempo → Loki) and `tracesToMetrics` (Tempo → Prometheus). Add Prometheus as a datasource if it is not already present.
-* **Verification Gate:**
-  * [offline] A test with `tracetest.NewInMemoryExporter()` and a GoChannel pub/sub shows the consumer span shares the publisher's trace ID.
+> [!NOTE]
+> **Status: Completed**
+> OpenTelemetry `TextMapCarrier` implemented for Watermill metadata. Publisher context injection and router trace extraction middleware implemented with `correlation_id` injection from spans. Grafana tempo datasource updated for cross-datasource correlation to Loki and Prometheus.
 
 ---
 
@@ -952,20 +935,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] GoChannel router tests: malformed, missing-field, and handler-error messages land in `.dlq`; a following valid message is still processed; and captured log output contains no payload bytes.
 
 #### 7.19 Sandboxed Chaos Suite for `oci-dev`
-* **Depends On:** `7.14`, `7.17`, `7.18`.
-* **Current Codebase State:** No chaos tooling exists. In `oci-dev`, only `internal-bll` calls `oci-internal` (Nextcloud, Forgejo, ERPNext, Snipe-IT URLs in `k8s/oci-dev/bll-services.yaml`).
-* **PR Scope:**
-  1. Add `scripts/run-chaos-suite.sh`. It wraps every mutating `kubectl` call in a guard function that refuses any namespace other than `oci-dev`, and refuses `external-sim` resources not suffixed `-dev`. It installs `trap` cleanup on `EXIT`/`INT`/`ERR` that deletes every applied chaos policy and restores replica counts. Scenarios:
-     * **COTS outage:** apply `k8s/chaos/oci-dev-deny-internal-egress.yaml` (selects `app: internal-bll` in `oci-dev`, allows egress everywhere except the `oci-internal` namespace) and verify that employee-portal COTS features degrade with clean errors.
-     * **Tier partitions:** temporary `NetworkPolicy`s in `oci-dev` blocking BFF→BLL and BLL→Domain API traffic; verify bounded gRPC errors and recovery after removal.
-     * **Database restart:** scale `statefulset/postgres-dev` to 0 and back to 1; verify the Domain APIs reconnect without crash loops.
-     * **Pod kills:** delete one pod each of a Domain API, a BLL, and a BFF in `oci-dev`; verify they are replaced and become Ready.
-     * **External outage:** use `7.17` faults on the `-dev` mocks.
-     * After all scenarios, run the simulator against `oci-dev` and require it to pass.
-  2. Document scenarios, guards, and expected alerts in `docs/runbooks/chaos-engineering.md`.
-* **Verification Gate:**
-  * [offline] `bash -n`. A test with a stub `kubectl` proves the guard rejects `-n oci-core`, `-n oci-internal`, and `-n external-sim` resources without the `-dev` suffix, and that cleanup runs on simulated failure.
-  * [cluster] A full suite run against `oci-dev` ends with the simulator passing and no chaos `NetworkPolicy` left behind.
+> [!NOTE] **Status: Completed**
 
 ---
 

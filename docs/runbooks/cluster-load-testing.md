@@ -227,3 +227,10 @@ kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'
 * **401 Unauthorized:** Occurs on endpoints requiring authentication when simulation threads test unauthenticated or expired session behavior.
 * **409 Conflict / Constraint Violation:** Expected during multi-worker concurrent runs when multiple parallel threads attempt to submit identical timesheets for the same persona on the same date. This verifies that PostgreSQL row-level locks and unique constraints are functioning correctly.
 * **404 Not Found:** Occurs for endpoints deliberately targeting mocked external third-party systems or non-API static paths.
+
+## 8. Runner Eviction Recovery
+
+If a runner eviction occurs, you can perform the following recovery procedures:
+1. **Empty-commit re-trigger**: Create an empty commit to re-trigger the workflows (`git commit --allow-empty -m "Trigger runner eviction recovery"` and push).
+2. **Inspecting action_task.runner_id**: Inspect the database table or Forgejo UI to check `action_task.runner_id` if tasks are stuck in pending or orphaned states.
+3. **Reading logs from /var/lib/gitea/actions_log/**: Check the logs in `/var/lib/gitea/actions_log/` inside the `forgejo` container to identify why the eviction or failure occurred.
