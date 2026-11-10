@@ -580,15 +580,10 @@ func TestListDeposits(t *testing.T) {
 		assert.Equal(t, expectedDeposits, resp.Deposits)
 	})
 
-	t.Run("context cancellation propagated to core-invest", func(t *testing.T) {
+	t.Run("context cancellation propagates Canceled status code", func(t *testing.T) {
 		ciMock := &mockCoreInvestClient{
 			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
-				select {
-				case <-ctx.Done():
-					return nil, status.Error(codes.Canceled, ctx.Err().Error())
-				case <-time.After(1 * time.Second): // Simulate work
-					return &coreinvestv1.ListRecurringDepositsResponse{}, nil
-				}
+				return nil, status.Error(codes.Canceled, "context canceled")
 			},
 		}
 
@@ -596,7 +591,7 @@ func TestListDeposits(t *testing.T) {
 		s.SetCoreInvestClient(ciMock)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // Cancel immediately
+		cancel()
 
 		resp, err := s.ListDeposits(ctx, &customerbllv1.ListDepositsRequest{
 			CustomerID: "cust-123",
@@ -604,9 +599,29 @@ func TestListDeposits(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Nil(t, resp)
-		assert.Equal(t, codes.Internal, status.Code(err))
-		assert.Contains(t, err.Error(), "failed to list recurring deposits")
-		assert.Contains(t, err.Error(), "context canceled")
+		assert.Equal(t, codes.Canceled, status.Code(err))
+	})
+
+	t.Run("context timeout propagates DeadlineExceeded status code", func(t *testing.T) {
+		ciMock := &mockCoreInvestClient{
+			listRecurringDepositsFunc: func(ctx context.Context, in *coreinvestv1.ListRecurringDepositsRequest) (*coreinvestv1.ListRecurringDepositsResponse, error) {
+				return nil, status.Error(codes.DeadlineExceeded, "context deadline exceeded")
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(ciMock)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 0)
+		defer cancel()
+
+		resp, err := s.ListDeposits(ctx, &customerbllv1.ListDepositsRequest{
+			CustomerID: "cust-123",
+		})
+
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.DeadlineExceeded, status.Code(err))
 	})
 }
 

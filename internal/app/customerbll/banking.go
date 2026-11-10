@@ -128,6 +128,9 @@ func (s *Server) ListDeposits(ctx context.Context, in *customerbllv1.ListDeposit
 		CustomerID: in.CustomerID,
 	})
 	if err != nil {
+		if st, ok := status.FromError(err); ok {
+			return nil, status.Errorf(st.Code(), "failed to list recurring deposits: %s", st.Message())
+		}
 		return nil, status.Errorf(codes.Internal, "failed to list recurring deposits: %v", err)
 	}
 	return &customerbllv1.ListDepositsResponse{Deposits: res.Deposits}, nil
