@@ -781,15 +781,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > [!NOTE] **Status: Completed**
 
 #### 7.4 Honest Immutable-SHA Promotion & Post-Deploy Image Verification
-* **Depends On:** `7.1`, `7.3`.
-* **Current Codebase State:** `promote-oci-core` in `ci.yaml` retags images to `:latest`/`:prod-stable` and runs `kubectl apply -f k8s/oci-core/`. That is a no-op when the manifests already say `:latest`, so `oci-core` keeps running the previous build. Its 13 application Deployments are: `workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`, `customer-bll`, `internal-bll`, `oci-customer-bff`, `oci-employee-bff`, `oci-customer-portal`, `oci-employee-portal`, `oci-pebble-proxy`, `oci-worker`, `oci-marketing`. Promotion also re-applies `k8s/external-sim/mock-hardware.yaml`. That is correct, because prod is fed by mocks (§7.0 rule 1), but it is done without pinning a SHA.
-* **PR Scope:**
-  1. Keep the `:prod-stable` retag. Replace the `kubectl apply` rollout with `kubectl set image deployment/<app> <container>=localhost:32000/<image>:sha-${COMMIT_SHA} -n oci-core` for all 13 Deployments, followed by `rollout status`.
-  2. Pin the prod-serving mocks in `external-sim` (`mock-hardware`, `mock-bank`, `mock-broker`) to the same SHA in `promote-oci-core`.
-  3. Add `scripts/verify-deployed-images.sh <namespace> <sha-tag> [deployment...]`. It reads each Deployment's container images via `kubectl get deployment -o jsonpath` and exits non-zero on any image not ending in `:<sha-tag>`. Call it at the end of `deploy-oci-dev` (for `oci-dev`) and `promote-oci-core` (for `oci-core` and the `external-sim` mocks).
-* **Verification Gate:**
-  * [offline] A test with a stub `kubectl` on `PATH` shows the script exits `0` for matching tags and `1` for `:latest` or a different SHA.
-  * [cluster] After a pipeline run, `kubectl get deploy -n oci-core -o jsonpath='{..image}'` shows only `:sha-<commit>` tags.
+> [!NOTE] **Status: Completed**
 
 #### 7.5 Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
 * **Depends On:** `7.4`.
