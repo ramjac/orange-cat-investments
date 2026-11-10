@@ -57,7 +57,7 @@ func (h *Handler) ListCustomerTickets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isAuthorizedForCustomerTicket(r, customerID) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		http.Error(w, "forbidden: cannot list tickets for another customer", http.StatusForbidden)
 		return
 	}
 
@@ -143,10 +143,9 @@ func (h *Handler) GetCustomerTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isAuthorizedForCustomerTicket(r, resp.Ticket.CustomerID) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp.Ticket)
@@ -171,9 +170,8 @@ func (h *Handler) ListCustomerTicketComments(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-
 	if !isAuthorizedForCustomerTicket(r, ticketResp.Ticket.CustomerID) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
 		return
 	}
 
@@ -223,9 +221,8 @@ func (h *Handler) AddCustomerTicketComment(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-
 	if !isAuthorizedForCustomerTicket(r, ticketResp.Ticket.CustomerID) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		http.Error(w, "forbidden: ticket belongs to another customer", http.StatusForbidden)
 		return
 	}
 
