@@ -39,6 +39,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		req = withMockSession(req, "emp-bob-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -54,6 +55,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 		// Get by ID
 		getReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets/"+created.TimesheetID, nil)
+		getReq = withMockSession(getReq, "emp-bob-01", "staff")
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
@@ -65,6 +67,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 		// Direct alias get
 		aliasReq := httptest.NewRequest("GET", "/workforce/timesheets/"+created.TimesheetID, nil)
+		aliasReq = withMockSession(aliasReq, "emp-bob-01", "staff")
 		aliasRec := httptest.NewRecorder()
 		mux.ServeHTTP(aliasRec, aliasReq)
 		assert.Equal(t, http.StatusOK, aliasRec.Code)
@@ -91,6 +94,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		}
 		approveData, _ := json.Marshal(approvePayload)
 		approveReq := httptest.NewRequest("PUT", "/api/v1/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(approveData))
+		approveReq = withMockSession(approveReq, "emp-manager-01", "admin")
 		approveRec := httptest.NewRecorder()
 		mux.ServeHTTP(approveRec, approveReq)
 
@@ -114,6 +118,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/workforce/timesheets", bytes.NewReader(data))
+		req = withMockSession(req, "emp-alice-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -129,6 +134,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		}
 		rejectData, _ := json.Marshal(rejectPayload)
 		rejectReq := httptest.NewRequest("PUT", "/workforce/timesheets/"+created.TimesheetID+"/status", bytes.NewReader(rejectData))
+		rejectReq = withMockSession(rejectReq, "emp-lead-01", "admin")
 		rejectRec := httptest.NewRecorder()
 		mux.ServeHTTP(rejectRec, rejectReq)
 
@@ -149,6 +155,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/timesheets", bytes.NewReader(data))
+		req = withMockSession(req, "emp-bob-01", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -168,6 +175,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		data, _ := json.Marshal(payload)
 
 		req := httptest.NewRequest("POST", "/api/v1/workforce/payroll/run", bytes.NewReader(data))
+		req = withMockSession(req, "emp-hr-01", "hr")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -205,6 +213,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 		// Get specific salary slip by ID
 		slipID := resp.Items[0].SalarySlipID
 		getReq := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips/"+slipID, nil)
+		getReq = withMockSession(getReq, "emp-human-bob", "staff")
 		getRec := httptest.NewRecorder()
 		mux.ServeHTTP(getRec, getReq)
 
