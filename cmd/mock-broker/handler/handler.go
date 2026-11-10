@@ -4,16 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/orange-cat-investments/oci/cmd/mock-broker/engine"
 	"github.com/orange-cat-investments/oci/cmd/mock-broker/ledger"
-)
-
-import (
-	"os"
 )
 
 type Handler struct {

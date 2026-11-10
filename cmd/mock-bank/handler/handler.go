@@ -4,14 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/engine"
 	"github.com/orange-cat-investments/oci/cmd/mock-bank/ledger"
-)
-
-import (
-	"os"
 )
 
 // Handler serves HTTP endpoints for the mock bank API.

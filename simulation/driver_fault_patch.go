@@ -3,23 +3,40 @@ package simulation
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (d *Driver) testFaultScenarios(ctx context.Context) error {
 	d.logger.Info("starting fault injection scenarios")
 
+	client := &http.Client{Timeout: 30 * time.Second}
+
 	bankURL := strings.TrimRight(d.cfg.BankURL, "/") + "/sim/faults"
 	brokerURL := strings.TrimRight(d.cfg.BrokerURL, "/") + "/sim/faults"
 
 	defer func() {
-		d.logger.Info("resetting fault states")
-		req1, _ := http.NewRequestWithContext(ctx, http.MethodDelete, bankURL, nil)
-		http.DefaultClient.Do(req1)
-		req2, _ := http.NewRequestWithContext(ctx, http.MethodDelete, brokerURL, nil)
-		http.DefaultClient.Do(req2)
+		for _, url := range []string{bankURL, brokerURL} {
+			req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+			if err != nil {
+				d.logger.Error("fault reset failed", "url", url, "error", err)
+				continue
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				d.logger.Error("fault reset failed", "url", url, "error", err)
+				continue
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusNoContent {
+				d.logger.Error("fault reset left mock unhealthy", "url", url, "status", resp.StatusCode)
+				continue
+			}
+			d.logger.Info("fault state reset", "url", url)
+		}
 	}()
 
 	injectFault := func(url string, payload string) error {
@@ -28,54 +45,81 @@ func (d *Driver) testFaultScenarios(ctx context.Context) error {
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("fault injection returned status %d", resp.StatusCode)
+			return fmt.Errorf("fault injection at %s returned status %d", url, resp.StatusCode)
 		}
 		return nil
 	}
 
-	d.logger.Info("injecting bank and broker outage faults")
 	if err := injectFault(bankURL, `{"outage":true}`); err != nil {
 		return fmt.Errorf("inject bank outage failed: %w", err)
 	}
 	if err := injectFault(brokerURL, `{"outage":true}`); err != nil {
 		return fmt.Errorf("inject broker outage failed: %w", err)
 	}
+	d.logger.Info("bank and broker outage faults injected")
 
-	d.logger.Info("asserting BFF behavior during injected faults")
-
-	// Ensure we have a persona to make request
 	p, ok := d.registry.Get("cust-longterm-arthur")
 	if !ok {
-		// Just pick the first one if arthur not found
-		for _, v := range d.registry.List() {
-			p = v
-			break
-		}
-	}
-
-	if p != nil {
-		personaCtx := WithPersona(ctx, p)
-		d.client.AuthenticatePersona(personaCtx, p)
-
-		// Just run all actions and check if they returned non-200.
-		for _, act := range p.Actions {
-			res, err := act.Execute(personaCtx, d.client)
-			if err == nil && res != nil {
-				// We expect some 5xx or 422 if it hits a mock fault
-				if res.StatusCode >= 200 && res.StatusCode < 300 {
-					d.logger.Warn("action succeeded unexpectedly during fault scenario", "action", act.Name, "status", res.StatusCode)
-				} else {
-					d.logger.Info("action failed as expected during fault scenario", "action", act.Name, "status", res.StatusCode)
-				}
+		for _, candidate := range d.registry.List() {
+			if candidate.Type == "customer" {
+				p = candidate
+				break
 			}
 		}
 	}
+	if p == nil {
+		return fmt.Errorf("no customer persona available for fault scenario")
+	}
+
+	personaCtx := WithPersona(ctx, p)
+	if err := d.client.AuthenticatePersona(personaCtx, p); err != nil {
+		return fmt.Errorf("authenticate persona for fault scenario: %w", err)
+	}
+
+	// Probe a customer BFF endpoint that depends on the broker. During the
+	// outage it must answer with a structured JSON error (4xx/5xx), never a
+	// plain 2xx success built on stale data.
+	orderBody := map[string]any{
+		"symbol":     "NVDA",
+		"side":       "buy",
+		"quantity":   1,
+		"order_type": "market",
+	}
+	resp, body, err := d.client.DoCustomer(personaCtx, http.MethodPost, "/api/v1/customer/trading/orders", orderBody)
+	if err != nil {
+		return fmt.Errorf("BFF order request during outage failed at transport level: %w", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode < 400 {
+		return fmt.Errorf("BFF returned %d for an order during injected broker outage; fault did not propagate", resp.StatusCode)
+	}
+	var structured map[string]any
+	if err := json.Unmarshal(body, &structured); err != nil {
+		return fmt.Errorf("BFF error response during outage is not structured JSON: %s", string(body))
+	}
+	d.logger.Info("BFF returned structured error during injected outage", "status", resp.StatusCode)
+
+	// Sweep the persona actions while the outage is active and record which
+	// of them degrade. Actions unrelated to the mocks may legitimately
+	// succeed, so only log them.
+	for _, act := range p.Actions {
+		res, actErr := act.Execute(personaCtx, d.client)
+		if actErr != nil {
+			d.logger.Warn("action errored during fault scenario", "action", act.Name, "error", actErr)
+			continue
+		}
+		if res != nil && res.StatusCode >= 400 {
+			d.logger.Info("action degraded as expected during fault scenario", "action", act.Name, "status", res.StatusCode)
+		}
+	}
+
 	d.logger.Info("fault scenarios complete")
 	return nil
 }
