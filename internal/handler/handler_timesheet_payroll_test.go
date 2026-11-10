@@ -8,8 +8,19 @@ import (
 	"testing"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
 )
+
+
+func withMockSession(r *http.Request, employeeID, role string) *http.Request {
+	sess := &session.EmployeeSession{
+		EmployeeID: employeeID,
+		Role:       role,
+	}
+	return r.WithContext(session.WithEmployeeSession(r.Context(), sess))
+}
 
 func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 	mux := setupTestServer()
@@ -60,6 +71,7 @@ func TestWorkforceTimesheetsEndpoints(t *testing.T) {
 
 		// List
 		listReq := httptest.NewRequest("GET", "/api/v1/workforce/timesheets?employee_id=emp-bob-01", nil)
+		listReq = withMockSession(listReq, "emp-bob-01", "staff")
 		listRec := httptest.NewRecorder()
 		mux.ServeHTTP(listRec, listReq)
 
@@ -169,6 +181,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 
 	t.Run("List Salary Slips for Employee", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/api/v1/workforce/payroll/slips?employee_id=emp-human-bob", nil)
+		req = withMockSession(req, "emp-human-bob", "staff")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
@@ -184,6 +197,7 @@ func TestWorkforcePayrollEndpoints(t *testing.T) {
 
 		// Test employee BFF path alias
 		aliasReq := httptest.NewRequest("GET", "/api/v1/employee/payroll/slips?employee_id=emp-human-bob", nil)
+		aliasReq = withMockSession(aliasReq, "emp-human-bob", "staff")
 		aliasRec := httptest.NewRecorder()
 		mux.ServeHTTP(aliasRec, aliasReq)
 		assert.Equal(t, http.StatusOK, aliasRec.Code)

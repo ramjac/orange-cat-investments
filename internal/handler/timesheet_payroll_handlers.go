@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/orange-cat-investments/oci/pkg/cots/frappe"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
@@ -15,6 +16,25 @@ func (h *WorkforceHandler) listTimesheets(w http.ResponseWriter, r *http.Request
 	fromDate := r.URL.Query().Get("from_date")
 	toDate := r.URL.Query().Get("to_date")
 	taskCode := r.URL.Query().Get("task_code")
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		if empID == "" {
+			empID = sess.EmployeeID
+		} else if empID != sess.EmployeeID {
+			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own timesheets")
+			return
+		}
+	}
+
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
@@ -152,6 +172,25 @@ func (h *WorkforceHandler) updateTimesheetStatus(w http.ResponseWriter, r *http.
 
 func (h *WorkforceHandler) listSalarySlips(w http.ResponseWriter, r *http.Request) {
 	employeeID := r.URL.Query().Get("employee_id")
+
+	sess := session.EmployeeFromContext(r.Context())
+	if sess == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized: employee session context required")
+		return
+	}
+
+	userRole := strings.ToLower(strings.TrimSpace(sess.Role))
+	isElevated := userRole == "admin" || userRole == "hr" || userRole == "ops" || userRole == "engineering"
+
+	if !isElevated {
+		if employeeID == "" {
+			employeeID = sess.EmployeeID
+		} else if employeeID != sess.EmployeeID {
+			writeError(w, http.StatusForbidden, "forbidden: standard employees can only query their own salary slips")
+			return
+		}
+	}
+
 
 	if h.bllClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "workforce service unavailable")
