@@ -263,11 +263,16 @@ SYNC_TOKEN=$(curl -sf -X POST "${FORGEJO_URL}/api/v1/users/${ADMIN_USER}/tokens"
     -H "Content-Type: application/json" \
     -d "{\"name\":\"sync-token-$(date +%s)\",\"scopes\":[\"all\"]}" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin).get('sha1', ''))" 2>/dev/null || true)
 
+# URL-encode credentials for embedding in the git HTTP remote URL (passwords may
+# contain characters such as @, #, &, or % that would otherwise break the URL).
+ENC_USER=$(ADMIN_USER="${ADMIN_USER}" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['ADMIN_USER'], safe=''))" 2>/dev/null || echo "${ADMIN_USER}")
+ENC_PWD=$(ADMIN_PASSWORD="${ADMIN_PASSWORD}" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['ADMIN_PASSWORD'], safe=''))" 2>/dev/null || echo "${ADMIN_PASSWORD}")
+
 for REPO_NAME in monorepo orange-cat-investments; do
     if [[ -n "${SYNC_TOKEN}" ]]; then
         REMOTE_URL="http://${SYNC_TOKEN}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
     else
-        REMOTE_URL="http://${ADMIN_USER}:${ADMIN_PASSWORD}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
+        REMOTE_URL="http://${ENC_USER}:${ENC_PWD}@${FORGEJO_HOST}/${TARGET_ORG}/${REPO_NAME}.git"
     fi
     echo "Pushing HEAD to ${TARGET_ORG}/${REPO_NAME}:${TARGET_BRANCH}..."
     if git push "${REMOTE_URL}" "HEAD:refs/heads/${TARGET_BRANCH}" --force >/dev/null 2>&1; then
