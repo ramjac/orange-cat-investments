@@ -21,16 +21,6 @@ type addCustomerCommentRequest struct {
 	Comment        string `json:"comment"`
 }
 
-func isAuthorizedForCustomerTicket(r *http.Request, ticketCustomerID string) bool {
-	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
-		return true // Employees have overarching access
-	}
-	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
-		return sess.CustomerID == ticketCustomerID
-	}
-	return false
-}
-
 func extractCustomerID(r *http.Request) string {
 	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
 		return sess.CustomerID
@@ -47,6 +37,16 @@ func extractCustomerID(r *http.Request) string {
 		}
 	}
 	return ""
+}
+
+func isAuthorizedForCustomerTicket(r *http.Request, ticketCustomerID string) bool {
+	if sess := session.EmployeeFromContext(r.Context()); sess != nil && sess.EmployeeID != "" {
+		return true
+	}
+	if sess := session.CustomerFromContext(r.Context()); sess != nil && sess.CustomerID != "" {
+		return sess.CustomerID == ticketCustomerID
+	}
+	return false
 }
 
 func (h *Handler) ListCustomerTickets(w http.ResponseWriter, r *http.Request) {
