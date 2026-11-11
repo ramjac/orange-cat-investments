@@ -223,16 +223,31 @@ for REPO_NAME in monorepo orange-cat-investments; do
             }" >/dev/null 2>&1 || true
     fi
 
-    # Enable Actions on repository
-    echo "Enabling Actions, Issues, and Pull Requests on '${TARGET_ORG}/${REPO_NAME}'..."
-    curl -sf -X PATCH "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}" \
-        -H "${AUTH_HEADER}" \
-        -H "Content-Type: application/json" \
-        -d "{
-            \"has_actions\": true,
-            \"has_issues\": true,
-            \"has_pull_requests\": true
-        }" >/dev/null 2>&1 || true
+    # Enable Actions on the monorepo repository (the CI pipeline lives there).
+    # The orange-cat-investments mirror must stay Actions-free: its copy of
+    # ci.yaml would otherwise deploy to the cluster in parallel with the
+    # monorepo pipeline and race the manifest applies.
+    if [[ "${REPO_NAME}" == "monorepo" ]]; then
+        echo "Enabling Actions, Issues, and Pull Requests on '${TARGET_ORG}/${REPO_NAME}'..."
+        curl -sf -X PATCH "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}" \
+            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"has_actions\": true,
+                \"has_issues\": true,
+                \"has_pull_requests\": true
+            }" >/dev/null 2>&1 || true
+    else
+        echo "Disabling Actions on mirror repository '${TARGET_ORG}/${REPO_NAME}' (issues/PRs stay enabled)..."
+        curl -sf -X PATCH "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}" \
+            -H "${AUTH_HEADER}" \
+            -H "Content-Type: application/json" \
+            -d "{
+                \"has_actions\": false,
+                \"has_issues\": true,
+                \"has_pull_requests\": true
+            }" >/dev/null 2>&1 || true
+    fi
 done
 
 # 5. Seed Issue #42 on oci/monorepo (for Elise Dev & Marcus Lead workflows)
