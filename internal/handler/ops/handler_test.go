@@ -63,14 +63,18 @@ func (m *mockInternalBLLClient) CreateTicket(ctx context.Context, in *opsv1.Crea
 }
 
 func (m *mockInternalBLLClient) GetTicket(ctx context.Context, in *opsv1.GetTicketRequest) (*opsv1.GetTicketResponse, error) {
+	customerID := ""
+	if in.TicketID == "cust-ticket-999" {
+		customerID = "cust-longterm-arthur"
+	}
 	return &opsv1.GetTicketResponse{
 		Ticket: &opsv1.ITTicket{
 			TicketID:       in.TicketID,
-			CustomerID:     "cust-longterm-arthur",
 			ForgejoRepo:    "infra/microk8s",
 			Title:          "Sample Ticket",
 			State:          "open",
 			AuthorUsername: "emp-human-frank",
+			CustomerID:     customerID,
 		},
 	}, nil
 }
@@ -396,5 +400,22 @@ func TestOpsHandler(t *testing.T) {
 		mux.ServeHTTP(recReply, reqReply)
 
 		assert.Equal(t, http.StatusCreated, recReply.Code)
+
+		// Test IDOR Protection (different customer attempting access)
+		reqIdorGet := httptest.NewRequest("GET", "/api/v1/customer/support/tickets/cust-ticket-999", nil)
+		reqIdorGet.Header.Set("X-Customer-ID", "cust-some-other-id")
+		reqIdorGet = reqIdorGet.WithContext(session.WithCustomerSession(reqIdorGet.Context(), &session.CustomerSession{CustomerID: "cust-some-other-id"}))
+		recIdorGet := httptest.NewRecorder()
+		mux.ServeHTTP(recIdorGet, reqIdorGet)
+
+		assert.Equal(t, http.StatusForbidden, recIdorGet.Code)
+
+		reqIdorList := httptest.NewRequest("GET", "/api/v1/customer/support/tickets/cust-ticket-999/comments", nil)
+		reqIdorList.Header.Set("X-Customer-ID", "cust-some-other-id")
+		reqIdorList = reqIdorList.WithContext(session.WithCustomerSession(reqIdorList.Context(), &session.CustomerSession{CustomerID: "cust-some-other-id"}))
+		recIdorList := httptest.NewRecorder()
+		mux.ServeHTTP(recIdorList, reqIdorList)
+
+		assert.Equal(t, http.StatusForbidden, recIdorList.Code)
 	})
 }
