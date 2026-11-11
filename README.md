@@ -263,6 +263,12 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 ### 5.20 Trace Context Propagation Over RabbitMQ & Grafana Correlation
 * **Tracing (`pkg/envelope/tracing.go`, `internal/app/worker/tracing_middleware.go`):** Propagates OpenTelemetry context via Watermill `message.Metadata` and adds Loki/Prometheus cross-datasource links to Tempo.
 
+### 5.21 CI/CD Supply Chain Hardening (Roadmap Phase 1)
+* **Toolchain Single Source of Truth (7.1):** Root `.go-version` drives `ci.yaml` Go installs and every Go Dockerfile via `ARG GO_VERSION`; `simulation/cmd/simulator -validate-flags` and `scripts/verify-ci-contracts.sh` fail fast on toolchain drift or renamed simulator flags.
+* **Forgejo Persistent Storage & Eviction Protection (7.2):** `forgejo-data-pvc` at `/var/lib/gitea`, `system-cluster-critical` runner with a 20Gi `forgejo-runner-docker-pvc`, daily `registry-gc` CronJob with `sha-*` tag retention, 24h image pruning in the build job, and the `NodeFilesystemLowSpace` alert.
+* **Registry Pre-Flight & Single-Command Deploy (7.5):** `deploy-k8s.sh` pre-flights all referenced images against the registry before applying, `ci-status.sh [--wait]` surfaces Forgejo Actions run/job state with failed-log tailing, and `deploy-latest.sh` chains test, sync, pipeline wait, image verification, and the live simulator in one command.
+* **Dedicated Dev Mock Instances (7.6):** `mock-bank-dev` / `mock-broker-dev` / `mock-hardware-dev` serve only `oci-dev` (own cert-manager certificate, own RabbitMQ/`oci-dev` BLL wiring) so Phase 4 fault injection and chaos can never reach `oci-core`; contract checks enforce the environment-to-mock wiring.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -744,38 +750,44 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 ### Execution Phases
 
 1. **Phase 1 — CI/CD Supply Chain (`7.1`–`7.5`):** toolchain alignment, Forgejo/runner storage hygiene, container builds for every mock, honest immutable-SHA promotion, and registry pre-flight checks. This phase comes first so every later PR is built and promoted reliably.
+   - [x] **7.1** Toolchain Version Single Source of Truth & Fail-Fast CI Contract Gate
+   - [x] **7.2** Forgejo Persistent Storage, Runner Disk Hygiene & Eviction Protection
+   - [x] **7.3** Container Builds & Image Promotion for All External-Sim Mocks
+   - [x] **7.4** Honest Immutable-SHA Promotion & Post-Deploy Image Verification
+   - [x] **7.5** Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
 2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
+   - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
+   - [x] **7.7** Lifelike Mock Hardware Behavior
+   - [ ] **7.8** Edge Device Heartbeats — Domain Layer
+   - [ ] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
+   - [ ] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
+   - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
+   - [x] **7.12** Portfolio History in Customer BFF & Portal
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
+   - [ ] **7.14** Stateful Store Alert Rules
+   - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
+   - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
 4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
+   - [ ] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker *(partially complete: `/sim/faults` controllers, dev-manifest wiring, and `-fault-scenarios` exist; bounded client deadlines and the contract check remain)*
+   - [ ] **7.18** RabbitMQ Poison-Pill & Dead-Letter Handling
+   - [x] **7.19** Sandboxed Chaos Suite for `oci-dev`
 5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
+   - [ ] **7.20** Zero-Trust Workload Identity & Dynamic Secret Management *(intentionally undecided, pending ADR)*
 
 ---
 
 ### Phase 1: CI/CD Supply Chain & Deployment Pipeline Hardening
 
 #### 7.1 Toolchain Version Single Source of Truth & Fail-Fast CI Contract Gate
-* **Depends On:** None.
-* **Current Codebase State:** `go.mod` declares `go 1.26.0`. The 11 Go Dockerfiles under `cmd/*/Dockerfile` and `web/marketing/Dockerfile` (Hugo build stage) use `FROM golang:1.26-alpine`. `.forgejo/workflows/ci.yaml` (`validate-and-test`, `integration-test-gate`) downloads `go1.23.6` when Go is absent on the runner. The simulator CLI (`simulation/cmd/simulator/main.go`) has no way to validate flags without running, so a renamed flag in `ci.yaml` is only caught at the integration gate. No `web/*/package.json` declares `engines`.
-* **PR Scope:**
-  1. Add a root `.go-version` (`1.26.0`). Make `ci.yaml` install exactly that version. Add `ARG GO_VERSION=1.26` and `FROM golang:${GO_VERSION}-alpine AS builder` to every Go Dockerfile, including `web/marketing/Dockerfile`.
-  2. Add a `-validate-flags` boolean to `simulation/cmd/simulator/main.go`: after `flag.Parse()`, exit `0` immediately without network calls.
-  3. Add `scripts/verify-ci-contracts.sh` as the first step of `validate-and-test`. It asserts (a) every Dockerfile `GO_VERSION` default matches the `go.mod` major.minor, and (b) every `go run ./simulation/cmd/simulator ...` command in `ci.yaml`, run with `-validate-flags` appended, exits `0`.
-* **Verification Gate:**
-  * [offline] `./scripts/verify-ci-contracts.sh` passes, and fails when a Dockerfile's `GO_VERSION` is temporarily changed to `1.25`.
-  * [offline] `go run ./simulation/cmd/simulator -validate-flags -bff-url x` exits `0`; `go run ./simulation/cmd/simulator -validate-flags -url x` exits non-zero.
+> [!NOTE]
+> **Status: Completed**
+> Root `.go-version` (1.26.0) is the single source of truth: `ci.yaml` installs exactly that version, every Go Dockerfile (including `web/marketing/Dockerfile`) uses `ARG GO_VERSION` with `FROM golang:${GO_VERSION}-alpine`, and the simulator exposes `-validate-flags` for pre-flight flag validation. `scripts/verify-ci-contracts.sh` runs first in `validate-and-test` and fails the pipeline on Dockerfile/go.mod drift or simulator flag renames.
 
 #### 7.2 Forgejo Persistent Storage, Runner Disk Hygiene & Eviction Protection
-* **Depends On:** None.
-* **Current Codebase State:** `k8s/oci-internal/forgejo.yaml` declares no volumes, so repositories and Actions logs under `/var/lib/gitea` are lost on pod restart. `k8s/oci-internal/forgejo-runner.yaml` backs Docker-in-Docker storage with `emptyDir: {}` and has no `priorityClassName`. `k8s/registry/` contains only `registry.yaml` (no tag retention).
-* **PR Scope:**
-  1. Add a `forgejo-data-pvc` PersistentVolumeClaim (10Gi, default StorageClass) mounted at `/var/lib/gitea` in `forgejo.yaml`.
-  2. In `forgejo-runner.yaml`, set `priorityClassName: system-cluster-critical` and replace the `docker-storage` `emptyDir` with a `forgejo-runner-docker-pvc` (20Gi). Add a `docker system prune -af --filter "until=24h"` step at the start of the image build job in `ci.yaml`.
-  3. Add `k8s/registry/registry-gc-cronjob.yaml`: a daily CronJob that deletes `sha-*` tags beyond the 10 newest per repository (preserving `latest`, `dev-latest`, `prod-stable`) and then runs `registry garbage-collect`.
-  4. Add a `NodeFilesystemLowSpace` alert (node filesystem available `< 20%`, from the existing `kubernetes-nodes` cAdvisor scrape) to `k8s/monitoring/prometheus.yaml`. Document runner eviction recovery (empty-commit re-trigger, inspecting `action_task.runner_id`, reading logs from `/var/lib/gitea/actions_log/`) in `docs/runbooks/cluster-load-testing.md`.
-* **Verification Gate:**
-  * [offline] All `k8s/**/*.yaml` parse with `yaml.safe_load_all`.
-  * [cluster] Deleting the Forgejo pod preserves repositories and prior Actions logs.
+> [!NOTE]
+> **Status: Completed**
+> `forgejo.yaml` now declares a 10Gi `forgejo-data-pvc` mounted at `/var/lib/gitea` so repositories and Actions logs survive pod restarts. `forgejo-runner.yaml` runs as `system-cluster-critical` with a 20Gi `forgejo-runner-docker-pvc` backing Docker-in-Docker storage, the image build job prunes images older than 24h, `k8s/registry/registry-gc-cronjob.yaml` garbage-collects `sha-*` tags beyond the 10 newest per repository daily, and `prometheus.yaml` raises `NodeFilesystemLowSpace` (available < 20%) with runner eviction recovery documented in `docs/runbooks/cluster-load-testing.md`.
 
 #### 7.3 Container Builds & Image Promotion for All External-Sim Mocks
 > [!NOTE] **Status: Completed**
@@ -784,33 +796,18 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > [!NOTE] **Status: Completed**
 
 #### 7.5 Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
-* **Depends On:** `7.4`.
-* **Current Codebase State:** `scripts/deploy-k8s.sh` (`set -euo pipefail`) applies manifests without checking that the images they reference exist in `localhost:32000`. Most rollout waits already end in `|| true`, but the two `mock-hardware` waits (lines 94 and 113) abort the script on failure, silently skipping all later steps. There is no `scripts/ci-status.sh` or `scripts/deploy-latest.sh`.
-* **PR Scope:**
-  1. Add a registry pre-flight to `deploy-k8s.sh`: collect every `localhost:32000/<repo>:<tag>` in the selected profile's manifests and query `http://<registry>:32000/v2/<repo>/tags/list` (registry host from `REGISTRY_HOST`, default `localhost`). On any miss, print the missing list plus a hint to run `scripts/sync-repo-to-forgejo.sh`, then exit `1` before applying anything.
-  2. Replace the aborting `mock-hardware` waits with a `wait_rollout` helper that records failures. At the end, print a summary and exit non-zero if anything failed.
-  3. Add `scripts/ci-status.sh [--wait]`, which prints the latest Forgejo Actions run and job statuses via the Forgejo API (enabled by `7.2`) and tails a failed job's log.
-  4. Add `scripts/deploy-latest.sh`: `go test -race ./...` → `sync-repo-to-forgejo.sh` → `ci-status.sh --wait` → `verify-deployed-images.sh` → run the simulator against `oci-dev` from the workstation.
-* **Verification Gate:**
-  * [offline] `bash -n` on all three scripts. A test pointing the pre-flight at a local `python3 -m http.server` stub that serves a fake `tags/list` detects a missing image and exits `1`.
-  * [cluster] `./scripts/deploy-latest.sh` completes end-to-end.
+> [!NOTE]
+> **Status: Completed**
+> `scripts/deploy-k8s.sh` now pre-flights every `localhost:32000/<repo>:<tag>` referenced by the selected profile against the registry tag list (host overridable via `REGISTRY_HOST`) and exits `1` with the missing-image list before applying anything; aborting `mock-hardware` waits were replaced by a `wait_rollout` helper that records failures and exits non-zero at the end. `scripts/ci-status.sh [--wait]` prints the latest Forgejo Actions run and job statuses and tails a failed job's log, and `scripts/deploy-latest.sh` chains the full loop: `go test -race ./...` → Forgejo sync → `ci-status.sh --wait` → `verify-deployed-images.sh` → live simulator run against `oci-dev` from the workstation.
 
 ---
 
 ### Phase 2: Core Domain Completion
 
-#### 7.6 Dedicated Dev Instances of External-Sim Mocks (Completed)
-* **Depends On:** `7.4`.
-* **Current Codebase State:** `external-sim` runs a single `mock-bank`, `mock-broker`, and `mock-hardware`. `oci-core` and `oci-dev` `customer-bll` both point at the same `mock-broker-service` / `mock-bank-service`, and `mock-hardware` publishes only to `oci-core` RabbitMQ and `internal-bll`. As a result, `oci-dev` gets no hardware events, and any fault injected into a mock (Phase 4) would also hit prod. In addition, `mock-bank`'s `OCI_WEBHOOK_URL` points at `unified-api.oci-core.svc.cluster.local:8080`, a service that no longer exists. No Go code receives `/api/v1/bank/webhooks`.
-* **PR Scope:**
-  1. Add `mock-bank-dev`, `mock-broker-dev`, and `mock-hardware-dev` Deployments and Services in `external-sim` (new files `k8s/external-sim/mock-*-dev.yaml`), with their own cert-manager `Certificate` for `mock-hardware-dev`. The existing unsuffixed instances remain the prod-serving mocks.
-  2. Point `oci-dev` at the dev instances: `BROKER_API_BASE_URL` and `BANK_API_BASE_URL` in `k8s/oci-dev/bll-services.yaml` → `mock-*-dev-service`. `mock-hardware-dev` uses `RABBITMQ_URL` → `rabbitmq-service.oci-dev` and `INTERNAL_BLL_ADDR` → `internal-bll-service.oci-dev:8086`. In `k8s/oci-dev/bll-services.yaml`, change the NetworkPolicy's mock-hardware ingress selector to `app: mock-hardware-dev`. `oci-core` keeps `app: mock-hardware`.
-  3. Set `OCI_WEBHOOK_URL` to empty on both bank instances (no receiver exists in the 5-tier architecture). Delete the stale `unified-api` reference.
-  4. In `ci.yaml`, `deploy-oci-dev` pins the `-dev` mocks to `:sha-${COMMIT_SHA}`, and `promote-oci-core` keeps pinning the unsuffixed ones (`7.4`). In `scripts/deploy-k8s.sh`, the `dev` profile applies only the `-dev` mock manifests.
-  5. Extend `scripts/verify-ci-contracts.sh` with an environment-wiring check: `k8s/oci-dev/` may reference only `mock-*-dev-service` in `external-sim`; `k8s/oci-core/` may reference only unsuffixed `mock-*-service`; `mock-*-dev.yaml` may reference only `.oci-dev.` hosts; and unsuffixed mock manifests only `.oci-core.` hosts.
-* **Verification Gate:**
-  * [offline] `./scripts/verify-ci-contracts.sh` passes and `! grep -rn "unified-api" k8s/`.
-  * [cluster] `oci-dev` RabbitMQ shows `events.observation.cat_spotted.v1` traffic from `mock-hardware-dev`, and `oci-core` still receives events from `mock-hardware`.
+#### 7.6 Dedicated Dev Instances of External-Sim Mocks
+> [!NOTE]
+> **Status: Completed**
+> `external-sim` now runs dedicated `mock-bank-dev`, `mock-broker-dev`, and `mock-hardware-dev` instances (with their own cert-manager certificate) serving only `oci-dev`, while the unsuffixed mocks keep serving `oci-core`; `oci-dev` BLLs point at the `-dev` services, `mock-hardware-dev` publishes to `oci-dev` RabbitMQ and `internal-bll-service.oci-dev:8086`, `OCI_WEBHOOK_URL` is empty on both bank instances, `ci.yaml` pins the `-dev` mocks to `:sha-${COMMIT_SHA}` in `deploy-oci-dev`, and `verify-ci-contracts.sh` enforces the namespace-to-mock wiring rules (no `unified-api` references remain).
 
 #### 7.7 Lifelike Mock Hardware Behavior
 > [!NOTE] **Status: Completed**
@@ -851,6 +848,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database.
 
 #### 7.11 Daily NAV Snapshot Batch & BLL History Service
+> [!NOTE]
+> **Status: Partially Complete**
+> Done: the `GetPortfolioHistory` RPC exists in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` and the hardcoded `0.78 / 0.85 / 0.92` multiplier fallback in `getHistoricalValuationPoints` is deleted. Remaining: `CaptureDailySnapshots` RPC, the `RunDailyNAVSnapshotBatch` worker batch with `BATCH_MODE=nav-snapshot` dispatch, the `nav-snapshot` CronJobs in both `batch-jobs.yaml` files, snapshot-backed history reads from `core-invest-api` (currently still served by the broker history client), and the consumer-side `historyProvider` interface replacing the `*alpaca.Client` parameter (depends on `7.10` schema work).
 * **Depends On:** `7.10`.
 * **Current Codebase State:** `getHistoricalValuationPoints` in `internal/app/customerbll/brokerage.go` takes a `*alpaca.Client` parameter and falls back to hardcoded `0.78 / 0.85 / 0.92` multipliers. Scheduled jobs exist in two forms: one-shot CronJobs that run `oci-worker` with `BATCH_MODE` (`ach-recurring`, `eom-statements` in `cmd/worker/main.go` and `k8s/*/batch-jobs.yaml`), **and** hourly tickers in `internal/app/worker/schedulers.go` that the long-running worker also starts. Recurring ACH is therefore triggered by both today.
 * **Design Decision (fixed):** The NAV job uses **only** the CronJob + `BATCH_MODE` pattern. Do **not** add a ticker to `schedulers.go`. (Removing the existing duplicate ACH/EOM tickers is out of scope; leave a `TODO` referencing this step.)
@@ -912,6 +912,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > **Chaos Targeting Invariant:** Fault injection and chaos may only affect `oci-dev` and the **dev mock instances** (`mock-*-dev`) in `external-sim`. The unsuffixed mocks in `external-sim` serve `oci-core` and must never be fault-injected or disrupted. Nothing in `oci-core` or `oci-internal` may be stopped, scaled, or mutated. To simulate an `oci-internal` COTS system being "down", apply a temporary `NetworkPolicy` **in `oci-dev`** that blocks egress from `oci-dev` workloads to `oci-internal`.
 
 #### 7.17 Dev-Only Fault Injection in Mock Bank & Mock Broker
+> [!NOTE]
+> **Status: Partially Complete**
+> Done: `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (set only in the `mock-*-dev.yaml` manifests, 404 when disabled, in-memory state with `DELETE` reset), the customer BLL maps upstream broker/bank failures to `Unavailable` / `FailedPrecondition`, and the simulator has an opt-in `-fault-scenarios` mode that asserts structured 5xx/422 responses and resets faults on exit. Remaining: explicit bounded context deadlines on broker/bank calls in `internal/app/customerbll/`, and the `verify-ci-contracts.sh` check that `ENABLE_FAULT_INJECTION` never appears in the unsuffixed mock manifests.
 * **Depends On:** `7.3`, `7.6`.
 * **Current Codebase State:** Neither mock has fault-injection controls. After `7.6`, dedicated `mock-bank-dev` and `mock-broker-dev` instances serve only `oci-dev`.
 * **PR Scope:**
