@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -16,6 +17,23 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// newTraceSampler builds the head-based trace sampler. The default 10% ratio
+// bounds trace volume in the test cluster, where continuous simulation traffic
+// would otherwise exhaust the Tempo PVC. Set OTEL_TRACES_SAMPLER_RATIO=1 for
+// full sampling (debugging) or any value in (0,1] for a custom ratio.
+func newTraceSampler() sdktrace.Sampler {
+	ratio := 0.1
+	if raw := os.Getenv("OTEL_TRACES_SAMPLER_RATIO"); raw != "" {
+		if parsed, err := strconv.ParseFloat(raw, 64); err == nil && parsed > 0 {
+			ratio = parsed
+		}
+	}
+	if ratio >= 1 {
+		return sdktrace.AlwaysSample()
+	}
+	return sdktrace.TraceIDRatioBased(ratio)
+}
 
 // InitProvider configures a global OpenTelemetry tracer and meter provider that
 // export OTLP over gRPC to the in-cluster Alloy collector. Exporter startup is
@@ -47,7 +65,7 @@ func InitProvider(ctx context.Context, serviceName string) (func() error, error)
 	if err == nil && traceExporter != nil {
 		bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
 		tracerProvider = sdktrace.NewTracerProvider(
-			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+			sdktrace.WithSampler(newTraceSampler()),
 			sdktrace.WithResource(res),
 			sdktrace.WithSpanProcessor(bsp),
 		)
