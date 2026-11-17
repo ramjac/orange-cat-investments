@@ -758,7 +758,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
    - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
    - [x] **7.7** Lifelike Mock Hardware Behavior
-   - [ ] **7.8** Edge Device Heartbeats — Domain Layer
+   - [ ] **7.8** Edge Device Heartbeats — Domain Layer *(partially complete: migrations directory and synchronization protocol created in `scripts/migrations/README.md`; proto and repository heartbeat implementations remain)*
    - [ ] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
    - [ ] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
    - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
@@ -766,7 +766,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
    - [ ] **7.14** Stateful Store Alert Rules
-   - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
+   - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics *(partially complete: Grafana Beyla completely dropped across manifests and code; wiring the 8 OpenTelemetry business metrics helpers in `pkg/telemetry/metrics.go` to domain callers remains)*
    - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
 4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
    - [ ] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker *(partially complete: `/sim/faults` controllers, dev-manifest wiring, and `-fault-scenarios` exist; bounded client deadlines and the contract check remain)*
@@ -813,6 +813,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > [!NOTE] **Status: Completed**
 
 #### 7.8 Edge Device Heartbeats — Domain Layer
+> [!NOTE]
+> **Status: Partially Complete**
+> Done: `scripts/migrations/` and its protocol documentation (`scripts/migrations/README.md`) enforcing three-copy synchronization and idempotent DDL have been established. Remaining: protobuf definitions (`RecordAssetHeartbeat`, `ListAssetConnectivity`, `UpdateCameraStreamStatus`), pgx + mock repository implementations, and domain API gRPC handlers.
 * **Depends On:** `7.4`.
 * **Current Codebase State:** `facilities.hardware_assets` already has `status` (`active`, `maintenance_required`, `offline`, ...) and `last_ping_at`. `core_invest.camera_streams` already has `status` (`active`, `idle`, `error`). Nothing updates these from device activity.
 * **Design Decision (fixed):** **No new tables or columns.** Heartbeats update `hardware_assets.last_ping_at`. A device counts as offline when `last_ping_at` is older than `3 ×` the heartbeat interval (60s interval → 180s). That is derived at read time, never written by a background sweep. Camera stream `status` is updated only on explicit device reports.
@@ -884,6 +887,9 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [offline] A Python check parses the embedded `alert_rules.yml` and asserts each named alert exists with `severity` and `tier`. If `promtool` is available, `promtool check rules` passes.
 
 #### 7.15 Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
+> [!NOTE]
+> **Status: Partially Complete**
+> Done: Grafana Beyla has been completely eliminated across Kubernetes manifests, build definitions, and monorepo source code, standardizing entirely on OpenTelemetry Go SDK. Remaining: adding `RecordFelineInferenceConfidence`, wiring callers to the 8 business metrics helpers in `pkg/telemetry/metrics.go`, and adding the contract enforcement check in `verify-ci-contracts.sh`.
 * **Depends On:** `7.11`, `7.13`.
 * **Current Codebase State:** `pkg/telemetry` (`InitProvider`, OTLP to `alloy.monitoring.svc.cluster.local:4317`), `otelhttp`, and `otelgrpc` are wired into every service, so eBPF auto-instrumentation (Grafana Beyla) is redundant. Beyla appears only in historical README prose, with no manifests. Six of the eight helpers in `pkg/telemetry/metrics.go` (`RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`) have no callers.
 * **Design Decision (fixed):** Grafana Beyla is dropped. Telemetry uses only the OpenTelemetry Go SDK.

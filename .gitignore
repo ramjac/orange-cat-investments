@@ -58,6 +58,7 @@ local-server-notes.md
 *kube.config
 microk8s-kube.config
 thinker-kube.config
+.kube/
 
 # TLS Private Keys
 *.key
@@ -67,6 +68,9 @@ k8s/ha/lan/tls/*.key
 starter-admin-credentials.txt
 .starter-admin-credentials.json
 .starter-admin-password.txt
+
+# Forgejo simulation tokens (provisioned locally, never committed)
+forgejo-sim-tokens.json
 MEMORY.md
 *.orig
 *.rej

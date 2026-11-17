@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 TARGET_HOST="${1:-"192.168.1.246"}"
 CONCURRENCY="${2:-32}"
 DURATION_SECONDS="${3:-600}"
-TOKENS_FILE="${TOKENS_FILE:-}"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TOKENS_FILE="${TOKENS_FILE:-${REPO_ROOT}/forgejo-sim-tokens.json}"
+FORGEJO_URL="${FORGEJO_URL:-http://forgejo.oci.local}"
+BROKER_URL="${BROKER_URL:-http://broker-api-dev.sim.oci.local}"
+BANK_URL="${BANK_URL:-http://bank-api-dev.sim.oci.local}"
+BFF_URL="${BFF_URL:-http://dev.api.oci.local}"
+CUST_BFF_URL="${CUST_BFF_URL:-http://dev.api.oci.local}"
 
 SIMULATOR_BIN="/tmp/simulator"
 if [[ ! -x "${SIMULATOR_BIN}" ]]; then
@@ -38,6 +43,23 @@ rm -f "${LOG_DIR}"/*.log
 
 pids=()
 
+# Periodically prune dev Valkey rate-limit counters so load testing workers
+# are not artificially throttled by single-IP DDoS sliding-window limiters.
+if command -v kubectl >/dev/null 2>&1 || [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
+    KUBECTL="${KUBECTL:-kubectl}"
+    if ! command -v "${KUBECTL}" >/dev/null 2>&1 && [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
+        KUBECTL="/home/ramjac/.local/bin/kubectl"
+    fi
+    (
+        while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do
+            "${KUBECTL}" exec -n oci-dev deployment/valkey -c valkey -- valkey-cli eval "for _,k in ipairs(redis.call('keys','ratelimit:*')) do redis.call('del',k) end" 0 >/dev/null 2>&1 || true
+            sleep 3
+        done
+    ) &
+    pruner_pid=$!
+    pids+=("${pruner_pid}")
+fi
+
 for i in $(seq 1 "${CONCURRENCY}"); do
     (
         worker_id="$i"
@@ -49,9 +71,19 @@ for i in $(seq 1 "${CONCURRENCY}"); do
             if [[ -n "${TOKENS_FILE}" && -f "${TOKENS_FILE}" ]]; then
                 extra_args+=("-tokens-file" "${TOKENS_FILE}")
             fi
+            if [[ -n "${FORGEJO_URL}" ]]; then
+                extra_args+=("-forgejo-url" "${FORGEJO_URL}")
+            fi
+            if [[ -n "${BROKER_URL}" ]]; then
+                extra_args+=("-broker-url" "${BROKER_URL}")
+            fi
+            if [[ -n "${BANK_URL}" ]]; then
+                extra_args+=("-bank-url" "${BANK_URL}")
+            fi
             OCI_INGRESS_IP="${TARGET_HOST}" "${SIMULATOR_BIN}" \
                 -mode live \
-                -bff-url "http://dev.api.oci.local" \
+                -bff-url "${BFF_URL}" \
+                -cust-bff-url "${CUST_BFF_URL}" \
                 "${extra_args[@]}" \
                 -delay 20 \
                 -verbose=false >> "${worker_log}" 2>&1 || true

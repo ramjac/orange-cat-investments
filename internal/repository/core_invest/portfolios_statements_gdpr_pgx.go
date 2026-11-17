@@ -343,7 +343,8 @@ func (r *pgxRepository) ListInvestmentStatements(ctx context.Context, customerID
 	query := `SELECT statement_id, portfolio_id, customer_id, statement_type, period, tax_year, title, file_name, total_proceeds_usd, net_gain_usd, status, created_at
               FROM core_invest.investment_statements
               WHERE customer_id = $1
-              ORDER BY created_at DESC`
+              ORDER BY created_at DESC
+              LIMIT 100`
 	rows, err := r.db.Query(ctx, query, customerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list investment statements: %w", err)

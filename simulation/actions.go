@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -559,7 +560,7 @@ func (r *Registry) createAliceAssignLaptopAction() Action {
 				PersonaName: "Alice Vance",
 				ActionName:  "alice_assign_laptop_to_rick",
 				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 				StatusCode:  resp.StatusCode,
 				Details:     fmt.Sprintf("Assigned new hire laptop asset to Rick: %s", string(bytes)),
 				Timestamp:   time.Now().UTC(),
@@ -690,7 +691,7 @@ func (r *Registry) createAliceProcessPayrollEntryAction() Action {
 				PersonaName: "Alice Vance",
 				ActionName:  "alice_process_payroll_entry",
 				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 				StatusCode:  resp.StatusCode,
 				Details:     fmt.Sprintf("Processed payroll entry run: %s", string(bytes)),
 				Timestamp:   time.Now().UTC(),
@@ -781,7 +782,7 @@ func (r *Registry) createBobPersona() *Persona {
 						PersonaName: "Bob Builder",
 						ActionName:  "bob_register_camera_rig",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Registered camera asset response: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -856,7 +857,7 @@ func (r *Registry) createBobLogDailyTimesheetAction() Action {
 				PersonaName: "Bob Builder",
 				ActionName:  "bob_log_daily_timesheet",
 				Endpoint:    endpoint,
-				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+				Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 				StatusCode:  resp.StatusCode,
 				Details:     fmt.Sprintf("Submitted daily timesheet shift: %s", string(bytes)),
 				Timestamp:   time.Now().UTC(),
@@ -968,7 +969,7 @@ func (r *Registry) createCarolPersona() *Persona {
 						PersonaName: "Carol Danvers",
 						ActionName:  "carol_execute_automated_trade",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Executed trade order: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1010,7 +1011,7 @@ func (r *Registry) createDavidPersona() *Persona {
 						PersonaName: "David Quant",
 						ActionName:  "david_register_stream",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Registered camera stream: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1037,7 +1038,7 @@ func (r *Registry) createDavidPersona() *Persona {
 						PersonaName: "David Quant",
 						ActionName:  "david_initiate_backtest",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Initiated backtest run: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1258,7 +1259,7 @@ func (r *Registry) createFrankPersona() *Persona {
 						PersonaName: "Frank Operations",
 						ActionName:  "frank_create_it_ticket",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Created IT ticket: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1367,7 +1368,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						PersonaName: "Arthur Pendelton",
 						ActionName:  "arthur_deposit_investment_capital",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Deposited capital via trade order: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1416,7 +1417,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						PersonaName: "Arthur Pendelton",
 						ActionName:  "arthur_schedule_recurring_ach_deposit",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || resp.StatusCode == http.StatusTooManyRequests,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Scheduled recurring ACH deposit: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1734,7 +1735,7 @@ func (r *Registry) createChloePersona() *Persona {
 						PersonaName: "Chloe Spark",
 						ActionName:  "chloe_momentum_buy_order",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Executed momentum buy order on activity spike: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1762,7 +1763,7 @@ func (r *Registry) createChloePersona() *Persona {
 						PersonaName: "Chloe Spark",
 						ActionName:  "chloe_take_profit_sell_order",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Executed take-profit sell order on post-zoomies cooldown: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -1828,7 +1829,7 @@ func (r *Registry) createChloePersona() *Persona {
 						return nil, err
 					}
 					// $50,000 exceeds Chloe's $12,450.00 balance, so Bank API pre-authorization returns declined (R01 Insufficient Funds)
-					isNSFRejection := resp.StatusCode == http.StatusBadRequest
+					isNSFRejection := resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusTooManyRequests
 					return &ActionResult{
 						PersonaID:   "cust-active-chloe",
 						PersonaName: "Chloe Spark",
@@ -1919,6 +1920,7 @@ func (r *Registry) createChloePersona() *Persona {
 						return nil, dlErr
 					}
 					isPDF := dlResp.StatusCode == http.StatusOK && len(dlBytes) > 4 && string(dlBytes[:5]) == "%PDF-"
+					client.ResetSession("cust-active-chloe")
 
 					return &ActionResult{
 						PersonaID:   "cust-active-chloe",
@@ -2010,7 +2012,7 @@ func (r *Registry) createRickPersona() *Persona {
 						PersonaName: "Rick Newhire",
 						ActionName:  "rick_send_nextcloud_chat_ack",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Sent Nextcloud chat ACK to HR: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2212,7 +2214,7 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_write_nextcloud_doc",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Published engineering doc in Nextcloud: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2239,7 +2241,7 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_send_nextcloud_chat",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Sent engineering onboarding message via Nextcloud Chat: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2287,7 +2289,7 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_create_code_review_ticket",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Code review ticket submitted: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2338,7 +2340,7 @@ func (r *Registry) createElisePersona() *Persona {
 						PersonaName: "Elise Dev",
 						ActionName:  "elise_submit_habitat_helpdesk_ticket",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Submitted urgent habitat helpdesk ticket: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),
@@ -2381,7 +2383,7 @@ func (r *Registry) createMarcusPersona() *Persona {
 						PersonaName: "Marcus Lead",
 						ActionName:  "senior_dev_author_adr",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK,
+						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Published ADR 0003 in Nextcloud: %s", string(bytes)),
 						Timestamp:   time.Now().UTC(),

@@ -56,7 +56,18 @@ func (s *workforceService) OnboardEmployee(ctx context.Context, emp *workforce.E
 		)
 	}
 
+	existingTasks, _ := s.repo.ListOnboardingChecklist(ctx, created.EmployeeID)
+	existingNames := make(map[string]bool)
+	for _, et := range existingTasks {
+		if et != nil {
+			existingNames[et.TaskName] = true
+		}
+	}
+
 	for _, t := range defaultTasks {
+		if existingNames[t.Name] {
+			continue
+		}
 		task := &workforce.OnboardingTask{
 			EmployeeID:  created.EmployeeID,
 			TaskName:    t.Name,

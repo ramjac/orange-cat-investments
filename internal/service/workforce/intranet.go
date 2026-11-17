@@ -65,6 +65,9 @@ func (s *workforceService) ListDocuments(ctx context.Context, department, catego
 			}
 		}
 		result = append(result, doc)
+		if len(result) >= 100 {
+			break
+		}
 	}
 	return result, nil
 }
@@ -94,6 +97,15 @@ func (s *workforceService) PublishDocument(ctx context.Context, doc nextcloud.Do
 	}
 	s.memMu.Lock()
 	defer s.memMu.Unlock()
+
+	// Update existing document if title and department match to prevent unbounded memory growth
+	for id, existing := range s.memDocuments {
+		if existing.Title == doc.Title && existing.Department == doc.Department {
+			doc.DocumentID = id
+			doc.CreatedAt = existing.CreatedAt
+			break
+		}
+	}
 
 	if doc.DocumentID == "" {
 		doc.DocumentID = fmt.Sprintf("doc-%d", time.Now().UnixNano())

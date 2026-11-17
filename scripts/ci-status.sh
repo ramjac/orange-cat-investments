@@ -6,13 +6,42 @@ if [[ "${1:-}" == "--wait" ]]; then
     WAIT=true
 fi
 
-FORGEJO_URL=""
-for c in "http://forgejo-service.oci-internal.svc:3000" "http://forgejo.oci.local:80" "http://localhost:3000"; do
-    if curl -sf --connect-timeout 2 "${c}/api/v1/version" >/dev/null 2>&1; then
-        FORGEJO_URL="${c}"
-        break
+FORGEJO_URL="${FORGEJO_URL:-}"
+if [[ -z "${FORGEJO_URL}" ]]; then
+    for c in "http://forgejo-service.oci-internal.svc:3000" "http://forgejo.oci.local:80" "http://localhost:3000"; do
+        if curl -sf --connect-timeout 2 "${c}/api/v1/version" >/dev/null 2>&1; then
+            FORGEJO_URL="${c}"
+            break
+        fi
+    done
+fi
+
+PF_PID=""
+cleanup() {
+    if [[ -n "${PF_PID}" ]]; then
+        kill "${PF_PID}" 2>/dev/null || true
     fi
-done
+}
+trap cleanup EXIT
+
+if [[ -z "${FORGEJO_URL}" ]]; then
+    if command -v kubectl >/dev/null 2>&1 || [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
+        KUBECTL="${KUBECTL:-kubectl}"
+        if ! command -v "${KUBECTL}" >/dev/null 2>&1 && [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
+            KUBECTL="/home/ramjac/.local/bin/kubectl"
+        fi
+        FREE_PORT=$(( 30000 + RANDOM % 15000 ))
+        "${KUBECTL}" port-forward -n oci-internal svc/forgejo-service "${FREE_PORT}:3000" >/dev/null 2>&1 &
+        PF_PID=$!
+        for _ in $(seq 1 10); do
+            if curl -sf --connect-timeout 2 "http://localhost:${FREE_PORT}/api/v1/version" >/dev/null 2>&1; then
+                FORGEJO_URL="http://localhost:${FREE_PORT}"
+                break
+            fi
+            sleep 1
+        done
+    fi
+fi
 
 if [[ -z "${FORGEJO_URL}" ]]; then
     echo "ERROR: Forgejo instance is offline or unreachable."

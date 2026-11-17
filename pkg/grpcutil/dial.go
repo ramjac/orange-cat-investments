@@ -32,7 +32,11 @@ func Dial(ctx context.Context, target string, tlsConfig *tls.Config, opts ...grp
 
 	allOpts := append([]grpc.DialOption{
 		credOption,
-		grpc.WithDefaultCallOptions(grpc.CallContentSubtype("json")),
+		grpc.WithDefaultCallOptions(
+			grpc.CallContentSubtype("json"),
+			grpc.MaxCallRecvMsgSize(32*1024*1024),
+			grpc.MaxCallSendMsgSize(32*1024*1024),
+		),
 	}, append(opts, WithTelemetryDialOption())...)
 	return grpc.NewClient(cleaned, allOpts...)
 }

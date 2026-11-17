@@ -136,6 +136,7 @@ func (d *Driver) Run(ctx context.Context) (*Summary, error) {
 				// Mid-iteration 401 Unauthorized resilience: transparently re-authenticate and retry action once
 				if (res.StatusCode == http.StatusUnauthorized || strings.Contains(res.Details, "unauthorized")) && !res.Success {
 					d.logger.Warn("mid-iteration 401 received, re-authenticating persona", "persona", p.Name, "action", act.Name)
+					d.client.ResetSession(p.ID)
 					if reauthErr := d.client.AuthenticatePersona(personaCtx, p); reauthErr == nil {
 						retryRes, retryErr := act.Execute(personaCtx, d.client)
 						if retryErr == nil && retryRes != nil {

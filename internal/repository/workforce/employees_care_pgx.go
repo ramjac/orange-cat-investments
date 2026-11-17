@@ -167,7 +167,8 @@ func (r *pgxRepository) ListOnboardingChecklist(ctx context.Context, employeeID 
 	query := `SELECT checklist_id::text, employee_id::text, task_name, category, is_completed, completed_at, assigned_to::text, created_at, updated_at
 	          FROM workforce.onboarding_checklists
 	          WHERE employee_id::text = $1
-	          ORDER BY created_at ASC`
+	          ORDER BY created_at ASC
+	          LIMIT 100`
 	rows, err := r.db.Query(ctx, query, employeeID)
 	if err != nil {
 		return nil, err

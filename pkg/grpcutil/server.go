@@ -31,6 +31,10 @@ func NewServer(tlsConfig *tls.Config, opts ...grpc.ServerOption) *grpc.Server {
 		}
 		allOpts = append(allOpts, grpc.Creds(credentials.NewTLS(cfg)))
 	}
+	allOpts = append(allOpts,
+		grpc.MaxRecvMsgSize(32*1024*1024),
+		grpc.MaxSendMsgSize(32*1024*1024),
+	)
 	allOpts = append(allOpts, opts...)
 	return grpc.NewServer(append(allOpts, WithTelemetryServerOption())...)
 }

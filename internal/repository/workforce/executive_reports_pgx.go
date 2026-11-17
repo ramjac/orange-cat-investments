@@ -99,7 +99,7 @@ func (r *pgxRepository) ListExecutiveReports(ctx context.Context, limit, offset 
 	if limit <= 0 {
 		limit = 50
 	}
-	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, pdf_content, generated_by, created_at, updated_at
+	query := `SELECT report_id, period, title, status, total_revenue, operating_expenses, payroll_expenses, net_profit, operational_burn, cash_reserves, runway_months, total_headcount, human_headcount, feline_headcount, attendance_rate, overtime_hours, timesheets_approved, webdav_path_pdf, webdav_path_csv, csv_content, NULL::bytea AS pdf_content, generated_by, created_at, updated_at
 	          FROM workforce.executive_reports
 	          ORDER BY period DESC, created_at DESC
 	          LIMIT $1 OFFSET $2`
