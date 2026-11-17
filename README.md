@@ -114,7 +114,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **ML Model Registry & Confidence Drift Tracking:** Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Algorithmic Order Types & Pre-Trade Risk Engine:** Smart Order Router supporting Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC, and risk management guardrails.
 * **Automated Investor Statements & Tax Document Generation:** Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
-* **Daily NAV Portfolio Snapshots (`7.10`):** Extended `core_invest.portfolio_snapshots` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and partial unique index `uq_portfolio_daily_eod_snapshot` (synchronized across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`), with 90-day dev seed data and `RecordDailySnapshot` / `ListPortfolioSnapshots` gRPC endpoints in `core-invest-api`.
+* **Daily NAV Portfolio Snapshots & BLL History (`7.10`, `7.11`):** Extended `core_invest.portfolio_snapshots` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and partial unique index `uq_portfolio_daily_eod_snapshot` (synchronized across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`), with 90-day dev seed data and `RecordDailySnapshot` / `ListPortfolioSnapshots` gRPC endpoints in `core-invest-api`. `CustomerBLLService` exposes `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) using a consumer-side `historyProvider` interface in `brokerage.go`, driven by `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJob (`0 21 * * 1-5` UTC).
 
 ### 5.2 Customer Experience & Retail Investor Surfaces (`web/customer-portal` & `cmd/customer-bff`)
 * **Customer Web Portal & Dedicated Go BFF:** Vue 3 Single Page Application (`web/customer-portal` on `:5174`) and dedicated Go BFF server (`cmd/customer-bff` on `:8083`) utilizing ZITADEL OIDC authentication, Valkey server-side sessions, and double-submit CSRF protection.
@@ -763,7 +763,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [x] **7.8** Edge Device Heartbeats — Domain Layer
    - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
    - [x] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
-   - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
+   - [x] **7.11** Daily NAV Snapshot Batch & BLL History Service *(Completed)*
    - [x] **7.12** Portfolio History in Customer BFF & Portal
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
@@ -842,8 +842,8 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.11 Daily NAV Snapshot Batch & BLL History Service
 > [!NOTE]
-> **Status: Partially Complete**
-> Done: the `GetPortfolioHistory` RPC exists in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` and the hardcoded `0.78 / 0.85 / 0.92` multiplier fallback in `getHistoricalValuationPoints` is deleted. Remaining: `CaptureDailySnapshots` RPC, the `RunDailyNAVSnapshotBatch` worker batch with `BATCH_MODE=nav-snapshot` dispatch, the `nav-snapshot` CronJobs in both `batch-jobs.yaml` files, snapshot-backed history reads from `core-invest-api` (currently still served by the broker history client), and the consumer-side `historyProvider` interface replacing the `*alpaca.Client` parameter (depends on `7.10` schema work).
+> **Status: Completed**
+> `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) are implemented in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` with the consumer-side `historyProvider` interface (no `alpaca` import or multiplier fallback in `brokerage.go`). `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJobs (`0 21 * * 1-5` UTC) are wired in `internal/app/worker/batch_jobs.go`, `cmd/worker/main.go`, `k8s/oci-core/batch-jobs.yaml`, and `k8s/oci-dev/batch-jobs.yaml`, with a `TODO(7.11)` in `internal/app/worker/schedulers.go`.
 * **Depends On:** `7.10`.
 * **Current Codebase State:** `getHistoricalValuationPoints` in `internal/app/customerbll/brokerage.go` takes a `*alpaca.Client` parameter and falls back to hardcoded `0.78 / 0.85 / 0.92` multipliers. Scheduled jobs exist in two forms: one-shot CronJobs that run `oci-worker` with `BATCH_MODE` (`ach-recurring`, `eom-statements` in `cmd/worker/main.go` and `k8s/*/batch-jobs.yaml`), **and** hourly tickers in `internal/app/worker/schedulers.go` that the long-running worker also starts. Recurring ACH is therefore triggered by both today.
 * **Design Decision (fixed):** The NAV job uses **only** the CronJob + `BATCH_MODE` pattern. Do **not** add a ticker to `schedulers.go`. (Removing the existing duplicate ACH/EOM tickers is out of scope; leave a `TODO` referencing this step.)
@@ -852,8 +852,8 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   2. In `brokerage.go`, change `getHistoricalValuationPoints` to read from `core-invest-api` snapshots and return an empty series when there are none. **Delete the multiplier fallback.** Change its broker parameter from `*alpaca.Client` to a small consumer-side interface (`historyProvider`) declared in `brokerage.go`. Other files in `customerbll` that import the broker driver are out of scope.
   3. `internal/app/worker/batch_jobs.go`: add `RunDailyNAVSnapshotBatch`, and dispatch `BATCH_MODE=nav-snapshot` in `cmd/worker/main.go`. Add a `nav-snapshot` CronJob (`0 21 * * 1-5`, UTC) to `k8s/oci-core/batch-jobs.yaml` and `k8s/oci-dev/batch-jobs.yaml`.
 * **Verification Gate:**
-  * [offline] `! grep -n "0\.78\|0\.85\|0\.92\|alpaca" internal/app/customerbll/brokerage.go`
-  * [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
+  * [x] [offline] `! grep -n "0\.78\|0\.85\|0\.92\|alpaca" internal/app/customerbll/brokerage.go`
+  * [x] [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
 
 #### 7.12 Portfolio History in Customer BFF & Portal
 > [!NOTE] **Status: Completed**

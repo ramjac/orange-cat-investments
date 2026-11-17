@@ -114,3 +114,26 @@ func RunEOMStatementBatch(ctx context.Context, customerBLL customerbllv1.Custome
 	)
 	return nil
 }
+
+// RunDailyNAVSnapshotBatch triggers end-of-day portfolio NAV snapshot capture via Customer BLL.
+func RunDailyNAVSnapshotBatch(ctx context.Context, customerBLL customerbllv1.CustomerBLLServiceClient, logger *slog.Logger, now time.Time) error {
+	if customerBLL == nil {
+		return errors.New("Customer BLL client not configured for daily NAV snapshot batch")
+	}
+
+	snapshotDate := now.UTC().Format("2006-01-02")
+	res, err := customerBLL.CaptureDailySnapshots(ctx, &customerbllv1.CaptureDailySnapshotsRequest{
+		SnapshotDate: snapshotDate,
+	})
+	if err != nil {
+		return fmt.Errorf("customer BLL daily NAV snapshot capture failed: %w", err)
+	}
+
+	if logger != nil {
+		logger.Info("daily NAV snapshot batch completed via Customer BLL",
+			"snapshot_date", res.SnapshotDate,
+			"snapshots_recorded", res.SnapshotsRecorded,
+		)
+	}
+	return nil
+}

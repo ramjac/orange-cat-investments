@@ -27,6 +27,15 @@ type GetPortfolioHistoryResponse struct {
 	Points []*ValuationPoint `json:"points"`
 }
 
+type CaptureDailySnapshotsRequest struct {
+	SnapshotDate string `json:"snapshot_date"`
+}
+
+type CaptureDailySnapshotsResponse struct {
+	SnapshotsRecorded int32  `json:"snapshots_recorded"`
+	SnapshotDate      string `json:"snapshot_date"`
+}
+
 type GetPortfolioRequest struct {
 	CustomerID   string `json:"customer_id"`
 	PortfolioID  string `json:"portfolio_id"`
@@ -474,6 +483,7 @@ type CustomerBLLService_StreamPortfolioValuationServer interface {
 type CustomerBLLServiceClient interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
 	GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error)
+	CaptureDailySnapshots(ctx context.Context, in *CaptureDailySnapshotsRequest) (*CaptureDailySnapshotsResponse, error)
 	GetPortfolioMetrics(ctx context.Context, in *GetPortfolioMetricsRequest) (*GetPortfolioMetricsResponse, error)
 	StreamPortfolioValuation(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (CustomerBLLService_StreamPortfolioValuationClient, error)
 
@@ -519,6 +529,7 @@ type CustomerBLLServiceClient interface {
 type CustomerBLLServiceServer interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
 	GetPortfolioHistory(ctx context.Context, in *GetPortfolioHistoryRequest) (*GetPortfolioHistoryResponse, error)
+	CaptureDailySnapshots(ctx context.Context, in *CaptureDailySnapshotsRequest) (*CaptureDailySnapshotsResponse, error)
 	GetPortfolioMetrics(ctx context.Context, in *GetPortfolioMetricsRequest) (*GetPortfolioMetricsResponse, error)
 	StreamPortfolioValuation(in *coreinvestv1.StreamPortfolioValuationRequest, stream CustomerBLLService_StreamPortfolioValuationServer) error
 

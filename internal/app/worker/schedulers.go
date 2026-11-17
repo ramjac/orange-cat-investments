@@ -170,6 +170,8 @@ func StartExecutiveReportingWorker(ctx context.Context, router *message.Router, 
 	}()
 }
 
+// TODO(7.11): Remove duplicate StartRecurringACHProcessor and StartEOMStatementBatchGenerator
+// hourly tickers once CronJob + BATCH_MODE scheduling is exclusively used across all environments.
 // StartRecurringACHProcessor starts the recurring ACH deposit runner on 1-hour intervals.
 func StartRecurringACHProcessor(ctx context.Context, router *message.Router, ps PubSub, customerBLL customerbllv1.CustomerBLLServiceClient, logger *slog.Logger) {
 	go func() {
