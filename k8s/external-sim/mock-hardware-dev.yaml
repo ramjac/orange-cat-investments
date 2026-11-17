@@ -25,6 +25,8 @@ spec:
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-dev.svc.cluster.local:5672/"
             - name: INTERNAL_BLL_ADDR
               value: "internal-bll-service.oci-dev.svc.cluster.local:8086"
+            - name: MOCK_CAMERA_SERIAL
+              value: "QR-CAM-ORANGE-01"
             - name: TLS_CERT_FILE
               value: "/certs/tls.crt"
             - name: TLS_KEY_FILE

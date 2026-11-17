@@ -262,6 +262,12 @@ func (c *internalBLLServiceClient) ControlPTZ(ctx context.Context, in *facilitie
 func (c *internalBLLServiceClient) CalibrateCameraLens(ctx context.Context, in *facilitiesv1.CalibrateCameraLensRequest) (*facilitiesv1.CalibrateCameraLensResponse, error) {
 	return invokeUnary[facilitiesv1.CalibrateCameraLensRequest, facilitiesv1.CalibrateCameraLensResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/CalibrateCameraLens", in)
 }
+func (c *internalBLLServiceClient) ReportDeviceHeartbeat(ctx context.Context, in *ReportDeviceHeartbeatRequest) (*ReportDeviceHeartbeatResponse, error) {
+	return invokeUnary[ReportDeviceHeartbeatRequest, ReportDeviceHeartbeatResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ReportDeviceHeartbeat", in)
+}
+func (c *internalBLLServiceClient) ListDeviceConnectivity(ctx context.Context, in *ListDeviceConnectivityRequest) (*ListDeviceConnectivityResponse, error) {
+	return invokeUnary[ListDeviceConnectivityRequest, ListDeviceConnectivityResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListDeviceConnectivity", in)
+}
 
 // Quant & Investment Research (Employee-Facing)
 func (c *internalBLLServiceClient) ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error) {
@@ -577,6 +583,12 @@ func (UnimplementedInternalBLLServiceServer) ControlPTZ(context.Context, *facili
 func (UnimplementedInternalBLLServiceServer) CalibrateCameraLens(context.Context, *facilitiesv1.CalibrateCameraLensRequest) (*facilitiesv1.CalibrateCameraLensResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CalibrateCameraLens not implemented")
 }
+func (UnimplementedInternalBLLServiceServer) ReportDeviceHeartbeat(context.Context, *ReportDeviceHeartbeatRequest) (*ReportDeviceHeartbeatResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportDeviceHeartbeat not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) ListDeviceConnectivity(context.Context, *ListDeviceConnectivityRequest) (*ListDeviceConnectivityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDeviceConnectivity not implemented")
+}
 func (UnimplementedInternalBLLServiceServer) CreateTicket(context.Context, *opsv1.CreateTicketRequest) (*opsv1.CreateTicketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTicket not implemented")
 }
@@ -876,6 +888,12 @@ var InternalBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CalibrateCameraLens", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/CalibrateCameraLens", InternalBLLServiceServer.CalibrateCameraLens)
+		}},
+		{MethodName: "ReportDeviceHeartbeat", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ReportDeviceHeartbeat", InternalBLLServiceServer.ReportDeviceHeartbeat)
+		}},
+		{MethodName: "ListDeviceConnectivity", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListDeviceConnectivity", InternalBLLServiceServer.ListDeviceConnectivity)
 		}},
 		{MethodName: "CreateTicket", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/CreateTicket", InternalBLLServiceServer.CreateTicket)

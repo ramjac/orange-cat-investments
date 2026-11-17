@@ -79,6 +79,42 @@ paths:
           description: Active employee session details
         '401':
           $ref: '#/components/responses/401Unauthorized'
+  /facilities/devices/connectivity:
+    get:
+      summary: List Edge Device Connectivity
+      operationId: listDeviceConnectivity
+      tags:
+        - Facilities Assets
+      parameters:
+        - name: zone_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Edge device connectivity list with read-time online derivation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        asset:
+                          $ref: '#/components/schemas/HardwareAsset'
+                        online:
+                          type: boolean
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          description: Referenced resource not found
   /facilities/assets:
     get:
       summary: List Hardware Assets

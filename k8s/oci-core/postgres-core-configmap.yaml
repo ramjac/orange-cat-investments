@@ -574,3 +574,17 @@ data:
         'Executive Operations',
         'active'
     ) ON CONFLICT (email) DO NOTHING;
+
+    INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status)
+    VALUES ('018e0000-0000-7000-8000-000000000001', 'QR-CAM-ORANGE-01', 'edge_camera', 'FelineCam-Pro-X', 'active')
+    ON CONFLICT (serial_number) DO NOTHING;
+
+    INSERT INTO core_invest.camera_streams (stream_id, camera_asset_id, stream_url, protocol, status, ingest_settings)
+    VALUES (
+        '018f3a9a-c001-7000-8000-000000000001',
+        '018e0000-0000-7000-8000-000000000001',
+        'webrtc://streams.oci.local/live/habitat-cam-01',
+        'webrtc',
+        'active',
+        '{"name": "Perch Alpha 4K WebRTC Live Feed", "zone": "Zone Alpha"}'::jsonb
+    ) ON CONFLICT (stream_id) DO NOTHING;

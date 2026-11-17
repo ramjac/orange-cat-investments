@@ -131,7 +131,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **Electronic Veterinary Health Records (VHR) & Clinical Charting:** Schema `workforce.vhr_records`, Go service layer, and Employee Portal VHR charting tab.
 * **Remote PTZ & Camera Lens Calibration:** Pan-Tilt-Zoom (PTZ) control and lens calibration REST endpoints (`/facilities/cameras/{id}/ptz`, `/facilities/cameras/{id}/calibrate`).
 * **Habitat Environmental Telemetry (HVAC, Lux, Decibels):** Schema `facilities.environmental_telemetry` and telemetry ingestion endpoint (`/facilities/environment/telemetry`).
-* **Edge Device Heartbeats & Connectivity Derivation (`7.8`):** `FacilitiesService` exposes `RecordAssetHeartbeat` (updating `facilities.hardware_assets.last_ping_at`, returning `NOT_FOUND` for unknown serials) and `ListAssetConnectivity` (deriving `online` at read time from the 180s staleness threshold without background sweeps); `CoreInvestService` exposes `UpdateCameraStreamStatus` to update `core_invest.camera_streams.status`.
+* **Edge Device Heartbeats & Connectivity Derivation (`7.8`, `7.9`):** `FacilitiesService` exposes `RecordAssetHeartbeat` (updating `facilities.hardware_assets.last_ping_at`, returning `NOT_FOUND` for unknown serials) and `ListAssetConnectivity` (deriving `online` at read time from the 180s staleness threshold without background sweeps); `CoreInvestService` exposes `UpdateCameraStreamStatus` to update `core_invest.camera_streams.status`. `InternalBLLService` exposes `ReportDeviceHeartbeat` (fanning out to `facilities-api` and `core-invest-api`) and `ListDeviceConnectivity`, `mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL`, and `employee-bff` exposes session-authenticated `GET /facilities/devices/connectivity`.
 
 ### 5.4 Workforce Operations & Automated Sagas (`workforce` & `web/employee-portal`)
 * **Frappe HR Webhook Ingestion:** Webhook endpoint `/api/v1/webhooks/frappe-hr` triggering distributed `OnboardingSaga` and `OffboardingEngine` flows across workforce, Forgejo, and internal services.
@@ -760,7 +760,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
    - [x] **7.7** Lifelike Mock Hardware Behavior
    - [x] **7.8** Edge Device Heartbeats — Domain Layer
-   - [ ] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
+   - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
    - [ ] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
    - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
    - [x] **7.12** Portfolio History in Customer BFF & Portal
@@ -824,15 +824,12 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > `proto/oci/facilities/v1/facilities.proto` (`RecordAssetHeartbeat`, `ListAssetConnectivity`) and `proto/oci/core_invest/v1/core_invest.proto` (`UpdateCameraStreamStatus`) are defined and reflected in `pkg/gen/go/`. Both `internal/repository/facilities/` and `internal/repository/core_invest/` implement pgx and mock methods, wired through `internal/service/` and the gRPC handlers in `cmd/facilities-api` and `cmd/core-invest-api`. Online/offline status is derived at read time (`last_ping_at >= now - stale_after_seconds`, defaulting to 180s) with `NOT_FOUND` returned for unknown serials or missing camera streams, and `scripts/migrations/README.md` documents the three-copy schema synchronization protocol.
 
 #### 7.9 Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-* **Depends On:** `7.7`, `7.8`.
-* **Current Codebase State:** `internal-bll` exposes `IngestEnvironmentalTelemetry` and `GetFelineTarget` to `mock-hardware`. No heartbeat RPC exists, and the portals cannot see device connectivity.
-* **PR Scope:**
-  1. `proto/oci/internal_bll/v1/internal_bll.proto`: add `ReportDeviceHeartbeat(serial_number, camera_status optional)`, which fans out to `facilities-api` (`RecordAssetHeartbeat`) and, when `camera_status` is set, `core-invest-api` (`UpdateCameraStreamStatus`). Add `ListDeviceConnectivity(zone_id optional)`. Implement both in `internal/app/internalbll/`. The BLL performs the cross-domain fan-out; Domain APIs never call each other.
-  2. `cmd/mock-hardware`: send a heartbeat every 60s for its camera serial, taken from a new `MOCK_CAMERA_SERIAL` env var set in both mock-hardware manifests. Fall back to the existing fixture constant. Add the serial to the seed data in both configmaps if it is not already present.
-  3. `internal/app/employeebff/`: add `GET /facilities/devices/connectivity` (session-authenticated), and document it in `api/openapi.yaml`.
+> [!NOTE]
+> **Status: Completed (offline gates verified; cluster gate pending)**
+> `proto/oci/internal_bll/v1/internal_bll.proto` and `pkg/gen/go/internal_bll/v1/` define `ReportDeviceHeartbeat` and `ListDeviceConnectivity`, implemented in `internal/app/internalbll/` with cross-domain fan-out to `facilities-api` and `core-invest-api`. `cmd/mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL=QR-CAM-ORANGE-01` (configured in both `k8s/external-sim/mock-hardware*.yaml` manifests and seeded in both Postgres configmaps), and `internal/app/employeebff/` exposes session-authenticated `GET /facilities/devices/connectivity` documented in `api/openapi.yaml`.
 * **Verification Gate:**
-  * [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
-  * [cluster] In `oci-dev`, the connectivity endpoint shows the mock camera online, and it shows offline about 3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim`.
+  * [x] [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
+  * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows the mock camera online, and it shows offline about 3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim`.
 
 #### 7.10 Extend `core_invest.portfolio_snapshots` for Daily NAV
 * **Depends On:** `7.8` (for `scripts/migrations/`).

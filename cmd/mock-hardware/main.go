@@ -65,6 +65,7 @@ func main() {
 
 	go runCatSpottedGenerator(ctx, pub, bllClient, logger, b)
 	go runEnvironmentalGenerator(ctx, bllClient, logger, b)
+	go runHeartbeatGenerator(ctx, bllClient, logger)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -90,6 +91,7 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 	defer ticker.Stop()
 
 	felineID := os.Getenv("OBSERVATION_FELINE_ID")
+	cameraSerial := resolveCameraSerial()
 
 	for {
 		select {
@@ -100,7 +102,7 @@ func runCatSpottedGenerator(ctx context.Context, pub message.Publisher, bllClien
 				felineID = fetchFelineTarget(ctx, bllClient, logger)
 			}
 
-			event := b.NextActivityEnvelope(fixtureCameraID, felineID)
+			event := b.NextActivityEnvelope(cameraSerial, felineID)
 
 			data, _ := json.Marshal(event)
 			msg := message.NewMessage(event.EventID, data)
@@ -140,6 +142,43 @@ func runEnvironmentalGenerator(ctx context.Context, bllClient internalbllv1.Inte
 			} else {
 				logger.Info("Ingested environmental telemetry", "temp", temp, "humidity", humidity)
 			}
+		}
+	}
+}
+
+func resolveCameraSerial() string {
+	if s := os.Getenv("MOCK_CAMERA_SERIAL"); s != "" {
+		return s
+	}
+	return fixtureCameraID
+}
+
+func runHeartbeatGenerator(ctx context.Context, bllClient internalbllv1.InternalBLLServiceClient, logger *slog.Logger) {
+	cameraSerial := resolveCameraSerial()
+	sendHeartbeat := func() {
+		reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		_, err := bllClient.ReportDeviceHeartbeat(reqCtx, &internalbllv1.ReportDeviceHeartbeatRequest{
+			SerialNumber: cameraSerial,
+			CameraStatus: "active",
+		})
+		if err != nil {
+			logger.Error("Failed to report device heartbeat via BLL", "serial_number", cameraSerial, "error", err)
+			return
+		}
+		logger.Info("Reported device heartbeat", "serial_number", cameraSerial, "camera_status", "active")
+	}
+
+	sendHeartbeat()
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sendHeartbeat()
 		}
 	}
 }

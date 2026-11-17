@@ -89,6 +89,8 @@ service InternalBLLService {
   rpc StreamEnvironmentalTelemetry(oci.facilities.v1.StreamTelemetryRequest) returns (stream oci.facilities.v1.TelemetrySample);
   rpc ControlPTZ(oci.facilities.v1.ControlPTZRequest) returns (oci.facilities.v1.ControlPTZResponse);
   rpc CalibrateCameraLens(oci.facilities.v1.CalibrateCameraLensRequest) returns (oci.facilities.v1.CalibrateCameraLensResponse);
+  rpc ReportDeviceHeartbeat(ReportDeviceHeartbeatRequest) returns (ReportDeviceHeartbeatResponse);
+  rpc ListDeviceConnectivity(ListDeviceConnectivityRequest) returns (ListDeviceConnectivityResponse);
 
   // Quant & Investment Research (Employee-Facing)
   rpc ListStreams(oci.core_invest.v1.ListCameraStreamsRequest) returns (oci.core_invest.v1.ListCameraStreamsResponse);
@@ -408,4 +410,22 @@ message GetFelineTargetRequest {}
 
 message GetFelineTargetResponse {
   string feline_id = 1;
+}
+
+message ReportDeviceHeartbeatRequest {
+  string serial_number = 1;
+  string camera_status = 2;
+}
+
+message ReportDeviceHeartbeatResponse {
+  oci.facilities.v1.HardwareAsset asset = 1;
+  oci.core_invest.v1.CameraStream stream = 2;
+}
+
+message ListDeviceConnectivityRequest {
+  string zone_id = 1;
+}
+
+message ListDeviceConnectivityResponse {
+  repeated oci.facilities.v1.AssetConnectivity assets = 1;
 }

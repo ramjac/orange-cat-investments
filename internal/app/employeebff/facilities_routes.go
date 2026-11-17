@@ -7,8 +7,11 @@ import (
 	"net/http"
 
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/session"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // RegisterFacilitiesRoutes mounts Facilities domain endpoints onto the Employee BFF mux.
@@ -355,4 +358,44 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /facilities/ota/jobs", listOTAJobs)
 	mux.HandleFunc("GET /api/v1/facilities/ota/jobs", listOTAJobs)
+
+	listDeviceConnectivity := func(w http.ResponseWriter, r *http.Request) {
+		if b.bllClient == nil {
+			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		zoneID := r.URL.Query().Get("zone_id")
+		resp, err := b.bllClient.ListDeviceConnectivity(r.Context(), &internalbllv1.ListDeviceConnectivityRequest{
+			ZoneID: zoneID,
+		})
+		if err != nil {
+			writeGRPCError(w, err)
+			return
+		}
+		items := resp.Assets
+		if items == nil {
+			items = []*facilitiesv1.AssetConnectivity{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": items,
+			"total": len(items),
+		})
+	}
+	sessionAuth := SessionAuthMiddleware(b.sessionStore)
+	mux.Handle("GET /facilities/devices/connectivity", sessionAuth(http.HandlerFunc(listDeviceConnectivity)))
+	mux.Handle("GET /api/v1/facilities/devices/connectivity", sessionAuth(http.HandlerFunc(listDeviceConnectivity)))
+}
+
+func writeGRPCError(w http.ResponseWriter, err error) {
+	switch status.Code(err) {
+	case codes.NotFound:
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case codes.InvalidArgument:
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case codes.Unavailable:
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
