@@ -116,6 +116,9 @@ func (c *coreInvestServiceClient) GetCameraStream(ctx context.Context, in *GetCa
 func (c *coreInvestServiceClient) ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return invokeUnary[ListCameraStreamsRequest, ListCameraStreamsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListCameraStreams", in)
 }
+func (c *coreInvestServiceClient) UpdateCameraStreamStatus(ctx context.Context, in *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error) {
+	return invokeUnary[UpdateCameraStreamStatusRequest, UpdateCameraStreamStatusResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/UpdateCameraStreamStatus", in)
+}
 func (c *coreInvestServiceClient) IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error) {
 	return invokeUnary[IngestObservationRequest, IngestObservationResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/IngestObservation", in)
 }
@@ -269,6 +272,9 @@ func (UnimplementedCoreInvestServiceServer) GetCameraStream(context.Context, *Ge
 func (UnimplementedCoreInvestServiceServer) ListCameraStreams(context.Context, *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCameraStreams not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) UpdateCameraStreamStatus(context.Context, *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateCameraStreamStatus not implemented")
+}
 func (UnimplementedCoreInvestServiceServer) IngestObservation(context.Context, *IngestObservationRequest) (*IngestObservationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IngestObservation not implemented")
 }
@@ -415,6 +421,9 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "ListCameraStreams", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListCameraStreams", CoreInvestServiceServer.ListCameraStreams)
+		}},
+		{MethodName: "UpdateCameraStreamStatus", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/UpdateCameraStreamStatus", CoreInvestServiceServer.UpdateCameraStreamStatus)
 		}},
 		{MethodName: "IngestObservation", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/IngestObservation", CoreInvestServiceServer.IngestObservation)

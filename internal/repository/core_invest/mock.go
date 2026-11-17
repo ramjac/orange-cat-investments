@@ -154,8 +154,24 @@ func (m *mockRepository) CreateCameraStream(ctx context.Context, stream *CameraS
 	stream.StreamID = "stream-uuid-created"
 	stream.CreatedAt = now
 	stream.UpdatedAt = now
+	m.mu.Lock()
 	m.streams[stream.StreamID] = stream
+	m.mu.Unlock()
 	return stream, nil
+}
+
+func (m *mockRepository) UpdateCameraStreamStatus(ctx context.Context, cameraAssetID string, status string) (*CameraStream, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.streams {
+		if s.CameraAssetID == cameraAssetID {
+			s.Status = status
+			s.UpdatedAt = time.Now().UTC()
+			copyStream := *s
+			return &copyStream, nil
+		}
+	}
+	return nil, ErrCameraStreamNotFound
 }
 
 func (m *mockRepository) GetBrokerageOrderByID(ctx context.Context, id string) (*BrokerageOrder, error) {

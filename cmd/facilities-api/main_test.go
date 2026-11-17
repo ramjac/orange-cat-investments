@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"testing"
+	"time"
 
 	facilities_repo "github.com/orange-cat-investments/oci/internal/repository/facilities"
 	facilities_svc "github.com/orange-cat-investments/oci/internal/service/facilities"
@@ -10,8 +11,10 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 func TestFacilitiesAPI_GRPC(t *testing.T) {
@@ -69,4 +72,63 @@ func TestFacilitiesAPI_GRPC(t *testing.T) {
 		sampleCount++
 	}
 	assert.Equal(t, 3, sampleCount)
+
+	// Test RecordAssetHeartbeat - validation & unknown serial
+	_, err = client.RecordAssetHeartbeat(t.Context(), &facilitiesv1.RecordAssetHeartbeatRequest{})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.RecordAssetHeartbeat(t.Context(), &facilitiesv1.RecordAssetHeartbeatRequest{
+		SerialNumber: "CAM-ORANGE-01",
+		ObservedAt:   "not-a-timestamp",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.RecordAssetHeartbeat(t.Context(), &facilitiesv1.RecordAssetHeartbeatRequest{
+		SerialNumber: "UNKNOWN-SERIAL-01",
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+
+	// Test RecordAssetHeartbeat + ListAssetConnectivity at staleness boundary
+	recentObs := time.Now().UTC().Add(-60 * time.Second).Format(time.RFC3339)
+	hbRes, err := client.RecordAssetHeartbeat(t.Context(), &facilitiesv1.RecordAssetHeartbeatRequest{
+		SerialNumber: "CAM-ORANGE-01",
+		ObservedAt:   recentObs,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, hbRes.Asset)
+	assert.Equal(t, recentObs, hbRes.Asset.LastPingAt)
+
+	connRes, err := client.ListAssetConnectivity(t.Context(), &facilitiesv1.ListAssetConnectivityRequest{
+		StaleAfterSeconds: 180,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, connRes.Assets)
+	var camOnline bool
+	for _, item := range connRes.Assets {
+		if item.Asset.SerialNumber == "CAM-ORANGE-01" {
+			camOnline = item.Online
+		}
+	}
+	assert.True(t, camOnline)
+
+	// Older than 180s -> offline
+	staleObs := time.Now().UTC().Add(-190 * time.Second).Format(time.RFC3339)
+	_, err = client.RecordAssetHeartbeat(t.Context(), &facilitiesv1.RecordAssetHeartbeatRequest{
+		SerialNumber: "CAM-ORANGE-01",
+		ObservedAt:   staleObs,
+	})
+	require.NoError(t, err)
+
+	connStaleRes, err := client.ListAssetConnectivity(t.Context(), &facilitiesv1.ListAssetConnectivityRequest{
+		StaleAfterSeconds: 180,
+	})
+	require.NoError(t, err)
+	for _, item := range connStaleRes.Assets {
+		if item.Asset.SerialNumber == "CAM-ORANGE-01" {
+			assert.False(t, item.Online)
+		}
+	}
 }

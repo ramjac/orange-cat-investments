@@ -8,6 +8,8 @@ service FacilitiesService {
   rpc GetAsset (GetAssetRequest) returns (GetAssetResponse);
   rpc ListAssets (ListAssetsRequest) returns (ListAssetsResponse);
   rpc CreateAsset (CreateAssetRequest) returns (CreateAssetResponse);
+  rpc RecordAssetHeartbeat (RecordAssetHeartbeatRequest) returns (RecordAssetHeartbeatResponse);
+  rpc ListAssetConnectivity (ListAssetConnectivityRequest) returns (ListAssetConnectivityResponse);
 
   rpc CreateMaintenanceLog (CreateMaintenanceLogRequest) returns (CreateMaintenanceLogResponse);
   rpc ListMaintenanceLogs (ListMaintenanceLogsRequest) returns (ListMaintenanceLogsResponse);
@@ -67,6 +69,29 @@ message CreateAssetRequest {
 
 message CreateAssetResponse {
   HardwareAsset asset = 1;
+}
+
+message RecordAssetHeartbeatRequest {
+  string serial_number = 1;
+  string observed_at = 2;
+}
+
+message RecordAssetHeartbeatResponse {
+  HardwareAsset asset = 1;
+}
+
+message AssetConnectivity {
+  HardwareAsset asset = 1;
+  bool online = 2;
+}
+
+message ListAssetConnectivityRequest {
+  string zone_id = 1;
+  int32 stale_after_seconds = 2;
+}
+
+message ListAssetConnectivityResponse {
+  repeated AssetConnectivity assets = 1;
 }
 
 message MaintenanceLog {

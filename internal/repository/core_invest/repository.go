@@ -2,10 +2,13 @@ package core_invest
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrCameraStreamNotFound = errors.New("camera stream not found")
 
 type CameraStream struct {
 	StreamID       string    `json:"stream_id"`
@@ -168,6 +171,7 @@ type StreamBacktestRepository interface {
 	GetCameraStreamByID(ctx context.Context, id string) (*CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*CameraStream, error)
 	CreateCameraStream(ctx context.Context, stream *CameraStream) (*CameraStream, error)
+	UpdateCameraStreamStatus(ctx context.Context, cameraAssetID string, status string) (*CameraStream, error)
 	GetBacktestRunByID(ctx context.Context, id string) (*BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*BacktestRun, error)
 	CreateBacktestRun(ctx context.Context, run *BacktestRun) (*BacktestRun, error)

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,6 +41,23 @@ func (s *CoreInvestGRPCServer) ListCameraStreams(ctx context.Context, in *corein
 		out = append(out, toProtoCameraStream(cs))
 	}
 	return &coreinvestv1.ListCameraStreamsResponse{Streams: out}, nil
+}
+
+func (s *CoreInvestGRPCServer) UpdateCameraStreamStatus(ctx context.Context, in *coreinvestv1.UpdateCameraStreamStatusRequest) (*coreinvestv1.UpdateCameraStreamStatusResponse, error) {
+	if in.CameraAssetID == "" {
+		return nil, status.Error(codes.InvalidArgument, "camera_asset_id is required")
+	}
+	if in.Status != "active" && in.Status != "idle" && in.Status != "error" {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid camera stream status %q: must be active, idle, or error", in.Status)
+	}
+	cs, err := s.svc.UpdateCameraStreamStatus(ctx, in.CameraAssetID, in.Status)
+	if err != nil {
+		if errors.Is(err, core_invest.ErrCameraStreamNotFound) {
+			return nil, status.Errorf(codes.NotFound, "camera stream for asset %q not found", in.CameraAssetID)
+		}
+		return nil, err
+	}
+	return &coreinvestv1.UpdateCameraStreamStatusResponse{Stream: toProtoCameraStream(cs)}, nil
 }
 
 func (s *CoreInvestGRPCServer) IngestObservation(ctx context.Context, in *coreinvestv1.IngestObservationRequest) (*coreinvestv1.IngestObservationResponse, error) {

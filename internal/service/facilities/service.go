@@ -13,6 +13,8 @@ type Service interface {
 	GetAsset(ctx context.Context, id string) (*facilities.HardwareAsset, error)
 	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*facilities.HardwareAsset, error)
 	CreateAsset(ctx context.Context, serialNumber, assetType, model, zoneID string) (*facilities.HardwareAsset, error)
+	RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*facilities.HardwareAsset, error)
+	ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*facilities.AssetConnectivity, error)
 	SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error)
 	CreateFirmwareRelease(ctx context.Context, release *facilities.FirmwareRelease) (*facilities.FirmwareRelease, error)
 	ListFirmwareReleases(ctx context.Context, deviceType string) ([]*facilities.FirmwareRelease, error)
@@ -63,6 +65,23 @@ func (s *facilitiesService) CreateAsset(ctx context.Context, serialNumber, asset
 	}
 
 	return s.repo.CreateAsset(ctx, asset)
+}
+
+func (s *facilitiesService) RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*facilities.HardwareAsset, error) {
+	if serialNumber == "" {
+		return nil, errors.New("serial_number is required")
+	}
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	return s.repo.RecordAssetHeartbeat(ctx, serialNumber, observedAt)
+}
+
+func (s *facilitiesService) ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*facilities.AssetConnectivity, error) {
+	if staleAfterSeconds <= 0 {
+		staleAfterSeconds = facilities.DefaultHeartbeatStaleSeconds
+	}
+	return s.repo.ListAssetConnectivity(ctx, zoneID, staleAfterSeconds)
 }
 
 func (s *facilitiesService) SyncMaintenanceLogs(ctx context.Context, logs []*facilities.MaintenanceLog) ([]*facilities.MaintenanceLog, error) {

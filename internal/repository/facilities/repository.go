@@ -2,11 +2,35 @@ package facilities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// DefaultHeartbeatStaleSeconds is 3x the 60s heartbeat interval (180s).
+const DefaultHeartbeatStaleSeconds int32 = 180
+
+var ErrAssetNotFound = errors.New("hardware asset not found")
+
+type AssetConnectivity struct {
+	Asset  *HardwareAsset `json:"asset"`
+	Online bool           `json:"online"`
+}
+
+// IsAssetOnline derives device connectivity at read time from last_ping_at.
+func IsAssetOnline(lastPingAt *time.Time, now time.Time, staleAfterSeconds int32) bool {
+	if lastPingAt == nil {
+		return false
+	}
+	if staleAfterSeconds <= 0 {
+		staleAfterSeconds = DefaultHeartbeatStaleSeconds
+	}
+	cutoff := now.Add(-time.Duration(staleAfterSeconds) * time.Second)
+	return !lastPingAt.Before(cutoff)
+}
 
 type HardwareAsset struct {
 	AssetID            string     `json:"asset_id"`
@@ -85,6 +109,8 @@ type Repository interface {
 	GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error)
 	ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error)
 	CreateAsset(ctx context.Context, asset *HardwareAsset) (*HardwareAsset, error)
+	RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*HardwareAsset, error)
+	ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*AssetConnectivity, error)
 	CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error)
 	BatchInsertMaintenanceLogs(ctx context.Context, logs []*MaintenanceLog) ([]*MaintenanceLog, error)
 	ListMaintenanceLogsByAsset(ctx context.Context, assetID string) ([]*MaintenanceLog, error)
@@ -188,6 +214,88 @@ func (r *pgxRepository) CreateAsset(ctx context.Context, asset *HardwareAsset) (
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (r *pgxRepository) RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*HardwareAsset, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
+	var a HardwareAsset
+	query := `UPDATE facilities.hardware_assets
+              SET last_ping_at = $2, updated_at = CURRENT_TIMESTAMP
+              WHERE serial_number = $1
+              RETURNING asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at`
+	err := r.db.QueryRow(ctx, query, serialNumber, observedAt).Scan(
+		&a.AssetID,
+		&a.SerialNumber,
+		&a.AssetType,
+		&a.Model,
+		&a.Status,
+		&a.ZoneID,
+		&a.AssignedEmployeeID,
+		&a.LastPingAt,
+		&a.CreatedAt,
+		&a.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAssetNotFound
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
+func (r *pgxRepository) ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*AssetConnectivity, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if staleAfterSeconds <= 0 {
+		staleAfterSeconds = DefaultHeartbeatStaleSeconds
+	}
+	var filterZone *string
+	if zoneID != nil && *zoneID != "" {
+		filterZone = zoneID
+	}
+	query := `SELECT asset_id, serial_number, asset_type, model, status, zone_id, assigned_employee_id, last_ping_at, created_at, updated_at,
+                     (last_ping_at IS NOT NULL AND last_ping_at >= CURRENT_TIMESTAMP - ($2 * INTERVAL '1 second')) AS online
+              FROM facilities.hardware_assets
+              WHERE ($1::uuid IS NULL OR zone_id = $1)
+              ORDER BY created_at DESC, asset_id DESC`
+	rows, err := r.db.Query(ctx, query, filterZone, staleAfterSeconds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*AssetConnectivity
+	for rows.Next() {
+		var a HardwareAsset
+		var online bool
+		if err := rows.Scan(
+			&a.AssetID,
+			&a.SerialNumber,
+			&a.AssetType,
+			&a.Model,
+			&a.Status,
+			&a.ZoneID,
+			&a.AssignedEmployeeID,
+			&a.LastPingAt,
+			&a.CreatedAt,
+			&a.UpdatedAt,
+			&online,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, &AssetConnectivity{
+			Asset:  &a,
+			Online: online,
+		})
+	}
+	return result, rows.Err()
 }
 
 func (r *pgxRepository) CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error) {

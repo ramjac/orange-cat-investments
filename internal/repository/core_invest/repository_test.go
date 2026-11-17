@@ -180,5 +180,31 @@ func TestCoreInvestRepository(t *testing.T) {
 
 		_, err = pgxRepo.UpdateBacktestRunResults(ctx, "123", "completed", "{}")
 		assert.Error(t, err)
+
+		_, err = pgxRepo.UpdateCameraStreamStatus(ctx, "cam-01", "idle")
+		assert.Error(t, err)
+	})
+
+	t.Run("UpdateCameraStreamStatus", func(t *testing.T) {
+		_, err := repo.UpdateCameraStreamStatus(ctx, "unknown-camera-asset", "idle")
+		assert.ErrorIs(t, err, core_invest.ErrCameraStreamNotFound)
+
+		created, err := repo.CreateCameraStream(ctx, &core_invest.CameraStream{
+			CameraAssetID: "asset-cam-heartbeat-01",
+			StreamURL:     "rtsp://cam.local/live",
+			Protocol:      "rtsp",
+			Status:        "active",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "active", created.Status)
+
+		updated, err := repo.UpdateCameraStreamStatus(ctx, "asset-cam-heartbeat-01", "idle")
+		require.NoError(t, err)
+		assert.Equal(t, "idle", updated.Status)
+		assert.Equal(t, "asset-cam-heartbeat-01", updated.CameraAssetID)
+
+		updatedErr, err := repo.UpdateCameraStreamStatus(ctx, "asset-cam-heartbeat-01", "error")
+		require.NoError(t, err)
+		assert.Equal(t, "error", updatedErr.Status)
 	})
 }

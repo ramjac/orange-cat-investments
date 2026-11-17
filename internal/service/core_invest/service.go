@@ -34,6 +34,7 @@ type StreamBacktestService interface {
 	RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error)
 	GetCameraStream(ctx context.Context, id string) (*core_invest.CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*core_invest.CameraStream, error)
+	UpdateCameraStreamStatus(ctx context.Context, cameraAssetID, status string) (*core_invest.CameraStream, error)
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error)

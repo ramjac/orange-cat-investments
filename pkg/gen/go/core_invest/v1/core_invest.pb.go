@@ -319,6 +319,15 @@ type ListCameraStreamsResponse struct {
 	Streams []*CameraStream `json:"streams"`
 }
 
+type UpdateCameraStreamStatusRequest struct {
+	CameraAssetID string `json:"camera_asset_id"`
+	Status        string `json:"status"`
+}
+
+type UpdateCameraStreamStatusResponse struct {
+	Stream *CameraStream `json:"stream"`
+}
+
 type ObservationEvent struct {
 	EventID         string  `json:"event_id"`
 	CameraID        string  `json:"camera_id"`
@@ -606,6 +615,7 @@ type CoreInvestServiceClient interface {
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
+	UpdateCameraStreamStatus(ctx context.Context, in *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)
@@ -651,6 +661,7 @@ type CoreInvestServiceServer interface {
 	RegisterCameraStream(ctx context.Context, in *RegisterCameraStreamRequest) (*RegisterCameraStreamResponse, error)
 	GetCameraStream(ctx context.Context, in *GetCameraStreamRequest) (*GetCameraStreamResponse, error)
 	ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error)
+	UpdateCameraStreamStatus(ctx context.Context, in *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error)
 	IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error)
 	ListObservations(ctx context.Context, in *ListObservationsRequest) (*ListObservationsResponse, error)
 	StartBacktestRun(ctx context.Context, in *StartBacktestRunRequest) (*StartBacktestRunResponse, error)

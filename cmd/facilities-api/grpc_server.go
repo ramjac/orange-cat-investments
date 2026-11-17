@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -150,6 +151,47 @@ func (s *FacilitiesGRPCServer) CreateAsset(ctx context.Context, in *facilitiesv1
 		return nil, err
 	}
 	return &facilitiesv1.CreateAssetResponse{Asset: toProtoAsset(created)}, nil
+}
+
+func (s *FacilitiesGRPCServer) RecordAssetHeartbeat(ctx context.Context, in *facilitiesv1.RecordAssetHeartbeatRequest) (*facilitiesv1.RecordAssetHeartbeatResponse, error) {
+	if in.SerialNumber == "" {
+		return nil, status.Error(codes.InvalidArgument, "serial_number is required")
+	}
+	observedAt := time.Now().UTC()
+	if in.ObservedAt != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, in.ObservedAt)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid observed_at timestamp: %v", err)
+		}
+		observedAt = parsed.UTC()
+	}
+	asset, err := s.svc.RecordAssetHeartbeat(ctx, in.SerialNumber, observedAt)
+	if err != nil {
+		if errors.Is(err, facilities.ErrAssetNotFound) {
+			return nil, status.Errorf(codes.NotFound, "hardware asset with serial_number %q not found", in.SerialNumber)
+		}
+		return nil, err
+	}
+	return &facilitiesv1.RecordAssetHeartbeatResponse{Asset: toProtoAsset(asset)}, nil
+}
+
+func (s *FacilitiesGRPCServer) ListAssetConnectivity(ctx context.Context, in *facilitiesv1.ListAssetConnectivityRequest) (*facilitiesv1.ListAssetConnectivityResponse, error) {
+	var zoneID *string
+	if in.ZoneID != "" {
+		zoneID = &in.ZoneID
+	}
+	items, err := s.svc.ListAssetConnectivity(ctx, zoneID, in.StaleAfterSeconds)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*facilitiesv1.AssetConnectivity, 0, len(items))
+	for _, item := range items {
+		out = append(out, &facilitiesv1.AssetConnectivity{
+			Asset:  toProtoAsset(item.Asset),
+			Online: item.Online,
+		})
+	}
+	return &facilitiesv1.ListAssetConnectivityResponse{Assets: out}, nil
 }
 
 func (s *FacilitiesGRPCServer) CreateMaintenanceLog(ctx context.Context, in *facilitiesv1.CreateMaintenanceLogRequest) (*facilitiesv1.CreateMaintenanceLogResponse, error) {

@@ -32,6 +32,7 @@ service CoreInvestService {
   rpc RegisterCameraStream (RegisterCameraStreamRequest) returns (RegisterCameraStreamResponse);
   rpc GetCameraStream (GetCameraStreamRequest) returns (GetCameraStreamResponse);
   rpc ListCameraStreams (ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
+  rpc UpdateCameraStreamStatus (UpdateCameraStreamStatusRequest) returns (UpdateCameraStreamStatusResponse);
   rpc IngestObservation (IngestObservationRequest) returns (IngestObservationResponse);
   rpc ListObservations (ListObservationsRequest) returns (ListObservationsResponse);
 
@@ -350,6 +351,15 @@ message ListCameraStreamsRequest {
 
 message ListCameraStreamsResponse {
   repeated CameraStream streams = 1;
+}
+
+message UpdateCameraStreamStatusRequest {
+  string camera_asset_id = 1;
+  string status = 2;
+}
+
+message UpdateCameraStreamStatusResponse {
+  CameraStream stream = 1;
 }
 
 message ObservationEvent {

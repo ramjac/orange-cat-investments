@@ -273,3 +273,68 @@ func TestCreateMaintenanceTicket(t *testing.T) {
 		t.Fatalf("expected OTA jobs list, got %v, err=%v", otaJobs, err)
 	}
 }
+
+func TestEdgeDeviceHeartbeatsAndConnectivity(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("IsAssetOnline staleness boundary", func(t *testing.T) {
+		now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+		assert.False(t, facilities.IsAssetOnline(nil, now, 180))
+
+		exactBoundary := now.Add(-180 * time.Second)
+		assert.True(t, facilities.IsAssetOnline(&exactBoundary, now, 180))
+
+		justStale := now.Add(-180*time.Second - time.Nanosecond)
+		assert.False(t, facilities.IsAssetOnline(&justStale, now, 180))
+
+		recent := now.Add(-60 * time.Second)
+		assert.True(t, facilities.IsAssetOnline(&recent, now, 0)) // defaults to 180s
+	})
+
+	t.Run("RecordAssetHeartbeat updates last_ping_at and ListAssetConnectivity derives online", func(t *testing.T) {
+		repo := facilities.NewMockRepository()
+		zoneA := "zone-alpha"
+		zoneB := "zone-beta"
+
+		_, err := repo.CreateAsset(ctx, &facilities.HardwareAsset{
+			SerialNumber: "CAM-ZONE-A",
+			AssetType:    "edge_camera",
+			Model:        "4K-FelineCam-v2",
+			Status:       "active",
+			ZoneID:       &zoneA,
+		})
+		require.NoError(t, err)
+
+		// Unknown serial returns ErrAssetNotFound.
+		_, err = repo.RecordAssetHeartbeat(ctx, "UNKNOWN-SERIAL-999", time.Now().UTC())
+		require.ErrorIs(t, err, facilities.ErrAssetNotFound)
+
+		// Recent heartbeat -> online = true.
+		recentPing := time.Now().UTC().Add(-30 * time.Second)
+		updated, err := repo.RecordAssetHeartbeat(ctx, "CAM-ZONE-A", recentPing)
+		require.NoError(t, err)
+		require.NotNil(t, updated.LastPingAt)
+		assert.True(t, updated.LastPingAt.Equal(recentPing))
+
+		conn, err := repo.ListAssetConnectivity(ctx, &zoneA, 180)
+		require.NoError(t, err)
+		require.Len(t, conn, 1)
+		assert.Equal(t, "CAM-ZONE-A", conn[0].Asset.SerialNumber)
+		assert.True(t, conn[0].Online)
+
+		// Zone filter excludes non-matching zones.
+		connB, err := repo.ListAssetConnectivity(ctx, &zoneB, 180)
+		require.NoError(t, err)
+		assert.Empty(t, connB)
+
+		// Stale heartbeat (181s ago) -> online = false at 180s boundary.
+		stalePing := time.Now().UTC().Add(-181 * time.Second)
+		_, err = repo.RecordAssetHeartbeat(ctx, "CAM-ZONE-A", stalePing)
+		require.NoError(t, err)
+
+		connStale, err := repo.ListAssetConnectivity(ctx, &zoneA, 180)
+		require.NoError(t, err)
+		require.Len(t, connStale, 1)
+		assert.False(t, connStale[0].Online)
+	})
+}

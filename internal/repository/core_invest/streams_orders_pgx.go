@@ -2,6 +2,7 @@ package core_invest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -57,6 +58,26 @@ func (r *pgxRepository) CreateCameraStream(ctx context.Context, stream *CameraSt
 	err := r.db.QueryRow(ctx, query, stream.CameraAssetID, stream.StreamURL, stream.Protocol, stream.Status, stream.IngestSettings).
 		Scan(&s.StreamID, &s.CameraAssetID, &s.StreamURL, &s.Protocol, &s.Status, &s.IngestSettings, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+func (r *pgxRepository) UpdateCameraStreamStatus(ctx context.Context, cameraAssetID string, status string) (*CameraStream, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `UPDATE core_invest.camera_streams
+              SET status = $2, updated_at = CURRENT_TIMESTAMP
+              WHERE camera_asset_id = $1
+              RETURNING stream_id, camera_asset_id, stream_url, protocol, status, ingest_settings, created_at, updated_at`
+	var s CameraStream
+	err := r.db.QueryRow(ctx, query, cameraAssetID, status).
+		Scan(&s.StreamID, &s.CameraAssetID, &s.StreamURL, &s.Protocol, &s.Status, &s.IngestSettings, &s.CreatedAt, &s.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrCameraStreamNotFound
+		}
 		return nil, err
 	}
 	return &s, nil
