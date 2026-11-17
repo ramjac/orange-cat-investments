@@ -68,6 +68,12 @@ func (c *coreInvestServiceClient) UpsertHolding(ctx context.Context, in *UpsertH
 func (c *coreInvestServiceClient) UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error) {
 	return invokeUnary[UpdatePortfolioBalanceRequest, UpdatePortfolioBalanceResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/UpdatePortfolioBalance", in)
 }
+func (c *coreInvestServiceClient) RecordDailySnapshot(ctx context.Context, in *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error) {
+	return invokeUnary[RecordDailySnapshotRequest, RecordDailySnapshotResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/RecordDailySnapshot", in)
+}
+func (c *coreInvestServiceClient) ListPortfolioSnapshots(ctx context.Context, in *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error) {
+	return invokeUnary[ListPortfolioSnapshotsRequest, ListPortfolioSnapshotsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListPortfolioSnapshots", in)
+}
 func (c *coreInvestServiceClient) RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error) {
 	return invokeUnary[RegisterCustomerRequest, RegisterCustomerResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/RegisterCustomer", in)
 }
@@ -115,6 +121,9 @@ func (c *coreInvestServiceClient) GetCameraStream(ctx context.Context, in *GetCa
 }
 func (c *coreInvestServiceClient) ListCameraStreams(ctx context.Context, in *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return invokeUnary[ListCameraStreamsRequest, ListCameraStreamsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListCameraStreams", in)
+}
+func (c *coreInvestServiceClient) UpdateCameraStreamStatus(ctx context.Context, in *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error) {
+	return invokeUnary[UpdateCameraStreamStatusRequest, UpdateCameraStreamStatusResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/UpdateCameraStreamStatus", in)
 }
 func (c *coreInvestServiceClient) IngestObservation(ctx context.Context, in *IngestObservationRequest) (*IngestObservationResponse, error) {
 	return invokeUnary[IngestObservationRequest, IngestObservationResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/IngestObservation", in)
@@ -221,6 +230,12 @@ func (UnimplementedCoreInvestServiceServer) UpsertHolding(context.Context, *Upse
 func (UnimplementedCoreInvestServiceServer) UpdatePortfolioBalance(context.Context, *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePortfolioBalance not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) RecordDailySnapshot(context.Context, *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordDailySnapshot not implemented")
+}
+func (UnimplementedCoreInvestServiceServer) ListPortfolioSnapshots(context.Context, *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPortfolioSnapshots not implemented")
+}
 func (UnimplementedCoreInvestServiceServer) RegisterCustomer(context.Context, *RegisterCustomerRequest) (*RegisterCustomerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterCustomer not implemented")
 }
@@ -268,6 +283,9 @@ func (UnimplementedCoreInvestServiceServer) GetCameraStream(context.Context, *Ge
 }
 func (UnimplementedCoreInvestServiceServer) ListCameraStreams(context.Context, *ListCameraStreamsRequest) (*ListCameraStreamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCameraStreams not implemented")
+}
+func (UnimplementedCoreInvestServiceServer) UpdateCameraStreamStatus(context.Context, *UpdateCameraStreamStatusRequest) (*UpdateCameraStreamStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateCameraStreamStatus not implemented")
 }
 func (UnimplementedCoreInvestServiceServer) IngestObservation(context.Context, *IngestObservationRequest) (*IngestObservationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IngestObservation not implemented")
@@ -368,6 +386,12 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "UpdatePortfolioBalance", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/UpdatePortfolioBalance", CoreInvestServiceServer.UpdatePortfolioBalance)
 		}},
+		{MethodName: "RecordDailySnapshot", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/RecordDailySnapshot", CoreInvestServiceServer.RecordDailySnapshot)
+		}},
+		{MethodName: "ListPortfolioSnapshots", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListPortfolioSnapshots", CoreInvestServiceServer.ListPortfolioSnapshots)
+		}},
 		{MethodName: "RegisterCustomer", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/RegisterCustomer", CoreInvestServiceServer.RegisterCustomer)
 		}},
@@ -415,6 +439,9 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "ListCameraStreams", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListCameraStreams", CoreInvestServiceServer.ListCameraStreams)
+		}},
+		{MethodName: "UpdateCameraStreamStatus", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/UpdateCameraStreamStatus", CoreInvestServiceServer.UpdateCameraStreamStatus)
 		}},
 		{MethodName: "IngestObservation", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/IngestObservation", CoreInvestServiceServer.IngestObservation)

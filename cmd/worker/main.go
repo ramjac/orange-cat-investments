@@ -128,6 +128,15 @@ func main() {
 		logger.Info("EOM statements batch completed successfully")
 		return
 	}
+	if batchMode == "nav-snapshot" {
+		logger.Info("executing one-shot daily NAV snapshot batch run via Customer BLL")
+		if err := worker.RunDailyNAVSnapshotBatch(context.Background(), customerBLL, logger, time.Now().UTC()); err != nil {
+			logger.Error("daily NAV snapshot batch run failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("daily NAV snapshot batch completed successfully")
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

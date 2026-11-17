@@ -3,6 +3,7 @@ package core_invest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
@@ -36,6 +37,16 @@ func (s *coreInvestService) GetCameraStream(ctx context.Context, id string) (*co
 
 func (s *coreInvestService) ListCameraStreams(ctx context.Context, limit, offset int32) ([]*core_invest.CameraStream, error) {
 	return s.repo.ListCameraStreams(ctx, limit, offset)
+}
+
+func (s *coreInvestService) UpdateCameraStreamStatus(ctx context.Context, cameraAssetID, status string) (*core_invest.CameraStream, error) {
+	if cameraAssetID == "" {
+		return nil, errors.New("camera_asset_id is required")
+	}
+	if status != "active" && status != "idle" && status != "error" {
+		return nil, fmt.Errorf("invalid camera stream status %q: must be active, idle, or error", status)
+	}
+	return s.repo.UpdateCameraStreamStatus(ctx, cameraAssetID, status)
 }
 
 func (s *coreInvestService) StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error) {

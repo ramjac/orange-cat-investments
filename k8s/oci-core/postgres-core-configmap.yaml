@@ -386,8 +386,24 @@ data:
         valuation_usd DECIMAL(14, 2) NOT NULL,
         holdings_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
         triggered_by_event_id UUID REFERENCES core_invest.observation_events(event_id),
+        snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation' CHECK (snapshot_type IN ('observation', 'daily_eod')),
+        snapshot_date DATE,
+        cash_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        equity_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        daily_return_pct DECIMAL(8, 4) NOT NULL DEFAULT 0.0000,
         snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    ALTER TABLE core_invest.portfolio_snapshots
+        ADD COLUMN IF NOT EXISTS snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation',
+        ADD COLUMN IF NOT EXISTS snapshot_date DATE,
+        ADD COLUMN IF NOT EXISTS cash_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS equity_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS daily_return_pct DECIMAL(8, 4) NOT NULL DEFAULT 0.0000;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_portfolio_daily_eod_snapshot
+        ON core_invest.portfolio_snapshots (portfolio_id, snapshot_date)
+        WHERE snapshot_type = 'daily_eod';
     
     -- Portfolio Holdings (Granular Equity / Asset Positions per Portfolio)
     CREATE TABLE IF NOT EXISTS core_invest.portfolio_holdings (
@@ -574,3 +590,17 @@ data:
         'Executive Operations',
         'active'
     ) ON CONFLICT (email) DO NOTHING;
+
+    INSERT INTO facilities.hardware_assets (asset_id, serial_number, asset_type, model, status)
+    VALUES ('018e0000-0000-7000-8000-000000000001', 'QR-CAM-ORANGE-01', 'edge_camera', 'FelineCam-Pro-X', 'active')
+    ON CONFLICT (serial_number) DO NOTHING;
+
+    INSERT INTO core_invest.camera_streams (stream_id, camera_asset_id, stream_url, protocol, status, ingest_settings)
+    VALUES (
+        '018f3a9a-c001-7000-8000-000000000001',
+        '018e0000-0000-7000-8000-000000000001',
+        'webrtc://streams.oci.local/live/habitat-cam-01',
+        'webrtc',
+        'active',
+        '{"name": "Perch Alpha 4K WebRTC Live Feed", "zone": "Zone Alpha"}'::jsonb
+    ) ON CONFLICT (stream_id) DO NOTHING;

@@ -25,8 +25,19 @@ type mockCustomerBLL struct {
 	customerbllv1.CustomerBLLServiceClient
 	settleFunc    func(ctx context.Context, in *customerbllv1.SettleACHTransferRequest) (*customerbllv1.SettleACHTransferResponse, error)
 	claimFunc     func(ctx context.Context, in *customerbllv1.ClaimDueRecurringDepositsRequest) (*customerbllv1.ClaimDueRecurringDepositsResponse, error)
-	batchStmtFunc func(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error)
+	batchStmtFunc        func(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error)
 	completeBacktestFunc func(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error)
+	captureSnapshotsFunc func(ctx context.Context, in *customerbllv1.CaptureDailySnapshotsRequest) (*customerbllv1.CaptureDailySnapshotsResponse, error)
+}
+
+func (m *mockCustomerBLL) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.CaptureDailySnapshotsRequest) (*customerbllv1.CaptureDailySnapshotsResponse, error) {
+	if m.captureSnapshotsFunc != nil {
+		return m.captureSnapshotsFunc(ctx, in)
+	}
+	return &customerbllv1.CaptureDailySnapshotsResponse{
+		SnapshotDate:      in.SnapshotDate,
+		SnapshotsRecorded: 0,
+	}, nil
 }
 
 func (m *mockCustomerBLL) CompleteBacktestRun(ctx context.Context, in *customerbllv1.CompleteBacktestRunRequest) (*customerbllv1.CompleteBacktestRunResponse, error) {
@@ -330,6 +341,28 @@ func TestBatchJobs(t *testing.T) {
 		}
 		err := worker.RunEOMStatementBatch(context.Background(), mockBLL, pubSub, logger, time.Now().UTC())
 		require.NoError(t, err)
+	})
+
+	t.Run("RunDailyNAVSnapshotBatch_NilClient", func(t *testing.T) {
+		err := worker.RunDailyNAVSnapshotBatch(context.Background(), nil, logger, time.Now().UTC())
+		assert.Error(t, err)
+	})
+
+	t.Run("RunDailyNAVSnapshotBatch_Success", func(t *testing.T) {
+		var capturedDate string
+		mockBLL := &mockCustomerBLL{
+			captureSnapshotsFunc: func(ctx context.Context, in *customerbllv1.CaptureDailySnapshotsRequest) (*customerbllv1.CaptureDailySnapshotsResponse, error) {
+				capturedDate = in.SnapshotDate
+				return &customerbllv1.CaptureDailySnapshotsResponse{
+					SnapshotDate:      in.SnapshotDate,
+					SnapshotsRecorded: 2,
+				}, nil
+			},
+		}
+		runAt := time.Date(2026, time.November, 17, 21, 0, 0, 0, time.UTC)
+		err := worker.RunDailyNAVSnapshotBatch(context.Background(), mockBLL, logger, runAt)
+		require.NoError(t, err)
+		assert.Equal(t, "2026-11-17", capturedDate)
 	})
 }
 

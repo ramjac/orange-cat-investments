@@ -3,6 +3,8 @@ package core_invest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
 )
@@ -20,6 +22,23 @@ func (s *coreInvestService) GetPortfolio(ctx context.Context, customerOrPortfoli
 
 func (s *coreInvestService) ListPortfolios(ctx context.Context) ([]*core_invest.Portfolio, error) {
 	return s.repo.ListPortfolios(ctx)
+}
+
+func (s *coreInvestService) RecordDailySnapshot(ctx context.Context, snap *core_invest.PortfolioSnapshot) (*core_invest.PortfolioSnapshot, error) {
+	if snap == nil || snap.PortfolioID == "" {
+		return nil, errors.New("portfolio_id is required")
+	}
+	return s.repo.UpsertDailySnapshot(ctx, snap)
+}
+
+func (s *coreInvestService) ListPortfolioSnapshots(ctx context.Context, portfolioID string, from, to *time.Time, snapshotType string) ([]*core_invest.PortfolioSnapshot, error) {
+	if portfolioID == "" {
+		return nil, errors.New("portfolio_id is required")
+	}
+	if snapshotType != "" && snapshotType != "observation" && snapshotType != "daily_eod" {
+		return nil, fmt.Errorf("invalid snapshot_type %q", snapshotType)
+	}
+	return s.repo.ListSnapshots(ctx, portfolioID, from, to, snapshotType)
 }
 
 func (s *coreInvestService) CreatePortfolio(ctx context.Context, p *core_invest.Portfolio) (*core_invest.Portfolio, error) {

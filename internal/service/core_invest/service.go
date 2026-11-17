@@ -34,6 +34,7 @@ type StreamBacktestService interface {
 	RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error)
 	GetCameraStream(ctx context.Context, id string) (*core_invest.CameraStream, error)
 	ListCameraStreams(ctx context.Context, limit, offset int32) ([]*core_invest.CameraStream, error)
+	UpdateCameraStreamStatus(ctx context.Context, cameraAssetID, status string) (*core_invest.CameraStream, error)
 	StartBacktestRun(ctx context.Context, strategyID string, startDate, endDate time.Time, parameters string) (*core_invest.BacktestRun, error)
 	GetBacktestRun(ctx context.Context, id string) (*core_invest.BacktestRun, error)
 	ListBacktestRuns(ctx context.Context, limit, offset int32) ([]*core_invest.BacktestRun, error)
@@ -61,6 +62,8 @@ type PortfolioDeveloperService interface {
 	CreateWebhookSubscription(ctx context.Context, sub *core_invest.WebhookSubscription) (*core_invest.WebhookSubscription, error)
 	ListWebhookSubscriptions(ctx context.Context, customerID string) ([]*core_invest.WebhookSubscription, error)
 	DeleteWebhookSubscription(ctx context.Context, customerID, subscriptionID string) error
+	RecordDailySnapshot(ctx context.Context, snap *core_invest.PortfolioSnapshot) (*core_invest.PortfolioSnapshot, error)
+	ListPortfolioSnapshots(ctx context.Context, portfolioID string, from, to *time.Time, snapshotType string) ([]*core_invest.PortfolioSnapshot, error)
 }
 
 type CustomerLifecycleService interface {

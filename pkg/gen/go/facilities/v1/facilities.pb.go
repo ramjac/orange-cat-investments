@@ -50,6 +50,29 @@ type CreateAssetResponse struct {
 	Asset *HardwareAsset `json:"asset"`
 }
 
+type RecordAssetHeartbeatRequest struct {
+	SerialNumber string `json:"serial_number"`
+	ObservedAt   string `json:"observed_at"`
+}
+
+type RecordAssetHeartbeatResponse struct {
+	Asset *HardwareAsset `json:"asset"`
+}
+
+type AssetConnectivity struct {
+	Asset  *HardwareAsset `json:"asset"`
+	Online bool           `json:"online"`
+}
+
+type ListAssetConnectivityRequest struct {
+	ZoneID            string `json:"zone_id"`
+	StaleAfterSeconds int32  `json:"stale_after_seconds"`
+}
+
+type ListAssetConnectivityResponse struct {
+	Assets []*AssetConnectivity `json:"assets"`
+}
+
 type MaintenanceLog struct {
 	LogID         string `json:"log_id"`
 	TicketID      string `json:"ticket_id"`
@@ -214,6 +237,8 @@ type FacilitiesServiceClient interface {
 	GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error)
 	ListAssets(ctx context.Context, in *ListAssetsRequest) (*ListAssetsResponse, error)
 	CreateAsset(ctx context.Context, in *CreateAssetRequest) (*CreateAssetResponse, error)
+	RecordAssetHeartbeat(ctx context.Context, in *RecordAssetHeartbeatRequest) (*RecordAssetHeartbeatResponse, error)
+	ListAssetConnectivity(ctx context.Context, in *ListAssetConnectivityRequest) (*ListAssetConnectivityResponse, error)
 	CreateMaintenanceLog(ctx context.Context, in *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error)
 	ListMaintenanceLogs(ctx context.Context, in *ListMaintenanceLogsRequest) (*ListMaintenanceLogsResponse, error)
 	SyncOfflineLogs(ctx context.Context, in *SyncOfflineLogsRequest) (*SyncOfflineLogsResponse, error)
@@ -232,6 +257,8 @@ type FacilitiesServiceServer interface {
 	GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error)
 	ListAssets(ctx context.Context, in *ListAssetsRequest) (*ListAssetsResponse, error)
 	CreateAsset(ctx context.Context, in *CreateAssetRequest) (*CreateAssetResponse, error)
+	RecordAssetHeartbeat(ctx context.Context, in *RecordAssetHeartbeatRequest) (*RecordAssetHeartbeatResponse, error)
+	ListAssetConnectivity(ctx context.Context, in *ListAssetConnectivityRequest) (*ListAssetConnectivityResponse, error)
 	CreateMaintenanceLog(ctx context.Context, in *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error)
 	ListMaintenanceLogs(ctx context.Context, in *ListMaintenanceLogsRequest) (*ListMaintenanceLogsResponse, error)
 	SyncOfflineLogs(ctx context.Context, in *SyncOfflineLogsRequest) (*SyncOfflineLogsResponse, error)

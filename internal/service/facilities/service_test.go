@@ -27,6 +27,14 @@ func (m *mockRepo) CreateAsset(ctx context.Context, asset *facilities.HardwareAs
 	return asset, nil
 }
 
+func (m *mockRepo) RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*facilities.HardwareAsset, error) {
+	return &facilities.HardwareAsset{AssetID: "mock-asset-1", SerialNumber: serialNumber, LastPingAt: &observedAt}, nil
+}
+
+func (m *mockRepo) ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*facilities.AssetConnectivity, error) {
+	return []*facilities.AssetConnectivity{}, nil
+}
+
 func (m *mockRepo) CreateMaintenanceTicket(ctx context.Context, ticket *facilities.MaintenanceTicket) (*facilities.MaintenanceTicket, error) {
 	return nil, nil
 }

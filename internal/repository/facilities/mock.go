@@ -3,11 +3,13 @@ package facilities
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
 type mockRepository struct {
-	assets   map[string]*HardwareAsset
+	mu        sync.RWMutex
+	assets    map[string]*HardwareAsset
 	tickets  map[string]*MaintenanceTicket
 	logs     map[string][]*MaintenanceLog
 	releases  map[string][]*FirmwareRelease
@@ -27,9 +29,14 @@ func NewMockRepository() Repository {
 }
 
 func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error) {
-	if asset, ok := m.assets[assetID]; ok {
-		return asset, nil
+	m.mu.RLock()
+	asset, ok := m.assets[assetID]
+	if ok {
+		copyAsset := *asset
+		m.mu.RUnlock()
+		return &copyAsset, nil
 	}
+	m.mu.RUnlock()
 	now := time.Now().UTC()
 	frankID := "emp-human-frank"
 	bobID := "emp-human-bob"
@@ -83,10 +90,13 @@ func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*Har
 }
 
 func (m *mockRepository) ListAssets(ctx context.Context, limit int32, cursorCreatedAt *time.Time, cursorID *string, assetType ...*string) ([]*HardwareAsset, error) {
+	m.mu.RLock()
 	var list []*HardwareAsset
 	for _, a := range m.assets {
-		list = append(list, a)
+		copyAsset := *a
+		list = append(list, &copyAsset)
 	}
+	m.mu.RUnlock()
 	if len(list) == 0 {
 		now := time.Now().UTC()
 		frankID := "emp-human-frank"
@@ -176,8 +186,140 @@ func (m *mockRepository) CreateAsset(ctx context.Context, asset *HardwareAsset) 
 	asset.AssetID = "asset-uuid-created"
 	asset.CreatedAt = now
 	asset.UpdatedAt = now
+	m.mu.Lock()
 	m.assets[asset.AssetID] = asset
+	m.mu.Unlock()
 	return asset, nil
+}
+
+func defaultMockAssets(now time.Time) []*HardwareAsset {
+	frankID := "emp-human-frank"
+	bobID := "emp-human-bob"
+	rickID := "emp-human-rick"
+	return []*HardwareAsset{
+		{
+			AssetID:      "asset-uuid-001",
+			SerialNumber: "CAM-ORANGE-01",
+			AssetType:    "edge_camera",
+			Model:        "4K-FelineCam-v2",
+			Status:       "active",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			AssetID:      "asset-switch-001",
+			SerialNumber: "SW-CORE-01",
+			AssetType:    "networking_switch",
+			Model:        "Cisco-Catalyst-SMB-24P",
+			Status:       "active",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			AssetID:      "asset-gateway-001",
+			SerialNumber: "GW-HABITAT-01",
+			AssetType:    "gateway",
+			Model:        "Edge-Gateway-IoT-V1",
+			Status:       "active",
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		},
+		{
+			AssetID:            "asset-pebble-frank",
+			SerialNumber:       "PEBBLE-FRANK-01",
+			AssetType:          "pebble_watch",
+			Model:              "Pebble Time Steel",
+			Status:             "active",
+			AssignedEmployeeID: &frankID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		},
+		{
+			AssetID:            "asset-pebble-bob",
+			SerialNumber:       "PEBBLE-BOB-01",
+			AssetType:          "pebble_watch",
+			Model:              "Pebble Time",
+			Status:             "active",
+			AssignedEmployeeID: &bobID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		},
+		{
+			AssetID:            "asset-laptop-rick",
+			SerialNumber:       "MBP-RICK-01",
+			AssetType:          "laptop",
+			Model:              "MacBook Pro 16-inch M3 Max",
+			Status:             "active",
+			AssignedEmployeeID: &rickID,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		},
+	}
+}
+
+func (m *mockRepository) RecordAssetHeartbeat(ctx context.Context, serialNumber string, observedAt time.Time) (*HardwareAsset, error) {
+	now := time.Now().UTC()
+	if observedAt.IsZero() {
+		observedAt = now
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var target *HardwareAsset
+	for _, a := range m.assets {
+		if a.SerialNumber == serialNumber {
+			target = a
+			break
+		}
+	}
+	if target == nil {
+		for _, def := range defaultMockAssets(now) {
+			if def.SerialNumber == serialNumber {
+				m.assets[def.AssetID] = def
+				target = def
+				break
+			}
+		}
+	}
+	if target == nil {
+		return nil, ErrAssetNotFound
+	}
+
+	ts := observedAt.UTC()
+	target.LastPingAt = &ts
+	target.UpdatedAt = now
+	copyAsset := *target
+	return &copyAsset, nil
+}
+
+func (m *mockRepository) ListAssetConnectivity(ctx context.Context, zoneID *string, staleAfterSeconds int32) ([]*AssetConnectivity, error) {
+	now := time.Now().UTC()
+	m.mu.RLock()
+	var list []*HardwareAsset
+	for _, a := range m.assets {
+		copyAsset := *a
+		list = append(list, &copyAsset)
+	}
+	m.mu.RUnlock()
+
+	if len(list) == 0 {
+		list = defaultMockAssets(now)
+	}
+
+	var result []*AssetConnectivity
+	for _, a := range list {
+		if zoneID != nil && *zoneID != "" {
+			if a.ZoneID == nil || *a.ZoneID != *zoneID {
+				continue
+			}
+		}
+		result = append(result, &AssetConnectivity{
+			Asset:  a,
+			Online: IsAssetOnline(a.LastPingAt, now, staleAfterSeconds),
+		})
+	}
+	return result, nil
 }
 
 func (m *mockRepository) CreateMaintenanceTicket(ctx context.Context, ticket *MaintenanceTicket) (*MaintenanceTicket, error) {

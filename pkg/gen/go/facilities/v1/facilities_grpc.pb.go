@@ -56,6 +56,12 @@ func (c *facilitiesServiceClient) ListAssets(ctx context.Context, in *ListAssets
 func (c *facilitiesServiceClient) CreateAsset(ctx context.Context, in *CreateAssetRequest) (*CreateAssetResponse, error) {
 	return invokeUnary[CreateAssetRequest, CreateAssetResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/CreateAsset", in)
 }
+func (c *facilitiesServiceClient) RecordAssetHeartbeat(ctx context.Context, in *RecordAssetHeartbeatRequest) (*RecordAssetHeartbeatResponse, error) {
+	return invokeUnary[RecordAssetHeartbeatRequest, RecordAssetHeartbeatResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/RecordAssetHeartbeat", in)
+}
+func (c *facilitiesServiceClient) ListAssetConnectivity(ctx context.Context, in *ListAssetConnectivityRequest) (*ListAssetConnectivityResponse, error) {
+	return invokeUnary[ListAssetConnectivityRequest, ListAssetConnectivityResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/ListAssetConnectivity", in)
+}
 func (c *facilitiesServiceClient) CreateMaintenanceLog(ctx context.Context, in *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error) {
 	return invokeUnary[CreateMaintenanceLogRequest, CreateMaintenanceLogResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/CreateMaintenanceLog", in)
 }
@@ -128,6 +134,12 @@ func (UnimplementedFacilitiesServiceServer) ListAssets(context.Context, *ListAss
 func (UnimplementedFacilitiesServiceServer) CreateAsset(context.Context, *CreateAssetRequest) (*CreateAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateAsset not implemented")
 }
+func (UnimplementedFacilitiesServiceServer) RecordAssetHeartbeat(context.Context, *RecordAssetHeartbeatRequest) (*RecordAssetHeartbeatResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordAssetHeartbeat not implemented")
+}
+func (UnimplementedFacilitiesServiceServer) ListAssetConnectivity(context.Context, *ListAssetConnectivityRequest) (*ListAssetConnectivityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAssetConnectivity not implemented")
+}
 func (UnimplementedFacilitiesServiceServer) CreateMaintenanceLog(context.Context, *CreateMaintenanceLogRequest) (*CreateMaintenanceLogResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateMaintenanceLog not implemented")
 }
@@ -193,6 +205,12 @@ var FacilitiesService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CreateAsset", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/CreateAsset", FacilitiesServiceServer.CreateAsset)
+		}},
+		{MethodName: "RecordAssetHeartbeat", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/RecordAssetHeartbeat", FacilitiesServiceServer.RecordAssetHeartbeat)
+		}},
+		{MethodName: "ListAssetConnectivity", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/ListAssetConnectivity", FacilitiesServiceServer.ListAssetConnectivity)
 		}},
 		{MethodName: "CreateMaintenanceLog", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/CreateMaintenanceLog", FacilitiesServiceServer.CreateMaintenanceLog)

@@ -365,6 +365,24 @@ type GetFelineTargetResponse struct {
 	FelineID string `json:"feline_id"`
 }
 
+type ReportDeviceHeartbeatRequest struct {
+	SerialNumber string `json:"serial_number"`
+	CameraStatus string `json:"camera_status"`
+}
+
+type ReportDeviceHeartbeatResponse struct {
+	Asset  *facilitiesv1.HardwareAsset `json:"asset"`
+	Stream *coreinvestv1.CameraStream  `json:"stream"`
+}
+
+type ListDeviceConnectivityRequest struct {
+	ZoneID string `json:"zone_id"`
+}
+
+type ListDeviceConnectivityResponse struct {
+	Assets []*facilitiesv1.AssetConnectivity `json:"assets"`
+}
+
 type InternalBLLServiceClient interface {
 	// Workforce & Corporate Sagas
 	GetEmployee(ctx context.Context, in *workforcev1.GetEmployeeRequest) (*workforcev1.GetEmployeeResponse, error)
@@ -445,6 +463,8 @@ type InternalBLLServiceClient interface {
 	StreamEnvironmentalTelemetry(ctx context.Context, in *facilitiesv1.StreamTelemetryRequest) (facilitiesv1.FacilitiesService_StreamEnvironmentalTelemetryClient, error)
 	ControlPTZ(ctx context.Context, in *facilitiesv1.ControlPTZRequest) (*facilitiesv1.ControlPTZResponse, error)
 	CalibrateCameraLens(ctx context.Context, in *facilitiesv1.CalibrateCameraLensRequest) (*facilitiesv1.CalibrateCameraLensResponse, error)
+	ReportDeviceHeartbeat(ctx context.Context, in *ReportDeviceHeartbeatRequest) (*ReportDeviceHeartbeatResponse, error)
+	ListDeviceConnectivity(ctx context.Context, in *ListDeviceConnectivityRequest) (*ListDeviceConnectivityResponse, error)
 
 	// Quant & Investment Research (Employee-Facing)
 	ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)
@@ -559,6 +579,8 @@ type InternalBLLServiceServer interface {
 	StreamEnvironmentalTelemetry(*facilitiesv1.StreamTelemetryRequest, facilitiesv1.FacilitiesService_StreamEnvironmentalTelemetryServer) error
 	ControlPTZ(ctx context.Context, in *facilitiesv1.ControlPTZRequest) (*facilitiesv1.ControlPTZResponse, error)
 	CalibrateCameraLens(ctx context.Context, in *facilitiesv1.CalibrateCameraLensRequest) (*facilitiesv1.CalibrateCameraLensResponse, error)
+	ReportDeviceHeartbeat(ctx context.Context, in *ReportDeviceHeartbeatRequest) (*ReportDeviceHeartbeatResponse, error)
+	ListDeviceConnectivity(ctx context.Context, in *ListDeviceConnectivityRequest) (*ListDeviceConnectivityResponse, error)
 
 	// Quant & Investment Research (Employee-Facing)
 	ListStreams(ctx context.Context, in *coreinvestv1.ListCameraStreamsRequest) (*coreinvestv1.ListCameraStreamsResponse, error)

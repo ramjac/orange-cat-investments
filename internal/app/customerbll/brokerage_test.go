@@ -712,8 +712,44 @@ func TestRevokeAPIKey_EmptyRequest(t *testing.T) {
 	assert.Empty(t, mockCI.lastRevokeReq.KeyID)
 }
 
+type mockCoreInvestForHistory struct {
+	coreinvestv1.CoreInvestServiceClient
+	listPortfoliosFn         func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error)
+	recordDailySnapshotFn    func(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error)
+	listPortfolioSnapshotsFn func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error)
+	getPortfolioFn           func(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error)
+}
+
+func (m *mockCoreInvestForHistory) ListPortfolios(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+	if m.listPortfoliosFn != nil {
+		return m.listPortfoliosFn(ctx, in)
+	}
+	return &coreinvestv1.ListPortfoliosResponse{}, nil
+}
+
+func (m *mockCoreInvestForHistory) RecordDailySnapshot(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error) {
+	if m.recordDailySnapshotFn != nil {
+		return m.recordDailySnapshotFn(ctx, in)
+	}
+	return &coreinvestv1.RecordDailySnapshotResponse{}, nil
+}
+
+func (m *mockCoreInvestForHistory) ListPortfolioSnapshots(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+	if m.listPortfolioSnapshotsFn != nil {
+		return m.listPortfolioSnapshotsFn(ctx, in)
+	}
+	return &coreinvestv1.ListPortfolioSnapshotsResponse{}, nil
+}
+
+func (m *mockCoreInvestForHistory) GetPortfolio(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
+	if m.getPortfolioFn != nil {
+		return m.getPortfolioFn(ctx, in)
+	}
+	return &coreinvestv1.GetPortfolioResponse{}, nil
+}
+
 func TestGetPortfolio_DynamicHistoricalPerformance(t *testing.T) {
-	// Setup mock HTTP server to simulate mock-broker / alpaca client
+	// Setup mock HTTP server to simulate mock-broker account and positions
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/accounts/acc-123":
@@ -730,17 +766,6 @@ func TestGetPortfolio_DynamicHistoricalPerformance(t *testing.T) {
 		case "/v1/trading/accounts/acc-123/positions":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`[]`))
-		case "/v1/trading/accounts/acc-123/portfolio/history":
-			w.Header().Set("Content-Type", "application/json")
-			// Return timestamp and equity history
-			_, _ = w.Write([]byte(`{
-				"timestamp": [1767225600, 1769817600],
-				"equity": [4000.5, 5000.0],
-				"profit_loss": [0, 999.5],
-				"profit_loss_pct": [0, 0.2498],
-				"base_value": 4000.5,
-				"timeframe": "1M"
-			}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -753,6 +778,18 @@ func TestGetPortfolio_DynamicHistoricalPerformance(t *testing.T) {
 
 	server := NewServer(Config{
 		BrokerClient: brokerClient,
+	})
+	server.SetCoreInvestClient(&mockCoreInvestForHistory{
+		listPortfolioSnapshotsFn: func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+			assert.Equal(t, "acc-123", in.PortfolioID)
+			assert.Equal(t, "daily_eod", in.SnapshotType)
+			return &coreinvestv1.ListPortfolioSnapshotsResponse{
+				Snapshots: []*coreinvestv1.PortfolioSnapshot{
+					{SnapshotDate: "2026-01-31", ValuationUSD: 5000.0},
+					{SnapshotDate: "2026-01-01", ValuationUSD: 4000.5},
+				},
+			}, nil
+		},
 	})
 
 	resp, err := server.GetPortfolio(context.Background(), &customerbllv1.GetPortfolioRequest{
@@ -824,7 +861,7 @@ func TestGetPortfolio_HistoricalPerformanceFallback(t *testing.T) {
 func TestGetPortfolioHistory(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("nil brokerClient returns empty points list", func(t *testing.T) {
+	t.Run("nil ciClient returns empty points list", func(t *testing.T) {
 		srv := NewServer(Config{})
 		res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
 			CustomerID: "cust-123",
@@ -834,32 +871,28 @@ func TestGetPortfolioHistory(t *testing.T) {
 		assert.Empty(t, res.Points)
 	})
 
-	t.Run("maps broker history points in date order per period", func(t *testing.T) {
-		var requestedPeriod string
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/v1/trading/accounts/acc-123/portfolio/history":
-				requestedPeriod = r.URL.Query().Get("period")
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{
-					"timestamp": [1767225600, 1769904000],
-					"equity": [4000.555, 5000.0],
-					"profit_loss": [0.0, 0.0],
-					"profit_loss_pct": [0.0, 0.0],
-					"base_value": 4000.555,
-					"timeframe": "1D"
-				}`))
-			default:
-				http.NotFound(w, r)
-			}
-		}))
-		defer ts.Close()
-
-		srv := NewServer(Config{
-			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+	t.Run("returns seeded snapshots in date order for each period", func(t *testing.T) {
+		var capturedFromDate string
+		var capturedToDate string
+		srv := NewServer(Config{})
+		srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+			listPortfolioSnapshotsFn: func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+				assert.Equal(t, "acc-123", in.PortfolioID)
+				assert.Equal(t, "daily_eod", in.SnapshotType)
+				capturedFromDate = in.FromDate
+				capturedToDate = in.ToDate
+				return &coreinvestv1.ListPortfolioSnapshotsResponse{
+					Snapshots: []*coreinvestv1.PortfolioSnapshot{
+						{SnapshotDate: "2026-02-01", ValuationUSD: 5000.0},
+						{SnapshotDate: "2026-01-01", ValuationUSD: 4000.555},
+					},
+				}, nil
+			},
 		})
 
 		for _, period := range []string{"1M", "3M", "6M", "1Y", "YTD"} {
+			capturedFromDate = ""
+			capturedToDate = ""
 			res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
 				CustomerID:  "cust-123",
 				PortfolioID: "acc-123",
@@ -867,7 +900,9 @@ func TestGetPortfolioHistory(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.NotNil(t, res)
-			assert.Equal(t, period, requestedPeriod, "period must be passed through to the broker")
+			assert.NotEmpty(t, capturedFromDate, "from_date must be set for period %s", period)
+			assert.NotEmpty(t, capturedToDate, "to_date must be set for period %s", period)
+			assert.LessOrEqual(t, capturedFromDate, capturedToDate)
 			require.Len(t, res.Points, 2)
 			assert.Equal(t, "2026-01-01", res.Points[0].Date)
 			assert.Equal(t, 4000.56, res.Points[0].Valuation)
@@ -876,19 +911,12 @@ func TestGetPortfolioHistory(t *testing.T) {
 		}
 	})
 
-	t.Run("empty broker history returns no synthetic points", func(t *testing.T) {
-		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/v1/trading/accounts/acc-123/portfolio/history" {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"timestamp": [], "equity": []}`))
-				return
-			}
-			http.NotFound(w, r)
-		}))
-		defer ts.Close()
-
-		srv := NewServer(Config{
-			BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+	t.Run("empty snapshot history returns no synthetic points", func(t *testing.T) {
+		srv := NewServer(Config{})
+		srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+			listPortfolioSnapshotsFn: func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+				return &coreinvestv1.ListPortfolioSnapshotsResponse{Snapshots: []*coreinvestv1.PortfolioSnapshot{}}, nil
+			},
 		})
 
 		res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
@@ -900,4 +928,145 @@ func TestGetPortfolioHistory(t *testing.T) {
 		require.NotNil(t, res)
 		assert.Empty(t, res.Points)
 	})
+
+	t.Run("unsupported period returns InvalidArgument", func(t *testing.T) {
+		srv := NewServer(Config{})
+		_, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+			PortfolioID: "acc-123",
+			Period:      "5Y",
+		})
+		require.Error(t, err)
+	})
+}
+
+func TestCaptureDailySnapshots(t *testing.T) {
+	ctx := context.Background()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[
+				{
+					"id": "port-1",
+					"account_number": "OCI-001",
+					"status": "ACTIVE",
+					"cash": "2500.00",
+					"equity": "10250.00",
+					"portfolio_value": "10250.00",
+					"last_equity": "10000.00"
+				}
+			]`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	var recorded []*coreinvestv1.RecordDailySnapshotRequest
+	srv := NewServer(Config{
+		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+	})
+	srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+		listPortfoliosFn: func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+			return &coreinvestv1.ListPortfoliosResponse{
+				Portfolios: []*coreinvestv1.Portfolio{
+					{PortfolioID: "port-1", Status: "active", TotalBalanceUSD: 9900, CashBalanceUSD: 2000},
+					{PortfolioID: "port-2", Status: "active", TotalBalanceUSD: 5000, CashBalanceUSD: 1000},
+					{PortfolioID: "port-closed", Status: "closed", TotalBalanceUSD: 100, CashBalanceUSD: 100},
+				},
+			}, nil
+		},
+		recordDailySnapshotFn: func(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error) {
+			recorded = append(recorded, in)
+			return &coreinvestv1.RecordDailySnapshotResponse{}, nil
+		},
+	})
+
+	res, err := srv.CaptureDailySnapshots(ctx, &customerbllv1.CaptureDailySnapshotsRequest{
+		SnapshotDate: "2026-11-17",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	assert.Equal(t, int32(2), res.SnapshotsRecorded)
+	assert.Equal(t, "2026-11-17", res.SnapshotDate)
+
+	require.Len(t, recorded, 2)
+	assert.Equal(t, "port-1", recorded[0].PortfolioID)
+	assert.Equal(t, 10250.0, recorded[0].ValuationUSD)
+	assert.Equal(t, 2500.0, recorded[0].CashUSD)
+	assert.Equal(t, 7750.0, recorded[0].EquityUSD)
+	assert.Equal(t, 2.5, recorded[0].DailyReturnPct)
+
+	assert.Equal(t, "port-2", recorded[1].PortfolioID)
+	assert.Equal(t, 5000.0, recorded[1].ValuationUSD)
+	assert.Equal(t, 1000.0, recorded[1].CashUSD)
+	assert.Equal(t, 4000.0, recorded[1].EquityUSD)
+}
+
+func TestCustomerBLL_GetPortfolioHistory_ResolvesPlaceholderPortfolioID(t *testing.T) {
+	ctx := context.Background()
+	var queriedPortfolioID string
+
+	srv := NewServer(Config{})
+	srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+		getPortfolioFn: func(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
+			return &coreinvestv1.GetPortfolioResponse{
+				Portfolio: &coreinvestv1.Portfolio{PortfolioID: "canonical-uuid-123"},
+			}, nil
+		},
+		listPortfolioSnapshotsFn: func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+			queriedPortfolioID = in.PortfolioID
+			return &coreinvestv1.ListPortfolioSnapshotsResponse{
+				Snapshots: []*coreinvestv1.PortfolioSnapshot{
+					{SnapshotDate: "2026-11-16", ValuationUSD: 10000, CashUSD: 2000, EquityUSD: 8000},
+				},
+			}, nil
+		},
+	})
+
+	res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+		CustomerID:  "cust-123",
+		PortfolioID: "port-cust-123",
+		Period:      "1M",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "canonical-uuid-123", queriedPortfolioID)
+	require.Len(t, res.Points, 1)
+}
+
+func TestCustomerBLL_CaptureDailySnapshots_TransientBrokerErrorSkipsAndFails(t *testing.T) {
+	ctx := context.Background()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		http.Error(w, "upstream outage", http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	var recorded []*coreinvestv1.RecordDailySnapshotRequest
+	srv := NewServer(Config{
+		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+	})
+	srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+		listPortfoliosFn: func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+			return &coreinvestv1.ListPortfoliosResponse{
+				Portfolios: []*coreinvestv1.Portfolio{
+					{PortfolioID: "port-outage", Status: "active", TotalBalanceUSD: 5000, CashBalanceUSD: 1000},
+				},
+			}, nil
+		},
+		recordDailySnapshotFn: func(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error) {
+			recorded = append(recorded, in)
+			return &coreinvestv1.RecordDailySnapshotResponse{}, nil
+		},
+	})
+
+	_, err := srv.CaptureDailySnapshots(ctx, &customerbllv1.CaptureDailySnapshotsRequest{
+		SnapshotDate: "2026-11-17",
+	})
+	require.Error(t, err)
+	assert.Empty(t, recorded)
 }

@@ -4,15 +4,20 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// historyProvider reads portfolio valuation snapshots from core-invest-api.
+type historyProvider interface {
+	ListPortfolioSnapshots(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error)
+}
 
 func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfolioRequest) (*customerbllv1.GetPortfolioResponse, error) {
 	if in == nil {
@@ -54,7 +59,7 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 			if in.CustomerName != "" {
 				customerName = in.CustomerName
 			}
-			histPoints := getHistoricalValuationPoints(ctx, s.brokerClient, portfolioID, acc.PortfolioValue)
+			histPoints := getHistoricalValuationPoints(ctx, s.ciClient, portfolioID, "1M")
 
 			return &customerbllv1.GetPortfolioResponse{
 				PortfolioID:           portfolioID,
@@ -94,7 +99,7 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 				CashBalanceUSD:        p.CashBalanceUSD,
 				Status:                p.Status,
 				Holdings:              res.Holdings,
-				HistoricalPerformance: []*customerbllv1.ValuationPoint{},
+				HistoricalPerformance: getHistoricalValuationPoints(ctx, s.ciClient, p.PortfolioID, "1M"),
 			}, nil
 		}
 	}
@@ -116,23 +121,74 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 	}, nil
 }
 
-func getHistoricalValuationPoints(ctx context.Context, brokerClient *alpaca.Client, portfolioID string, currentPortfolioValue float64) []*customerbllv1.ValuationPoint {
-	if brokerClient != nil {
-		history, err := brokerClient.GetPortfolioHistory(ctx, portfolioID, "1M")
-		if err == nil && history != nil && len(history.Timestamp) > 0 && len(history.Timestamp) == len(history.Equity) {
-			points := make([]*customerbllv1.ValuationPoint, 0, len(history.Timestamp))
-			for i, ts := range history.Timestamp {
-				dateStr := time.Unix(ts, 0).UTC().Format("2006-01-02")
-				points = append(points, &customerbllv1.ValuationPoint{
-					Date:      dateStr,
-					Valuation: math.Round(history.Equity[i]*100) / 100,
-				})
-			}
-			return points
-		}
+func historyDateRange(period string, now time.Time) (string, string, bool) {
+	if period == "" {
+		period = "3M"
+	}
+	toDate := now.UTC().Format("2006-01-02")
+	switch period {
+	case "1M":
+		return now.UTC().AddDate(0, -1, 0).Format("2006-01-02"), toDate, true
+	case "3M":
+		return now.UTC().AddDate(0, -3, 0).Format("2006-01-02"), toDate, true
+	case "6M":
+		return now.UTC().AddDate(0, -6, 0).Format("2006-01-02"), toDate, true
+	case "1Y":
+		return now.UTC().AddDate(-1, 0, 0).Format("2006-01-02"), toDate, true
+	case "YTD":
+		return time.Date(now.UTC().Year(), time.January, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), toDate, true
+	default:
+		return "", "", false
+	}
+}
+
+func snapshotDateKey(snap *coreinvestv1.PortfolioSnapshot) string {
+	if snap.SnapshotDate != "" {
+		return snap.SnapshotDate
+	}
+	if len(snap.SnapshotAt) >= 10 {
+		return snap.SnapshotAt[:10]
+	}
+	return snap.SnapshotAt
+}
+
+func getHistoricalValuationPoints(ctx context.Context, provider historyProvider, portfolioID string, period string) []*customerbllv1.ValuationPoint {
+	if provider == nil || portfolioID == "" {
+		return []*customerbllv1.ValuationPoint{}
+	}
+	fromDate, toDate, ok := historyDateRange(period, time.Now().UTC())
+	if !ok {
+		return []*customerbllv1.ValuationPoint{}
 	}
 
-	return []*customerbllv1.ValuationPoint{}
+	res, err := provider.ListPortfolioSnapshots(ctx, &coreinvestv1.ListPortfolioSnapshotsRequest{
+		PortfolioID:  portfolioID,
+		FromDate:     fromDate,
+		ToDate:       toDate,
+		SnapshotType: "daily_eod",
+	})
+	if err != nil || res == nil || len(res.Snapshots) == 0 {
+		return []*customerbllv1.ValuationPoint{}
+	}
+
+	snaps := make([]*coreinvestv1.PortfolioSnapshot, 0, len(res.Snapshots))
+	for _, snap := range res.Snapshots {
+		if snap != nil {
+			snaps = append(snaps, snap)
+		}
+	}
+	sort.Slice(snaps, func(i, j int) bool {
+		return snapshotDateKey(snaps[i]) < snapshotDateKey(snaps[j])
+	})
+
+	points := make([]*customerbllv1.ValuationPoint, 0, len(snaps))
+	for _, snap := range snaps {
+		points = append(points, &customerbllv1.ValuationPoint{
+			Date:      snapshotDateKey(snap),
+			Valuation: math.Round(snap.ValuationUSD*100) / 100,
+		})
+	}
+	return points
 }
 
 func bPositions(ctx context.Context, s *Server, portfolioID string) ([]*coreinvestv1.PortfolioHolding, error) {
@@ -301,17 +357,34 @@ func (s *Server) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetP
 	}
 	portfolioID := in.PortfolioID
 	period := in.Period
+	if period == "" {
+		period = "3M"
+	}
+	if _, _, ok := historyDateRange(period, time.Now().UTC()); !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "unsupported period %q; expected one of 1M, 3M, 6M, 1Y, YTD", period)
+	}
 
-	if portfolioID == "" && s.brokerClient != nil && in.CustomerID != "" {
+	isPlaceholder := portfolioID == "" || (in.CustomerID != "" && portfolioID == "port-"+in.CustomerID)
+	if isPlaceholder && s.ciClient != nil && in.CustomerID != "" {
+		res, err := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{
+			CustomerID: in.CustomerID,
+		})
+		if err == nil && res != nil && res.Portfolio != nil && res.Portfolio.PortfolioID != "" {
+			portfolioID = res.Portfolio.PortfolioID
+			isPlaceholder = false
+		}
+	}
+	if isPlaceholder && s.brokerClient != nil && in.CustomerID != "" {
 		accs, err := s.brokerClient.ListAccounts(ctx)
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID)) {
 					portfolioID = a.ID
+					isPlaceholder = false
 					break
 				}
 			}
-			if portfolioID == "" && len(accs) > 0 {
+			if isPlaceholder && len(accs) > 0 {
 				portfolioID = accs[0].ID
 			}
 		}
@@ -320,25 +393,140 @@ func (s *Server) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetP
 		portfolioID = fmt.Sprintf("port-%s", in.CustomerID)
 	}
 
-	if period == "" {
-		period = "3M"
+	points := getHistoricalValuationPoints(ctx, s.ciClient, portfolioID, period)
+	return &customerbllv1.GetPortfolioHistoryResponse{
+		Points: points,
+	}, nil
+}
+
+func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.CaptureDailySnapshotsRequest) (*customerbllv1.CaptureDailySnapshotsResponse, error) {
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest-api not configured")
 	}
 
-	points := make([]*customerbllv1.ValuationPoint, 0)
-	if s.brokerClient != nil && portfolioID != "" {
-		history, err := s.brokerClient.GetPortfolioHistory(ctx, portfolioID, period)
-		if err == nil && history != nil && len(history.Timestamp) > 0 && len(history.Timestamp) == len(history.Equity) {
-			for i, ts := range history.Timestamp {
-				dateStr := time.Unix(ts, 0).UTC().Format("2006-01-02")
-				points = append(points, &customerbllv1.ValuationPoint{
-					Date:      dateStr,
-					Valuation: math.Round(history.Equity[i]*100) / 100,
-				})
+	snapshotDate := time.Now().UTC().Format("2006-01-02")
+	if in != nil && in.SnapshotDate != "" {
+		if _, err := time.Parse("2006-01-02", in.SnapshotDate); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid snapshot_date %q; expected YYYY-MM-DD", in.SnapshotDate)
+		}
+		snapshotDate = in.SnapshotDate
+	}
+
+	portRes, err := s.ciClient.ListPortfolios(ctx, &coreinvestv1.ListPortfoliosRequest{Limit: 1000})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list portfolios: %v", err)
+	}
+
+	type brokerBalances struct {
+		cash       float64
+		equity     float64
+		valuation  float64
+		lastEquity float64
+	}
+	accountMap := make(map[string]brokerBalances)
+	if s.brokerClient != nil {
+		accs, err := s.brokerClient.ListAccounts(ctx)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed to list broker accounts: %v", err)
+		}
+		for _, acc := range accs {
+			val := acc.PortfolioValue
+			if val == 0 {
+				val = acc.Equity
+			}
+			bal := brokerBalances{
+				cash:       acc.Cash,
+				equity:     val - acc.Cash,
+				valuation:  val,
+				lastEquity: acc.LastEquity,
+			}
+			if acc.ID != "" {
+				accountMap[acc.ID] = bal
+			}
+			if acc.AccountNumber != "" {
+				accountMap[acc.AccountNumber] = bal
 			}
 		}
 	}
 
-	return &customerbllv1.GetPortfolioHistoryResponse{
-		Points: points,
+	var recorded int32
+	var failedPortfolios []string
+	if portRes == nil {
+		return &customerbllv1.CaptureDailySnapshotsResponse{
+			SnapshotsRecorded: 0,
+			SnapshotDate:      snapshotDate,
+		}, nil
+	}
+	for _, p := range portRes.Portfolios {
+		if p == nil {
+			continue
+		}
+		if p.Status != "" && !strings.EqualFold(p.Status, "active") {
+			continue
+		}
+
+		valuationUSD := p.TotalBalanceUSD
+		cashUSD := p.CashBalanceUSD
+		equityUSD := p.TotalBalanceUSD - p.CashBalanceUSD
+		var dailyReturnPct float64
+
+		if bal, ok := accountMap[p.PortfolioID]; ok {
+			valuationUSD = bal.valuation
+			cashUSD = bal.cash
+			equityUSD = bal.equity
+			if bal.lastEquity > 0 {
+				dailyReturnPct = math.Round(((valuationUSD-bal.lastEquity)/bal.lastEquity)*10000) / 100
+			}
+		} else if s.brokerClient != nil {
+			acc, err := s.brokerClient.GetAccount(ctx, p.PortfolioID)
+			if err != nil {
+				if !isBrokerNotFoundError(err) {
+					failedPortfolios = append(failedPortfolios, fmt.Sprintf("%s (%v)", p.PortfolioID, err))
+					continue
+				}
+			} else if acc != nil {
+				valuationUSD = acc.PortfolioValue
+				if valuationUSD == 0 {
+					valuationUSD = acc.Equity
+				}
+				cashUSD = acc.Cash
+				equityUSD = valuationUSD - cashUSD
+				if acc.LastEquity > 0 {
+					dailyReturnPct = math.Round(((valuationUSD-acc.LastEquity)/acc.LastEquity)*10000) / 100
+				}
+			}
+		}
+
+		if _, err := s.ciClient.RecordDailySnapshot(ctx, &coreinvestv1.RecordDailySnapshotRequest{
+			PortfolioID:    p.PortfolioID,
+			SnapshotDate:   snapshotDate,
+			ValuationUSD:   math.Round(valuationUSD*100) / 100,
+			CashUSD:        math.Round(cashUSD*100) / 100,
+			EquityUSD:      math.Round(equityUSD*100) / 100,
+			DailyReturnPct: dailyReturnPct,
+		}); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to record daily snapshot for portfolio %s: %v", p.PortfolioID, err)
+		}
+		recorded++
+	}
+
+	if len(failedPortfolios) > 0 {
+		return nil, status.Errorf(codes.Unavailable, "broker lookup failed for portfolios: %s", strings.Join(failedPortfolios, "; "))
+	}
+
+	return &customerbllv1.CaptureDailySnapshotsResponse{
+		SnapshotsRecorded: recorded,
+		SnapshotDate:      snapshotDate,
 	}, nil
+}
+
+func isBrokerNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if status.Code(err) == codes.NotFound {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "(404)") || strings.Contains(msg, "not found")
 }

@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/pkg/envelope"
+	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
+	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -175,4 +177,63 @@ func (s *Server) CalibrateCameraLens(ctx context.Context, in *facilitiesv1.Calib
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
 	return s.facClient.CalibrateCameraLens(ctx, in)
+}
+
+func (s *Server) ReportDeviceHeartbeat(ctx context.Context, in *internalbllv1.ReportDeviceHeartbeatRequest) (*internalbllv1.ReportDeviceHeartbeatResponse, error) {
+	if in == nil || in.SerialNumber == "" {
+		return nil, status.Error(codes.InvalidArgument, "serial_number is required")
+	}
+	if s.facClient == nil {
+		return nil, status.Error(codes.Unavailable, "facilities client not configured")
+	}
+
+	hbResp, err := s.facClient.RecordAssetHeartbeat(ctx, &facilitiesv1.RecordAssetHeartbeatRequest{
+		SerialNumber: in.SerialNumber,
+		ObservedAt:   time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var stream *coreinvestv1.CameraStream
+	if in.CameraStatus != "" {
+		if s.ciClient == nil {
+			return nil, status.Error(codes.Unavailable, "core_invest client not configured")
+		}
+		if hbResp.Asset == nil || hbResp.Asset.AssetID == "" {
+			return nil, status.Error(codes.Internal, "facilities RecordAssetHeartbeat returned empty asset")
+		}
+		streamResp, err := s.ciClient.UpdateCameraStreamStatus(ctx, &coreinvestv1.UpdateCameraStreamStatusRequest{
+			CameraAssetID: hbResp.Asset.AssetID,
+			Status:        in.CameraStatus,
+		})
+		if err != nil {
+			return nil, err
+		}
+		stream = streamResp.Stream
+	}
+
+	return &internalbllv1.ReportDeviceHeartbeatResponse{
+		Asset:  hbResp.Asset,
+		Stream: stream,
+	}, nil
+}
+
+func (s *Server) ListDeviceConnectivity(ctx context.Context, in *internalbllv1.ListDeviceConnectivityRequest) (*internalbllv1.ListDeviceConnectivityResponse, error) {
+	if s.facClient == nil {
+		return nil, status.Error(codes.Unavailable, "facilities client not configured")
+	}
+	var zoneID string
+	if in != nil {
+		zoneID = in.ZoneID
+	}
+	resp, err := s.facClient.ListAssetConnectivity(ctx, &facilitiesv1.ListAssetConnectivityRequest{
+		ZoneID: zoneID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &internalbllv1.ListDeviceConnectivityResponse{
+		Assets: resp.Assets,
+	}, nil
 }

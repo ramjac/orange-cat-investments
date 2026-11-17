@@ -114,6 +114,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **ML Model Registry & Confidence Drift Tracking:** Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Algorithmic Order Types & Pre-Trade Risk Engine:** Smart Order Router supporting Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC, and risk management guardrails.
 * **Automated Investor Statements & Tax Document Generation:** Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
+* **Daily NAV Portfolio Snapshots & BLL History (`7.10`, `7.11`):** Extended `core_invest.portfolio_snapshots` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and partial unique index `uq_portfolio_daily_eod_snapshot` (synchronized across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`), with 90-day dev seed data and `RecordDailySnapshot` / `ListPortfolioSnapshots` gRPC endpoints in `core-invest-api`. `CustomerBLLService` exposes `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) using a consumer-side `historyProvider` interface in `brokerage.go`, driven by `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJob (`0 21 * * 1-5` UTC).
 
 ### 5.2 Customer Experience & Retail Investor Surfaces (`web/customer-portal` & `cmd/customer-bff`)
 * **Customer Web Portal & Dedicated Go BFF:** Vue 3 Single Page Application (`web/customer-portal` on `:5174`) and dedicated Go BFF server (`cmd/customer-bff` on `:8083`) utilizing ZITADEL OIDC authentication, Valkey server-side sessions, and double-submit CSRF protection.
@@ -131,6 +132,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **Electronic Veterinary Health Records (VHR) & Clinical Charting:** Schema `workforce.vhr_records`, Go service layer, and Employee Portal VHR charting tab.
 * **Remote PTZ & Camera Lens Calibration:** Pan-Tilt-Zoom (PTZ) control and lens calibration REST endpoints (`/facilities/cameras/{id}/ptz`, `/facilities/cameras/{id}/calibrate`).
 * **Habitat Environmental Telemetry (HVAC, Lux, Decibels):** Schema `facilities.environmental_telemetry` and telemetry ingestion endpoint (`/facilities/environment/telemetry`).
+* **Edge Device Heartbeats & Connectivity Derivation (`7.8`, `7.9`):** `FacilitiesService` exposes `RecordAssetHeartbeat` (updating `facilities.hardware_assets.last_ping_at`, returning `NOT_FOUND` for unknown serials) and `ListAssetConnectivity` (deriving `online` at read time from the 180s staleness threshold without background sweeps); `CoreInvestService` exposes `UpdateCameraStreamStatus` to update `core_invest.camera_streams.status`. `InternalBLLService` exposes `ReportDeviceHeartbeat` (fanning out to `facilities-api` and `core-invest-api`) and `ListDeviceConnectivity`, `mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL`, and `employee-bff` exposes session-authenticated `GET /facilities/devices/connectivity`.
 
 ### 5.4 Workforce Operations & Automated Sagas (`workforce` & `web/employee-portal`)
 * **Frappe HR Webhook Ingestion:** Webhook endpoint `/api/v1/webhooks/frappe-hr` triggering distributed `OnboardingSaga` and `OffboardingEngine` flows across workforce, Forgejo, and internal services.
@@ -758,10 +760,10 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
    - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
    - [x] **7.7** Lifelike Mock Hardware Behavior
-   - [ ] **7.8** Edge Device Heartbeats — Domain Layer *(partially complete: migrations directory and synchronization protocol created in `scripts/migrations/README.md`; proto and repository heartbeat implementations remain)*
-   - [ ] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-   - [ ] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
-   - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
+   - [x] **7.8** Edge Device Heartbeats — Domain Layer
+   - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
+   - [x] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
+   - [x] **7.11** Daily NAV Snapshot Batch & BLL History Service *(Completed)*
    - [x] **7.12** Portfolio History in Customer BFF & Portal
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
@@ -819,56 +821,29 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.8 Edge Device Heartbeats — Domain Layer
 > [!NOTE]
-> **Status: Partially Complete**
-> Done: `scripts/migrations/` and its protocol documentation (`scripts/migrations/README.md`) enforcing three-copy synchronization and idempotent DDL have been established. Remaining: protobuf definitions (`RecordAssetHeartbeat`, `ListAssetConnectivity`, `UpdateCameraStreamStatus`), pgx + mock repository implementations, and domain API gRPC handlers.
-* **Depends On:** `7.4`.
-* **Current Codebase State:** `facilities.hardware_assets` already has `status` (`active`, `maintenance_required`, `offline`, ...) and `last_ping_at`. `core_invest.camera_streams` already has `status` (`active`, `idle`, `error`). Nothing updates these from device activity.
-* **Design Decision (fixed):** **No new tables or columns.** Heartbeats update `hardware_assets.last_ping_at`. A device counts as offline when `last_ping_at` is older than `3 ×` the heartbeat interval (60s interval → 180s). That is derived at read time, never written by a background sweep. Camera stream `status` is updated only on explicit device reports.
-* **PR Scope:**
-  1. `proto/oci/facilities/v1/facilities.proto`: add `RecordAssetHeartbeat(serial_number, observed_at)` (sets `last_ping_at`, returns `NOT_FOUND` for unknown serials) and `ListAssetConnectivity(zone_id optional, stale_after_seconds)`, which returns assets with a computed `online` boolean. `proto/oci/core_invest/v1/core_invest.proto`: add `UpdateCameraStreamStatus(camera_asset_id, status)`. Regenerate `pkg/gen/go/`.
-  2. Implement in `internal/repository/facilities/` and `internal/repository/core_invest/` (pgx + mock), and wire the handlers in `cmd/facilities-api` and `cmd/core-invest-api`.
-  3. Create `scripts/migrations/` with a `README.md` documenting rule 4 of §7.0. No migration file is needed for this step.
-* **Verification Gate:**
-  * [offline] Repository and handler unit tests cover heartbeat update, unknown serial, and online/offline derivation at the staleness boundary.
+> **Status: Completed**
+> `proto/oci/facilities/v1/facilities.proto` (`RecordAssetHeartbeat`, `ListAssetConnectivity`) and `proto/oci/core_invest/v1/core_invest.proto` (`UpdateCameraStreamStatus`) are defined and reflected in `pkg/gen/go/`. Both `internal/repository/facilities/` and `internal/repository/core_invest/` implement pgx and mock methods, wired through `internal/service/` and the gRPC handlers in `cmd/facilities-api` and `cmd/core-invest-api`. Online/offline status is derived at read time (`last_ping_at >= now - stale_after_seconds`, defaulting to 180s) with `NOT_FOUND` returned for unknown serials or missing camera streams, and `scripts/migrations/README.md` documents the three-copy schema synchronization protocol.
 
 #### 7.9 Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-* **Depends On:** `7.7`, `7.8`.
-* **Current Codebase State:** `internal-bll` exposes `IngestEnvironmentalTelemetry` and `GetFelineTarget` to `mock-hardware`. No heartbeat RPC exists, and the portals cannot see device connectivity.
-* **PR Scope:**
-  1. `proto/oci/internal_bll/v1/internal_bll.proto`: add `ReportDeviceHeartbeat(serial_number, camera_status optional)`, which fans out to `facilities-api` (`RecordAssetHeartbeat`) and, when `camera_status` is set, `core-invest-api` (`UpdateCameraStreamStatus`). Add `ListDeviceConnectivity(zone_id optional)`. Implement both in `internal/app/internalbll/`. The BLL performs the cross-domain fan-out; Domain APIs never call each other.
-  2. `cmd/mock-hardware`: send a heartbeat every 60s for its camera serial, taken from a new `MOCK_CAMERA_SERIAL` env var set in both mock-hardware manifests. Fall back to the existing fixture constant. Add the serial to the seed data in both configmaps if it is not already present.
-  3. `internal/app/employeebff/`: add `GET /facilities/devices/connectivity` (session-authenticated), and document it in `api/openapi.yaml`.
+> [!NOTE]
+> **Status: Completed (offline gates verified; cluster online verified, 3-minute offline scale-down check pending)**
+> `proto/oci/internal_bll/v1/internal_bll.proto` and `pkg/gen/go/internal_bll/v1/` define `ReportDeviceHeartbeat` and `ListDeviceConnectivity`, implemented in `internal/app/internalbll/` with cross-domain fan-out to `facilities-api` and `core-invest-api`. `cmd/mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL=QR-CAM-ORANGE-01` (configured in both `k8s/external-sim/mock-hardware*.yaml` manifests and seeded in both Postgres configmaps), and `internal/app/employeebff/` exposes session-authenticated `GET /facilities/devices/connectivity` documented in `api/openapi.yaml`.
 * **Verification Gate:**
-  * [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
-  * [cluster] In `oci-dev`, the connectivity endpoint shows the mock camera online, and it shows offline about 3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim`.
+  * [x] [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
+  * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows `QR-CAM-ORANGE-01` `online: true` (verified); verifying it flips to `online: false` ~3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim` remains pending.
 
 #### 7.10 Extend `core_invest.portfolio_snapshots` for Daily NAV
-* **Depends On:** `7.8` (for `scripts/migrations/`).
-* **Current Codebase State:** `core_invest.portfolio_snapshots` (`snapshot_id`, `portfolio_id`, `valuation_usd`, `holdings_summary`, `triggered_by_event_id`, `snapshot_at`) exists in `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml`. No Go code reads or writes it.
-* **Design Decision (fixed):** **Extend the existing table** rather than creating a new one. `valuation_usd` is the NAV.
-* **PR Scope:**
-  1. In all three SQL copies, and in `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`, add idempotently: `snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation' CHECK (snapshot_type IN ('observation','daily_eod'))`, `snapshot_date DATE`, `cash_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00`, `equity_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00`, `daily_return_pct DECIMAL(8,4) NOT NULL DEFAULT 0.0000`, plus `CREATE UNIQUE INDEX IF NOT EXISTS uq_portfolio_daily_eod_snapshot ON core_invest.portfolio_snapshots (portfolio_id, snapshot_date) WHERE snapshot_type = 'daily_eod'`.
-  2. Add about 90 days of `daily_eod` seed rows for the dev customer portfolios to `scripts/seed-dev.sql` and the `oci-dev` configmap.
-  3. `internal/repository/core_invest/`: add `UpsertDailySnapshot` (`ON CONFLICT ... DO UPDATE`) and `ListSnapshots(portfolioID, from, to, snapshotType)` (pgx + mock).
-  4. `core_invest.proto`: add `RecordDailySnapshot` and `ListPortfolioSnapshots`. Regenerate stubs and wire the handlers in `cmd/core-invest-api`.
+> [!NOTE]
+> **Status: Completed**
+> `core_invest.portfolio_snapshots` is extended idempotently across `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, `k8s/oci-dev/postgres-dev-configmap.yaml`, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and `uq_portfolio_daily_eod_snapshot`; 90 days of `daily_eod` seed rows are added to `scripts/seed-dev.sql` and the `oci-dev` configmap; `internal/repository/core_invest/` implements `UpsertDailySnapshot` and `ListSnapshots` (pgx + mock); and `core_invest.proto` / `cmd/core-invest-api` expose `RecordDailySnapshot` and `ListPortfolioSnapshots`.
 * **Verification Gate:**
-  * [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
-  * [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database.
+  * [x] [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
+  * [x] [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database (and cleanly against `postgres-core`).
 
 #### 7.11 Daily NAV Snapshot Batch & BLL History Service
 > [!NOTE]
-> **Status: Partially Complete**
-> Done: the `GetPortfolioHistory` RPC exists in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` and the hardcoded `0.78 / 0.85 / 0.92` multiplier fallback in `getHistoricalValuationPoints` is deleted. Remaining: `CaptureDailySnapshots` RPC, the `RunDailyNAVSnapshotBatch` worker batch with `BATCH_MODE=nav-snapshot` dispatch, the `nav-snapshot` CronJobs in both `batch-jobs.yaml` files, snapshot-backed history reads from `core-invest-api` (currently still served by the broker history client), and the consumer-side `historyProvider` interface replacing the `*alpaca.Client` parameter (depends on `7.10` schema work).
-* **Depends On:** `7.10`.
-* **Current Codebase State:** `getHistoricalValuationPoints` in `internal/app/customerbll/brokerage.go` takes a `*alpaca.Client` parameter and falls back to hardcoded `0.78 / 0.85 / 0.92` multipliers. Scheduled jobs exist in two forms: one-shot CronJobs that run `oci-worker` with `BATCH_MODE` (`ach-recurring`, `eom-statements` in `cmd/worker/main.go` and `k8s/*/batch-jobs.yaml`), **and** hourly tickers in `internal/app/worker/schedulers.go` that the long-running worker also starts. Recurring ACH is therefore triggered by both today.
-* **Design Decision (fixed):** The NAV job uses **only** the CronJob + `BATCH_MODE` pattern. Do **not** add a ticker to `schedulers.go`. (Removing the existing duplicate ACH/EOM tickers is out of scope; leave a `TODO` referencing this step.)
-* **PR Scope:**
-  1. `customer_bll.proto`: add `CaptureDailySnapshots()` and `GetPortfolioHistory(portfolio_id, period)` with `period ∈ {1M, 3M, 6M, 1Y, YTD}`. Implement both in `internal/app/customerbll/`. Capture computes cash, equity, and daily return per active portfolio from the broker client and calls `RecordDailySnapshot`. History reads `ListPortfolioSnapshots`.
-  2. In `brokerage.go`, change `getHistoricalValuationPoints` to read from `core-invest-api` snapshots and return an empty series when there are none. **Delete the multiplier fallback.** Change its broker parameter from `*alpaca.Client` to a small consumer-side interface (`historyProvider`) declared in `brokerage.go`. Other files in `customerbll` that import the broker driver are out of scope.
-  3. `internal/app/worker/batch_jobs.go`: add `RunDailyNAVSnapshotBatch`, and dispatch `BATCH_MODE=nav-snapshot` in `cmd/worker/main.go`. Add a `nav-snapshot` CronJob (`0 21 * * 1-5`, UTC) to `k8s/oci-core/batch-jobs.yaml` and `k8s/oci-dev/batch-jobs.yaml`.
-* **Verification Gate:**
-  * [offline] `! grep -n "0\.78\|0\.85\|0\.92\|alpaca" internal/app/customerbll/brokerage.go`
-  * [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
+> **Status: Completed**
+> `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) are implemented in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` with the consumer-side `historyProvider` interface (no `alpaca` import or multiplier fallback in `brokerage.go`). `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJobs (`0 21 * * 1-5` UTC) are wired in `internal/app/worker/batch_jobs.go`, `cmd/worker/main.go`, `k8s/oci-core/batch-jobs.yaml`, and `k8s/oci-dev/batch-jobs.yaml`, with a `TODO(7.11)` in `internal/app/worker/schedulers.go`.
 
 #### 7.12 Portfolio History in Customer BFF & Portal
 > [!NOTE] **Status: Completed**

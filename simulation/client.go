@@ -12,6 +12,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -289,10 +290,10 @@ func (c *Client) LoadTokensFile(filepath string) error {
 	return nil
 }
 
-// SaveTokensFile saves active tokens and session state to a JSON file.
-func (c *Client) SaveTokensFile(filepath string) error {
+// SaveTokensFile saves active tokens and session state to a JSON file atomically.
+func (c *Client) SaveTokensFile(filePath string) error {
 	var existing TokenState
-	if data, err := os.ReadFile(filepath); err == nil {
+	if data, err := os.ReadFile(filePath); err == nil {
 		_ = json.Unmarshal(data, &existing)
 	}
 
@@ -332,18 +333,31 @@ func (c *Client) SaveTokensFile(filepath string) error {
 	custURL, _ := url.Parse(c.custBFFURL)
 	empURL, _ := url.Parse(c.bffURL)
 	for personaID, jar := range c.personaJars {
+		if _, hasCSRF := c.personaCSRF[personaID]; !hasCSRF {
+			delete(state.CSRFTokens, personaID)
+		}
 		if custURL != nil {
+			var foundCust bool
 			for _, cookie := range jar.Cookies(custURL) {
 				if cookie.Name == "__Host-customer-session" || cookie.Name == "customer_session" {
 					state.CustomerSessions[personaID] = cookie.Value
+					foundCust = true
 				}
+			}
+			if !foundCust {
+				delete(state.CustomerSessions, personaID)
 			}
 		}
 		if empURL != nil {
+			var foundEmp bool
 			for _, cookie := range jar.Cookies(empURL) {
 				if cookie.Name == "__Host-employee-session" || cookie.Name == "employee_session" {
 					state.EmployeeSessions[personaID] = cookie.Value
+					foundEmp = true
 				}
+			}
+			if !foundEmp {
+				delete(state.EmployeeSessions, personaID)
 			}
 		}
 	}
@@ -353,7 +367,23 @@ func (c *Client) SaveTokensFile(filepath string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath, data, 0600)
+	dir := filepath.Dir(filePath)
+	tmp, err := os.CreateTemp(dir, ".tokens-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	_ = os.Chmod(tmpName, 0600)
+	return os.Rename(tmpName, filePath)
 }
 
 // SetActivePersona binds the active persona ID on the client.

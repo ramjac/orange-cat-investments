@@ -64,12 +64,18 @@ for i in $(seq 1 "${CONCURRENCY}"); do
     (
         worker_id="$i"
         worker_log="${LOG_DIR}/worker_${worker_id}.log"
+        worker_tokens="${LOG_DIR}/tokens_${worker_id}.json"
+        if [[ -n "${TOKENS_FILE}" && -f "${TOKENS_FILE}" ]]; then
+            cp "${TOKENS_FILE}" "${worker_tokens}"
+        else
+            rm -f "${worker_tokens}"
+        fi
         iter=0
         while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do
             iter=$(( iter + 1 ))
             extra_args=()
-            if [[ -n "${TOKENS_FILE}" && -f "${TOKENS_FILE}" ]]; then
-                extra_args+=("-tokens-file" "${TOKENS_FILE}")
+            if [[ -f "${worker_tokens}" ]]; then
+                extra_args+=("-tokens-file" "${worker_tokens}")
             fi
             if [[ -n "${FORGEJO_URL}" ]]; then
                 extra_args+=("-forgejo-url" "${FORGEJO_URL}")

@@ -12,6 +12,8 @@ service CoreInvestService {
   rpc ListHoldings (ListHoldingsRequest) returns (ListHoldingsResponse);
   rpc UpsertHolding (UpsertHoldingRequest) returns (UpsertHoldingResponse);
   rpc UpdatePortfolioBalance (UpdatePortfolioBalanceRequest) returns (UpdatePortfolioBalanceResponse);
+  rpc RecordDailySnapshot (RecordDailySnapshotRequest) returns (RecordDailySnapshotResponse);
+  rpc ListPortfolioSnapshots (ListPortfolioSnapshotsRequest) returns (ListPortfolioSnapshotsResponse);
 
   rpc RegisterCustomer (RegisterCustomerRequest) returns (RegisterCustomerResponse);
   rpc CloseAndLiquidateAccount (CloseAndLiquidateAccountRequest) returns (CloseAndLiquidateAccountResponse);
@@ -32,6 +34,7 @@ service CoreInvestService {
   rpc RegisterCameraStream (RegisterCameraStreamRequest) returns (RegisterCameraStreamResponse);
   rpc GetCameraStream (GetCameraStreamRequest) returns (GetCameraStreamResponse);
   rpc ListCameraStreams (ListCameraStreamsRequest) returns (ListCameraStreamsResponse);
+  rpc UpdateCameraStreamStatus (UpdateCameraStreamStatusRequest) returns (UpdateCameraStreamStatusResponse);
   rpc IngestObservation (IngestObservationRequest) returns (IngestObservationResponse);
   rpc ListObservations (ListObservationsRequest) returns (ListObservationsResponse);
 
@@ -352,6 +355,15 @@ message ListCameraStreamsResponse {
   repeated CameraStream streams = 1;
 }
 
+message UpdateCameraStreamStatusRequest {
+  string camera_asset_id = 1;
+  string status = 2;
+}
+
+message UpdateCameraStreamStatusResponse {
+  CameraStream stream = 1;
+}
+
 message ObservationEvent {
   string event_id = 1;
   string camera_id = 2;
@@ -613,4 +625,42 @@ message PortfolioValuationEvent {
   double invested_balance_usd = 4;
   double change_pct = 5;
   string timestamp = 6;
+}
+
+message PortfolioSnapshot {
+  string snapshot_id = 1;
+  string portfolio_id = 2;
+  double valuation_usd = 3;
+  string holdings_summary = 4;
+  string snapshot_type = 5;
+  string snapshot_date = 6;
+  double cash_usd = 7;
+  double equity_usd = 8;
+  double daily_return_pct = 9;
+  string snapshot_at = 10;
+}
+
+message RecordDailySnapshotRequest {
+  string portfolio_id = 1;
+  string snapshot_date = 2;
+  double valuation_usd = 3;
+  double cash_usd = 4;
+  double equity_usd = 5;
+  double daily_return_pct = 6;
+  string holdings_summary = 7;
+}
+
+message RecordDailySnapshotResponse {
+  PortfolioSnapshot snapshot = 1;
+}
+
+message ListPortfolioSnapshotsRequest {
+  string portfolio_id = 1;
+  string from_date = 2;
+  string to_date = 3;
+  string snapshot_type = 4;
+}
+
+message ListPortfolioSnapshotsResponse {
+  repeated PortfolioSnapshot snapshots = 1;
 }
