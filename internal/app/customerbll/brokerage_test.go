@@ -994,11 +994,79 @@ func TestCaptureDailySnapshots(t *testing.T) {
 	assert.Equal(t, "port-1", recorded[0].PortfolioID)
 	assert.Equal(t, 10250.0, recorded[0].ValuationUSD)
 	assert.Equal(t, 2500.0, recorded[0].CashUSD)
-	assert.Equal(t, 10250.0, recorded[0].EquityUSD)
+	assert.Equal(t, 7750.0, recorded[0].EquityUSD)
 	assert.Equal(t, 2.5, recorded[0].DailyReturnPct)
 
 	assert.Equal(t, "port-2", recorded[1].PortfolioID)
 	assert.Equal(t, 5000.0, recorded[1].ValuationUSD)
 	assert.Equal(t, 1000.0, recorded[1].CashUSD)
 	assert.Equal(t, 4000.0, recorded[1].EquityUSD)
+}
+
+func TestCustomerBLL_GetPortfolioHistory_ResolvesPlaceholderPortfolioID(t *testing.T) {
+	ctx := context.Background()
+	var queriedPortfolioID string
+
+	srv := NewServer(Config{})
+	srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+		getPortfolioFn: func(ctx context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
+			return &coreinvestv1.GetPortfolioResponse{
+				Portfolio: &coreinvestv1.Portfolio{PortfolioID: "canonical-uuid-123"},
+			}, nil
+		},
+		listPortfolioSnapshotsFn: func(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+			queriedPortfolioID = in.PortfolioID
+			return &coreinvestv1.ListPortfolioSnapshotsResponse{
+				Snapshots: []*coreinvestv1.PortfolioSnapshot{
+					{SnapshotDate: "2026-11-16", ValuationUSD: 10000, CashUSD: 2000, EquityUSD: 8000},
+				},
+			}, nil
+		},
+	})
+
+	res, err := srv.GetPortfolioHistory(ctx, &customerbllv1.GetPortfolioHistoryRequest{
+		CustomerID:  "cust-123",
+		PortfolioID: "port-cust-123",
+		Period:      "1M",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "canonical-uuid-123", queriedPortfolioID)
+	require.Len(t, res.Points, 1)
+}
+
+func TestCustomerBLL_CaptureDailySnapshots_TransientBrokerErrorSkipsAndFails(t *testing.T) {
+	ctx := context.Background()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/accounts" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		http.Error(w, "upstream outage", http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	var recorded []*coreinvestv1.RecordDailySnapshotRequest
+	srv := NewServer(Config{
+		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
+	})
+	srv.SetCoreInvestClient(&mockCoreInvestForHistory{
+		listPortfoliosFn: func(ctx context.Context, in *coreinvestv1.ListPortfoliosRequest) (*coreinvestv1.ListPortfoliosResponse, error) {
+			return &coreinvestv1.ListPortfoliosResponse{
+				Portfolios: []*coreinvestv1.Portfolio{
+					{PortfolioID: "port-outage", Status: "active", TotalBalanceUSD: 5000, CashBalanceUSD: 1000},
+				},
+			}, nil
+		},
+		recordDailySnapshotFn: func(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error) {
+			recorded = append(recorded, in)
+			return &coreinvestv1.RecordDailySnapshotResponse{}, nil
+		},
+	})
+
+	_, err := srv.CaptureDailySnapshots(ctx, &customerbllv1.CaptureDailySnapshotsRequest{
+		SnapshotDate: "2026-11-17",
+	})
+	require.Error(t, err)
+	assert.Empty(t, recorded)
 }

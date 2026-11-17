@@ -67,6 +67,8 @@ for i in $(seq 1 "${CONCURRENCY}"); do
         worker_tokens="${LOG_DIR}/tokens_${worker_id}.json"
         if [[ -n "${TOKENS_FILE}" && -f "${TOKENS_FILE}" ]]; then
             cp "${TOKENS_FILE}" "${worker_tokens}"
+        else
+            rm -f "${worker_tokens}"
         fi
         iter=0
         while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do

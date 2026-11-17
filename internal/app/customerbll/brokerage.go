@@ -364,24 +364,27 @@ func (s *Server) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetP
 		return nil, status.Errorf(codes.InvalidArgument, "unsupported period %q; expected one of 1M, 3M, 6M, 1Y, YTD", period)
 	}
 
-	if portfolioID == "" && s.ciClient != nil && in.CustomerID != "" {
+	isPlaceholder := portfolioID == "" || (in.CustomerID != "" && portfolioID == "port-"+in.CustomerID)
+	if isPlaceholder && s.ciClient != nil && in.CustomerID != "" {
 		res, err := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{
 			CustomerID: in.CustomerID,
 		})
 		if err == nil && res != nil && res.Portfolio != nil && res.Portfolio.PortfolioID != "" {
 			portfolioID = res.Portfolio.PortfolioID
+			isPlaceholder = false
 		}
 	}
-	if portfolioID == "" && s.brokerClient != nil && in.CustomerID != "" {
+	if isPlaceholder && s.brokerClient != nil && in.CustomerID != "" {
 		accs, err := s.brokerClient.ListAccounts(ctx)
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID)) {
 					portfolioID = a.ID
+					isPlaceholder = false
 					break
 				}
 			}
-			if portfolioID == "" && len(accs) > 0 {
+			if isPlaceholder && len(accs) > 0 {
 				portfolioID = accs[0].ID
 			}
 		}
@@ -422,33 +425,32 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 	}
 	accountMap := make(map[string]brokerBalances)
 	if s.brokerClient != nil {
-		if accs, err := s.brokerClient.ListAccounts(ctx); err == nil {
-			for _, acc := range accs {
-				val := acc.PortfolioValue
-				if val == 0 {
-					val = acc.Equity
-				}
-				eq := acc.Equity
-				if eq == 0 && val > 0 {
-					eq = val - acc.Cash
-				}
-				bal := brokerBalances{
-					cash:       acc.Cash,
-					equity:     eq,
-					valuation:  val,
-					lastEquity: acc.LastEquity,
-				}
-				if acc.ID != "" {
-					accountMap[acc.ID] = bal
-				}
-				if acc.AccountNumber != "" {
-					accountMap[acc.AccountNumber] = bal
-				}
+		accs, err := s.brokerClient.ListAccounts(ctx)
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "failed to list broker accounts: %v", err)
+		}
+		for _, acc := range accs {
+			val := acc.PortfolioValue
+			if val == 0 {
+				val = acc.Equity
+			}
+			bal := brokerBalances{
+				cash:       acc.Cash,
+				equity:     val - acc.Cash,
+				valuation:  val,
+				lastEquity: acc.LastEquity,
+			}
+			if acc.ID != "" {
+				accountMap[acc.ID] = bal
+			}
+			if acc.AccountNumber != "" {
+				accountMap[acc.AccountNumber] = bal
 			}
 		}
 	}
 
 	var recorded int32
+	var failedPortfolios []string
 	if portRes == nil {
 		return &customerbllv1.CaptureDailySnapshotsResponse{
 			SnapshotsRecorded: 0,
@@ -476,16 +478,19 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 				dailyReturnPct = math.Round(((valuationUSD-bal.lastEquity)/bal.lastEquity)*10000) / 100
 			}
 		} else if s.brokerClient != nil {
-			if acc, err := s.brokerClient.GetAccount(ctx, p.PortfolioID); err == nil && acc != nil {
+			acc, err := s.brokerClient.GetAccount(ctx, p.PortfolioID)
+			if err != nil {
+				if !isBrokerNotFoundError(err) {
+					failedPortfolios = append(failedPortfolios, fmt.Sprintf("%s (%v)", p.PortfolioID, err))
+					continue
+				}
+			} else if acc != nil {
 				valuationUSD = acc.PortfolioValue
 				if valuationUSD == 0 {
 					valuationUSD = acc.Equity
 				}
 				cashUSD = acc.Cash
-				equityUSD = acc.Equity
-				if equityUSD == 0 && valuationUSD > 0 {
-					equityUSD = valuationUSD - cashUSD
-				}
+				equityUSD = valuationUSD - cashUSD
 				if acc.LastEquity > 0 {
 					dailyReturnPct = math.Round(((valuationUSD-acc.LastEquity)/acc.LastEquity)*10000) / 100
 				}
@@ -505,8 +510,23 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 		recorded++
 	}
 
+	if len(failedPortfolios) > 0 {
+		return nil, status.Errorf(codes.Unavailable, "broker lookup failed for portfolios: %s", strings.Join(failedPortfolios, "; "))
+	}
+
 	return &customerbllv1.CaptureDailySnapshotsResponse{
 		SnapshotsRecorded: recorded,
 		SnapshotDate:      snapshotDate,
 	}, nil
+}
+
+func isBrokerNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if status.Code(err) == codes.NotFound {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "(404)") || strings.Contains(msg, "not found")
 }

@@ -31,11 +31,12 @@ func NewMockRepository() Repository {
 func (m *mockRepository) GetAssetByID(ctx context.Context, assetID string) (*HardwareAsset, error) {
 	m.mu.RLock()
 	asset, ok := m.assets[assetID]
-	m.mu.RUnlock()
 	if ok {
 		copyAsset := *asset
+		m.mu.RUnlock()
 		return &copyAsset, nil
 	}
+	m.mu.RUnlock()
 	now := time.Now().UTC()
 	frankID := "emp-human-frank"
 	bobID := "emp-human-bob"

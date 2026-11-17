@@ -370,7 +370,7 @@ func (c *Client) SaveTokensFile(filePath string) error {
 	dir := filepath.Dir(filePath)
 	tmp, err := os.CreateTemp(dir, ".tokens-*.tmp")
 	if err != nil {
-		return os.WriteFile(filePath, data, 0600)
+		return err
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {

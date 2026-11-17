@@ -116,9 +116,14 @@ func (m *mockRepository) seedPortfoliosAndHoldings(now time.Time) {
 }
 
 func (m *mockRepository) GetCameraStreamByID(ctx context.Context, id string) (*CameraStream, error) {
-	if stream, ok := m.streams[id]; ok {
-		return stream, nil
+	m.mu.RLock()
+	stream, ok := m.streams[id]
+	if ok {
+		copyStream := *stream
+		m.mu.RUnlock()
+		return &copyStream, nil
 	}
+	m.mu.RUnlock()
 	now := time.Now().UTC()
 	return &CameraStream{
 		StreamID:      id,
@@ -132,10 +137,13 @@ func (m *mockRepository) GetCameraStreamByID(ctx context.Context, id string) (*C
 }
 
 func (m *mockRepository) ListCameraStreams(ctx context.Context, limit, offset int32) ([]*CameraStream, error) {
+	m.mu.RLock()
 	var list []*CameraStream
 	for _, s := range m.streams {
-		list = append(list, s)
+		copyStream := *s
+		list = append(list, &copyStream)
 	}
+	m.mu.RUnlock()
 	if len(list) == 0 {
 		now := time.Now().UTC()
 		list = append(list, &CameraStream{
@@ -153,13 +161,15 @@ func (m *mockRepository) ListCameraStreams(ctx context.Context, limit, offset in
 
 func (m *mockRepository) CreateCameraStream(ctx context.Context, stream *CameraStream) (*CameraStream, error) {
 	now := time.Now().UTC()
-	stream.StreamID = "stream-uuid-created"
-	stream.CreatedAt = now
-	stream.UpdatedAt = now
+	stored := *stream
+	stored.StreamID = "stream-uuid-created"
+	stored.CreatedAt = now
+	stored.UpdatedAt = now
 	m.mu.Lock()
-	m.streams[stream.StreamID] = stream
+	m.streams[stored.StreamID] = &stored
+	copyStream := stored
 	m.mu.Unlock()
-	return stream, nil
+	return &copyStream, nil
 }
 
 func (m *mockRepository) UpdateCameraStreamStatus(ctx context.Context, cameraAssetID string, status string) (*CameraStream, error) {
