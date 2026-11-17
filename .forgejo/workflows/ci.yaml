@@ -53,6 +53,7 @@ jobs:
           assert 'facilities.firmware_releases' in sql
           assert 'facilities.maintenance_logs' in sql
           assert 'facilities.device_ota_jobs' in sql
+          assert 'uq_portfolio_daily_eod_snapshot' in sql
           assert 'facilities.feeder_telemetry' not in sql
           assert 'facilities.collar_telemetry' not in sql
           assert 'facilities.perch_telemetry' not in sql

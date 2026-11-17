@@ -207,4 +207,59 @@ func TestCoreInvestRepository(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "error", updatedErr.Status)
 	})
+
+	t.Run("UpsertDailySnapshot idempotency and ListSnapshots date filtering", func(t *testing.T) {
+		portID := "018f3a9a-2222-7000-8000-000000000002"
+		day1 := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+		day2 := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+		day3 := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)
+
+		// First write for day2
+		s1, err := repo.UpsertDailySnapshot(ctx, &core_invest.PortfolioSnapshot{
+			PortfolioID:    portID,
+			ValuationUSD:   120000.00,
+			CashUSD:        30000.00,
+			EquityUSD:      90000.00,
+			DailyReturnPct: 0.50,
+			SnapshotDate:   day2,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "daily_eod", s1.SnapshotType)
+		assert.Equal(t, 120000.00, s1.ValuationUSD)
+
+		// Second write for the same day2 -> updates in place, still 1 row
+		s2, err := repo.UpsertDailySnapshot(ctx, &core_invest.PortfolioSnapshot{
+			PortfolioID:    portID,
+			ValuationUSD:   121500.00,
+			CashUSD:        30000.00,
+			EquityUSD:      91500.00,
+			DailyReturnPct: 1.25,
+			SnapshotDate:   day2.Add(14 * time.Hour),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, s1.SnapshotID, s2.SnapshotID)
+		assert.Equal(t, 121500.00, s2.ValuationUSD)
+
+		_, err = repo.UpsertDailySnapshot(ctx, &core_invest.PortfolioSnapshot{
+			PortfolioID:  portID,
+			ValuationUSD: 119000.00,
+			SnapshotDate: day1,
+		})
+		require.NoError(t, err)
+		_, err = repo.UpsertDailySnapshot(ctx, &core_invest.PortfolioSnapshot{
+			PortfolioID:  portID,
+			ValuationUSD: 122000.00,
+			SnapshotDate: day3,
+		})
+		require.NoError(t, err)
+
+		all, err := repo.ListSnapshots(ctx, portID, nil, nil, "daily_eod")
+		require.NoError(t, err)
+		require.Len(t, all, 3)
+
+		filtered, err := repo.ListSnapshots(ctx, portID, &day2, &day2, "daily_eod")
+		require.NoError(t, err)
+		require.Len(t, filtered, 1)
+		assert.Equal(t, 121500.00, filtered[0].ValuationUSD)
+	})
 }

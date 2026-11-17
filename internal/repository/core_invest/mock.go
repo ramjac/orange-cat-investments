@@ -20,6 +20,7 @@ type mockRepository struct {
 	certificates map[string]*GDPRCertificateRecord
 	holdings     map[string][]*PortfolioHolding
 	taxLots      map[string][]*TaxLotSale
+	snapshots    []*PortfolioSnapshot
 }
 
 func NewMockRepository() Repository {
@@ -36,6 +37,7 @@ func NewMockRepository() Repository {
 		certificates: make(map[string]*GDPRCertificateRecord),
 		holdings:     make(map[string][]*PortfolioHolding),
 		taxLots:      make(map[string][]*TaxLotSale),
+		snapshots:    make([]*PortfolioSnapshot, 0),
 	}
 
 	repo.seedPortfoliosAndHoldings(now)

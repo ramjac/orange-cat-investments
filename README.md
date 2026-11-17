@@ -114,6 +114,7 @@ All core functional domains, distributed sagas, client surfaces, and background 
 * **ML Model Registry & Confidence Drift Tracking:** Model registry schema `core_invest.ml_models` and drift evaluation endpoints (`/core-invest/models`, `/core-invest/models/drift`).
 * **Algorithmic Order Types & Pre-Trade Risk Engine:** Smart Order Router supporting Bracket orders, Trailing Stop-Loss, OCO, IOC, GTC, and risk management guardrails.
 * **Automated Investor Statements & Tax Document Generation:** Statement generator (`/core-invest/statements/generate`) producing Sharpe/Sortino ratios and Form 1099-B tax documentation.
+* **Daily NAV Portfolio Snapshots (`7.10`):** Extended `core_invest.portfolio_snapshots` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and partial unique index `uq_portfolio_daily_eod_snapshot` (synchronized across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`), with 90-day dev seed data and `RecordDailySnapshot` / `ListPortfolioSnapshots` gRPC endpoints in `core-invest-api`.
 
 ### 5.2 Customer Experience & Retail Investor Surfaces (`web/customer-portal` & `cmd/customer-bff`)
 * **Customer Web Portal & Dedicated Go BFF:** Vue 3 Single Page Application (`web/customer-portal` on `:5174`) and dedicated Go BFF server (`cmd/customer-bff` on `:8083`) utilizing ZITADEL OIDC authentication, Valkey server-side sessions, and double-submit CSRF protection.
@@ -761,7 +762,7 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [x] **7.7** Lifelike Mock Hardware Behavior
    - [x] **7.8** Edge Device Heartbeats — Domain Layer
    - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-   - [ ] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
+   - [x] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
    - [ ] **7.11** Daily NAV Snapshot Batch & BLL History Service *(partially complete: `GetPortfolioHistory` exists and multiplier fallback is deleted; `CaptureDailySnapshots`, the NAV CronJob/batch, and snapshot-backed reads remain)*
    - [x] **7.12** Portfolio History in Customer BFF & Portal
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
@@ -832,17 +833,12 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
   * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows the mock camera online, and it shows offline about 3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim`.
 
 #### 7.10 Extend `core_invest.portfolio_snapshots` for Daily NAV
-* **Depends On:** `7.8` (for `scripts/migrations/`).
-* **Current Codebase State:** `core_invest.portfolio_snapshots` (`snapshot_id`, `portfolio_id`, `valuation_usd`, `holdings_summary`, `triggered_by_event_id`, `snapshot_at`) exists in `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml`. No Go code reads or writes it.
-* **Design Decision (fixed):** **Extend the existing table** rather than creating a new one. `valuation_usd` is the NAV.
-* **PR Scope:**
-  1. In all three SQL copies, and in `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`, add idempotently: `snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation' CHECK (snapshot_type IN ('observation','daily_eod'))`, `snapshot_date DATE`, `cash_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00`, `equity_usd DECIMAL(14,2) NOT NULL DEFAULT 0.00`, `daily_return_pct DECIMAL(8,4) NOT NULL DEFAULT 0.0000`, plus `CREATE UNIQUE INDEX IF NOT EXISTS uq_portfolio_daily_eod_snapshot ON core_invest.portfolio_snapshots (portfolio_id, snapshot_date) WHERE snapshot_type = 'daily_eod'`.
-  2. Add about 90 days of `daily_eod` seed rows for the dev customer portfolios to `scripts/seed-dev.sql` and the `oci-dev` configmap.
-  3. `internal/repository/core_invest/`: add `UpsertDailySnapshot` (`ON CONFLICT ... DO UPDATE`) and `ListSnapshots(portfolioID, from, to, snapshotType)` (pgx + mock).
-  4. `core_invest.proto`: add `RecordDailySnapshot` and `ListPortfolioSnapshots`. Regenerate stubs and wire the handlers in `cmd/core-invest-api`.
+> [!NOTE]
+> **Status: Completed (offline gates verified; cluster gate pending)**
+> `core_invest.portfolio_snapshots` is extended idempotently across `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, `k8s/oci-dev/postgres-dev-configmap.yaml`, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and `uq_portfolio_daily_eod_snapshot`; 90 days of `daily_eod` seed rows are added to `scripts/seed-dev.sql` and the `oci-dev` configmap; `internal/repository/core_invest/` implements `UpsertDailySnapshot` and `ListSnapshots` (pgx + mock); and `core_invest.proto` / `cmd/core-invest-api` expose `RecordDailySnapshot` and `ListPortfolioSnapshots`.
 * **Verification Gate:**
-  * [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
-  * [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database.
+  * [x] [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
+  * [ ] [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database.
 
 #### 7.11 Daily NAV Snapshot Batch & BLL History Service
 > [!NOTE]

@@ -144,6 +144,7 @@ jobs:
           assert 'workforce.care_schedules' in sql, 'Missing workforce.care_schedules'
           assert 'core_invest.investment_portfolios' in sql, 'Missing core_invest.investment_portfolios'
           assert 'ops.it_tickets' in sql, 'Missing ops.it_tickets'
+          assert 'uq_portfolio_daily_eod_snapshot' in sql, 'Missing uq_portfolio_daily_eod_snapshot'
           print('SQL syntax and table assertions passed successfully')
           "
 

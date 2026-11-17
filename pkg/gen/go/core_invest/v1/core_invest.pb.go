@@ -591,6 +591,44 @@ type PortfolioValuationEvent struct {
 	Timestamp          string  `json:"timestamp"`
 }
 
+type PortfolioSnapshot struct {
+	SnapshotID      string  `json:"snapshot_id"`
+	PortfolioID     string  `json:"portfolio_id"`
+	ValuationUSD    float64 `json:"valuation_usd"`
+	HoldingsSummary string  `json:"holdings_summary"`
+	SnapshotType    string  `json:"snapshot_type"`
+	SnapshotDate    string  `json:"snapshot_date"`
+	CashUSD         float64 `json:"cash_usd"`
+	EquityUSD       float64 `json:"equity_usd"`
+	DailyReturnPct  float64 `json:"daily_return_pct"`
+	SnapshotAt      string  `json:"snapshot_at"`
+}
+
+type RecordDailySnapshotRequest struct {
+	PortfolioID     string  `json:"portfolio_id"`
+	SnapshotDate    string  `json:"snapshot_date"`
+	ValuationUSD    float64 `json:"valuation_usd"`
+	CashUSD         float64 `json:"cash_usd"`
+	EquityUSD       float64 `json:"equity_usd"`
+	DailyReturnPct  float64 `json:"daily_return_pct"`
+	HoldingsSummary string  `json:"holdings_summary"`
+}
+
+type RecordDailySnapshotResponse struct {
+	Snapshot *PortfolioSnapshot `json:"snapshot"`
+}
+
+type ListPortfolioSnapshotsRequest struct {
+	PortfolioID  string `json:"portfolio_id"`
+	FromDate     string `json:"from_date"`
+	ToDate       string `json:"to_date"`
+	SnapshotType string `json:"snapshot_type"`
+}
+
+type ListPortfolioSnapshotsResponse struct {
+	Snapshots []*PortfolioSnapshot `json:"snapshots"`
+}
+
 type CoreInvestServiceClient interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
 	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
@@ -599,6 +637,8 @@ type CoreInvestServiceClient interface {
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest) (*ListHoldingsResponse, error)
 	UpsertHolding(ctx context.Context, in *UpsertHoldingRequest) (*UpsertHoldingResponse, error)
 	UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error)
+	RecordDailySnapshot(ctx context.Context, in *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error)
+	ListPortfolioSnapshots(ctx context.Context, in *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error)
 	RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error)
 	CloseAndLiquidateAccount(ctx context.Context, in *CloseAndLiquidateAccountRequest) (*CloseAndLiquidateAccountResponse, error)
 	ExecuteGDPRErasure(ctx context.Context, in *ExecuteGDPRErasureRequest) (*ExecuteGDPRErasureResponse, error)
@@ -645,6 +685,8 @@ type CoreInvestServiceServer interface {
 	ListHoldings(ctx context.Context, in *ListHoldingsRequest) (*ListHoldingsResponse, error)
 	UpsertHolding(ctx context.Context, in *UpsertHoldingRequest) (*UpsertHoldingResponse, error)
 	UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error)
+	RecordDailySnapshot(ctx context.Context, in *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error)
+	ListPortfolioSnapshots(ctx context.Context, in *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error)
 	RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error)
 	CloseAndLiquidateAccount(ctx context.Context, in *CloseAndLiquidateAccountRequest) (*CloseAndLiquidateAccountResponse, error)
 	ExecuteGDPRErasure(ctx context.Context, in *ExecuteGDPRErasureRequest) (*ExecuteGDPRErasureResponse, error)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 func (r *pgxRepository) GetPortfolioByCustomerID(ctx context.Context, customerID string) (*Portfolio, error) {
@@ -433,5 +434,92 @@ func (r *pgxRepository) CreateTaxLotSale(ctx context.Context, lot *TaxLotSale) (
 		return nil, fmt.Errorf("failed to create tax lot sale: %w", err)
 	}
 	return &l, nil
+}
+
+func (r *pgxRepository) UpsertDailySnapshot(ctx context.Context, snap *PortfolioSnapshot) (*PortfolioSnapshot, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	if snap == nil || snap.PortfolioID == "" {
+		return nil, fmt.Errorf("portfolio_id is required")
+	}
+	snapDate := snap.SnapshotDate
+	if snapDate.IsZero() {
+		snapDate = time.Now().UTC()
+	}
+	snapDate = time.Date(snapDate.Year(), snapDate.Month(), snapDate.Day(), 0, 0, 0, 0, time.UTC)
+
+	snapAt := snap.SnapshotAt
+	if snapAt.IsZero() {
+		snapAt = time.Now().UTC()
+	}
+
+	query := `INSERT INTO core_invest.portfolio_snapshots (
+                  portfolio_id, valuation_usd, holdings_summary, snapshot_type, snapshot_date,
+                  cash_usd, equity_usd, daily_return_pct, snapshot_at
+              ) VALUES (
+                  $1, $2, COALESCE(NULLIF($3, '')::jsonb, '{}'::jsonb), 'daily_eod', $4::date,
+                  $5, $6, $7, $8
+              )
+              ON CONFLICT (portfolio_id, snapshot_date) WHERE snapshot_type = 'daily_eod'
+              DO UPDATE SET
+                  valuation_usd = EXCLUDED.valuation_usd,
+                  holdings_summary = EXCLUDED.holdings_summary,
+                  cash_usd = EXCLUDED.cash_usd,
+                  equity_usd = EXCLUDED.equity_usd,
+                  daily_return_pct = EXCLUDED.daily_return_pct,
+                  snapshot_at = EXCLUDED.snapshot_at
+              RETURNING snapshot_id, portfolio_id, valuation_usd, holdings_summary::text,
+                        triggered_by_event_id, snapshot_type, snapshot_date,
+                        cash_usd, equity_usd, daily_return_pct, snapshot_at`
+
+	var out PortfolioSnapshot
+	err := r.db.QueryRow(ctx, query,
+		snap.PortfolioID, snap.ValuationUSD, snap.HoldingsSummary, snapDate,
+		snap.CashUSD, snap.EquityUSD, snap.DailyReturnPct, snapAt,
+	).Scan(
+		&out.SnapshotID, &out.PortfolioID, &out.ValuationUSD, &out.HoldingsSummary,
+		&out.TriggeredByEventID, &out.SnapshotType, &out.SnapshotDate,
+		&out.CashUSD, &out.EquityUSD, &out.DailyReturnPct, &out.SnapshotAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upsert daily snapshot: %w", err)
+	}
+	return &out, nil
+}
+
+func (r *pgxRepository) ListSnapshots(ctx context.Context, portfolioID string, from, to *time.Time, snapshotType string) ([]*PortfolioSnapshot, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+	query := `SELECT snapshot_id, portfolio_id, valuation_usd, holdings_summary::text,
+                     triggered_by_event_id, snapshot_type, COALESCE(snapshot_date, snapshot_at::date),
+                     cash_usd, equity_usd, daily_return_pct, snapshot_at
+              FROM core_invest.portfolio_snapshots
+              WHERE portfolio_id = $1
+                AND ($2::date IS NULL OR COALESCE(snapshot_date, snapshot_at::date) >= $2::date)
+                AND ($3::date IS NULL OR COALESCE(snapshot_date, snapshot_at::date) <= $3::date)
+                AND ($4::text = '' OR snapshot_type = $4)
+              ORDER BY COALESCE(snapshot_date, snapshot_at::date) ASC, snapshot_at ASC`
+
+	rows, err := r.db.Query(ctx, query, portfolioID, from, to, snapshotType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*PortfolioSnapshot
+	for rows.Next() {
+		var s PortfolioSnapshot
+		if err := rows.Scan(
+			&s.SnapshotID, &s.PortfolioID, &s.ValuationUSD, &s.HoldingsSummary,
+			&s.TriggeredByEventID, &s.SnapshotType, &s.SnapshotDate,
+			&s.CashUSD, &s.EquityUSD, &s.DailyReturnPct, &s.SnapshotAt,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, &s)
+	}
+	return result, rows.Err()
 }
 

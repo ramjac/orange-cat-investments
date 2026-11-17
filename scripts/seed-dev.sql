@@ -321,3 +321,27 @@ INSERT INTO workforce.executive_reports (
         'system-reporting-worker'
     )
 ON CONFLICT (report_id) DO NOTHING;
+
+--------------------------------------------------------------------------------
+-- Seed 90 Days of Daily EOD NAV Snapshots for Dev Customer Portfolios
+--------------------------------------------------------------------------------
+INSERT INTO core_invest.portfolio_snapshots (
+    portfolio_id, valuation_usd, holdings_summary, snapshot_type, snapshot_date, cash_usd, equity_usd, daily_return_pct, snapshot_at
+)
+SELECT
+    p.portfolio_id,
+    ROUND((p.base_cash + p.base_equity * (1.0 - (d.offset_days * 0.0012) + 0.004 * SIN(d.offset_days::double precision / 4.0)))::numeric, 2) AS valuation_usd,
+    '{}'::jsonb,
+    'daily_eod',
+    (CURRENT_DATE - d.offset_days),
+    p.base_cash,
+    ROUND((p.base_equity * (1.0 - (d.offset_days * 0.0012) + 0.004 * SIN(d.offset_days::double precision / 4.0)))::numeric, 2) AS equity_usd,
+    ROUND((0.12 * COS(d.offset_days::double precision / 4.0))::numeric, 4) AS daily_return_pct,
+    ((CURRENT_DATE - d.offset_days)::timestamp + INTERVAL '21 hours') AT TIME ZONE 'UTC'
+FROM (
+    VALUES
+        ('018f3a9a-2222-7000-8000-000000000002'::uuid, 32100.25::numeric, 96350.50::numeric),
+        ('018f3a9a-2222-7000-8000-000000000003'::uuid, 15400.00::numeric, 69800.00::numeric)
+) AS p(portfolio_id, base_cash, base_equity)
+CROSS JOIN generate_series(0, 89) AS d(offset_days)
+ON CONFLICT (portfolio_id, snapshot_date) WHERE snapshot_type = 'daily_eod' DO NOTHING;

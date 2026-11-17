@@ -68,6 +68,12 @@ func (c *coreInvestServiceClient) UpsertHolding(ctx context.Context, in *UpsertH
 func (c *coreInvestServiceClient) UpdatePortfolioBalance(ctx context.Context, in *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error) {
 	return invokeUnary[UpdatePortfolioBalanceRequest, UpdatePortfolioBalanceResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/UpdatePortfolioBalance", in)
 }
+func (c *coreInvestServiceClient) RecordDailySnapshot(ctx context.Context, in *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error) {
+	return invokeUnary[RecordDailySnapshotRequest, RecordDailySnapshotResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/RecordDailySnapshot", in)
+}
+func (c *coreInvestServiceClient) ListPortfolioSnapshots(ctx context.Context, in *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error) {
+	return invokeUnary[ListPortfolioSnapshotsRequest, ListPortfolioSnapshotsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ListPortfolioSnapshots", in)
+}
 func (c *coreInvestServiceClient) RegisterCustomer(ctx context.Context, in *RegisterCustomerRequest) (*RegisterCustomerResponse, error) {
 	return invokeUnary[RegisterCustomerRequest, RegisterCustomerResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/RegisterCustomer", in)
 }
@@ -224,6 +230,12 @@ func (UnimplementedCoreInvestServiceServer) UpsertHolding(context.Context, *Upse
 func (UnimplementedCoreInvestServiceServer) UpdatePortfolioBalance(context.Context, *UpdatePortfolioBalanceRequest) (*UpdatePortfolioBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePortfolioBalance not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) RecordDailySnapshot(context.Context, *RecordDailySnapshotRequest) (*RecordDailySnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordDailySnapshot not implemented")
+}
+func (UnimplementedCoreInvestServiceServer) ListPortfolioSnapshots(context.Context, *ListPortfolioSnapshotsRequest) (*ListPortfolioSnapshotsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPortfolioSnapshots not implemented")
+}
 func (UnimplementedCoreInvestServiceServer) RegisterCustomer(context.Context, *RegisterCustomerRequest) (*RegisterCustomerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterCustomer not implemented")
 }
@@ -373,6 +385,12 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "UpdatePortfolioBalance", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/UpdatePortfolioBalance", CoreInvestServiceServer.UpdatePortfolioBalance)
+		}},
+		{MethodName: "RecordDailySnapshot", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/RecordDailySnapshot", CoreInvestServiceServer.RecordDailySnapshot)
+		}},
+		{MethodName: "ListPortfolioSnapshots", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ListPortfolioSnapshots", CoreInvestServiceServer.ListPortfolioSnapshots)
 		}},
 		{MethodName: "RegisterCustomer", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/RegisterCustomer", CoreInvestServiceServer.RegisterCustomer)

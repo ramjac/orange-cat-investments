@@ -386,8 +386,24 @@ data:
         valuation_usd DECIMAL(14, 2) NOT NULL,
         holdings_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
         triggered_by_event_id UUID REFERENCES core_invest.observation_events(event_id),
+        snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation' CHECK (snapshot_type IN ('observation', 'daily_eod')),
+        snapshot_date DATE,
+        cash_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        equity_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        daily_return_pct DECIMAL(8, 4) NOT NULL DEFAULT 0.0000,
         snapshot_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    ALTER TABLE core_invest.portfolio_snapshots
+        ADD COLUMN IF NOT EXISTS snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation',
+        ADD COLUMN IF NOT EXISTS snapshot_date DATE,
+        ADD COLUMN IF NOT EXISTS cash_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS equity_usd DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+        ADD COLUMN IF NOT EXISTS daily_return_pct DECIMAL(8, 4) NOT NULL DEFAULT 0.0000;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_portfolio_daily_eod_snapshot
+        ON core_invest.portfolio_snapshots (portfolio_id, snapshot_date)
+        WHERE snapshot_type = 'daily_eod';
     
     -- Portfolio Holdings (Granular Equity / Asset Positions per Portfolio)
     CREATE TABLE IF NOT EXISTS core_invest.portfolio_holdings (

@@ -248,6 +248,94 @@ func (s *CoreInvestGRPCServer) UpdatePortfolioBalance(ctx context.Context, in *c
 	}, nil
 }
 
+func toProtoPortfolioSnapshot(s *core_invest_repo.PortfolioSnapshot) *coreinvestv1.PortfolioSnapshot {
+	if s == nil {
+		return nil
+	}
+	snapDate := ""
+	if !s.SnapshotDate.IsZero() {
+		snapDate = s.SnapshotDate.UTC().Format("2006-01-02")
+	}
+	snapAt := ""
+	if !s.SnapshotAt.IsZero() {
+		snapAt = s.SnapshotAt.UTC().Format(time.RFC3339)
+	}
+	return &coreinvestv1.PortfolioSnapshot{
+		SnapshotID:      s.SnapshotID,
+		PortfolioID:     s.PortfolioID,
+		ValuationUSD:    s.ValuationUSD,
+		HoldingsSummary: s.HoldingsSummary,
+		SnapshotType:    s.SnapshotType,
+		SnapshotDate:    snapDate,
+		CashUSD:         s.CashUSD,
+		EquityUSD:       s.EquityUSD,
+		DailyReturnPct:  s.DailyReturnPct,
+		SnapshotAt:      snapAt,
+	}
+}
+
+func (s *CoreInvestGRPCServer) RecordDailySnapshot(ctx context.Context, in *coreinvestv1.RecordDailySnapshotRequest) (*coreinvestv1.RecordDailySnapshotResponse, error) {
+	if in.PortfolioID == "" {
+		return nil, status.Error(codes.InvalidArgument, "portfolio_id is required")
+	}
+	snapDate := time.Now().UTC()
+	if in.SnapshotDate != "" {
+		parsed, err := time.Parse("2006-01-02", in.SnapshotDate)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid snapshot_date %q: expected YYYY-MM-DD", in.SnapshotDate)
+		}
+		snapDate = parsed.UTC()
+	}
+	created, err := s.svc.RecordDailySnapshot(ctx, &core_invest_repo.PortfolioSnapshot{
+		PortfolioID:     in.PortfolioID,
+		ValuationUSD:    in.ValuationUSD,
+		HoldingsSummary: in.HoldingsSummary,
+		SnapshotType:    "daily_eod",
+		SnapshotDate:    snapDate,
+		CashUSD:         in.CashUSD,
+		EquityUSD:       in.EquityUSD,
+		DailyReturnPct:  in.DailyReturnPct,
+		SnapshotAt:      time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &coreinvestv1.RecordDailySnapshotResponse{Snapshot: toProtoPortfolioSnapshot(created)}, nil
+}
+
+func (s *CoreInvestGRPCServer) ListPortfolioSnapshots(ctx context.Context, in *coreinvestv1.ListPortfolioSnapshotsRequest) (*coreinvestv1.ListPortfolioSnapshotsResponse, error) {
+	if in.PortfolioID == "" {
+		return nil, status.Error(codes.InvalidArgument, "portfolio_id is required")
+	}
+	if in.SnapshotType != "" && in.SnapshotType != "observation" && in.SnapshotType != "daily_eod" {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid snapshot_type %q", in.SnapshotType)
+	}
+	var fromPtr, toPtr *time.Time
+	if in.FromDate != "" {
+		parsed, err := time.Parse("2006-01-02", in.FromDate)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid from_date %q: expected YYYY-MM-DD", in.FromDate)
+		}
+		fromPtr = &parsed
+	}
+	if in.ToDate != "" {
+		parsed, err := time.Parse("2006-01-02", in.ToDate)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid to_date %q: expected YYYY-MM-DD", in.ToDate)
+		}
+		toPtr = &parsed
+	}
+	snaps, err := s.svc.ListPortfolioSnapshots(ctx, in.PortfolioID, fromPtr, toPtr, in.SnapshotType)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*coreinvestv1.PortfolioSnapshot, 0, len(snaps))
+	for _, snap := range snaps {
+		out = append(out, toProtoPortfolioSnapshot(snap))
+	}
+	return &coreinvestv1.ListPortfolioSnapshotsResponse{Snapshots: out}, nil
+}
+
 func (s *CoreInvestGRPCServer) RegisterCustomer(ctx context.Context, in *coreinvestv1.RegisterCustomerRequest) (*coreinvestv1.RegisterCustomerResponse, error) {
 	res, err := s.svc.RegisterCustomer(ctx, core_invest_svc.CustomerRegistrationRequest{
 		FullName:        in.Name,

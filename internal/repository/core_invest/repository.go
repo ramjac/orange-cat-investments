@@ -203,6 +203,22 @@ type PortfolioDeveloperRepository interface {
 	CreateWebhook(ctx context.Context, sub *WebhookSubscription) (*WebhookSubscription, error)
 	ListWebhooks(ctx context.Context, customerID string) ([]*WebhookSubscription, error)
 	DeleteWebhook(ctx context.Context, customerID, subscriptionID string) error
+	UpsertDailySnapshot(ctx context.Context, snap *PortfolioSnapshot) (*PortfolioSnapshot, error)
+	ListSnapshots(ctx context.Context, portfolioID string, from, to *time.Time, snapshotType string) ([]*PortfolioSnapshot, error)
+}
+
+type PortfolioSnapshot struct {
+	SnapshotID         string    `json:"snapshot_id"`
+	PortfolioID        string    `json:"portfolio_id"`
+	ValuationUSD       float64   `json:"valuation_usd"`
+	HoldingsSummary    string    `json:"holdings_summary"`
+	TriggeredByEventID *string   `json:"triggered_by_event_id,omitempty"`
+	SnapshotType       string    `json:"snapshot_type"`
+	SnapshotDate       time.Time `json:"snapshot_date"`
+	CashUSD            float64   `json:"cash_usd"`
+	EquityUSD          float64   `json:"equity_usd"`
+	DailyReturnPct     float64   `json:"daily_return_pct"`
+	SnapshotAt         time.Time `json:"snapshot_at"`
 }
 
 type StatementGDPRRepository interface {

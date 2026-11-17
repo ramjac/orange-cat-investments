@@ -368,3 +368,92 @@ func (m *mockRepository) CreateTaxLotSale(ctx context.Context, lot *TaxLotSale) 
 	m.taxLots[lot.PortfolioID] = append(m.taxLots[lot.PortfolioID], lot)
 	return lot, nil
 }
+
+func (m *mockRepository) UpsertDailySnapshot(ctx context.Context, snap *PortfolioSnapshot) (*PortfolioSnapshot, error) {
+	if snap == nil || snap.PortfolioID == "" {
+		return nil, fmt.Errorf("portfolio_id is required")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now().UTC()
+	snapDate := snap.SnapshotDate
+	if snapDate.IsZero() {
+		snapDate = now
+	}
+	snapDate = time.Date(snapDate.Year(), snapDate.Month(), snapDate.Day(), 0, 0, 0, 0, time.UTC)
+
+	snapAt := snap.SnapshotAt
+	if snapAt.IsZero() {
+		snapAt = now
+	}
+	holdingsSummary := snap.HoldingsSummary
+	if holdingsSummary == "" {
+		holdingsSummary = "{}"
+	}
+
+	for _, existing := range m.snapshots {
+		if existing.PortfolioID == snap.PortfolioID &&
+			existing.SnapshotType == "daily_eod" &&
+			existing.SnapshotDate.Equal(snapDate) {
+			existing.ValuationUSD = snap.ValuationUSD
+			existing.HoldingsSummary = holdingsSummary
+			existing.CashUSD = snap.CashUSD
+			existing.EquityUSD = snap.EquityUSD
+			existing.DailyReturnPct = snap.DailyReturnPct
+			existing.SnapshotAt = snapAt
+			copySnap := *existing
+			return &copySnap, nil
+		}
+	}
+
+	created := &PortfolioSnapshot{
+		SnapshotID:      fmt.Sprintf("snap-%d-%d", len(m.snapshots)+1, now.UnixNano()),
+		PortfolioID:     snap.PortfolioID,
+		ValuationUSD:    snap.ValuationUSD,
+		HoldingsSummary: holdingsSummary,
+		SnapshotType:    "daily_eod",
+		SnapshotDate:    snapDate,
+		CashUSD:         snap.CashUSD,
+		EquityUSD:       snap.EquityUSD,
+		DailyReturnPct:  snap.DailyReturnPct,
+		SnapshotAt:      snapAt,
+	}
+	m.snapshots = append(m.snapshots, created)
+	copySnap := *created
+	return &copySnap, nil
+}
+
+func (m *mockRepository) ListSnapshots(ctx context.Context, portfolioID string, from, to *time.Time, snapshotType string) ([]*PortfolioSnapshot, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var fromDate, toDate time.Time
+	if from != nil {
+		fromDate = time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	}
+	if to != nil {
+		toDate = time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	}
+
+	res := make([]*PortfolioSnapshot, 0)
+	for _, s := range m.snapshots {
+		if s.PortfolioID != portfolioID {
+			continue
+		}
+		if snapshotType != "" && s.SnapshotType != snapshotType {
+			continue
+		}
+		d := time.Date(s.SnapshotDate.Year(), s.SnapshotDate.Month(), s.SnapshotDate.Day(), 0, 0, 0, 0, time.UTC)
+		if from != nil && d.Before(fromDate) {
+			continue
+		}
+		if to != nil && d.After(toDate) {
+			continue
+		}
+		copySnap := *s
+		res = append(res, &copySnap)
+	}
+	return res, nil
+}
