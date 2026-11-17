@@ -46,6 +46,10 @@ case "${PROFILE}" in
 esac
 
 # 1. Verify kubectl availability
+if [[ -z "${KUBECONFIG:-}" && -f "${REPO_ROOT}/thinker-kube.config" ]]; then
+    export KUBECONFIG="${REPO_ROOT}/thinker-kube.config"
+fi
+
 if ! command -v kubectl &>/dev/null; then
     echo "ERROR: 'kubectl' command not found. Please ensure kubectl is installed and in your PATH."
     exit 1
@@ -54,6 +58,12 @@ fi
 echo ""
 echo "Checking container registry pre-flight..."
 REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
+if [[ "${REGISTRY_HOST}" == "localhost" ]] && ! curl -s --connect-timeout 1 "http://localhost:32000/v2/_catalog" &>/dev/null; then
+    CLUSTER_HOST=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null | sed -E 's|https?://([^:/]+).*|\1|')
+    if [[ -n "${CLUSTER_HOST}" ]] && curl -s --connect-timeout 2 "http://${CLUSTER_HOST}:32000/v2/_catalog" &>/dev/null; then
+        REGISTRY_HOST="${CLUSTER_HOST}"
+    fi
+fi
 MANIFEST_DIRS=()
 if [[ "$PROFILE" == "dev" || "$PROFILE" == "staging" ]]; then
     MANIFEST_DIRS=("k8s/oci-dev" "k8s/external-sim")
@@ -222,6 +232,12 @@ if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-
                 kubectl rollout restart deployment/forgejo-runner -n oci-internal 2>/dev/null || true
             fi
         fi
+
+        # Provision simulation access tokens for developer personas (Elise/Marcus)
+        echo ""
+        echo "Provisioning Forgejo simulation tokens for developer personas..."
+        "${REPO_ROOT}/scripts/provision-forgejo-sim-tokens.sh" || \
+            echo "WARNING: Forgejo simulation token provisioning failed; run ./scripts/provision-forgejo-sim-tokens.sh manually before the simulation."
 
         echo ""
         echo "10. Synchronizing repository and seeding CI/CD pipelines in Forgejo..."

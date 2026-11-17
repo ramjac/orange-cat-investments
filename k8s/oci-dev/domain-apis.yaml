@@ -41,6 +41,8 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: GOMEMLIMIT
+              value: "850MiB"
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs
@@ -51,10 +53,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 128Mi
             limits:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1Gi
           readinessProbe:
             tcpSocket:
               port: 50051
@@ -147,6 +149,8 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: GOMEMLIMIT
+              value: "850MiB"
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs
@@ -157,10 +161,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 128Mi
             limits:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1Gi
           readinessProbe:
             tcpSocket:
               port: 50052
@@ -253,6 +257,8 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: GOMEMLIMIT
+              value: "850MiB"
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs
@@ -263,10 +269,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 128Mi
             limits:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1Gi
           readinessProbe:
             tcpSocket:
               port: 50053
@@ -359,6 +365,8 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: GOMEMLIMIT
+              value: "850MiB"
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs
@@ -369,10 +377,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 128Mi
             limits:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 1Gi
           readinessProbe:
             tcpSocket:
               port: 50054

@@ -25,6 +25,7 @@ type Client struct {
 	bankURL         string
 	forgejoURL      string
 	mode            string
+	tokensFile      string
 	transport       http.RoundTripper
 	httpClient      *http.Client
 	jarsMu          sync.RWMutex
@@ -36,8 +37,11 @@ type Client struct {
 
 // TokenState represents serializable tokens and session metadata.
 type TokenState struct {
-	ForgejoTokens map[string]string `json:"forgejo_tokens,omitempty"`
-	CSRFTokens    map[string]string `json:"csrf_tokens,omitempty"`
+	Tokens           map[string]string `json:"tokens,omitempty"`
+	ForgejoTokens    map[string]string `json:"forgejo_tokens,omitempty"`
+	CSRFTokens       map[string]string `json:"csrf_tokens,omitempty"`
+	CustomerSessions map[string]string `json:"customer_sessions,omitempty"`
+	EmployeeSessions map[string]string `json:"employee_sessions,omitempty"`
 }
 
 // NewClient constructs a new simulation client configured to communicate with a running OCI stack.
@@ -63,8 +67,9 @@ func NewClient(cfg *Config) (*Client, error) {
 		brokerURL:   strings.TrimSuffix(cfg.BrokerURL, "/"),
 		bankURL:     strings.TrimSuffix(cfg.BankURL, "/"),
 		forgejoURL:  strings.TrimSuffix(cfg.ForgejoURL, "/"),
-		mode:          cfg.Mode,
-		transport:     transport,
+		mode:        cfg.Mode,
+		tokensFile:  cfg.TokensFile,
+		transport:   transport,
 		personaJars:   make(map[string]http.CookieJar),
 		personaCSRF:   make(map[string]string),
 		personaTokens: make(map[string]string),
@@ -145,13 +150,16 @@ func (c *Client) SetCSRFToken(personaID, token string) {
 // ResetSession clears the persona's cookie jar and CSRF token cache.
 func (c *Client) ResetSession(personaID string) {
 	c.jarsMu.Lock()
-	defer c.jarsMu.Unlock()
 	if c.personaJars != nil {
 		jar, _ := cookiejar.New(nil)
 		c.personaJars[personaID] = jar
 	}
 	if c.personaCSRF != nil {
 		delete(c.personaCSRF, personaID)
+	}
+	c.jarsMu.Unlock()
+	if c.tokensFile != "" {
+		_ = c.SaveTokensFile(c.tokensFile)
 	}
 }
 
@@ -175,6 +183,52 @@ func (c *Client) GetPersonaToken(personaID string) string {
 	return ""
 }
 
+// HasValidCustomerSession checks if the persona already has a cached session cookie and CSRF token.
+func (c *Client) HasValidCustomerSession(personaID string) bool {
+	c.jarsMu.RLock()
+	defer c.jarsMu.RUnlock()
+	if c.personaCSRF == nil || c.personaCSRF[personaID] == "" {
+		return false
+	}
+	custURL, err := url.Parse(c.custBFFURL)
+	if err != nil || custURL == nil || c.personaJars == nil {
+		return false
+	}
+	jar, ok := c.personaJars[personaID]
+	if !ok {
+		return false
+	}
+	for _, cookie := range jar.Cookies(custURL) {
+		if (cookie.Name == "__Host-customer-session" || cookie.Name == "customer_session") && cookie.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasValidEmployeeSession checks if the persona already has a cached session cookie and CSRF token.
+func (c *Client) HasValidEmployeeSession(personaID string) bool {
+	c.jarsMu.RLock()
+	defer c.jarsMu.RUnlock()
+	if c.personaCSRF == nil || c.personaCSRF[personaID] == "" {
+		return false
+	}
+	empURL, err := url.Parse(c.bffURL)
+	if err != nil || empURL == nil || c.personaJars == nil {
+		return false
+	}
+	jar, ok := c.personaJars[personaID]
+	if !ok {
+		return false
+	}
+	for _, cookie := range jar.Cookies(empURL) {
+		if (cookie.Name == "__Host-employee-session" || cookie.Name == "employee_session") && cookie.Value != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadTokensFile loads tokens and session state from a JSON file.
 func (c *Client) LoadTokensFile(filepath string) error {
 	data, err := os.ReadFile(filepath)
@@ -193,27 +247,105 @@ func (c *Client) LoadTokensFile(filepath string) error {
 	for k, v := range state.ForgejoTokens {
 		c.personaTokens[k] = v
 	}
+	for k, v := range state.Tokens {
+		c.personaTokens[k] = v
+	}
 	if c.personaCSRF == nil {
 		c.personaCSRF = make(map[string]string)
 	}
 	for k, v := range state.CSRFTokens {
 		c.personaCSRF[k] = v
 	}
+	// Restore customer sessions into cookie jars
+	custURL, _ := url.Parse(c.custBFFURL)
+	if custURL != nil {
+		for personaID, sessionToken := range state.CustomerSessions {
+			jar, ok := c.personaJars[personaID]
+			if !ok {
+				jar, _ = cookiejar.New(nil)
+				c.personaJars[personaID] = jar
+			}
+			jar.SetCookies(custURL, []*http.Cookie{
+				{Name: "__Host-customer-session", Value: sessionToken, Path: "/"},
+				{Name: "customer_session", Value: sessionToken, Path: "/"},
+			})
+		}
+	}
+	// Restore employee sessions into cookie jars
+	empURL, _ := url.Parse(c.bffURL)
+	if empURL != nil {
+		for personaID, sessionToken := range state.EmployeeSessions {
+			jar, ok := c.personaJars[personaID]
+			if !ok {
+				jar, _ = cookiejar.New(nil)
+				c.personaJars[personaID] = jar
+			}
+			jar.SetCookies(empURL, []*http.Cookie{
+				{Name: "__Host-employee-session", Value: sessionToken, Path: "/"},
+				{Name: "employee_session", Value: sessionToken, Path: "/"},
+			})
+		}
+	}
 	return nil
 }
 
 // SaveTokensFile saves active tokens and session state to a JSON file.
 func (c *Client) SaveTokensFile(filepath string) error {
+	var existing TokenState
+	if data, err := os.ReadFile(filepath); err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+
 	c.jarsMu.RLock()
 	state := TokenState{
-		ForgejoTokens: make(map[string]string),
-		CSRFTokens:    make(map[string]string),
+		ForgejoTokens:    make(map[string]string),
+		CSRFTokens:       make(map[string]string),
+		CustomerSessions: make(map[string]string),
+		EmployeeSessions: make(map[string]string),
 	}
-	for k, v := range c.personaTokens {
+	for k, v := range existing.ForgejoTokens {
 		state.ForgejoTokens[k] = v
 	}
-	for k, v := range c.personaCSRF {
+	for k, v := range existing.Tokens {
+		state.ForgejoTokens[k] = v
+	}
+	for k, v := range existing.CSRFTokens {
 		state.CSRFTokens[k] = v
+	}
+	for k, v := range existing.CustomerSessions {
+		state.CustomerSessions[k] = v
+	}
+	for k, v := range existing.EmployeeSessions {
+		state.EmployeeSessions[k] = v
+	}
+
+	for k, v := range c.personaTokens {
+		if v != "" {
+			state.ForgejoTokens[k] = v
+		}
+	}
+	for k, v := range c.personaCSRF {
+		if v != "" {
+			state.CSRFTokens[k] = v
+		}
+	}
+	custURL, _ := url.Parse(c.custBFFURL)
+	empURL, _ := url.Parse(c.bffURL)
+	for personaID, jar := range c.personaJars {
+		if custURL != nil {
+			for _, cookie := range jar.Cookies(custURL) {
+				if cookie.Name == "__Host-customer-session" || cookie.Name == "customer_session" {
+					state.CustomerSessions[personaID] = cookie.Value
+				}
+			}
+		}
+		if empURL != nil {
+			for _, cookie := range jar.Cookies(empURL) {
+				if cookie.Name == "__Host-employee-session" || cookie.Name == "employee_session" {
+					state.EmployeeSessions[personaID] = cookie.Value
+				}
+			}
+		}
 	}
 	c.jarsMu.RUnlock()
 

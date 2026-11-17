@@ -95,8 +95,7 @@ data:
       compaction:
         compaction_window: 1h
         max_block_bytes: 100_000_000
-        block_retention: 168h
-        compacted_block_retention: 1h
+        block_retention: 24h
     storage:
       trace:
         backend: local

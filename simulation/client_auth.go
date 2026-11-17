@@ -22,6 +22,10 @@ func (c *Client) AuthenticatePersona(ctx context.Context, p *Persona) error {
 }
 
 func (c *Client) authenticateCustomer(ctx context.Context, p *Persona) error {
+	if c.HasValidCustomerSession(p.ID) {
+		return nil
+	}
+
 	email := p.AuthEmail()
 	loginPayload := map[string]string{
 		"customer_id": p.ID,
@@ -46,10 +50,17 @@ func (c *Client) authenticateCustomer(ctx context.Context, p *Persona) error {
 	if err := json.Unmarshal(respBytes, &res); err == nil && res.CSRFToken != "" {
 		c.SetCSRFToken(p.ID, res.CSRFToken)
 	}
+	if c.tokensFile != "" {
+		_ = c.SaveTokensFile(c.tokensFile)
+	}
 	return nil
 }
 
 func (c *Client) authenticateEmployee(ctx context.Context, p *Persona) error {
+	if c.HasValidEmployeeSession(p.ID) {
+		return nil
+	}
+
 	email := p.AuthEmail()
 	role := p.AuthRole()
 
@@ -71,6 +82,9 @@ func (c *Client) authenticateEmployee(ctx context.Context, p *Persona) error {
 		if err := json.Unmarshal(respBytes, &res); err == nil && res.CSRFToken != "" {
 			c.SetCSRFToken(p.ID, res.CSRFToken)
 		}
+		if c.tokensFile != "" {
+			_ = c.SaveTokensFile(c.tokensFile)
+		}
 		return nil
 	}
 
@@ -89,6 +103,9 @@ func (c *Client) authenticateEmployee(ctx context.Context, p *Persona) error {
 			}
 			if err := json.Unmarshal(fBytes, &res); err == nil && res.CSRFToken != "" {
 				c.SetCSRFToken(p.ID, res.CSRFToken)
+			}
+			if c.tokensFile != "" {
+				_ = c.SaveTokensFile(c.tokensFile)
 			}
 			return nil
 		}
