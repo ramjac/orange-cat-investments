@@ -737,7 +737,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & PR-Scoped Technical Roadmap
 
-The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`), followed by an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
+The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`, `7.21`–`7.24`), alongside an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
 
 ### 7.0 Rules That Apply to Every Step
 
@@ -774,6 +774,11 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [x] **7.19** Sandboxed Chaos Suite for `oci-dev`
 5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
    - [ ] **7.20** Zero-Trust Workload Identity & Dynamic Secret Management *(intentionally undecided, pending ADR)*
+6. **Phase 6 — Operational Hardening & Staging Hygiene (`7.21`–`7.24`):** issues uncovered during the 1-hour sustained cluster load test — Prometheus TSDB memory sizing, configurable staging rate limits, live Nextcloud COTS wiring, and `oci-dev` database retention.
+   - [ ] **7.21** Prometheus Resource Sizing & TSDB Retention Hardening
+   - [ ] **7.22** Configurable BFF Rate-Limit Policies for Staging & Load Testing
+   - [ ] **7.23** Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
+   - [ ] **7.24** Automated `oci-dev` Database Retention & Scheduled Seed Reset
 
 ---
 
@@ -956,3 +961,47 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 * **Exploration Areas:**
   * **Dynamic secrets:** replace static Kubernetes `Secret` manifests with short-lived credentials (candidates: HashiCorp Vault, OpenBao, External Secrets Operator, CSI Secret Store).
   * **Workload identity:** cryptographically attested workload identity (candidates: SPIFFE/SPIRE, cert-manager `csi-driver-spiffe`, OpenZiti) alongside or replacing the current `pkg/mtls` dynamic CA reloading.
+
+---
+
+### Phase 6: Operational Hardening & Staging Hygiene
+
+#### 7.21 Prometheus Resource Sizing & TSDB Retention Hardening
+* **Depends On:** `7.13`.
+* **Current Codebase State:** `k8s/monitoring/prometheus.yaml` deploys `prom/prometheus:v2.51.0` with `limits.memory: 512Mi` (`requests.memory: 256Mi`) and no `--storage.tsdb.retention.time` or `--storage.tsdb.retention.size` flags. After multi-day cluster runs (1,500+ WAL segments), Prometheus `OOMKilled` (Exit Code 137) repeatedly during WAL replay in `monitoring`.
+* **PR Scope:**
+  1. In `k8s/monitoring/prometheus.yaml`, raise Prometheus `requests.memory` to `512Mi` and `limits.memory` to `2Gi` (or `1.5Gi`), and add explicit `--storage.tsdb.retention.time=7d` and `--storage.tsdb.retention.size=4GB` (matching the PVC allocation) so WAL replay stays bounded.
+  2. Document Prometheus WAL recovery and sizing in `docs/runbooks/cluster-load-testing.md`.
+* **Verification Gate:**
+  * [offline] `kubectl apply --dry-run=client -f k8s/monitoring/prometheus.yaml` succeeds and retention flags are present.
+  * [cluster] `prometheus` in `monitoring` enters `1/1 Running` without OOMKill across restarts.
+
+#### 7.22 Configurable BFF Rate-Limit Policies for Staging & Load Testing
+* **Depends On:** None.
+* **Current Codebase State:** `internal/app/customerbff/router.go` wires `cachevalkey.RateLimitMiddleware` for `loginLimiter`, `orderLimiter`, and `depositLimiter` with fixed per-IP limits (e.g., 5 auth attempts per window). During multi-worker external load testing from a single workstation IP (`scripts/run-load-test.sh`), workers hit `HTTP 429` unless `ratelimit:*` keys are periodically deleted from Valkey via `kubectl exec`.
+* **PR Scope:**
+  1. Add environment-configurable rate-limit multiplier/bypass flags (e.g. `RATE_LIMIT_ENABLED` defaulting to `true`, or `RATE_LIMIT_MULTIPLIER`) in `internal/app/customerbff/` and `pkg/cache/valkey/`. Keep strict defaults in `k8s/oci-core/` and configure higher limits (or `RATE_LIMIT_ENABLED=false`) in `k8s/oci-dev/oci-customer-bff.yaml` only, enforced by `scripts/verify-ci-contracts.sh`.
+  2. Remove the `kubectl exec` `ratelimit:*` pruning workaround from `scripts/run-load-test.sh`.
+* **Verification Gate:**
+  * [offline] Unit tests verify default strict rate limiting when unset and configurable override behavior; `./scripts/verify-ci-contracts.sh` asserts `oci-core` never disables rate limiting.
+  * [cluster] Multi-worker simulator run against `oci-dev` completes without `429` throttling or Valkey key deletion.
+
+#### 7.23 Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
+* **Depends On:** None.
+* **Current Codebase State:** `k8s/oci-core/bll-services.yaml` and `k8s/oci-dev/bll-services.yaml` set `NEXTCLOUD_URL` on `internal-bll`, but omit `NEXTCLOUD_ADMIN_USER` and `NEXTCLOUD_ADMIN_PASS`. In `cmd/internal-bll/main.go`, this causes `cfg.WorkspaceClient` to remain `nil`, falling back to an in-memory map in `internal/service/workforce/intranet.go` instead of talking to `nextcloud-service.oci-internal`.
+* **PR Scope:**
+  1. Wire `NEXTCLOUD_ADMIN_USER` and `NEXTCLOUD_ADMIN_PASS` via `secretKeyRef` in `k8s/oci-core/bll-services.yaml` and `k8s/oci-dev/bll-services.yaml` (and ensure `scripts/deploy-k8s.sh` / `oci-secrets.yaml` provisions the matching secret key from the Nextcloud bootstrap credentials).
+  2. Verify `pkg/cots/nextcloud/client.go` pagination/capping and error handling when Nextcloud returns documents or WebDAV archives under load.
+* **Verification Gate:**
+  * [offline] Unit tests in `cmd/internal-bll` and `pkg/cots/nextcloud` verify `WorkspaceClient` initialization when env vars are set.
+  * [cluster] `internal-bll` logs Nextcloud client initialization and `rick_read_nextcloud_docs` / `senior_dev_author_adr` persist to `nextcloud` in `oci-internal`.
+
+#### 7.24 Automated `oci-dev` Database Retention & Scheduled Seed Reset
+* **Depends On:** None.
+* **Current Codebase State:** Sustained simulation load tests append tens of thousands of synthetic rows to `postgres-dev` (`ops.it_tickets` ~97k, `workforce.onboarding_checklists` ~86k, `facilities.hardware_assets` ~48k, `core_invest.brokerage_orders` ~47k). There is no automated pruning or scheduled reset CronJob for `oci-dev`, requiring manual SQL cleanup between load test campaigns.
+* **PR Scope:**
+  1. Add a lightweight `oci-dev`-only `CronJob` (e.g. `k8s/oci-dev/dev-db-retention-cronjob.yaml`) or `scripts/prune-dev-db.sh` that retains the baseline seed rows + recent window (e.g., last 24h or latest 500 rows per high-churn table) and runs `VACUUM ANALYZE`.
+  2. Document pre/post load-test database hygiene in `docs/runbooks/cluster-load-testing.md`.
+* **Verification Gate:**
+  * [offline] `scripts/prune-dev-db.sh` passes shellcheck/dry-run and preserves all seed persona IDs from `scripts/seed-dev.sql`.
+  * [cluster] Running the retention job against `postgres-dev` bounds table sizes while keeping a subsequent simulator run at 73/73 passing.
