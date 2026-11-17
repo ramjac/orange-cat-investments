@@ -826,34 +826,24 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.9 Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
 > [!NOTE]
-> **Status: Completed (offline gates verified; cluster gate pending)**
+> **Status: Completed (offline gates verified; cluster online verified, 3-minute offline scale-down check pending)**
 > `proto/oci/internal_bll/v1/internal_bll.proto` and `pkg/gen/go/internal_bll/v1/` define `ReportDeviceHeartbeat` and `ListDeviceConnectivity`, implemented in `internal/app/internalbll/` with cross-domain fan-out to `facilities-api` and `core-invest-api`. `cmd/mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL=QR-CAM-ORANGE-01` (configured in both `k8s/external-sim/mock-hardware*.yaml` manifests and seeded in both Postgres configmaps), and `internal/app/employeebff/` exposes session-authenticated `GET /facilities/devices/connectivity` documented in `api/openapi.yaml`.
 * **Verification Gate:**
   * [x] [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
-  * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows the mock camera online, and it shows offline about 3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim`.
+  * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows `QR-CAM-ORANGE-01` `online: true` (verified); verifying it flips to `online: false` ~3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim` remains pending.
 
 #### 7.10 Extend `core_invest.portfolio_snapshots` for Daily NAV
 > [!NOTE]
-> **Status: Completed (offline gates verified; cluster gate pending)**
+> **Status: Completed**
 > `core_invest.portfolio_snapshots` is extended idempotently across `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, `k8s/oci-dev/postgres-dev-configmap.yaml`, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and `uq_portfolio_daily_eod_snapshot`; 90 days of `daily_eod` seed rows are added to `scripts/seed-dev.sql` and the `oci-dev` configmap; `internal/repository/core_invest/` implements `UpsertDailySnapshot` and `ListSnapshots` (pgx + mock); and `core_invest.proto` / `cmd/core-invest-api` expose `RecordDailySnapshot` and `ListPortfolioSnapshots`.
 * **Verification Gate:**
   * [x] [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
-  * [ ] [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database.
+  * [x] [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database (and cleanly against `postgres-core`).
 
 #### 7.11 Daily NAV Snapshot Batch & BLL History Service
 > [!NOTE]
 > **Status: Completed**
 > `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) are implemented in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` with the consumer-side `historyProvider` interface (no `alpaca` import or multiplier fallback in `brokerage.go`). `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJobs (`0 21 * * 1-5` UTC) are wired in `internal/app/worker/batch_jobs.go`, `cmd/worker/main.go`, `k8s/oci-core/batch-jobs.yaml`, and `k8s/oci-dev/batch-jobs.yaml`, with a `TODO(7.11)` in `internal/app/worker/schedulers.go`.
-* **Depends On:** `7.10`.
-* **Current Codebase State:** `getHistoricalValuationPoints` in `internal/app/customerbll/brokerage.go` takes a `*alpaca.Client` parameter and falls back to hardcoded `0.78 / 0.85 / 0.92` multipliers. Scheduled jobs exist in two forms: one-shot CronJobs that run `oci-worker` with `BATCH_MODE` (`ach-recurring`, `eom-statements` in `cmd/worker/main.go` and `k8s/*/batch-jobs.yaml`), **and** hourly tickers in `internal/app/worker/schedulers.go` that the long-running worker also starts. Recurring ACH is therefore triggered by both today.
-* **Design Decision (fixed):** The NAV job uses **only** the CronJob + `BATCH_MODE` pattern. Do **not** add a ticker to `schedulers.go`. (Removing the existing duplicate ACH/EOM tickers is out of scope; leave a `TODO` referencing this step.)
-* **PR Scope:**
-  1. `customer_bll.proto`: add `CaptureDailySnapshots()` and `GetPortfolioHistory(portfolio_id, period)` with `period ∈ {1M, 3M, 6M, 1Y, YTD}`. Implement both in `internal/app/customerbll/`. Capture computes cash, equity, and daily return per active portfolio from the broker client and calls `RecordDailySnapshot`. History reads `ListPortfolioSnapshots`.
-  2. In `brokerage.go`, change `getHistoricalValuationPoints` to read from `core-invest-api` snapshots and return an empty series when there are none. **Delete the multiplier fallback.** Change its broker parameter from `*alpaca.Client` to a small consumer-side interface (`historyProvider`) declared in `brokerage.go`. Other files in `customerbll` that import the broker driver are out of scope.
-  3. `internal/app/worker/batch_jobs.go`: add `RunDailyNAVSnapshotBatch`, and dispatch `BATCH_MODE=nav-snapshot` in `cmd/worker/main.go`. Add a `nav-snapshot` CronJob (`0 21 * * 1-5`, UTC) to `k8s/oci-core/batch-jobs.yaml` and `k8s/oci-dev/batch-jobs.yaml`.
-* **Verification Gate:**
-  * [x] [offline] `! grep -n "0\.78\|0\.85\|0\.92\|alpaca" internal/app/customerbll/brokerage.go`
-  * [x] [offline] BLL tests: history for each period returns seeded points in date order; capture writes one snapshot per active portfolio; an empty history returns no synthetic points.
 
 #### 7.12 Portfolio History in Customer BFF & Portal
 > [!NOTE] **Status: Completed**
