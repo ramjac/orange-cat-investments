@@ -319,6 +319,87 @@ data:
             annotations:
               summary: "Control plane or Ingress TLS certificate expiring in less than 30 days"
               description: "Target {{ $labels.instance }} SSL/TLS certificate expires in less than 30 days. Execute annual control plane cert rotation SOP."
+
+      - name: valkey_alerts
+        rules:
+          - alert: ValkeyMemorySaturation
+            expr: (redis_memory_used_bytes / redis_memory_max_bytes) > 0.85 and redis_memory_max_bytes > 0
+            for: 5m
+            labels:
+              severity: warning
+              tier: cache
+            annotations:
+              summary: "Valkey memory usage exceeds 85% of maxmemory on {{ $labels.instance }}"
+              description: "Valkey instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of configured maxmemory."
+          - alert: ValkeyKeyEvictions
+            expr: increase(redis_evicted_keys_total[5m]) > 0
+            for: 2m
+            labels:
+              severity: warning
+              tier: cache
+            annotations:
+              summary: "Valkey is evicting keys on {{ $labels.instance }}"
+              description: "Valkey instance {{ $labels.instance }} evicted {{ $value }} keys in the last 5 minutes. Sessions or cached tokens may be prematurely dropped."
+
+      - name: postgresql_alerts
+        rules:
+          - alert: PostgresConnectionSaturation
+            expr: (sum by (instance) (pg_stat_activity_count) / pg_settings_max_connections) > 0.80
+            for: 5m
+            labels:
+              severity: warning
+              tier: database
+            annotations:
+              summary: "PostgreSQL connection usage exceeds 80% on {{ $labels.instance }}"
+              description: "PostgreSQL instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of max_connections."
+          - alert: PostgresDeadTupleBloat
+            expr: pg_stat_user_tables_n_dead_tup > 10000 and (pg_stat_user_tables_n_dead_tup / (pg_stat_user_tables_n_live_tup + pg_stat_user_tables_n_dead_tup + 1)) > 0.20
+            for: 15m
+            labels:
+              severity: warning
+              tier: database
+            annotations:
+              summary: "PostgreSQL table {{ $labels.relname }} has high dead tuple bloat"
+              description: "Table {{ $labels.schemaname }}.{{ $labels.relname }} in database {{ $labels.datname }} has > 10,000 dead tuples and > 20% dead tuple ratio. Autovacuum may be lagging."
+          - alert: PostgresXIDWraparoundRisk
+            expr: pg_database_age > 1500000000
+            for: 5m
+            labels:
+              severity: critical
+              tier: database
+            annotations:
+              summary: "PostgreSQL database {{ $labels.datname }} approaching XID wraparound"
+              description: "Database {{ $labels.datname }} on {{ $labels.instance }} has transaction ID age {{ $value }} (> 1.5B). Immediate vacuum freeze required to prevent database shutdown."
+          - alert: PostgresLowCacheHitRatio
+            expr: (sum by (instance, datname) (rate(pg_stat_database_blks_hit[5m])) / (sum by (instance, datname) (rate(pg_stat_database_blks_hit[5m])) + sum by (instance, datname) (rate(pg_stat_database_blks_read[5m])))) < 0.99 and (sum by (instance, datname) (rate(pg_stat_database_blks_hit[5m])) + sum by (instance, datname) (rate(pg_stat_database_blks_read[5m]))) > 0
+            for: 10m
+            labels:
+              severity: warning
+              tier: database
+            annotations:
+              summary: "PostgreSQL cache hit ratio below 99% on {{ $labels.datname }}"
+              description: "Database {{ $labels.datname }} on {{ $labels.instance }} has a shared buffer cache hit ratio of {{ $value | humanizePercentage }} over the last 5m."
+
+      - name: meilisearch_alerts
+        rules:
+          - alert: MeilisearchDown
+            expr: up{job="meilisearch"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              tier: search
+            annotations:
+              summary: "Meilisearch search engine is down ({{ $labels.instance }})"
+              description: "Prometheus cannot scrape Meilisearch target {{ $labels.instance }}. Search queries will fail."
+          - alert: MeilisearchDiskUsageHigh
+            expr: (kubelet_volume_stats_used_bytes{persistentvolumeclaim="meilisearch-data-pvc"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="meilisearch-data-pvc"}) > 0.80
+            for: 5m
+            labels:
+              severity: warning
+              tier: search
+            annotations:
+              summary: "Meilisearch PVC {{ $labels.persistentvolumeclaim }} disk usage > 80%"
+              description: "Meilisearch data volume in namespace {{ $labels.namespace }} is at {{ $value | humanizePercentage }} capacity."
 ---
 apiVersion: apps/v1
 kind: Deployment

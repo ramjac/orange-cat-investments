@@ -101,6 +101,66 @@ fi
 
 rm -rf "$STUB_DIR"
 
+# 6. Verify Prometheus stateful store alert rules (7.14)
+echo "Verifying Prometheus stateful store alert rules in k8s/monitoring/prometheus.yaml..."
+if ! python3 - <<'PY'
+import sys
+import yaml
+
+with open("k8s/monitoring/prometheus.yaml", "r", encoding="utf-8") as f:
+    docs = list(yaml.safe_load_all(f))
+
+cm = next((d for d in docs if isinstance(d, dict) and d.get("kind") == "ConfigMap"), None)
+if not cm:
+    print("ERROR: ConfigMap not found in k8s/monitoring/prometheus.yaml")
+    sys.exit(1)
+
+alert_rules_raw = cm.get("data", {}).get("alert_rules.yml")
+if not alert_rules_raw:
+    print("ERROR: data.alert_rules.yml not found in prometheus ConfigMap")
+    sys.exit(1)
+
+rules_doc = yaml.safe_load(alert_rules_raw)
+groups = {g["name"]: g.get("rules", []) for g in rules_doc.get("groups", [])}
+
+expected = {
+    "valkey_alerts": {"ValkeyMemorySaturation", "ValkeyKeyEvictions"},
+    "postgresql_alerts": {
+        "PostgresConnectionSaturation",
+        "PostgresDeadTupleBloat",
+        "PostgresXIDWraparoundRisk",
+        "PostgresLowCacheHitRatio",
+    },
+    "meilisearch_alerts": {"MeilisearchDown", "MeilisearchDiskUsageHigh"},
+}
+
+errors = []
+for group_name, rules in groups.items():
+    for rule in rules:
+        labels = rule.get("labels", {})
+        if not labels.get("severity") or not labels.get("tier"):
+            errors.append(f"Rule {rule.get('alert')} in {group_name} missing severity or tier label")
+
+for group_name, expected_alerts in expected.items():
+    if group_name not in groups:
+        errors.append(f"Missing alert group: {group_name}")
+        continue
+    found = {r.get("alert") for r in groups[group_name]}
+    missing = expected_alerts - found
+    if missing:
+        errors.append(f"Group {group_name} missing alerts: {sorted(missing)}")
+
+if errors:
+    for err in errors:
+        print(f"ERROR: {err}")
+    sys.exit(1)
+
+print("All stateful store alert rules verified.")
+PY
+then
+  failed=1
+fi
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1
