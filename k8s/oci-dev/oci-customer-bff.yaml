@@ -29,6 +29,8 @@ spec:
               value: "8083"
             - name: ENV
               value: "development"
+            - name: RATE_LIMIT_ENABLED
+              value: "false"
             - name: VALKEY_ADDR
               value: "valkey-service.oci-dev.svc.cluster.local:6379"
             - name: CUSTOMER_BLL_URL

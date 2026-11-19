@@ -195,6 +195,89 @@ if ! grep -q "ENABLE_FAULT_INJECTION" k8s/external-sim/mock-bank-dev.yaml || ! g
   failed=1
 fi
 
+# 10. Verify Prometheus resource sizing and TSDB retention flags (7.21)
+echo "Verifying Prometheus resource sizing and TSDB retention in k8s/monitoring/prometheus.yaml..."
+if ! python3 - <<'PY'
+import sys
+import yaml
+
+with open("k8s/monitoring/prometheus.yaml", "r", encoding="utf-8") as f:
+    docs = list(yaml.safe_load_all(f))
+
+dep = next(
+    (d for d in docs if isinstance(d, dict) and d.get("kind") == "Deployment" and d.get("metadata", {}).get("name") == "prometheus"),
+    None,
+)
+if not dep:
+    print("ERROR: prometheus Deployment not found in k8s/monitoring/prometheus.yaml")
+    sys.exit(1)
+
+containers = dep.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+prom = next((c for c in containers if c.get("name") == "prometheus"), None)
+if not prom:
+    print("ERROR: prometheus container not found")
+    sys.exit(1)
+
+args = prom.get("args", [])
+if not any(a.startswith("--storage.tsdb.retention.time=") for a in args):
+    print("ERROR: missing --storage.tsdb.retention.time flag on prometheus")
+    sys.exit(1)
+if not any(a.startswith("--storage.tsdb.retention.size=") for a in args):
+    print("ERROR: missing --storage.tsdb.retention.size flag on prometheus")
+    sys.exit(1)
+
+res = prom.get("resources", {})
+req_mem = res.get("requests", {}).get("memory")
+lim_mem = res.get("limits", {}).get("memory")
+if req_mem != "512Mi" or lim_mem != "2Gi":
+    print(f"ERROR: expected prometheus memory requests=512Mi limits=2Gi, got requests={req_mem} limits={lim_mem}")
+    sys.exit(1)
+
+print("Prometheus resource sizing and TSDB retention verified.")
+PY
+then
+  failed=1
+fi
+
+# 11. Verify BFF rate-limiting policy isolation (7.22)
+echo "Verifying BFF rate-limit configuration contracts..."
+if grep -rqE "RATE_LIMIT_ENABLED|RATE_LIMIT_MULTIPLIER" k8s/oci-core/; then
+  echo "ERROR: k8s/oci-core/ must never override or disable strict BFF rate limiting"
+  failed=1
+fi
+if ! grep -qE "RATE_LIMIT_ENABLED|RATE_LIMIT_MULTIPLIER" k8s/oci-dev/oci-customer-bff.yaml; then
+  echo "ERROR: k8s/oci-dev/oci-customer-bff.yaml must configure staging rate-limit policy"
+  failed=1
+fi
+if grep -q "ratelimit:\*" scripts/run-load-test.sh; then
+  echo "ERROR: scripts/run-load-test.sh must not contain kubectl exec ratelimit:* pruning workaround"
+  failed=1
+fi
+
+# 12. Verify Nextcloud COTS secretKeyRef credentials on internal-bll (7.23)
+echo "Verifying Nextcloud credentials wiring in internal-bll manifests..."
+for bll_manifest in k8s/oci-core/bll-services.yaml k8s/oci-dev/bll-services.yaml; do
+  if ! grep -q "NEXTCLOUD_ADMIN_USER" "$bll_manifest" || ! grep -q "NEXTCLOUD_ADMIN_PASS" "$bll_manifest"; then
+    echo "ERROR: $bll_manifest missing NEXTCLOUD_ADMIN_USER or NEXTCLOUD_ADMIN_PASS on internal-bll"
+    failed=1
+  fi
+done
+
+# 13. Verify oci-dev database retention script & CronJob (7.24)
+echo "Verifying oci-dev database retention script and CronJob..."
+if ! ./scripts/prune-dev-db.sh --dry-run >/dev/null; then
+  echo "ERROR: scripts/prune-dev-db.sh --dry-run failed"
+  failed=1
+fi
+if ./scripts/prune-dev-db.sh --namespace oci-core --dry-run >/dev/null 2>&1; then
+  echo "ERROR: scripts/prune-dev-db.sh failed to block --namespace oci-core"
+  failed=1
+fi
+if [ ! -f k8s/oci-dev/dev-db-retention-cronjob.yaml ] || ! grep -q "namespace: oci-dev" k8s/oci-dev/dev-db-retention-cronjob.yaml; then
+  echo "ERROR: k8s/oci-dev/dev-db-retention-cronjob.yaml missing or not targeting namespace oci-dev"
+  failed=1
+fi
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1

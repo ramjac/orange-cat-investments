@@ -43,23 +43,6 @@ rm -f "${LOG_DIR}"/*.log
 
 pids=()
 
-# Periodically prune dev Valkey rate-limit counters so load testing workers
-# are not artificially throttled by single-IP DDoS sliding-window limiters.
-if command -v kubectl >/dev/null 2>&1 || [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
-    KUBECTL="${KUBECTL:-kubectl}"
-    if ! command -v "${KUBECTL}" >/dev/null 2>&1 && [[ -x "/home/ramjac/.local/bin/kubectl" ]]; then
-        KUBECTL="/home/ramjac/.local/bin/kubectl"
-    fi
-    (
-        while [ "$(date +%s)" -lt "${END_EPOCH}" ]; do
-            "${KUBECTL}" exec -n oci-dev deployment/valkey -c valkey -- valkey-cli eval "for _,k in ipairs(redis.call('keys','ratelimit:*')) do redis.call('del',k) end" 0 >/dev/null 2>&1 || true
-            sleep 3
-        done
-    ) &
-    pruner_pid=$!
-    pids+=("${pruner_pid}")
-fi
-
 for i in $(seq 1 "${CONCURRENCY}"); do
     (
         worker_id="$i"

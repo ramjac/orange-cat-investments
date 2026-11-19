@@ -25,7 +25,7 @@ func (b *CustomerBFF) Routes() http.Handler {
 	orderLimiter := func(next http.Handler) http.Handler { return next }
 	depositLimiter := func(next http.Handler) http.Handler { return next }
 
-	if b.rateLimiter != nil {
+	if b.rateLimiter != nil && cachevalkey.RateLimitEnabled() {
 		loginLimiter = cachevalkey.RateLimitMiddleware(b.rateLimiter, func(req *http.Request) string {
 			return "customer_login:" + cachevalkey.ClientIP(req)
 		}, 5, 15*time.Minute)

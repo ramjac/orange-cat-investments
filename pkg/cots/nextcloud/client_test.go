@@ -2,8 +2,13 @@ package nextcloud
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,4 +245,120 @@ func TestNextcloudClient_DownloadWebDAV(t *testing.T) {
 	content, err := client.DownloadWebDAVFile(context.Background(), "/remote.php/dav/files/admin/Executive/Reports/2026-10/report.pdf")
 	require.NoError(t, err)
 	assert.Equal(t, []byte("%PDF-1.4 test stream"), content)
+}
+
+func TestNextcloudClient_ListDocuments_CapsAtMaxLimit(t *testing.T) {
+	docs := make([]Document, 150)
+	for i := range docs {
+		docs[i] = Document{
+			DocumentID: fmt.Sprintf("doc-%03d", i),
+			Title:      fmt.Sprintf("Policy %03d", i),
+			Department: "HR & Policies",
+		}
+	}
+	payload, err := json.Marshal(map[string]any{"documents": docs})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{BaseURL: server.URL, AdminUser: "admin", AdminPassword: "secret"})
+	res, err := client.ListDocuments(context.Background(), "HR & Policies", "", "")
+	require.NoError(t, err)
+	assert.Len(t, res, maxDocumentsLimit)
+}
+
+func TestNextcloudClient_LiveNextcloudHTMLFallbackAndWebDAVMKCOL(t *testing.T) {
+	var mu sync.Mutex
+	createdDirs := map[string]bool{}
+	uploadedFiles := map[string]string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		require.True(t, ok, "basic auth required")
+		assert.Equal(t, "admin", user)
+		assert.Equal(t, "secret", pass)
+
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/nextcloud/api/v1/") || strings.HasPrefix(r.URL.Path, "/apps/groupfolders/"):
+			// Simulate vanilla Nextcloud 28 Apache redirecting unknown routes to HTML login/dashboard
+			w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("<!DOCTYPE html><html><body>Nextcloud</body></html>"))
+		case r.Method == "MKCOL":
+			mu.Lock()
+			createdDirs[r.URL.Path] = true
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/remote.php/dav/files/admin/"):
+			parent := r.URL.Path[:strings.LastIndex(r.URL.Path, "/")]
+			mu.Lock()
+			exists := createdDirs[parent]
+			mu.Unlock()
+			if !exists {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte("<d:error>Parent node does not exist</d:error>"))
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			uploadedFiles[r.URL.Path] = string(body)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL:       server.URL,
+		AdminUser:     "admin",
+		AdminPassword: "secret",
+	})
+
+	// 1. PublishDocument should fall back to WebDAV MKCOL + PUT and record metadata
+	doc, err := client.PublishDocument(context.Background(), Document{
+		Title:   "ADR 0003: Self-Hosted GitOps, Multi-Stage Packaging & Gated Promotion Pipeline",
+		Content: "# ADR 0003\nGitOps specification.",
+		Author:  "emp-human-marcus",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, doc.WebDAVPath, "/remote.php/dav/files/admin/Documents/adr_0003_")
+
+	mu.Lock()
+	assert.True(t, createdDirs["/remote.php/dav/files/admin/Documents"])
+	assert.Equal(t, "# ADR 0003\nGitOps specification.", uploadedFiles[doc.WebDAVPath])
+	mu.Unlock()
+
+	// 2. ListDocuments should return seeded + published docs without failing on HTML response
+	docs, err := client.ListDocuments(context.Background(), "", "", "ADR 0003")
+	require.NoError(t, err)
+	require.Len(t, docs, 1)
+	assert.Equal(t, doc.DocumentID, docs[0].DocumentID)
+
+	// 3. ListGroupFolders and ListCalendarEvents should gracefully return defaults on HTML response
+	folders, err := client.ListGroupFolders(context.Background())
+	require.NoError(t, err)
+	assert.NotEmpty(t, folders)
+
+	events, err := client.ListCalendarEvents(context.Background(), "Habitat Maintenance Windows", "", time.Time{}, time.Time{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, events)
+
+	// 4. ArchiveComplianceReport should create nested Executive/Reports/<period> dirs via MKCOL and PUT
+	archivePath, err := client.ArchiveComplianceReport(context.Background(), "2026-11", "report.pdf", "application/pdf", []byte("%PDF-1.4"))
+	require.NoError(t, err)
+	assert.Equal(t, "/remote.php/dav/files/admin/Executive/Reports/2026-11/report.pdf", archivePath)
+
+	mu.Lock()
+	assert.True(t, createdDirs["/remote.php/dav/files/admin/Executive"])
+	assert.True(t, createdDirs["/remote.php/dav/files/admin/Executive/Reports"])
+	assert.True(t, createdDirs["/remote.php/dav/files/admin/Executive/Reports/2026-11"])
+	assert.Equal(t, "%PDF-1.4", uploadedFiles[archivePath])
+	mu.Unlock()
 }

@@ -161,6 +161,16 @@ spec:
               value: "https://core-invest-api-service.oci-core.svc.cluster.local:50053"
             - name: NEXTCLOUD_URL
               value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: NEXTCLOUD_ADMIN_USER
+            - name: NEXTCLOUD_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: NEXTCLOUD_ADMIN_PASS
             - name: FORGEJO_URL
               value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
             - name: FRAPPE_URL
