@@ -24,7 +24,9 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 
 	portfolioID := in.PortfolioID
 	if portfolioID == "" && s.brokerClient != nil {
-		accs, err := s.brokerClient.ListAccounts(ctx)
+		brokerCtx, brokerCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.brokerClient.ListAccounts(brokerCtx)
+		brokerCancel()
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || (in.CustomerID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID))) {
@@ -43,7 +45,9 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 
 	accountID := in.AccountID
 	if accountID == "" && s.bankClient != nil {
-		accs, err := s.bankClient.GetAccounts(ctx, in.CustomerID)
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.bankClient.GetAccounts(bankCtx, in.CustomerID)
+		bankCancel()
 		if err == nil && len(accs) > 0 {
 			accountID = accs[0].AccountID
 		}
@@ -142,7 +146,9 @@ func (s *Server) ListBankAccounts(ctx context.Context, in *customerbllv1.ListBan
 	}
 
 	if s.bankClient != nil {
-		accs, err := s.bankClient.GetAccounts(ctx, in.CustomerID)
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.bankClient.GetAccounts(bankCtx, in.CustomerID)
+		bankCancel()
 		if err == nil && len(accs) > 0 {
 			out := make([]*customerbllv1.LinkedBankAccount, 0, len(accs))
 			for _, a := range accs {
@@ -186,14 +192,17 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 		if in.TransferType == "withdrawal" {
 			direction = "credit"
 		}
-		_, err := s.bankClient.CreateTransfer(ctx, plaid.CreateTransferRequest{
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		_, err := s.bankClient.CreateTransfer(bankCtx, plaid.CreateTransferRequest{
 			AccountID:   in.BankAccount,
 			Amount:      in.AmountUSD,
 			Direction:   direction,
 			Description: fmt.Sprintf("OCI Investment Capital ACH %s (%s)", in.TransferType, in.TransferID),
 		})
+		bankCancel()
 		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "bank clearing failed for transfer %s: %v", in.TransferID, err)
+			s.log().Error("bank clearing failed", "transfer_id", in.TransferID, "error", err)
+			return nil, mapUpstreamError("bank", err)
 		}
 	}
 

@@ -2,13 +2,17 @@ package customerbff
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestCustomerBFF_PortfolioAndTickerRoutes(t *testing.T) {
@@ -107,4 +111,104 @@ func TestCustomerBFF_BankAccountsAndDeposits(t *testing.T) {
 	badRec := httptest.NewRecorder()
 	mux.ServeHTTP(badRec, badReq)
 	assert.Equal(t, http.StatusBadRequest, badRec.Code)
+}
+
+type faultInjectingBLLClient struct {
+	*mockCustomerBLLClient
+	orderErr  error
+	tickerErr error
+}
+
+func (f *faultInjectingBLLClient) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.ValidateAndExecuteOrderRequest) (*customerbllv1.ValidateAndExecuteOrderResponse, error) {
+	if f.orderErr != nil {
+		return nil, f.orderErr
+	}
+	return f.mockCustomerBLLClient.ValidateAndExecuteOrder(ctx, in)
+}
+
+func (f *faultInjectingBLLClient) GetTickerSnapshot(ctx context.Context, in *customerbllv1.GetTickerSnapshotRequest) (*customerbllv1.GetTickerSnapshotResponse, error) {
+	if f.tickerErr != nil {
+		return nil, f.tickerErr
+	}
+	return f.mockCustomerBLLClient.GetTickerSnapshot(ctx, in)
+}
+
+func TestCustomerBFF_OrderAndTickerFaultStatusMapping(t *testing.T) {
+	cases := []struct {
+		name           string
+		grpcErr        error
+		expectedStatus int
+		expectedMsg    string
+	}{
+		{
+			name:           "Unavailable maps to 503",
+			grpcErr:        status.Error(codes.Unavailable, "broker service unavailable"),
+			expectedStatus: http.StatusServiceUnavailable,
+			expectedMsg:    "broker service unavailable",
+		},
+		{
+			name:           "DeadlineExceeded maps to 504",
+			grpcErr:        status.Error(codes.DeadlineExceeded, "broker request timed out"),
+			expectedStatus: http.StatusGatewayTimeout,
+			expectedMsg:    "broker request timed out",
+		},
+		{
+			name:           "FailedPrecondition maps to 422",
+			grpcErr:        status.Error(codes.FailedPrecondition, "broker rejected request: trading halted"),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedMsg:    "broker rejected request: trading halted",
+		},
+		{
+			name:           "InvalidArgument maps to 400",
+			grpcErr:        status.Error(codes.InvalidArgument, "invalid order quantity"),
+			expectedStatus: http.StatusBadRequest,
+			expectedMsg:    "invalid order quantity",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run("order "+tc.name, func(t *testing.T) {
+			bff, mux := setupTestBFF()
+			bff.SetBLLClient(&faultInjectingBLLClient{
+				mockCustomerBLLClient: newMockCustomerBLLClient(),
+				orderErr:              tc.grpcErr,
+			})
+
+			csrfVal := "fault-csrf-token"
+			body := bytes.NewBufferString(`{"symbol":"NVDA","side":"buy","quantity":1,"order_type":"market"}`)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", body)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-CSRF-Token", csrfVal)
+			req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+			req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			assert.Equal(t, tc.expectedStatus, rec.Code)
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tc.expectedMsg, errResp["error"])
+		})
+
+		t.Run("ticker "+tc.name, func(t *testing.T) {
+			bff, mux := setupTestBFF()
+			bff.SetCache(nil)
+			bff.SetBLLClient(&faultInjectingBLLClient{
+				mockCustomerBLLClient: newMockCustomerBLLClient(),
+				tickerErr:             tc.grpcErr,
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/customer/ticker", nil)
+			req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
+
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			assert.Equal(t, tc.expectedStatus, rec.Code)
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, tc.expectedMsg, errResp["error"])
+		})
+	}
 }

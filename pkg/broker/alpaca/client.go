@@ -21,6 +21,26 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// APIError represents a non-2xx HTTP response from the Alpaca API.
+type APIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("alpaca api error (%d): %s", e.StatusCode, e.Message)
+}
+
+// HTTPStatus returns the HTTP status code from the upstream response.
+func (e *APIError) HTTPStatus() int {
+	return e.StatusCode
+}
+
+// UpstreamMessage returns the raw error message returned by the upstream API.
+func (e *APIError) UpstreamMessage() string {
+	return e.Message
+}
+
 // Config holds configuration parameters for the Alpaca client.
 type Config struct {
 	BaseURL    string
@@ -102,7 +122,7 @@ func (c *Client) do(ctx context.Context, method, fullURL string, body any, targe
 		if msg == "" {
 			msg = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		}
-		return fmt.Errorf("alpaca api error (%d): %s", resp.StatusCode, msg)
+		return &APIError{StatusCode: resp.StatusCode, Message: msg}
 	}
 
 	if target != nil {

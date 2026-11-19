@@ -19,6 +19,27 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// APIError represents a non-2xx HTTP response from the Bank API.
+type APIError struct {
+	StatusCode int
+	Message    string
+	ReturnCode string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("bank API error (%d): %s (code=%s)", e.StatusCode, e.Message, e.ReturnCode)
+}
+
+// HTTPStatus returns the HTTP status code from the upstream response.
+func (e *APIError) HTTPStatus() int {
+	return e.StatusCode
+}
+
+// UpstreamMessage returns the raw error message returned by the upstream API.
+func (e *APIError) UpstreamMessage() string {
+	return e.Message
+}
+
 // Config holds configuration parameters for the Bank client.
 type Config struct {
 	BaseURL    string
@@ -100,7 +121,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, target a
 		if msg == "" {
 			msg = fmt.Sprintf("status %d", resp.StatusCode)
 		}
-		return fmt.Errorf("bank API error (%d): %s (code=%s)", resp.StatusCode, msg, errResp.ReturnCode)
+		return &APIError{StatusCode: resp.StatusCode, Message: msg, ReturnCode: errResp.ReturnCode}
 	}
 
 	if target != nil {

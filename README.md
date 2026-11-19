@@ -271,6 +271,14 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **Registry Pre-Flight & Single-Command Deploy (7.5):** `deploy-k8s.sh` pre-flights all referenced images against the registry before applying, `ci-status.sh [--wait]` surfaces Forgejo Actions run/job state with failed-log tailing, and `deploy-latest.sh` chains test, sync, pipeline wait, image verification, and the live simulator in one command.
 * **Dedicated Dev Mock Instances (7.6):** `mock-bank-dev` / `mock-broker-dev` / `mock-hardware-dev` serve only `oci-dev` (own cert-manager certificate, own RabbitMQ/`oci-dev` BLL wiring) so Phase 4 fault injection and chaos can never reach `oci-core`; contract checks enforce the environment-to-mock wiring.
 
+### 5.22 Dev-Only Fault Injection & Upstream Resilience (7.17)
+* **Dev-Only Fault Controllers (`cmd/mock-bank`, `cmd/mock-broker`):** `GET/PUT/DELETE /sim/faults` registered strictly when `ENABLE_FAULT_INJECTION=true` (configured only in `mock-*-dev.yaml`, enforced by `scripts/verify-ci-contracts.sh` so it never appears in unsuffixed mock manifests or `k8s/oci-core/`).
+* **Bounded Upstream Deadlines & Vendor-Free Error Mapping (`internal/app/customerbll`, `internal/app/customerbff`):** Structured `APIError` types in `pkg/broker/alpaca` and `pkg/bank/plaid`, 5s default bounded context deadlines (`UPSTREAM_TIMEOUT`) on all broker/bank calls, gRPC `Unavailable` / `DeadlineExceeded` / `FailedPrecondition` error mapping without leaking vendor names, and corresponding `503`/`504`/`422` structured JSON responses in `customer-bff`.
+* **Simulator Fault Verification (`simulation/driver_fault_patch.go`):** Opt-in `-fault-scenarios` mode injects outage (`5xx`) and halted-symbol (`422`) faults on `-dev` mocks and always resets `/sim/faults` via `defer`.
+
+### 5.23 RabbitMQ Poison-Pill & Dead-Letter Handling (7.18)
+* **Watermill Resilience Middleware (`internal/app/worker/poison_middleware.go`, `router.go`):** Every worker handler is wrapped with per-topic `middleware.PoisonQueue` (`<topic>.dlq`), CWE-532-safe poison logging (`event_id`, `topic`, `correlation_id`, and error only — never payload bytes), pre-retry `EnvelopeValidationMiddleware` (rejecting malformed JSON or missing `EventID`/`OccurredAt` straight to `.dlq`), and 3-attempt exponential-backoff `middleware.Retry`, with upfront AMQP `.dlq` queue declaration via `SubscribeInitialize` so dead-lettered messages trigger Prometheus `RabbitMQDeadLetterQueueNotEmpty`.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -771,8 +779,8 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics *(partially complete: Grafana Beyla completely dropped across manifests and code; wiring the 8 OpenTelemetry business metrics helpers in `pkg/telemetry/metrics.go` to domain callers remains)*
    - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
 4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
-   - [ ] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker *(partially complete: `/sim/faults` controllers, dev-manifest wiring, and `-fault-scenarios` exist; bounded client deadlines and the contract check remain)*
-   - [ ] **7.18** RabbitMQ Poison-Pill & Dead-Letter Handling
+   - [x] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker
+   - [x] **7.18** RabbitMQ Poison-Pill & Dead-Letter Handling
    - [x] **7.19** Sandboxed Chaos Suite for `oci-dev`
 5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
    - [ ] **7.20** Zero-Trust Workload Identity & Dynamic Secret Management *(intentionally undecided, pending ADR)*
@@ -899,29 +907,13 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.17 Dev-Only Fault Injection in Mock Bank & Mock Broker
 > [!NOTE]
-> **Status: Partially Complete**
-> Done: `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (set only in the `mock-*-dev.yaml` manifests, 404 when disabled, in-memory state with `DELETE` reset), the customer BLL maps upstream broker/bank failures to `Unavailable` / `FailedPrecondition`, and the simulator has an opt-in `-fault-scenarios` mode that asserts structured 5xx/422 responses and resets faults on exit. Remaining: explicit bounded context deadlines on broker/bank calls in `internal/app/customerbll/`, and the `verify-ci-contracts.sh` check that `ENABLE_FAULT_INJECTION` never appears in the unsuffixed mock manifests.
-* **Depends On:** `7.3`, `7.6`.
-* **Current Codebase State:** Neither mock has fault-injection controls. After `7.6`, dedicated `mock-bank-dev` and `mock-broker-dev` instances serve only `oci-dev`.
-* **PR Scope:**
-  1. Add a fault controller to each mock, registered **only when `ENABLE_FAULT_INJECTION=true`**. Set that variable only in the `mock-*-dev.yaml` manifests, and add a `verify-ci-contracts.sh` check that it never appears in the unsuffixed mock manifests.
-     * `cmd/mock-bank`: `GET/PUT/DELETE /sim/faults` with `{outage: bool, latency_ms: int, reject_transfers: bool}`.
-     * `cmd/mock-broker`: `GET/PUT/DELETE /sim/faults` with `{outage, latency_ms, reject_orders: bool, halted_symbols: []string}`.
-     * Fault state is in-memory; `DELETE` resets to healthy. Return 404 when disabled.
-  2. In `internal/app/customerbll/`, make sure broker/bank calls use bounded context deadlines and map upstream failures to gRPC `Unavailable`, `DeadlineExceeded`, or `FailedPrecondition` (rejections), without leaking vendor names in messages.
-  3. In `simulation/`, add an opt-in `-fault-scenarios` flag that sets faults on the `-dev` mocks, asserts the BFF returns structured 5xx/422 responses, then always resets with `defer`.
-* **Verification Gate:**
-  * [offline] Mock handler tests cover enabled/disabled registration and each fault type. BLL tests check error mapping. `./scripts/verify-ci-contracts.sh`.
-  * [cluster] `-fault-scenarios` against `oci-dev` passes and leaves `/sim/faults` healthy.
+> **Status: Completed (offline gates verified; cluster `-fault-scenarios` run pending deployment to `oci-dev`)**
+> `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (configured strictly in `k8s/external-sim/mock-*-dev.yaml`, enforced by `scripts/verify-ci-contracts.sh` so it never appears in unsuffixed mock manifests or `k8s/oci-core/`). `pkg/broker/alpaca` and `pkg/bank/plaid` return structured `APIError`s; `internal/app/customerbll/upstream.go` wraps all broker/bank calls with bounded context deadlines (`UPSTREAM_TIMEOUT`, default `5s`) and maps failures to gRPC `Unavailable`, `DeadlineExceeded`, or `FailedPrecondition` without leaking vendor names; `internal/app/customerbff` translates those codes into structured `503`/`504`/`422` JSON responses; and `simulation/driver_fault_patch.go` (`-fault-scenarios`) verifies structured `5xx`/`422` propagation and always resets `/sim/faults` via `defer`.
 
 #### 7.18 RabbitMQ Poison-Pill & Dead-Letter Handling
-* **Depends On:** `7.16`.
-* **Current Codebase State:** `internal/app/worker/router.go` uses no `PoisonQueue` or `Retry` middleware. `RabbitMQDeadLetterQueueNotEmpty` exists in Prometheus and expects queues matching `.*dlq.*`.
-* **PR Scope:**
-  1. Add Watermill `middleware.Retry` (3 attempts, exponential backoff) followed by `middleware.PoisonQueue` publishing to `<topic>.dlq` in `router.go`. Add an envelope validation middleware that rejects (sends straight to the poison queue without retry) messages that fail to unmarshal or lack `EventID`/`OccurredAt`.
-  2. Poison log lines contain only `event_id` (if parseable), `topic`, `correlation_id`, and the validation error, never the payload (CWE-532).
-* **Verification Gate:**
-  * [offline] GoChannel router tests: malformed, missing-field, and handler-error messages land in `.dlq`; a following valid message is still processed; and captured log output contains no payload bytes.
+> [!NOTE]
+> **Status: Completed**
+> `internal/app/worker/poison_middleware.go` and `router.go` wrap every Watermill domain handler with per-topic `middleware.PoisonQueue` publishing to `<topic>.dlq` (pre-declared on RabbitMQ via `AMQPPubSubWrapper.SubscribeInitialize`), CWE-532-safe poison logging (`event_id`, `topic`, `correlation_id`, and error only — never raw payload bytes), pre-retry `EnvelopeValidationMiddleware` (sending malformed JSON or missing `EventID`/`OccurredAt` straight to `.dlq` without retry), and 3-attempt exponential-backoff `middleware.Retry`. `internal/service/core_invest/streams_backtests.go` and `HandleExecutiveReportTrigger` are aligned to `EventEnvelope`, and `internal/app/worker/poison_middleware_test.go` verifies malformed, missing-field, handler-error, recovery, post-poison continuation, `.dlq` declaration, and CWE-532 log hygiene via GoChannel router tests.
 
 #### 7.19 Sandboxed Chaos Suite for `oci-dev`
 > [!NOTE] **Status: Completed**

@@ -155,7 +155,7 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 		Frequency:   req.Frequency,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
@@ -183,7 +183,7 @@ func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Reque
 		CustomerID: custID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to get bank accounts")
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 

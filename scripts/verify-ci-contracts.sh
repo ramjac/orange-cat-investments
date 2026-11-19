@@ -180,6 +180,21 @@ for fn in $(grep -oE '^func (Record[A-Za-z0-9_]+)' pkg/telemetry/metrics.go | aw
   fi
 done
 
+# 9. Verify ENABLE_FAULT_INJECTION is restricted to -dev mock manifests (7.17)
+echo "Verifying ENABLE_FAULT_INJECTION is restricted to -dev mock manifests..."
+if grep -q "ENABLE_FAULT_INJECTION" k8s/external-sim/mock-bank.yaml k8s/external-sim/mock-broker.yaml k8s/external-sim/mock-hardware.yaml; then
+  echo "ERROR: ENABLE_FAULT_INJECTION must never appear in unsuffixed mock manifests"
+  failed=1
+fi
+if grep -rq "ENABLE_FAULT_INJECTION" k8s/oci-core/; then
+  echo "ERROR: ENABLE_FAULT_INJECTION must never appear in k8s/oci-core/"
+  failed=1
+fi
+if ! grep -q "ENABLE_FAULT_INJECTION" k8s/external-sim/mock-bank-dev.yaml || ! grep -q "ENABLE_FAULT_INJECTION" k8s/external-sim/mock-broker-dev.yaml; then
+  echo "ERROR: mock-bank-dev.yaml and mock-broker-dev.yaml must configure ENABLE_FAULT_INJECTION"
+  failed=1
+fi
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1

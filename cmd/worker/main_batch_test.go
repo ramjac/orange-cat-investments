@@ -46,14 +46,20 @@ func TestWorkerRouter_ExecutiveReportingHandler(t *testing.T) {
 	sub, err := pubSub.Subscribe(context.Background(), "events.reporting.report_generated.v1")
 	require.NoError(t, err)
 
-	triggerPayload := map[string]string{
-		"period":       "2026-10",
-		"generated_by": "unit-test-worker",
+	triggerEnv := worker.EventEnvelope[map[string]string]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.reporting.generate_monthly_requested.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "corr-rep-1",
+		Payload: map[string]string{
+			"period":       "2026-10",
+			"generated_by": "unit-test-worker",
+		},
 	}
-	payloadBytes, err := json.Marshal(triggerPayload)
+	payloadBytes, err := json.Marshal(triggerEnv)
 	require.NoError(t, err)
 
-	msg := message.NewMessage(watermill.NewUUID(), payloadBytes)
+	msg := message.NewMessage(triggerEnv.EventID, payloadBytes)
 	err = pubSub.Publish("events.reporting.generate_monthly_requested.v1", msg)
 	require.NoError(t, err)
 

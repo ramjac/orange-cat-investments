@@ -8,6 +8,7 @@ import (
 
 	repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	service "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -132,10 +133,13 @@ func TestCoreInvestService(t *testing.T) {
 			assert.Equal(t, "strat-001", run.StrategyID)
 			assert.Equal(t, `{"lookback":30}`, run.Parameters)
 			assert.Equal(t, "events.investment.backtest_requested.v1", p.publishedTopic)
-			payloadMap, ok := p.publishedPayload.(map[string]any)
-			require.True(t, ok)
-			assert.Equal(t, run.BacktestID, payloadMap["backtest_id"])
-			assert.Equal(t, "strat-001", payloadMap["strategy_id"])
+			env, ok := p.publishedPayload.(envelope.EventEnvelope[map[string]any])
+			require.True(t, ok, "expected EventEnvelope[map[string]any], got %T", p.publishedPayload)
+			assert.NotEmpty(t, env.EventID)
+			assert.False(t, env.OccurredAt.IsZero())
+			assert.Equal(t, "events.investment.backtest_requested.v1", env.EventType)
+			assert.Equal(t, run.BacktestID, env.Payload["backtest_id"])
+			assert.Equal(t, "strat-001", env.Payload["strategy_id"])
 		})
 
 		t.Run("Success with empty parameters defaulting to json object", func(t *testing.T) {

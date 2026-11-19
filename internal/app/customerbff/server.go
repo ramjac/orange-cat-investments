@@ -3,13 +3,17 @@ package customerbff
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/httputil"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	"github.com/orange-cat-investments/oci/pkg/session"
 	sessionvalkey "github.com/orange-cat-investments/oci/pkg/session/valkey"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type CustomerSession = sessionvalkey.CustomerSession
@@ -94,4 +98,30 @@ func (b *CustomerBFF) SearchClient() *meilisearch.Client {
 
 func CustomerFromContext(ctx context.Context) *CustomerSession {
 	return session.CustomerFromContext(ctx)
+}
+
+func writeGRPCError(w http.ResponseWriter, err error, fallbackStatus int) {
+	st, ok := status.FromError(err)
+	msg := err.Error()
+	if ok && st.Message() != "" {
+		msg = st.Message()
+	}
+	switch status.Code(err) {
+	case codes.InvalidArgument:
+		httputil.WriteError(w, http.StatusBadRequest, msg)
+	case codes.Unauthenticated:
+		httputil.WriteError(w, http.StatusUnauthorized, msg)
+	case codes.PermissionDenied:
+		httputil.WriteError(w, http.StatusForbidden, msg)
+	case codes.NotFound:
+		httputil.WriteError(w, http.StatusNotFound, msg)
+	case codes.FailedPrecondition:
+		httputil.WriteError(w, http.StatusUnprocessableEntity, msg)
+	case codes.Unavailable:
+		httputil.WriteError(w, http.StatusServiceUnavailable, msg)
+	case codes.DeadlineExceeded:
+		httputil.WriteError(w, http.StatusGatewayTimeout, msg)
+	default:
+		httputil.WriteError(w, fallbackStatus, msg)
+	}
 }

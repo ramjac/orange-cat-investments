@@ -81,13 +81,23 @@ func HandleOTATriggered(ctx context.Context, logger *slog.Logger, internalBLL in
 // HandleExecutiveReportTrigger consumes a report generation request and delegates generation to Internal BLL.
 func HandleExecutiveReportTrigger(ctx context.Context, logger *slog.Logger, internalBLL internalbllv1.InternalBLLServiceClient, ps PubSub, msg *message.Message) ([]*message.Message, error) {
 	logger.Info("Watermill consumer received executive report generation request", "uuid", msg.UUID)
-	var req struct {
+	type reportTriggerPayload struct {
 		Period      string `json:"period"`
 		GeneratedBy string `json:"generated_by"`
+		RequestedBy string `json:"requested_by"`
 	}
-	_ = json.Unmarshal(msg.Payload, &req)
+	var req reportTriggerPayload
+	var env EventEnvelope[reportTriggerPayload]
+	if err := json.Unmarshal(msg.Payload, &env); err == nil && (env.Payload.Period != "" || env.Payload.GeneratedBy != "" || env.Payload.RequestedBy != "") {
+		req = env.Payload
+	} else {
+		_ = json.Unmarshal(msg.Payload, &req)
+	}
 	if req.Period == "" {
 		req.Period = time.Now().UTC().Format("2006-01")
+	}
+	if req.GeneratedBy == "" {
+		req.GeneratedBy = req.RequestedBy
 	}
 	if req.GeneratedBy == "" {
 		req.GeneratedBy = "system-reporting-worker"

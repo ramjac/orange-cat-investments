@@ -105,7 +105,8 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	clientOrderID := "ord-" + watermill.NewUUID()[:8]
-	brokerResp, err := s.brokerClient.CreateOrder(ctx, in.PortfolioID, alpaca.CreateOrderRequest{
+	brokerCtx, brokerCancel := s.withUpstreamTimeout(ctx)
+	brokerResp, err := s.brokerClient.CreateOrder(brokerCtx, in.PortfolioID, alpaca.CreateOrderRequest{
 		Symbol:        in.Symbol,
 		Qty:           in.Quantity,
 		Side:          in.Side,
@@ -114,9 +115,10 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		LimitPrice:    limitPricePtr,
 		ClientOrderID: clientOrderID,
 	})
+	brokerCancel()
 	if err != nil {
 		s.log().Error("broker order execution failed", "error", err, "portfolio_id", in.PortfolioID)
-		return nil, status.Errorf(codes.Unavailable, "broker order rejected: %s", err.Error())
+		return nil, mapUpstreamError("broker", err)
 	}
 	if brokerResp == nil {
 		return nil, status.Error(codes.Unavailable, "empty response from broker")
@@ -259,11 +261,16 @@ func (s *Server) GetTickerSnapshot(ctx context.Context, in *customerbllv1.GetTic
 	if len(symbols) == 0 {
 		symbols = []string{"AAPL", "NVDA", "MSFT", "TSLA"}
 	}
-	bars, err := s.brokerClient.GetLatestBars(ctx, symbols)
+	barsCtx, barsCancel := s.withUpstreamTimeout(ctx)
+	bars, err := s.brokerClient.GetLatestBars(barsCtx, symbols)
+	barsCancel()
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "failed to fetch market data from broker: %v", err)
+		s.log().Error("failed to fetch market data bars from broker", "error", err)
+		return nil, mapUpstreamError("broker", err)
 	}
-	quotes, _ := s.brokerClient.GetLatestQuotes(ctx, symbols)
+	quotesCtx, quotesCancel := s.withUpstreamTimeout(ctx)
+	quotes, _ := s.brokerClient.GetLatestQuotes(quotesCtx, symbols)
+	quotesCancel()
 
 	out := make([]*customerbllv1.TickerQuote, 0, len(symbols))
 	for _, sym := range symbols {

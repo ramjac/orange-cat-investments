@@ -2,8 +2,10 @@ package customerbll
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -27,7 +29,9 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 	portfolioID := in.PortfolioID
 
 	if portfolioID == "" && s.brokerClient != nil {
-		accs, err := s.brokerClient.ListAccounts(ctx)
+		listCtx, listCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.brokerClient.ListAccounts(listCtx)
+		listCancel()
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == custID || a.AccountNumber == custID || (custID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(custID))) {
@@ -45,7 +49,9 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 	}
 
 	if s.brokerClient != nil && portfolioID != "" {
-		acc, accErr := s.brokerClient.GetAccount(ctx, portfolioID)
+		accCtx, accCancel := s.withUpstreamTimeout(ctx)
+		acc, accErr := s.brokerClient.GetAccount(accCtx, portfolioID)
+		accCancel()
 		positions, posErr := bPositions(ctx, s, portfolioID)
 		if accErr == nil && acc != nil && posErr == nil {
 			accountName := "OCI Investment Portfolio"
@@ -192,7 +198,9 @@ func getHistoricalValuationPoints(ctx context.Context, provider historyProvider,
 }
 
 func bPositions(ctx context.Context, s *Server, portfolioID string) ([]*coreinvestv1.PortfolioHolding, error) {
-	positions, err := s.brokerClient.ListPositions(ctx, portfolioID)
+	posCtx, posCancel := s.withUpstreamTimeout(ctx)
+	defer posCancel()
+	positions, err := s.brokerClient.ListPositions(posCtx, portfolioID)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +383,9 @@ func (s *Server) GetPortfolioHistory(ctx context.Context, in *customerbllv1.GetP
 		}
 	}
 	if isPlaceholder && s.brokerClient != nil && in.CustomerID != "" {
-		accs, err := s.brokerClient.ListAccounts(ctx)
+		listCtx, listCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.brokerClient.ListAccounts(listCtx)
+		listCancel()
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID)) {
@@ -425,9 +435,12 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 	}
 	accountMap := make(map[string]brokerBalances)
 	if s.brokerClient != nil {
-		accs, err := s.brokerClient.ListAccounts(ctx)
+		listCtx, listCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.brokerClient.ListAccounts(listCtx)
+		listCancel()
 		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "failed to list broker accounts: %v", err)
+			s.log().Error("failed to list broker accounts for daily snapshots", "error", err)
+			return nil, mapUpstreamError("broker", err)
 		}
 		for _, acc := range accs {
 			val := acc.PortfolioValue
@@ -451,6 +464,7 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 
 	var recorded int32
 	var failedPortfolios []string
+	var sawTimeout bool
 	if portRes == nil {
 		return &customerbllv1.CaptureDailySnapshotsResponse{
 			SnapshotsRecorded: 0,
@@ -478,10 +492,16 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 				dailyReturnPct = math.Round(((valuationUSD-bal.lastEquity)/bal.lastEquity)*10000) / 100
 			}
 		} else if s.brokerClient != nil {
-			acc, err := s.brokerClient.GetAccount(ctx, p.PortfolioID)
+			accCtx, accCancel := s.withUpstreamTimeout(ctx)
+			acc, err := s.brokerClient.GetAccount(accCtx, p.PortfolioID)
+			accCancel()
 			if err != nil {
 				if !isBrokerNotFoundError(err) {
-					failedPortfolios = append(failedPortfolios, fmt.Sprintf("%s (%v)", p.PortfolioID, err))
+					mapped := mapUpstreamError("broker", err)
+					if status.Code(mapped) == codes.DeadlineExceeded {
+						sawTimeout = true
+					}
+					failedPortfolios = append(failedPortfolios, fmt.Sprintf("%s (%s)", p.PortfolioID, status.Convert(mapped).Message()))
 					continue
 				}
 			} else if acc != nil {
@@ -511,7 +531,11 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 	}
 
 	if len(failedPortfolios) > 0 {
-		return nil, status.Errorf(codes.Unavailable, "broker lookup failed for portfolios: %s", strings.Join(failedPortfolios, "; "))
+		code := codes.Unavailable
+		if sawTimeout {
+			code = codes.DeadlineExceeded
+		}
+		return nil, status.Errorf(code, "broker lookup failed for portfolios: %s", strings.Join(failedPortfolios, "; "))
 	}
 
 	return &customerbllv1.CaptureDailySnapshotsResponse{
@@ -525,6 +549,10 @@ func isBrokerNotFoundError(err error) bool {
 		return false
 	}
 	if status.Code(err) == codes.NotFound {
+		return true
+	}
+	var httpErr upstreamHTTPError
+	if errors.As(err, &httpErr) && httpErr.HTTPStatus() == http.StatusNotFound {
 		return true
 	}
 	msg := strings.ToLower(err.Error())

@@ -66,7 +66,7 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		LimitPrice:  req.Price,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
@@ -131,7 +131,7 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 		Symbols: symbols,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadGateway, fmt.Sprintf("failed to fetch market quotes: %v", err))
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
@@ -297,7 +297,7 @@ func (b *CustomerBFF) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request)
 		KeyID:      keyID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
@@ -382,7 +382,7 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		Secret:     secret,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, err, http.StatusBadGateway)
 		return
 	}
 
