@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 )
 
 // HandleACHTransferRequested consumes an ACH transfer requested event and delegates settlement to Customer BLL.
@@ -88,6 +89,8 @@ func HandleCatSpotted(logger *slog.Logger, msg *message.Message) ([]*message.Mes
 			"activity_type", envelope.Payload.ActivityType,
 			"confidence", envelope.Payload.ConfidenceScore,
 		)
+		telemetry.RecordFelineBehavioralEvent(msg.Context(), envelope.Payload.ActivityType)
+		telemetry.RecordFelineInferenceConfidence(msg.Context(), envelope.Payload.ConfidenceScore)
 	}
 
 	outputMsg := message.NewMessage(watermill.NewUUID(), []byte(`{"status":"brokerage_trade_executed"}`))

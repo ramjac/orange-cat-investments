@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -14,6 +15,7 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -64,6 +66,7 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	// 2. Execute order with broker
+	execStart := time.Now()
 	if s.brokerClient == nil {
 		if s.ciClient != nil {
 			price := in.LimitPrice
@@ -79,6 +82,10 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 				OrderType:   orderType,
 			})
 			if err == nil && res != nil && res.Order != nil {
+				telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
+				if strings.EqualFold(res.Order.Status, "filled") {
+					telemetry.RecordBracketOrderFill(ctx)
+				}
 				return &customerbllv1.ValidateAndExecuteOrderResponse{
 					OrderID:     res.Order.OrderID,
 					CustomerID:  in.CustomerID,
@@ -125,6 +132,11 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	orderStatus := brokerResp.Status
 	if orderStatus == "" {
 		orderStatus = "submitted"
+	}
+
+	telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
+	if strings.EqualFold(orderStatus, "filled") {
+		telemetry.RecordBracketOrderFill(ctx)
 	}
 
 	orderID := brokerResp.ID

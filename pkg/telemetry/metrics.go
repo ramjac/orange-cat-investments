@@ -20,9 +20,10 @@ var (
 	BracketOrderFills     metric.Int64Counter
 
 	// Feline Metrics
-	FelineBehavioralEvents metric.Int64Counter
-	CareScheduleUpdates    metric.Int64Counter
-	EmergencyHoldToggles   metric.Int64Counter
+	FelineBehavioralEvents    metric.Int64Counter
+	FelineInferenceConfidence metric.Float64Histogram
+	CareScheduleUpdates       metric.Int64Counter
+	EmergencyHoldToggles      metric.Int64Counter
 
 	// Operational Metrics
 	PebbleMTTADuration metric.Float64Histogram
@@ -63,6 +64,13 @@ func initMetrics(serviceName string) error {
 
 	FelineBehavioralEvents, err = meter.Int64Counter("oci.feline.behavioral_events.total",
 		metric.WithDescription("Total throughput of feline behavioral events (e.g. zoomies, perching, napping)"),
+	)
+	if err != nil {
+		return err
+	}
+
+	FelineInferenceConfidence, err = meter.Float64Histogram("oci.feline.inference.confidence",
+		metric.WithDescription("Confidence score distribution for feline behavioral inference"),
 	)
 	if err != nil {
 		return err
@@ -120,6 +128,12 @@ func RecordBracketOrderFill(ctx context.Context) {
 func RecordFelineBehavioralEvent(ctx context.Context, eventType string) {
 	if FelineBehavioralEvents != nil {
 		FelineBehavioralEvents.Add(ctx, 1, metric.WithAttributes(attribute.String("event_type", eventType)))
+	}
+}
+
+func RecordFelineInferenceConfidence(ctx context.Context, confidence float64) {
+	if FelineInferenceConfidence != nil {
+		FelineInferenceConfidence.Record(ctx, confidence)
 	}
 }
 

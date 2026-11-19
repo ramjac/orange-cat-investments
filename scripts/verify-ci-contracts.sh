@@ -161,6 +161,25 @@ then
   failed=1
 fi
 
+# 7. Enforce Grafana Beyla removal (7.15)
+echo "Checking that Grafana Beyla is absent from k8s/, cmd/, internal/, pkg/, scripts/, docs/..."
+beyla_hits="$(grep -rni "beyla" k8s/ cmd/ internal/ pkg/ scripts/ docs/ 2>/dev/null | grep -v "^scripts/verify-ci-contracts.sh:" || true)"
+if [ -n "$beyla_hits" ]; then
+  echo "ERROR: Found prohibited 'beyla' references:"
+  echo "$beyla_hits"
+  failed=1
+fi
+
+# 8. Enforce every telemetry Record* helper has at least one non-test caller (7.15)
+echo "Checking that every Record* helper in pkg/telemetry/metrics.go has a non-test caller..."
+for fn in $(grep -oE '^func (Record[A-Za-z0-9_]+)' pkg/telemetry/metrics.go | awk '{print $2}'); do
+  caller_hits="$(grep -rn "telemetry\.$fn(" cmd/ internal/ pkg/ --exclude='*_test.go' || true)"
+  if [ -z "$caller_hits" ]; then
+    echo "ERROR: Telemetry helper $fn has no non-test caller"
+    failed=1
+  fi
+done
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1
