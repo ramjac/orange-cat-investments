@@ -425,6 +425,8 @@ spec:
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=3d"
+            - "--storage.tsdb.retention.size=2GB"
             - "--web.enable-remote-write-receiver"
           ports:
             - containerPort: 9090
@@ -439,10 +441,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
               memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
       volumes:
         - name: config-volume
           configMap:
