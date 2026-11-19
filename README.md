@@ -279,6 +279,10 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 ### 5.23 RabbitMQ Poison-Pill & Dead-Letter Handling (7.18)
 * **Watermill Resilience Middleware (`internal/app/worker/poison_middleware.go`, `router.go`):** Every worker handler is wrapped with per-topic `middleware.PoisonQueue` (`<topic>.dlq`), CWE-532-safe poison logging (`event_id`, `topic`, `correlation_id`, and error only — never payload bytes), pre-retry `EnvelopeValidationMiddleware` (rejecting malformed JSON or missing `EventID`/`OccurredAt` straight to `.dlq`), and 3-attempt exponential-backoff `middleware.Retry`, with upfront AMQP `.dlq` queue declaration via `SubscribeInitialize` so dead-lettered messages trigger Prometheus `RabbitMQDeadLetterQueueNotEmpty`.
 
+### 5.24 Stateful Store Alert Rules & OpenTelemetry Business Metrics (7.14 & 7.15)
+* **Stateful Store Alert Rules (`k8s/monitoring/prometheus.yaml`, `docs/runbooks/stateful-store-alerts.md`):** Added `valkey_alerts` (`ValkeyMemorySaturation`, `ValkeyKeyEvictions`), `postgresql_alerts` (`PostgresConnectionSaturation`, `PostgresDeadTupleBloat`, `PostgresXIDWraparoundRisk`, `PostgresLowCacheHitRatio`), and `meilisearch_alerts` (`MeilisearchDown`, `MeilisearchDiskUsageHigh`) with `severity`/`tier` labels, runbook remediation, and CI contract validation in `scripts/verify-ci-contracts.sh`.
+* **OpenTelemetry Business Metrics (`pkg/telemetry/metrics.go`, `internal/app/...`, `cmd/pebble-proxy`):** Eliminated Grafana Beyla across manifests and source code (enforced by `scripts/verify-ci-contracts.sh`) and wired all 9 custom OTel business metrics helpers (`RecordOnboardingAttempt`, `RecordBankLinkingAttempt`, `RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordFelineInferenceConfidence`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`) to domain callers with `sdkmetric.NewManualReader()` unit tests.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -747,7 +751,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & PR-Scoped Technical Roadmap
 
-The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`, `7.21`–`7.24`), alongside an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
+The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`, `7.21`–`7.29`), alongside an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
 
 ### 7.0 Rules That Apply to Every Step
 
@@ -775,8 +779,8 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [x] **7.12** Portfolio History in Customer BFF & Portal
 3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
-   - [ ] **7.14** Stateful Store Alert Rules
-   - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics *(partially complete: Grafana Beyla completely dropped across manifests and code; wiring the 8 OpenTelemetry business metrics helpers in `pkg/telemetry/metrics.go` to domain callers remains)*
+   - [x] **7.14** Stateful Store Alert Rules
+   - [x] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
    - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
 4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
    - [x] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker
@@ -789,6 +793,12 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
    - [ ] **7.22** Configurable BFF Rate-Limit Policies for Staging & Load Testing
    - [ ] **7.23** Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
    - [ ] **7.24** Automated `oci-dev` Database Retention & Scheduled Seed Reset
+7. **Phase 7 — Chaos-Driven Observability, Alerting, Logging & Resilience Hardening (`7.25`–`7.29`):** gaps uncovered during the 34-scenario single-fault chaos audit (`docs/reports/chaos-audit-report.md`) — Kubernetes pod log shipping to Loki, service availability/error-rate/upstream-fault Prometheus alerts, broken baseline Gatus probes, descriptive BFF/BLL caller error logging & sanitization, `/sim/faults` auth/transport fixes, and silent background ACH DLQ clearing bugs.
+   - [ ] **7.25** Ship Kubernetes Pod Logs to Loki via Promtail/Alloy & Verify Centralized Log Queries
+   - [ ] **7.26** Prometheus Service Availability, Error-Rate, Upstream-Fault & `oci-dev` Scrape Alerting
+   - [ ] **7.27** Repair Baseline-Broken Gatus Probes & Expand COTS/Dev Health Coverage
+   - [ ] **7.28** Descriptive BFF/BLL Caller Error Logging, Response Sanitization & Reconnect Hardening
+   - [ ] **7.29** Fix `/sim/faults` Auth/Transport, Silent ACH `400` DLQ Backlog & `recurring_deposits` Constraint
 
 ---
 
@@ -864,34 +874,14 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 > [!NOTE] **Status: Completed**
 
 #### 7.14 Stateful Store Alert Rules
-* **Depends On:** `7.13`.
-* **Current Codebase State:** `alert_rules.yml` in `k8s/monitoring/prometheus.yaml` has groups for RabbitMQ, COTS, PVCs, Kubernetes object state, backups, and PKI, but none for Valkey, PostgreSQL, or Meilisearch.
-* **PR Scope:**
-  1. Add a `valkey_alerts` group (`ValkeyMemorySaturation` `> 0.85` of `redis_memory_max_bytes` when that metric is non-zero; `ValkeyKeyEvictions` `increase(redis_evicted_keys_total[5m]) > 0`).
-  2. Add a `postgresql_alerts` group (`PostgresConnectionSaturation` `> 0.80` of `pg_settings_max_connections`; `PostgresDeadTupleBloat`; `PostgresXIDWraparoundRisk` on `pg_database_age`; `PostgresLowCacheHitRatio` `< 0.99`).
-  3. Add a `meilisearch_alerts` group (`MeilisearchDown` `up{job="meilisearch"} == 0`; `MeilisearchDiskUsageHigh` on the `meilisearch-data-pvc` kubelet volume stats).
-  4. Give every rule `severity` and `tier` labels, and document thresholds and remediation in `docs/runbooks/stateful-store-alerts.md`.
-* **Verification Gate:**
-  * [offline] A Python check parses the embedded `alert_rules.yml` and asserts each named alert exists with `severity` and `tier`. If `promtool` is available, `promtool check rules` passes.
+> [!NOTE]
+> **Status: Completed**
+> `k8s/monitoring/prometheus.yaml` defines `valkey_alerts` (`ValkeyMemorySaturation`, `ValkeyKeyEvictions`), `postgresql_alerts` (`PostgresConnectionSaturation`, `PostgresDeadTupleBloat`, `PostgresXIDWraparoundRisk`, `PostgresLowCacheHitRatio`), and `meilisearch_alerts` (`MeilisearchDown`, `MeilisearchDiskUsageHigh`) with `severity` and `tier` labels, documented in `docs/runbooks/stateful-store-alerts.md` and enforced in `scripts/verify-ci-contracts.sh`.
 
 #### 7.15 Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
 > [!NOTE]
-> **Status: Partially Complete**
-> Done: Grafana Beyla has been completely eliminated across Kubernetes manifests, build definitions, and monorepo source code, standardizing entirely on OpenTelemetry Go SDK. Remaining: adding `RecordFelineInferenceConfidence`, wiring callers to the 8 business metrics helpers in `pkg/telemetry/metrics.go`, and adding the contract enforcement check in `verify-ci-contracts.sh`.
-* **Depends On:** `7.11`, `7.13`.
-* **Current Codebase State:** `pkg/telemetry` (`InitProvider`, OTLP to `alloy.monitoring.svc.cluster.local:4317`), `otelhttp`, and `otelgrpc` are wired into every service, so eBPF auto-instrumentation (Grafana Beyla) is redundant. Beyla appears only in historical README prose, with no manifests. Six of the eight helpers in `pkg/telemetry/metrics.go` (`RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`) have no callers.
-* **Design Decision (fixed):** Grafana Beyla is dropped. Telemetry uses only the OpenTelemetry Go SDK.
-* **PR Scope:**
-  1. Confirm and enforce Beyla removal: add a check to `scripts/verify-ci-contracts.sh` that fails if `beyla` appears under `k8s/`, `cmd/`, `internal/`, `pkg/`, `scripts/`, or `docs/`.
-  2. Add `RecordFelineInferenceConfidence` (histogram `oci.feline.inference.confidence`) to `metrics.go`.
-  3. Wire the callers:
-     * `internal/app/customerbll/orders.go`: order execution latency and bracket fills.
-     * `internal/app/worker/consumers_invest.go`: behavioral event and inference confidence when handling `cat_spotted`.
-     * `internal/app/internalbll/`: care schedule update and medical-hold toggle handlers.
-     * `cmd/pebble-proxy/alerts_handlers.go`: MTTA on ACK, measured from the alert's creation time.
-  4. Add tests using `sdkmetric.NewManualReader()` asserting each helper records a data point.
-* **Verification Gate:**
-  * [offline] `go test -race ./pkg/telemetry/... ./internal/app/... ./cmd/pebble-proxy/...`. Every `Record*` function in `metrics.go` has at least one non-test caller (checked with `grep`).
+> **Status: Completed**
+> Grafana Beyla is completely removed across manifests and source code (enforced by Check #7 in `scripts/verify-ci-contracts.sh`). All 9 OpenTelemetry business metric helpers in `pkg/telemetry/metrics.go` (`RecordOnboardingAttempt`, `RecordBankLinkingAttempt`, `RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordFelineInferenceConfidence`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`) are wired to domain callers (`internal/app/customerbll/orders.go`, `internal/app/worker/consumers_invest.go`, `internal/app/internalbll/veterinary_reviews.go`, `cmd/pebble-proxy/alerts_handlers.go`), verified by `pkg/telemetry/metrics_test.go` and Check #8 in `scripts/verify-ci-contracts.sh`.
 
 #### 7.16 Trace Context Propagation Over RabbitMQ & Grafana Correlation
 > [!NOTE]
@@ -935,13 +925,13 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.21 Prometheus Resource Sizing & TSDB Retention Hardening
 * **Depends On:** `7.13`.
-* **Current Codebase State:** `k8s/monitoring/prometheus.yaml` deploys `prom/prometheus:v2.51.0` with `limits.memory: 512Mi` (`requests.memory: 256Mi`) and no `--storage.tsdb.retention.time` or `--storage.tsdb.retention.size` flags. After multi-day cluster runs (1,500+ WAL segments), Prometheus `OOMKilled` (Exit Code 137) repeatedly during WAL replay in `monitoring`.
+* **Current Codebase State:** `k8s/monitoring/prometheus.yaml` has been updated with `requests.memory: 512Mi`, `limits.memory: 2Gi`, `--storage.tsdb.retention.time=3d`, and `--storage.tsdb.retention.size=2GB` (verified `1/1 Running` with `0` OOMKills over 10h on `thinker`). Documenting the WAL recovery procedure and enforcing the retention/memory contract in CI remains.
 * **PR Scope:**
-  1. In `k8s/monitoring/prometheus.yaml`, raise Prometheus `requests.memory` to `512Mi` and `limits.memory` to `2Gi` (or `1.5Gi`), and add explicit `--storage.tsdb.retention.time=7d` and `--storage.tsdb.retention.size=4GB` (matching the PVC allocation) so WAL replay stays bounded.
+  1. Verify `k8s/monitoring/prometheus.yaml` retains `requests.memory: 512Mi`, `limits.memory: 2Gi`, and explicit `--storage.tsdb.retention.time` / `--storage.tsdb.retention.size` flags, and add a contract check in `scripts/verify-ci-contracts.sh`.
   2. Document Prometheus WAL recovery and sizing in `docs/runbooks/cluster-load-testing.md`.
 * **Verification Gate:**
-  * [offline] `kubectl apply --dry-run=client -f k8s/monitoring/prometheus.yaml` succeeds and retention flags are present.
-  * [cluster] `prometheus` in `monitoring` enters `1/1 Running` without OOMKill across restarts.
+  * [offline] `kubectl apply --dry-run=client -f k8s/monitoring/prometheus.yaml` succeeds and `./scripts/verify-ci-contracts.sh` verifies the retention flags and memory limit.
+  * [cluster] `prometheus` in `monitoring` remains `1/1 Running` without OOMKill across restarts.
 
 #### 7.22 Configurable BFF Rate-Limit Policies for Staging & Load Testing
 * **Depends On:** None.
@@ -972,3 +962,84 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 * **Verification Gate:**
   * [offline] `scripts/prune-dev-db.sh` passes shellcheck/dry-run and preserves all seed persona IDs from `scripts/seed-dev.sql`.
   * [cluster] Running the retention job against `postgres-dev` bounds table sizes while keeping a subsequent simulator run at 73/73 passing.
+
+---
+
+### Phase 7: Chaos-Driven Observability, Alerting, Logging & Resilience Hardening
+
+> [!NOTE]
+> **Audit Evidence:** All five steps in Phase 7 are derived directly from empirical gaps discovered during the 34-scenario single-fault chaos audit (`oci-dev`, `oci-internal`, and `external-sim` `-dev` mocks) documented in [`docs/reports/chaos-audit-report.md`](docs/reports/chaos-audit-report.md).
+
+#### 7.25 Ship Kubernetes Pod Logs to Loki via Promtail & Verify Centralized Log Queries
+* **Depends On:** `7.16`.
+* **Current Codebase State:** `k8s/logging/promtail.yaml` deploys `grafana/promtail:2.9.4` as a `DaemonSet` in `logging`, but only configures a single static scrape job on host `/var/log/*log` with no `ServiceAccount`/`ClusterRole` and no `/var/log/pods` or `/var/log/containers` volume mounts. During the 34-scenario chaos audit, `GET /loki/api/v1/labels` returned strictly `["filename","job"]` and **0 / 34** scenarios had pod logs ingested into Loki.
+* **PR Scope:**
+  1. In `k8s/logging/promtail.yaml`, add a `ServiceAccount` (`promtail`), read-only `ClusterRole`/`ClusterRoleBinding` (`nodes`, `nodes/proxy`, `services`, `endpoints`, `pods`), `hostPath` mounts for `/var/log/pods` (read-only) and `/var/log/containers` (read-only), and a `kubernetes-pods` scrape job using `pipeline_stages: [- cri: {}]` that extracts and indexes `namespace`, `pod`, `container`, and `app` labels to `http://loki-service.logging.svc.cluster.local:3100/loki/api/v1/push`.
+  2. Add a CI contract check in `scripts/verify-ci-contracts.sh` verifying `/var/log/pods` and `cri` parsing are present in `k8s/logging/promtail.yaml`.
+* **Verification Gate:**
+  * [offline] `kubectl apply --dry-run=client -f k8s/logging/promtail.yaml` succeeds and `./scripts/verify-ci-contracts.sh` passes.
+  * [cluster] `GET /loki/api/v1/labels` includes `namespace`, `pod`, `container`, and `app`, and querying `{namespace="oci-dev",app="customer-bll"}` returns live structured JSON log entries during `./scripts/run-chaos-audit.sh --only C5`.
+
+#### 7.26 Prometheus Service Availability, Error-Rate, Upstream-Fault & `oci-dev` Scrape Alerting
+* **Depends On:** `7.14`, `7.15`, `7.21`.
+* **Current Codebase State:** Across all 34 chaos scenarios, **zero** outage, availability, HTTP 5xx, gRPC, DLQ, or upstream-fault alerts fired in Prometheus (`k8s/monitoring/prometheus.yaml`). Specific root causes verified against live Prometheus metrics and cluster manifests:
+  1. `alert_rules.yml` has no `kube-state-metrics` replica-availability rules (`kube_deployment_status_replicas_available` and `kube_statefulset_status_replicas_ready` are already exported in Prometheus, but unalerted).
+  2. `MeilisearchDown` (`up{job="meilisearch"} == 0`) fails to fire when `meilisearch` is scaled to `0` because `kubernetes_sd_configs: role: pod` drops disappeared pods so the `up` series vanishes rather than becoming `0`.
+  3. Unlike `k8s/oci-core/rabbitmq.yaml`, `k8s/oci-dev/rabbitmq.yaml` lacks `ConfigMap/rabbitmq-config` (`[rabbitmq_management,rabbitmq_prometheus].` + `prometheus.return_per_object_metrics = true`), container/service port `15692`, and `prometheus.io/scrape` annotations, and `k8s/monitoring/prometheus.yaml` only scrapes `oci-core` RabbitMQ and ZITADEL—leaving `oci-dev`'s 4,200-message DLQ and stagnant worker consumers unmonitored.
+  4. `http_server_request_duration_seconds_count` (exported via `otelhttp` → Alloy) has no HTTP 5xx alert rule, and `pkg/telemetry/metrics.go` has no upstream bank/broker failure or timeout counter.
+* **PR Scope:**
+  1. Enable the `rabbitmq_prometheus` plugin (`:15692`, `/metrics/per-object`, `ConfigMap/rabbitmq-config`) in `k8s/oci-dev/rabbitmq.yaml` matching `k8s/oci-core/rabbitmq.yaml`, and add `rabbitmq-service.oci-dev.svc.cluster.local:15692` and `zitadel-service.oci-dev.svc.cluster.local:8080` to `k8s/monitoring/prometheus.yaml`.
+  2. Add workload-availability alerts in `k8s/monitoring/prometheus.yaml`: `DeploymentZeroAvailableReplicas` (`kube_deployment_status_replicas_available{namespace=~"oci-core|oci-dev|oci-internal|external-sim"} == 0`), `StatefulSetReplicasUnavailable` (`kube_statefulset_status_replicas_ready{namespace=~"oci-core|oci-dev|oci-internal"} == 0`), and `ScrapeTargetDown` (`up == 0`), and update `MeilisearchDown` to `up{job="meilisearch"} == 0 or kube_deployment_status_replicas_available{deployment="meilisearch"} == 0`.
+  3. Add `RecordUpstreamRequest(ctx, service, status)` (`oci.upstream.requests.total` → `oci_upstream_requests_total{service="bank|broker",status="ok|unavailable|timeout|rejected"}`) in `pkg/telemetry/metrics.go`, call it from `internal/app/customerbll/upstream.go`, and add PromQL rules `HighHTTP5xxErrorRate` (on `http_server_request_duration_seconds_count{http_response_status_code=~"5.."}`), `UpstreamBankOrBrokerErrorSpike`, and `UpstreamBankOrBrokerTimeoutSpike`.
+  4. Extend `scripts/verify-ci-contracts.sh` to validate the new alert rules and `k8s/oci-dev/rabbitmq.yaml` port `15692`.
+* **Verification Gate:**
+  * [offline] `go test -race ./pkg/telemetry/... ./internal/app/customerbll/...` and `./scripts/verify-ci-contracts.sh` pass.
+  * [cluster] Scaling `oci-dev/customer-bll`, `oci-dev/meilisearch`, `oci-dev/oci-worker-dev`, or `oci-internal/forgejo` to `0`, or injecting `{"outage":true}` / `{"latency_ms":6500}` on `mock-broker-dev`, transitions the corresponding Prometheus alerts to `pending`/`firing` within `75s`.
+
+#### 7.27 Repair Baseline-Broken Gatus Probes & Expand COTS Health Coverage
+* **Depends On:** None.
+* **Current Codebase State:** At clean baseline during the chaos audit, **10 of 18** probes in `k8s/monitoring/gatus.yaml` were permanently red due to three concrete manifest mismatches:
+  1. **6 gRPC/mTLS & NetworkPolicy timeouts (`customer-bll-health`, `internal-bll-health`, `workforce-api-health`, `facilities-api-health`, `core-invest-api-health`, `ops-api-health`):** Those 6 services are mTLS gRPC servers listening on `:8085`, `:8086`, and `:50051`–`:50054` (using `tcpSocket` readiness probes; Domain APIs do not listen on `:8080/healthz` at all), and the `NetworkPolicy` manifests in `k8s/oci-core/bll-services.yaml` and `k8s/oci-core/domain-apis.yaml` only allow ingress from `tier: bff`/`tier: bll`/`app: oci-worker`, dropping packets from `monitoring/gatus`.
+  2. **3 CoreDNS lookup failures (`static-marketing-site`, `customer-portal-spa`, `employee-portal-spa`):** Gatus probes external `https://*.oci.local` ingress hostnames which are not in cluster CoreDNS (`no such host`).
+  3. **1 HTTP 404 (`erpnext-frappe-hr`) & missing `frappe-hr` probe:** `http://erpnext-service.oci-internal.svc.cluster.local:8000/api/method/ping` returns `404` without a Frappe site host header, and `frappe-hr-service.oci-internal:8000` has no probe.
+* **PR Scope:**
+  1. In `k8s/monitoring/gatus.yaml`, switch the 6 BLL/Domain API probes to TCP connectivity probes (`tcp://customer-bll-service.oci-core.svc.cluster.local:8085`, `tcp://internal-bll-service.oci-core.svc.cluster.local:8086`, and `tcp://<domain>-api-service.oci-core.svc.cluster.local:50051..50054` with condition `"[CONNECTED] == true"`), and add a `NetworkPolicy` ingress rule in `k8s/oci-core/bll-services.yaml` and `k8s/oci-core/domain-apis.yaml` allowing TCP from `namespaceSelector: {kubernetes.io/metadata.name: monitoring}` + `podSelector: {app: gatus}`.
+  2. Switch `static-marketing-site`, `customer-portal-spa`, and `employee-portal-spa` in `k8s/monitoring/gatus.yaml` to in-cluster service URLs (`http://oci-marketing-service.oci-core.svc.cluster.local:80/healthz`, `http://oci-customer-portal-service.oci-core.svc.cluster.local:5174/healthz`, `http://oci-employee-portal-service.oci-core.svc.cluster.local:5173/healthz`).
+  3. Fix `erpnext-frappe-hr` and add `frappe-hr-service.oci-internal.svc.cluster.local:8000` in `k8s/monitoring/gatus.yaml` using `tcp://...:8000` (`[CONNECTED] == true`) or the valid container health endpoint.
+* **Verification Gate:**
+  * [offline] `kubectl apply --dry-run=client -f k8s/monitoring/gatus.yaml -f k8s/oci-core/bll-services.yaml -f k8s/oci-core/domain-apis.yaml` passes.
+  * [cluster] `GET http://status.oci.local/api/v1/endpoints/statuses` reports **19 / 19 (100%) healthy** at clean baseline, and scaling any `oci-internal` COTS app (`forgejo`, `nextcloud`, `snipe-it`, `erpnext-frappe`, `frappe-hr`) to `0` flips its probe to unhealthy within `100s`.
+
+#### 7.28 Descriptive BFF/BLL Caller Error Logging, Response Sanitization & Latency Cascade Hardening
+* **Depends On:** None.
+* **Current Codebase State:** Tracing the chaos audit failures in `A7`–`A14` and `C5`–`C8` through the Go handlers identified four specific code-level defects:
+  1. **Silent BFF & BLL error paths:** `writeGRPCError` in `internal/app/customerbff/server.go` (line 103) never logs errors; `handleGetPortfolio` in `internal/app/customerbff/portfolio_handlers.go` (line 57) converts *every* `GetPortfolio` gRPC error (even `Unavailable` when `customer-bll` is down) into an unlogged `404 portfolio not found`; `handleGetAPIKeys` (line 202), `handleGetWebhooks` (line 324), and `handleListStatements` (line 212) swallow BLL errors as `200 OK []`; and `oci-employee-bff` / `internal-bll` fail to log `slog.Error` when `internal-bll`, `facilities-api`, or `ops-api` calls fail.
+  2. **Internal IP, port & DB credential leakage in HTTP responses:** `writeGRPCError` and `oci-employee-bff` echo raw `st.Message()` to HTTP clients on `Unavailable`/`Unknown`/`Internal`, leaking internal cluster IPs (`dial tcp 10.152.183.181:8085: connect: connection refused`) and PostgreSQL connection details (`failed to connect to user=oci_admin database=oci_dev`), while `ops-api` `Unavailable` in `barneby_slap_water_glass` maps to HTTP `400` instead of `503`.
+  3. **Vendor name in `customer-bll` server logs:** `internal/app/customerbll/orders.go` and `brokerage.go` log raw `err` (`"alpaca api error (...)"`) before calling `mapUpstreamError`.
+  4. **`15s` sequential broker timeout cascade in `GetPortfolio` & `handleLogin` (`C6`):** `handleLogin` in `internal/app/customerbff/auth_handlers.go` (line 58) synchronously calls `b.bllClient.GetPortfolio` on every login even when `req.Name != ""`. Inside `internal/app/customerbll/brokerage.go` (`GetPortfolio`, lines 31–56), when `mock-broker-dev` has `6500ms` latency, `GetPortfolio` chains **three sequential `5s` timeouts** (`ListAccounts` → `GetAccount` → `bPositions` = `15s` total), exceeding client timeouts and breaking customer login during broker slowdowns.
+* **PR Scope:**
+  1. Update `internal/app/customerbff/server.go` (`b.writeGRPCError`) and `internal/app/employeebff/` / `internal/handler/` to log structured `slog.Error` on every `5xx`/`Unavailable`/`DeadlineExceeded` failure (naming the downstream service, operation, gRPC code, and error) while returning sanitized client messages (`"customer service temporarily unavailable"`, `"internal service error"`, etc.) and mapping gRPC `Unavailable` → `503` and `DeadlineExceeded` → `504` consistently across `handleGetPortfolio` and employee handlers.
+  2. Add structured `slog.Error` logging in `internal/app/internalbll/` for failed `workforce-api`, `facilities-api`, `core-invest-api`, and `ops-api` gRPC calls, and log `sanitizeVendorNames(err.Error())` in `internal/app/customerbll/`.
+  3. In `internal/app/customerbff/auth_handlers.go` (`handleLogin`), skip `GetPortfolio` when `name != ""` (and bound it with a `2s` timeout when `name == ""`). In `internal/app/customerbll/brokerage.go` (`GetPortfolio`), short-circuit subsequent broker calls (`GetAccount` / `bPositions`) and fall back to `s.ciClient.GetPortfolio` immediately if the initial broker call fails with a timeout or transport error.
+* **Verification Gate:**
+  * [offline] Unit tests in `internal/app/customerbff`, `internal/app/employeebff`, `internal/app/customerbll`, and `internal/app/internalbll` verify structured `slog.Error` emission, zero IP/`user=`/`database=`/`alpaca` strings in responses or BLL logs, `503` on `GetPortfolio` when BLL is `Unavailable`, and `< 6s` `GetPortfolio`/`handleLogin` completion under `6500ms` simulated broker latency.
+  * [cluster] Re-running `./scripts/run-chaos-audit.sh --only A7`, `A8`, `A10`, `A12`, `A14`, and `C6` confirms descriptive caller logs, sanitized HTTP responses, and zero login timeouts during `C6`.
+
+#### 7.29 Fix `/sim/faults` Auth/Transport, Silent ACH `400` DLQ Backlog & `recurring_deposits` Frequency Bug
+* **Depends On:** `7.17`, `7.18`.
+* **Current Codebase State:** Code inspection of the live `C1`–`C10` and `A13` audit findings pinpointed the exact lines causing all three functional defects:
+  1. **`/sim/faults` blocked by API auth (`401`):** `RequireBankAuth` in `cmd/mock-bank/auth.go` (line 14) and `AuthMiddleware` in `cmd/mock-broker/auth.go` (line 14) only bypass `/healthz` (and `/health`), returning `401 Unauthorized` on unauthenticated `PUT`/`DELETE /sim/faults` requests from `simulation/driver_fault_patch.go` and `scripts/run-chaos-suite.sh`.
+  2. **`-fault-scenarios` ignores `OCI_INGRESS_IP`:** `simulation/driver_fault_patch.go` (line 16) uses a bare `&http.Client{Timeout: 30 * time.Second}` instead of `d.client.httpClient` (which wires the `OCI_INGRESS_IP` dialer in `simulation/client.go`).
+  3. **Dropped `BankAccount`/`AccountID` & unconditional `CreateRecurringDeposit` in `InitiateACHDeposit`:**
+     * In `internal/app/customerbff/portfolio_handlers.go` (`handleCreateDeposit`, lines 151–156), `req.BankAccount` and `req.AccountID` are decoded from JSON and then **omitted** from `InitiateACHDepositRequest`.
+     * In `internal/app/customerbll/banking.go` (`InitiateACHDeposit`, lines 46–104), `accountID` is resolved on lines 46–54 and then **never used** (`in.BankAccount` is sent in `achPayload["bank_account"]` instead), and `s.bankClient.GetAccounts(bankCtx, in.CustomerID)` queries by session UUID rather than matching seeded accounts (`acc_arthur_chase_chk` / `acc_chloe_svcu_chk`), causing `oci-worker-dev` `SettleACHTransfer` to fail every ACH transfer with `bank API error (400): bank account not found` (**4,200 dead-lettered messages** in `oci-dev`!).
+     * Also in `InitiateACHDeposit` (lines 62–77), `s.ciClient.CreateRecurringDeposit` is called unconditionally even when `freq == "one_time"` (`chloe_margin_deposit_nsf_check`), violating `CHECK (frequency IN ('weekly', 'biweekly', 'monthly'))` on `core_invest.recurring_deposits` (`scripts/init.sql` line 472, `SQLSTATE 23514`) before any bank NSF check runs.
+* **PR Scope:**
+  1. Exempt `r.URL.Path == "/sim/faults"` in `cmd/mock-bank/auth.go` and `cmd/mock-broker/auth.go` (the handler itself remains registered only when `ENABLE_FAULT_INJECTION=true`), and use `d.client`'s HTTP client/transport in `simulation/driver_fault_patch.go`.
+  2. In `internal/app/customerbff/portfolio_handlers.go` (`handleCreateDeposit`), forward `BankAccount: req.BankAccount` and `AccountID: req.AccountID` in `InitiateACHDepositRequest`.
+  3. In `internal/app/customerbll/banking.go` (`InitiateACHDeposit`):
+     * Only invoke `s.ciClient.CreateRecurringDeposit` when `freq != "one_time"` (`weekly`, `biweekly`, `monthly`).
+     * Resolve `accountID` from `in.AccountID`, matching `in.BankAccount` against `s.bankClient.GetAccounts` (falling back to default owner accounts when `in.CustomerID` is a dynamically registered UUID), check pre-authorization / available balance when `s.bankClient != nil` so over-balance transfers (`chloe_margin_deposit_nsf_check`) genuinely fail with NSF R01 `400`, and pass the resolved `accountID` into `achPayload["bank_account"]` so async worker clearing succeeds.
+* **Verification Gate:**
+  * [offline] Unit tests in `cmd/mock-bank`, `cmd/mock-broker`, `simulation`, `internal/app/customerbff`, and `internal/app/customerbll` verify unauthenticated `/sim/faults` when `ENABLE_FAULT_INJECTION=true`, `OCI_INGRESS_IP` transport usage in `-fault-scenarios`, one-time vs recurring deposit persistence (zero `SQLSTATE 23514`), and end-to-end ACH settlement with resolved `accountID`.
+  * [cluster] `OCI_INGRESS_IP=192.168.1.246 go run ./simulation/cmd/simulator -mode live -persona cust-longterm-arthur -fault-scenarios ...` passes against `oci-dev`, and a full 73/73 simulator run settles Arthur's ACH transfer cleanly with **0** new `.dlq` messages and **0** `SQLSTATE 23514` warnings.
