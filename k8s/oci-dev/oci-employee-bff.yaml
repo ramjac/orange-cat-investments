@@ -29,6 +29,8 @@ spec:
               value: "8081"
             - name: ENV
               value: "development"
+            - name: RATE_LIMIT_ENABLED
+              value: "false"
             - name: VALKEY_ADDR
               value: "valkey-service.oci-dev.svc.cluster.local:6379"
             - name: ENABLE_DEV_MOCK_AUTH
