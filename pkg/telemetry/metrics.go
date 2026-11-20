@@ -20,12 +20,14 @@ var (
 	BracketOrderFills     metric.Int64Counter
 
 	// Feline Metrics
-	FelineBehavioralEvents metric.Int64Counter
-	CareScheduleUpdates    metric.Int64Counter
-	EmergencyHoldToggles   metric.Int64Counter
+	FelineBehavioralEvents    metric.Int64Counter
+	FelineInferenceConfidence metric.Float64Histogram
+	CareScheduleUpdates       metric.Int64Counter
+	EmergencyHoldToggles      metric.Int64Counter
 
 	// Operational Metrics
-	PebbleMTTADuration metric.Float64Histogram
+	PebbleMTTADuration      metric.Float64Histogram
+	UpstreamRequestsCounter metric.Int64Counter
 )
 
 func initMetrics(serviceName string) error {
@@ -68,6 +70,13 @@ func initMetrics(serviceName string) error {
 		return err
 	}
 
+	FelineInferenceConfidence, err = meter.Float64Histogram("oci.feline.inference.confidence",
+		metric.WithDescription("Confidence score distribution for feline behavioral inference"),
+	)
+	if err != nil {
+		return err
+	}
+
 	CareScheduleUpdates, err = meter.Int64Counter("oci.feline.care_schedule_updates.total",
 		metric.WithDescription("Frequency of feline care schedule updates"),
 	)
@@ -85,6 +94,13 @@ func initMetrics(serviceName string) error {
 	PebbleMTTADuration, err = meter.Float64Histogram("oci.operational.pebble_mtta.duration",
 		metric.WithDescription("Mean Time To Acknowledge (MTTA) duration for wearable on-call alerts"),
 		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return err
+	}
+
+	UpstreamRequestsCounter, err = meter.Int64Counter("oci.upstream.requests.total",
+		metric.WithDescription("Total number of outbound requests to external bank and broker providers"),
 	)
 	if err != nil {
 		return err
@@ -123,6 +139,12 @@ func RecordFelineBehavioralEvent(ctx context.Context, eventType string) {
 	}
 }
 
+func RecordFelineInferenceConfidence(ctx context.Context, confidence float64) {
+	if FelineInferenceConfidence != nil {
+		FelineInferenceConfidence.Record(ctx, confidence)
+	}
+}
+
 func RecordCareScheduleUpdate(ctx context.Context) {
 	if CareScheduleUpdates != nil {
 		CareScheduleUpdates.Add(ctx, 1)
@@ -138,5 +160,16 @@ func RecordEmergencyHoldToggle(ctx context.Context) {
 func RecordPebbleMTTA(ctx context.Context, durationSec float64) {
 	if PebbleMTTADuration != nil {
 		PebbleMTTADuration.Record(ctx, durationSec)
+	}
+}
+
+func RecordUpstreamRequest(ctx context.Context, service, status string) {
+	if UpstreamRequestsCounter != nil {
+		UpstreamRequestsCounter.Add(ctx, 1,
+			metric.WithAttributes(
+				attribute.String("service", service),
+				attribute.String("status", status),
+			),
+		)
 	}
 }

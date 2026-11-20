@@ -37,7 +37,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		}
 		res, err := b.bllClient.ListStreams(r.Context(), &coreinvestv1.ListCameraStreamsRequest{})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListStreams", err, http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -79,7 +79,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			Protocol:   req.Protocol,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "RegisterStream", err, http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -100,7 +100,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			StreamID: id,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			b.handleGRPCError(w, "GetCameraStream", err, http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -120,7 +120,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			PortfolioID: portfolioID,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListBrokerageOrders", err, http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -160,7 +160,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			OrderType:   req.OrderType,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "ExecuteBrokerageOrder", err, http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -181,7 +181,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			OrderID: id,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			b.handleGRPCError(w, "GetBrokerageOrder", err, http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -198,7 +198,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 		}
 		res, err := b.bllClient.ListBacktestRuns(r.Context(), &coreinvestv1.ListBacktestRunsRequest{})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListBacktestRuns", err, http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -241,7 +241,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			InitialCapital: req.InitialCapital,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "StartBacktestRun", err, http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -262,7 +262,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			RunID: id,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			b.handleGRPCError(w, "GetBacktestRun", err, http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -282,7 +282,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			CustomerID: customerID,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListRecurringDeposits", err, http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -317,7 +317,7 @@ func (b *EmployeeBFF) RegisterQuantRoutes(mux *http.ServeMux) {
 			BankAccount: req.BankAccount,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "CreateRecurringDeposit", err, http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

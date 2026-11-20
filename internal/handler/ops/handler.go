@@ -2,11 +2,15 @@ package ops
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/pebble"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Handler struct {
@@ -75,7 +79,7 @@ func (h *Handler) GetPebbleAlerts(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.bllClient.ListAlerts(r.Context(), &opsv1.ListAlertsRequest{UnacknowledgedOnly: true})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeOpsGRPCError(w, "ListAlerts", err, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -107,10 +111,86 @@ func (h *Handler) SubmitPebbleAck(w http.ResponseWriter, r *http.Request) {
 		DeviceID:       req.DeviceID,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "AcknowledgeAlert", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func containsSensitiveOpsDetails(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"dial tcp",
+		"connection refused",
+		"transport:",
+		"user=",
+		"database=",
+		"password=",
+		"sqlstate",
+		"failed to connect to",
+		"rpc error:",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeOpsError(httpStatus int, msg string) string {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed != "" && !containsSensitiveOpsDetails(trimmed) {
+		return trimmed
+	}
+	switch httpStatus {
+	case http.StatusServiceUnavailable:
+		return "ops service temporarily unavailable"
+	case http.StatusGatewayTimeout:
+		return "ops service request timed out"
+	case http.StatusNotFound:
+		return "resource not found"
+	case http.StatusBadRequest:
+		return "invalid request parameters"
+	default:
+		return "internal ops service error"
+	}
+}
+
+func writeOpsGRPCError(w http.ResponseWriter, op string, err error, fallbackStatus int) {
+	st, ok := status.FromError(err)
+	code := status.Code(err)
+	rawMsg := err.Error()
+	if ok && st.Message() != "" {
+		rawMsg = st.Message()
+	}
+
+	httpStatus := fallbackStatus
+	switch code {
+	case codes.Unavailable:
+		httpStatus = http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		httpStatus = http.StatusGatewayTimeout
+	case codes.NotFound:
+		httpStatus = http.StatusNotFound
+	case codes.InvalidArgument:
+		httpStatus = http.StatusBadRequest
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
+	case codes.Unauthenticated:
+		httpStatus = http.StatusUnauthorized
+	}
+
+	if httpStatus >= 500 || code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Internal || code == codes.Unknown {
+		slog.Error("internal-bll ops gRPC call failed",
+			"downstream", "internal-bll",
+			"operation", op,
+			"grpc_code", code.String(),
+			"http_status", httpStatus,
+			"error", err,
+		)
+	}
+
+	http.Error(w, sanitizeOpsError(httpStatus, rawMsg), httpStatus)
 }

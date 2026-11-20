@@ -119,6 +119,55 @@ func TestCustomerBFF_RateLimiting(t *testing.T) {
 	assert.Contains(t, blockedRec.Body.String(), "rate limit exceeded")
 }
 
+func TestCustomerBFF_RateLimiting_EnvOverrides(t *testing.T) {
+	loginPayload := `{"customer_id":"cust-rl-env","name":"RL Env Tester","email":"rlenv@oci.local"}`
+
+	t.Run("RATE_LIMIT_ENABLED=false disables login throttling", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_ENABLED", "false")
+		bff := NewCustomerBFF(newMockCustomerBLLClient(), nil)
+		bff.SetRateLimiter(cachevalkey.NewRateLimiter(nil, nil))
+
+		mux := http.NewServeMux()
+		bff.RegisterRoutes(mux)
+
+		for i := 1; i <= 10; i++ {
+			req := httptest.NewRequest("POST", "/api/v1/customer/auth/login", bytes.NewBufferString(loginPayload))
+			req.RemoteAddr = "198.51.100.50:55432"
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code, "attempt %d should succeed when rate limiting is disabled", i)
+		}
+	})
+
+	t.Run("RATE_LIMIT_MULTIPLIER scales login limit", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_ENABLED", "true")
+		t.Setenv("RATE_LIMIT_MULTIPLIER", "2")
+		bff := NewCustomerBFF(newMockCustomerBLLClient(), nil)
+		bff.SetRateLimiter(cachevalkey.NewRateLimiter(nil, nil))
+
+		mux := http.NewServeMux()
+		bff.RegisterRoutes(mux)
+
+		for i := 1; i <= 10; i++ {
+			req := httptest.NewRequest("POST", "/api/v1/customer/auth/login", bytes.NewBufferString(loginPayload))
+			req.RemoteAddr = "198.51.100.51:55432"
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code, "attempt %d should succeed under 2x multiplier", i)
+			assert.Equal(t, "10", rec.Header().Get("X-RateLimit-Limit"))
+		}
+
+		req11 := httptest.NewRequest("POST", "/api/v1/customer/auth/login", bytes.NewBufferString(loginPayload))
+		req11.RemoteAddr = "198.51.100.51:55432"
+		req11.Header.Set("Content-Type", "application/json")
+		rec11 := httptest.NewRecorder()
+		mux.ServeHTTP(rec11, req11)
+		assert.Equal(t, http.StatusTooManyRequests, rec11.Code)
+	})
+}
+
 func TestCustomerBFF_MultiDeviceLogoutPurge(t *testing.T) {
 	store := sessionvalkey.NewMemoryCustomerSessionStore()
 	defer store.Close()

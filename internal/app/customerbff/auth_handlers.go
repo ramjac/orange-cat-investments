@@ -1,10 +1,12 @@
 package customerbff
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/orange-cat-investments/oci/pkg/telemetry"
 
@@ -54,12 +56,16 @@ func (b *CustomerBFF) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dynamically query customer portfolio from Customer BLL to resolve customer name
-	if b.bllClient != nil {
-		if p, err := b.bllClient.GetPortfolio(r.Context(), &customerbllv1.GetPortfolioRequest{CustomerID: custID}); err == nil && p != nil {
-			if name == "" && p.CustomerName != "" {
-				name = p.CustomerName
-			}
+	// Only query customer portfolio from Customer BLL to resolve customer name when name is unset,
+	// bounded to 2s so upstream broker slowdowns never block customer login.
+	if name == "" && b.bllClient != nil {
+		lookupCtx, lookupCancel := context.WithTimeout(r.Context(), 2*time.Second)
+		p, err := b.bllClient.GetPortfolio(lookupCtx, &customerbllv1.GetPortfolioRequest{CustomerID: custID})
+		lookupCancel()
+		if err != nil {
+			b.log().Warn("customer-bll GetPortfolio name lookup failed during login", "customer_id", custID, "error", err)
+		} else if p != nil && p.CustomerName != "" {
+			name = p.CustomerName
 		}
 	}
 	if name == "" {
@@ -166,7 +172,7 @@ func (b *CustomerBFF) handleRegister(w http.ResponseWriter, r *http.Request) {
 		if req.BankPublicToken != "" {
 			telemetry.RecordBankLinkingAttempt(r.Context(), false)
 		}
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "RegisterCustomer", err, http.StatusBadRequest)
 		return
 	}
 	if req.BankPublicToken != "" {
@@ -258,7 +264,7 @@ func (b *CustomerBFF) handleCloseAccount(w http.ResponseWriter, r *http.Request)
 		DestinationAccountID: req.DestinationAccountID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "CloseAccount", err, http.StatusBadRequest)
 		return
 	}
 

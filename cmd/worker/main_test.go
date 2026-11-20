@@ -205,6 +205,8 @@ func TestWorkerRouter_CatSpottedHandler_InvalidPayload(t *testing.T) {
 
 	allocationCheckMessages, err := pubSub.Subscribe(ctx, "events.investment.allocation_check.v1")
 	require.NoError(t, err)
+	dlqMessages, err := pubSub.Subscribe(ctx, "events.observation.cat_spotted.v1.dlq")
+	require.NoError(t, err)
 
 	go func() {
 		_ = router.Run(ctx)
@@ -217,11 +219,18 @@ func TestWorkerRouter_CatSpottedHandler_InvalidPayload(t *testing.T) {
 	require.NoError(t, err)
 
 	select {
+	case dlqMsg := <-dlqMessages:
+		dlqMsg.Ack()
+		assert.Equal(t, msg.UUID, dlqMsg.UUID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for invalid message in events.observation.cat_spotted.v1.dlq")
+	}
+
+	select {
 	case outMsg := <-allocationCheckMessages:
 		outMsg.Ack()
-		assert.JSONEq(t, `{"status":"brokerage_trade_executed"}`, string(outMsg.Payload))
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for output message on events.investment.allocation_check.v1")
+		t.Fatal("malformed message must not produce output on events.investment.allocation_check.v1")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -246,7 +255,19 @@ func TestWorkerRouter_BacktestRunHandler(t *testing.T) {
 
 	<-router.Running()
 
-	msg := message.NewMessage(watermill.NewUUID(), []byte(`{"strategy_id":"strat-1"}`))
+	event := worker.EventEnvelope[worker.BacktestRequestedPayload]{
+		EventID:       watermill.NewUUID(),
+		EventType:     "events.investment.backtest_requested.v1",
+		OccurredAt:    time.Now().UTC(),
+		CorrelationID: "corr-bt-1",
+		Payload: worker.BacktestRequestedPayload{
+			StrategyID: "strat-1",
+		},
+	}
+	payloadBytes, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	msg := message.NewMessage(event.EventID, payloadBytes)
 	err = pubSub.Publish("events.investment.backtest_requested.v1", msg)
 	require.NoError(t, err)
 

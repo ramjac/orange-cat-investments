@@ -24,7 +24,9 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 
 	portfolioID := in.PortfolioID
 	if portfolioID == "" && s.brokerClient != nil {
-		accs, err := s.brokerClient.ListAccounts(ctx)
+		brokerCtx, brokerCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.brokerClient.ListAccounts(brokerCtx)
+		brokerCancel()
 		if err == nil {
 			for _, a := range accs {
 				if a.ID == in.CustomerID || a.AccountNumber == in.CustomerID || (in.CustomerID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(in.CustomerID))) {
@@ -42,11 +44,55 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 	}
 
 	accountID := in.AccountID
-	if accountID == "" && s.bankClient != nil {
-		accs, err := s.bankClient.GetAccounts(ctx, in.CustomerID)
-		if err == nil && len(accs) > 0 {
-			accountID = accs[0].AccountID
+	var matchedAccount *plaid.Account
+	if s.bankClient != nil {
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.bankClient.GetAccounts(bankCtx, in.CustomerID)
+		bankCancel()
+		if err == nil && len(accs) == 0 && in.CustomerID != "" {
+			fallbackCtx, fallbackCancel := s.withUpstreamTimeout(ctx)
+			accs, err = s.bankClient.GetAccounts(fallbackCtx, "")
+			fallbackCancel()
 		}
+		if err != nil {
+			s.log().Warn("failed to resolve linked bank accounts from bank provider", "customer_id", in.CustomerID, "error", sanitizeVendorNames(err.Error()))
+		} else if len(accs) > 0 {
+			recordUpstreamSuccess(ctx, "bank")
+			for i := range accs {
+				a := &accs[i]
+				if accountID != "" && a.AccountID == accountID {
+					matchedAccount = a
+					break
+				}
+				if in.BankAccount != "" && (strings.EqualFold(a.AccountID, in.BankAccount) ||
+					strings.EqualFold(a.Name, in.BankAccount) ||
+					(a.AccountNumber != "" && strings.Contains(in.BankAccount, a.AccountNumber))) {
+					matchedAccount = a
+					break
+				}
+			}
+			if matchedAccount == nil && accountID == "" {
+				matchedAccount = &accs[0]
+			}
+			if matchedAccount != nil {
+				accountID = matchedAccount.AccountID
+			}
+		}
+	}
+
+	if matchedAccount != nil && matchedAccount.AvailableBalance > 0 && in.AmountUSD > matchedAccount.AvailableBalance {
+		s.log().Warn("ACH deposit declined by bank pre-authorization: insufficient funds",
+			"customer_id", in.CustomerID,
+			"account_id", matchedAccount.AccountID,
+			"amount_usd", in.AmountUSD,
+			"available_balance", matchedAccount.AvailableBalance,
+		)
+		return nil, status.Errorf(codes.InvalidArgument, "ACH transfer declined by bank pre-authorization (R01): insufficient funds")
+	}
+
+	resolvedBankAccount := accountID
+	if resolvedBankAccount == "" {
+		resolvedBankAccount = in.BankAccount
 	}
 
 	freq := in.Frequency
@@ -55,13 +101,13 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 	}
 
 	var createdDep *coreinvestv1.RecurringDeposit
-	if s.ciClient != nil {
+	if s.ciClient != nil && freq != "one_time" {
 		res, err := s.ciClient.CreateRecurringDeposit(ctx, &coreinvestv1.CreateRecurringDepositRequest{
 			CustomerID:  in.CustomerID,
 			PortfolioID: portfolioID,
 			AmountUSD:   in.AmountUSD,
 			Frequency:   freq,
-			BankAccount: in.BankAccount,
+			BankAccount: resolvedBankAccount,
 		})
 		if err != nil {
 			s.log().Warn("failed to persist recurring deposit schedule in core-invest-api via gRPC", "error", err)
@@ -80,7 +126,7 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 			PortfolioID:  portfolioID,
 			AmountUSD:    in.AmountUSD,
 			Frequency:    freq,
-			BankAccount:  in.BankAccount,
+			BankAccount:  resolvedBankAccount,
 			Status:       "active",
 			NextChargeAt: now.AddDate(0, 1, 0).Format(time.RFC3339),
 		}
@@ -93,7 +139,7 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 		"transfer_id":   transferID,
 		"customer_id":   in.CustomerID,
 		"portfolio_id":  portfolioID,
-		"bank_account":  in.BankAccount,
+		"bank_account":  resolvedBankAccount,
 		"amount_usd":    in.AmountUSD,
 		"transfer_type": "deposit",
 		"frequency":     freq,
@@ -142,7 +188,9 @@ func (s *Server) ListBankAccounts(ctx context.Context, in *customerbllv1.ListBan
 	}
 
 	if s.bankClient != nil {
-		accs, err := s.bankClient.GetAccounts(ctx, in.CustomerID)
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		accs, err := s.bankClient.GetAccounts(bankCtx, in.CustomerID)
+		bankCancel()
 		if err == nil && len(accs) > 0 {
 			out := make([]*customerbllv1.LinkedBankAccount, 0, len(accs))
 			for _, a := range accs {
@@ -186,15 +234,19 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 		if in.TransferType == "withdrawal" {
 			direction = "credit"
 		}
-		_, err := s.bankClient.CreateTransfer(ctx, plaid.CreateTransferRequest{
+		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
+		_, err := s.bankClient.CreateTransfer(bankCtx, plaid.CreateTransferRequest{
 			AccountID:   in.BankAccount,
 			Amount:      in.AmountUSD,
 			Direction:   direction,
 			Description: fmt.Sprintf("OCI Investment Capital ACH %s (%s)", in.TransferType, in.TransferID),
 		})
+		bankCancel()
 		if err != nil {
-			return nil, status.Errorf(codes.Unavailable, "bank clearing failed for transfer %s: %v", in.TransferID, err)
+			s.log().Error("bank clearing failed", "transfer_id", in.TransferID, "error", sanitizeVendorNames(err.Error()))
+			return nil, mapUpstreamError("bank", err)
 		}
+		recordUpstreamSuccess(ctx, "bank")
 	}
 
 	// 2. Update portfolio balance in core-invest domain

@@ -49,7 +49,7 @@ func (s *Server) CreateIncident(ctx context.Context, in *workforcev1.CreateIncid
 		Description:      in.Description,
 	})
 	if err != nil {
-		return nil, err
+		return nil, s.logDomainError("workforce-api", "CreateIncident", err)
 	}
 
 	protoInc := resp.Incident
@@ -92,7 +92,8 @@ func (s *Server) ListIncidents(ctx context.Context, in *workforcev1.ListIncident
 	if s.wfClient == nil {
 		return &workforcev1.ListIncidentsResponse{}, nil
 	}
-	return s.wfClient.ListIncidents(ctx, in)
+	res, err := s.wfClient.ListIncidents(ctx, in)
+	return res, s.logDomainError("workforce-api", "ListIncidents", err)
 }
 
 func (s *Server) UpdateIncidentStatus(ctx context.Context, in *workforcev1.UpdateIncidentStatusRequest) (*workforcev1.UpdateIncidentStatusResponse, error) {
@@ -102,7 +103,8 @@ func (s *Server) UpdateIncidentStatus(ctx context.Context, in *workforcev1.Updat
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.UpdateIncidentStatus(ctx, in)
+	res, err := s.wfClient.UpdateIncidentStatus(ctx, in)
+	return res, s.logDomainError("workforce-api", "UpdateIncidentStatus", err)
 }
 
 // BroadcastPebbleIncidentAlert creates an urgent IT ticket and Pebble alert in ops-api for an incident.
@@ -124,7 +126,7 @@ func (s *Server) BroadcastPebbleIncidentAlert(ctx context.Context, in *internalb
 		IsUrgent:       true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, s.logDomainError("workforce-api", "CreateIncident", err)
 	}
 	ticketID := ""
 	if resp.Ticket != nil {

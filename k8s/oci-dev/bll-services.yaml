@@ -161,6 +161,16 @@ spec:
               value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
             - name: NEXTCLOUD_URL
               value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: NEXTCLOUD_ADMIN_USER
+            - name: NEXTCLOUD_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: NEXTCLOUD_ADMIN_PASS
             - name: FORGEJO_URL
               value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
             - name: FRAPPE_URL
@@ -290,5 +300,18 @@ spec:
             matchLabels:
               app: mock-hardware-dev
       ports:
+        - protocol: TCP
+          port: 8086
+    # Gatus uptime monitor TCP connectivity health probes from monitoring namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: gatus
+      ports:
+        - protocol: TCP
+          port: 8085
         - protocol: TCP
           port: 8086

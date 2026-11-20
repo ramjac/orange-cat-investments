@@ -29,6 +29,7 @@ type Config struct {
 	ClientTLS       *tls.Config
 	BrokerClient    *alpaca.Client
 	BankClient      *plaid.Client
+	UpstreamTimeout time.Duration
 }
 
 type Server struct {
@@ -39,6 +40,7 @@ type Server struct {
 	brokerClient    *alpaca.Client
 	bankClient      *plaid.Client
 	defaultFelineID string
+	upstreamTimeout time.Duration
 
 	wfClient  workforcev1.WorkforceServiceClient
 	ciClient  coreinvestv1.CoreInvestServiceClient
@@ -59,12 +61,24 @@ func NewServer(cfg Config) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	upstreamTimeout := cfg.UpstreamTimeout
+	if upstreamTimeout <= 0 {
+		if raw := os.Getenv("UPSTREAM_TIMEOUT"); raw != "" {
+			if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+				upstreamTimeout = parsed
+			}
+		}
+	}
+	if upstreamTimeout <= 0 {
+		upstreamTimeout = defaultUpstreamTimeout
+	}
 	s := &Server{
 		logger:          logger,
 		publisher:       cfg.Publisher,
 		brokerClient:    cfg.BrokerClient,
 		bankClient:      cfg.BankClient,
 		defaultFelineID: cfg.DefaultFelineID,
+		upstreamTimeout: upstreamTimeout,
 	}
 
 	if cfg.WorkforceTarget != "" {
@@ -174,6 +188,10 @@ func (s *Server) SetDefaultFelineID(id string) {
 
 func (s *Server) SetPublisher(p message.Publisher) {
 	s.publisher = p
+}
+
+func (s *Server) SetUpstreamTimeout(d time.Duration) {
+	s.upstreamTimeout = d
 }
 
 func (s *Server) log() *slog.Logger {

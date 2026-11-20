@@ -12,6 +12,8 @@ import (
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +37,7 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 
 	resp, err := b.bllClient.GetESGTransparency(r.Context(), &customerbllv1.GetESGTransparencyRequest{})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to fetch ESG transparency metrics")
+		b.handleGRPCError(w, "GetESGTransparency", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -74,6 +76,7 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := b.bllClient.ListCameraStreams(r.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCameraStreams", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []*coreinvestv1.CameraStream{})
 		return
 	}
@@ -104,7 +107,8 @@ func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Limit:  25,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("search failed: %v", err))
+		b.log().Error("meilisearch customer catalog search failed", "downstream", "meilisearch", "operation", "Search", "error", err)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "search service temporarily unavailable")
 		return
 	}
 
@@ -128,6 +132,7 @@ func (b *CustomerBFF) handleListCustomerTickets(w http.ResponseWriter, r *http.R
 		CustomerID: custID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCustomerTickets", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
 		return
 	}
@@ -161,7 +166,11 @@ func (b *CustomerBFF) handleGetCustomerTicket(w http.ResponseWriter, r *http.Req
 		TicketID: ticketID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "ticket not found")
+		if status.Code(err) == codes.NotFound {
+			httputil.WriteError(w, http.StatusNotFound, "ticket not found")
+			return
+		}
+		b.handleGRPCError(w, "GetCustomerTicket", err, http.StatusNotFound)
 		return
 	}
 
@@ -218,7 +227,7 @@ func (b *CustomerBFF) handleCreateCustomerTicket(w http.ResponseWriter, r *http.
 		Severity:   req.Severity,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "CreateCustomerTicket", err, http.StatusBadRequest)
 		return
 	}
 
@@ -258,6 +267,7 @@ func (b *CustomerBFF) handleListCustomerTicketComments(w http.ResponseWriter, r 
 		TicketID: ticketID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCustomerTicketComments", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
 		return
 	}
@@ -312,7 +322,7 @@ func (b *CustomerBFF) handleAddCustomerTicketComment(w http.ResponseWriter, r *h
 		Comment:        req.Comment,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "AddCustomerTicketComment", err, http.StatusBadRequest)
 		return
 	}
 

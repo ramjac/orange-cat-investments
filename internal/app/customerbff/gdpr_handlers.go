@@ -28,7 +28,7 @@ func (b *CustomerBFF) handleGDPRErasure(w http.ResponseWriter, r *http.Request) 
 		Email:      sess.Email,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("gdpr erasure failed: %v", err))
+		b.handleGRPCError(w, "ExecuteGDPRErasure", err, http.StatusInternalServerError)
 		return
 	}
 

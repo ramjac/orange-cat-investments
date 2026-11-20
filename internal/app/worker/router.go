@@ -9,6 +9,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
@@ -25,6 +26,10 @@ func (w *AMQPPubSubWrapper) Publish(topic string, messages ...*message.Message) 
 
 func (w *AMQPPubSubWrapper) Subscribe(ctx context.Context, topic string) (<-chan *message.Message, error) {
 	return w.Subscriber.Subscribe(ctx, topic)
+}
+
+func (w *AMQPPubSubWrapper) SubscribeInitialize(topic string) error {
+	return w.Subscriber.SubscribeInitialize(topic)
 }
 
 func (w *AMQPPubSubWrapper) Close() error {
@@ -59,7 +64,8 @@ func IsFeatureEnabled(envVar string) bool {
 	return true
 }
 
-// CreateRouter constructs the Watermill message router and registers domain handlers.
+// CreateRouter constructs the Watermill message router and registers domain handlers
+// with default retry, envelope validation, and per-topic dead-letter queue middleware.
 func CreateRouter(
 	ps PubSub,
 	watermillLogger watermill.LoggerAdapter,
@@ -69,19 +75,42 @@ func CreateRouter(
 	employeeBFFURL, pebbleProxyURL string,
 	httpClient *http.Client,
 ) (*message.Router, error) {
+	return CreateRouterWithRetry(
+		ps,
+		watermillLogger,
+		logger,
+		customerBLL,
+		internalBLL,
+		employeeBFFURL,
+		pebbleProxyURL,
+		httpClient,
+		DefaultRetryConfig(watermillLogger),
+	)
+}
+
+// CreateRouterWithRetry constructs the Watermill message router with a caller-specified
+// retry configuration for domain handlers.
+func CreateRouterWithRetry(
+	ps PubSub,
+	watermillLogger watermill.LoggerAdapter,
+	logger *slog.Logger,
+	customerBLL customerbllv1.CustomerBLLServiceClient,
+	internalBLL internalbllv1.InternalBLLServiceClient,
+	employeeBFFURL, pebbleProxyURL string,
+	httpClient *http.Client,
+	retryCfg middleware.Retry,
+) (*message.Router, error) {
 	enableCoreInvest := IsFeatureEnabled("ENABLE_CORE_INVEST")
 	enableFelineWorkforce := IsFeatureEnabled("ENABLE_FELINE_WORKFORCE")
 
 	router, err := message.NewRouter(message.RouterConfig{}, watermillLogger)
-	if err == nil {
-		router.AddMiddleware(TraceContextMiddleware)
-	}
 	if err != nil {
 		return nil, err
 	}
+	router.AddMiddleware(TraceContextMiddleware)
 
 	if enableFelineWorkforce && enableCoreInvest {
-		router.AddHandler(
+		h := router.AddHandler(
 			"cat_spotted_handler",
 			"events.observation.cat_spotted.v1",
 			ps,
@@ -91,61 +120,76 @@ func CreateRouter(
 				return HandleCatSpotted(logger, msg)
 			},
 		)
+		if err := AttachHandlerResilience(h, "events.observation.cat_spotted.v1", ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
 		logger.Info("Watermill cat spotted handler registered")
 	} else {
 		logger.Info("Watermill cat spotted handler disabled via configuration")
 	}
 
 	if enableCoreInvest {
-		router.AddHandler(
+		btHandler := router.AddHandler(
 			"backtest_run_handler",
 			"events.investment.backtest_requested.v1",
 			ps,
 			"events.investment.backtest_completed.v1",
 			ps,
 			func(msg *message.Message) ([]*message.Message, error) {
-				return HandleBacktestRun(context.Background(), logger, customerBLL, msg)
+				return HandleBacktestRun(msg.Context(), logger, customerBLL, msg)
 			},
 		)
+		if err := AttachHandlerResilience(btHandler, "events.investment.backtest_requested.v1", ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
 		logger.Info("Watermill backtest handler registered")
 
-		router.AddHandler(
+		achHandler := router.AddHandler(
 			"ach_settlement_handler",
 			"events.banking.ach_transfer_requested.v1",
 			ps,
 			"events.banking.ach_settled.v1",
 			ps,
 			func(msg *message.Message) ([]*message.Message, error) {
-				return HandleACHTransferRequested(context.Background(), logger, customerBLL, msg)
+				return HandleACHTransferRequested(msg.Context(), logger, customerBLL, msg)
 			},
 		)
+		if err := AttachHandlerResilience(achHandler, "events.banking.ach_transfer_requested.v1", ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
 		logger.Info("Watermill ACH settlement handler registered")
 	} else {
 		logger.Info("Watermill backtest and ACH settlement handlers disabled via configuration")
 	}
 
-	router.AddHandler(
+	otaHandler := router.AddHandler(
 		"ota_pipeline_handler",
 		"events.facilities.ota_triggered.v1",
 		ps,
 		"events.facilities.ota_completed.v1",
 		ps,
 		func(msg *message.Message) ([]*message.Message, error) {
-			return HandleOTATriggered(context.Background(), logger, internalBLL, msg)
+			return HandleOTATriggered(msg.Context(), logger, internalBLL, msg)
 		},
 	)
+	if err := AttachHandlerResilience(otaHandler, "events.facilities.ota_triggered.v1", ps, retryCfg, logger); err != nil {
+		return nil, err
+	}
 
 	if internalBLL != nil {
-		router.AddHandler(
+		repHandler := router.AddHandler(
 			"executive_reporting_trigger_handler",
 			"events.reporting.generate_monthly_requested.v1",
 			ps,
 			"events.reporting.report_generated.v1",
 			ps,
 			func(msg *message.Message) ([]*message.Message, error) {
-				return HandleExecutiveReportTrigger(context.Background(), logger, internalBLL, ps, msg)
+				return HandleExecutiveReportTrigger(msg.Context(), logger, internalBLL, ps, msg)
 			},
 		)
+		if err := AttachHandlerResilience(repHandler, "events.reporting.generate_monthly_requested.v1", ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
 		logger.Info("Watermill executive reporting trigger handler registered")
 	}
 
@@ -153,14 +197,17 @@ func CreateRouter(
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	router.AddNoPublisherHandler(
+	incHandler := router.AddNoPublisherHandler(
 		"incident_alert_pipeline_handler",
 		"events.workforce.incident_created.v1",
 		ps,
 		func(msg *message.Message) error {
-			return HandleIncidentAlert(context.Background(), logger, internalBLL, employeeBFFURL, pebbleProxyURL, httpClient, msg)
+			return HandleIncidentAlert(msg.Context(), logger, internalBLL, employeeBFFURL, pebbleProxyURL, httpClient, msg)
 		},
 	)
+	if err := AttachHandlerResilience(incHandler, "events.workforce.incident_created.v1", ps, retryCfg, logger); err != nil {
+		return nil, err
+	}
 	logger.Info("Watermill incident alert pipeline handler registered")
 
 	return router, nil

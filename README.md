@@ -266,10 +266,40 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **Tracing (`pkg/envelope/tracing.go`, `internal/app/worker/tracing_middleware.go`):** Propagates OpenTelemetry context via Watermill `message.Metadata` and adds Loki/Prometheus cross-datasource links to Tempo.
 
 ### 5.21 CI/CD Supply Chain Hardening (Roadmap Phase 1)
-* **Toolchain Single Source of Truth (7.1):** Root `.go-version` drives `ci.yaml` Go installs and every Go Dockerfile via `ARG GO_VERSION`; `simulation/cmd/simulator -validate-flags` and `scripts/verify-ci-contracts.sh` fail fast on toolchain drift or renamed simulator flags.
-* **Forgejo Persistent Storage & Eviction Protection (7.2):** `forgejo-data-pvc` at `/var/lib/gitea`, `system-cluster-critical` runner with a 20Gi `forgejo-runner-docker-pvc`, daily `registry-gc` CronJob with `sha-*` tag retention, 24h image pruning in the build job, and the `NodeFilesystemLowSpace` alert.
-* **Registry Pre-Flight & Single-Command Deploy (7.5):** `deploy-k8s.sh` pre-flights all referenced images against the registry before applying, `ci-status.sh [--wait]` surfaces Forgejo Actions run/job state with failed-log tailing, and `deploy-latest.sh` chains test, sync, pipeline wait, image verification, and the live simulator in one command.
-* **Dedicated Dev Mock Instances (7.6):** `mock-bank-dev` / `mock-broker-dev` / `mock-hardware-dev` serve only `oci-dev` (own cert-manager certificate, own RabbitMQ/`oci-dev` BLL wiring) so Phase 4 fault injection and chaos can never reach `oci-core`; contract checks enforce the environment-to-mock wiring.
+* **Toolchain Single Source of Truth:** Root `.go-version` drives `ci.yaml` Go installs and every Go Dockerfile via `ARG GO_VERSION`; `simulation/cmd/simulator -validate-flags` and `scripts/verify-ci-contracts.sh` fail fast on toolchain drift or renamed simulator flags.
+* **Forgejo Persistent Storage & Eviction Protection:** `forgejo-data-pvc` at `/var/lib/gitea`, `system-cluster-critical` runner with a 20Gi `forgejo-runner-docker-pvc`, daily `registry-gc` CronJob with `sha-*` tag retention, 24h image pruning in the build job, and the `NodeFilesystemLowSpace` alert.
+* **Immutable-SHA Promotion & Post-Deploy Verification:** `ci.yaml` deploys exact `:sha-<COMMIT>` images to `oci-dev` and promotes those exact immutable tags to `oci-core`, validated post-rollout by `scripts/verify-deployed-images.sh`.
+* **Registry Pre-Flight & Single-Command Deploy:** `deploy-k8s.sh` pre-flights all referenced images against the registry before applying, `ci-status.sh [--wait]` surfaces Forgejo Actions run/job state with failed-log tailing, and `deploy-latest.sh` chains test, sync, pipeline wait, image verification, and the live simulator in one command.
+* **Dedicated Dev Mock Instances:** `mock-bank-dev` / `mock-broker-dev` / `mock-hardware-dev` serve only `oci-dev` (own cert-manager certificate, own RabbitMQ/`oci-dev` BLL wiring) so fault injection and chaos can never reach `oci-core`; contract checks enforce the environment-to-mock wiring.
+
+### 5.22 Edge Device Heartbeats & Daily NAV Portfolio History
+* **Edge Device Heartbeats & Connectivity Tracking:** `facilities.proto` (`RecordAssetHeartbeat`, `ListAssetConnectivity`), `core_invest.proto` (`UpdateCameraStreamStatus`), and `internal_bll.proto` (`ReportDeviceHeartbeat`, `ListDeviceConnectivity`) track live hardware connectivity (`last_ping_at >= now - stale_after_seconds`, default 180s). `cmd/mock-hardware` reports 60s heartbeats for `QR-CAM-ORANGE-01`, exposed via session-authenticated `GET /facilities/devices/connectivity` on Employee BFF and documented in `api/openapi.yaml`.
+* **Daily NAV Snapshot Engine & Portfolio History:** `core_invest.portfolio_snapshots` stores idempotent `daily_eod` valuations (`uq_portfolio_daily_eod_snapshot`, `scripts/migrations/001-portfolio-snapshot-daily-nav.sql`) captured by the `nav-snapshot` CronJob (`0 21 * * 1-5` UTC, `BATCH_MODE=nav-snapshot`). Customer BLL (`GetPortfolioHistory`), Customer BFF, and the Customer Portal expose snapshot-backed `1M|3M|6M|1Y|YTD` performance history.
+
+### 5.23 Dev-Only Fault Injection, Upstream Resilience & Sandboxed Chaos Suite
+* **Dev-Only Fault Controllers (`cmd/mock-bank`, `cmd/mock-broker`):** `GET/PUT/DELETE /sim/faults` registered strictly when `ENABLE_FAULT_INJECTION=true` (configured only in `mock-*-dev.yaml`, enforced by `scripts/verify-ci-contracts.sh` so it never appears in unsuffixed mock manifests or `k8s/oci-core/`).
+* **Bounded Upstream Deadlines & Vendor-Free Error Mapping (`internal/app/customerbll`, `internal/app/customerbff`):** Structured `APIError` types in `pkg/broker/alpaca` and `pkg/bank/plaid`, 5s default bounded context deadlines (`UPSTREAM_TIMEOUT`) on all broker/bank calls, gRPC `Unavailable` / `DeadlineExceeded` / `FailedPrecondition` error mapping without leaking vendor names, and corresponding `503`/`504`/`422` structured JSON responses in `customer-bff`.
+* **Simulator Fault Verification & Sandboxed Chaos Suite (`simulation/driver_fault_patch.go`, `scripts/run-chaos-suite.sh`, `scripts/run-chaos-audit.sh`):** Opt-in `-fault-scenarios` mode injects outage (`5xx`) and halted-symbol (`422`) faults on `-dev` mocks and resets `/sim/faults` via `defer`; sandboxed chaos scripts exercise `oci-dev` workloads and `-dev` mocks without ever mutating `oci-core`.
+
+### 5.24 RabbitMQ Poison-Pill & Dead-Letter Handling
+* **Watermill Resilience Middleware (`internal/app/worker/poison_middleware.go`, `router.go`):** Every worker handler is wrapped with per-topic `middleware.PoisonQueue` (`<topic>.dlq`), CWE-532-safe poison logging (`event_id`, `topic`, `correlation_id`, and error only — never payload bytes), pre-retry `EnvelopeValidationMiddleware` (rejecting malformed JSON or missing `EventID`/`OccurredAt` straight to `.dlq`), and 3-attempt exponential-backoff `middleware.Retry`, with upfront AMQP `.dlq` queue declaration via `SubscribeInitialize` so dead-lettered messages trigger Prometheus `RabbitMQDeadLetterQueueNotEmpty`.
+
+### 5.25 Stateful Store Exporters, Alert Rules & OpenTelemetry Business Metrics
+* **Stateful Store Exporter Hardening & Alert Rules (`k8s/monitoring/prometheus.yaml`, `docs/runbooks/stateful-store-alerts.md`):** Hardened PostgreSQL, Valkey, and Meilisearch exporters and added `valkey_alerts` (`ValkeyMemorySaturation`, `ValkeyKeyEvictions`), `postgresql_alerts` (`PostgresConnectionSaturation`, `PostgresDeadTupleBloat`, `PostgresXIDWraparoundRisk`, `PostgresLowCacheHitRatio`), and `meilisearch_alerts` (`MeilisearchDown`, `MeilisearchDiskUsageHigh`) with `severity`/`tier` labels, runbook remediation, and CI contract validation in `scripts/verify-ci-contracts.sh`.
+* **OpenTelemetry Business Metrics (`pkg/telemetry/metrics.go`, `internal/app/...`, `cmd/pebble-proxy`):** Eliminated Grafana Beyla across manifests and source code (enforced by `scripts/verify-ci-contracts.sh`) and wired all 10 custom OTel metrics helpers (`RecordOnboardingAttempt`, `RecordBankLinkingAttempt`, `RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordFelineInferenceConfidence`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`, `RecordUpstreamRequest`) to domain callers with `sdkmetric.NewManualReader()` unit tests.
+
+### 5.26 Operational Hardening & Staging Hygiene
+* **Prometheus TSDB Sizing & Retention Contract:** Enforced `requests.memory: 512Mi`, `limits.memory: 2Gi`, `--storage.tsdb.retention.time=3d`, and `--storage.tsdb.retention.size=2GB` in `scripts/verify-ci-contracts.sh` (Check #10) and documented Prometheus TSDB sizing and WAL recovery procedures in `docs/runbooks/cluster-load-testing.md`.
+* **Configurable BFF Rate-Limit Policies:** Added `RATE_LIMIT_ENABLED` (default `true`) and `RATE_LIMIT_MULTIPLIER` (default `1`) support in `pkg/cache/valkey/ratelimit.go` and `internal/app/customerbff/router.go`; kept strict production defaults in `k8s/oci-core/`, configured `RATE_LIMIT_ENABLED=false` strictly in `k8s/oci-dev/oci-customer-bff.yaml` and `k8s/oci-dev/oci-employee-bff.yaml` (enforced by Check #11 in `scripts/verify-ci-contracts.sh`), and removed the background `kubectl exec` `ratelimit:*` pruning loop from `scripts/run-load-test.sh`.
+* **Live Nextcloud COTS Credentials & WebDAV Hardening:** Provisioned `NEXTCLOUD_ADMIN_USER` and `NEXTCLOUD_ADMIN_PASS` in `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `scripts/deploy-k8s.sh`; wired `secretKeyRef` on `internal-bll` in both `bll-services.yaml` manifests; added CWE-532-safe startup logging in `cmd/internal-bll/main.go`; and hardened `pkg/cots/nextcloud/client.go` with 100-document result capping, bounded 16 MiB body reads, WebDAV parent-directory `MKCOL` creation on `409`/`404`/`403`, and graceful HTML-redirect fallback for Nextcloud 28 Apache.
+* **Automated `oci-dev` Database Retention & Seed Reset:** Added `scripts/prune-dev-db.sh` (with strict `oci-core`/prod guards and `--dry-run` seed-ID verification) and `k8s/oci-dev/dev-db-retention-cronjob.yaml` (`30 3 * * *` UTC) to retain baseline seed rows plus the latest 500 synthetic rows per high-churn table and execute `VACUUM ANALYZE`, documented in `docs/runbooks/cluster-load-testing.md`.
+
+### 5.27 Chaos-Driven Observability, Alerting, Logging & Resilience Hardening
+* **Centralized Kubernetes Pod Log Shipping:** Added `ServiceAccount`/`ClusterRole`/`ClusterRoleBinding`, Downward API `HOSTNAME` (`spec.nodeName`), read-only `/var/log/pods` and `/var/log/containers` mounts, and a `kubernetes-pods` CRI scrape job in `k8s/logging/promtail.yaml` indexing `namespace`, `pod`, `container`, and `app` labels in Loki (enforced by Check #14 in `scripts/verify-ci-contracts.sh`).
+* **Prometheus Availability, Error-Rate, Upstream-Fault & `oci-dev` Alerting:** Enabled `rabbitmq_prometheus` (`:15692`, `/metrics/per-object`) in `k8s/oci-dev/rabbitmq.yaml`, added `oci-dev` RabbitMQ and ZITADEL scrape targets to `k8s/monitoring/prometheus.yaml`, added `RecordUpstreamRequest` (`oci.upstream.requests.total`) in `pkg/telemetry/metrics.go` + `internal/app/customerbll/`, and added `DeploymentZeroAvailableReplicas`, `StatefulSetReplicasUnavailable`, `ScrapeTargetDown`, updated `MeilisearchDown`, `HighHTTP5xxErrorRate`, `UpstreamBankOrBrokerErrorSpike`, and `UpstreamBankOrBrokerTimeoutSpike` alert rules (enforced by Check #15 in `scripts/verify-ci-contracts.sh`).
+* **Baseline-Green Gatus Monitoring:** Switched the 6 mTLS gRPC probes in `k8s/monitoring/gatus.yaml` to `tcp://` connectivity checks, added `monitoring/gatus` ingress rules to the BLL and Domain API `NetworkPolicy` manifests, switched the 3 portal/marketing checks to in-cluster `/healthz` URLs, and added TCP checks for `erpnext-service` and `frappe-hr-service` — achieving **19 / 19 (100%) healthy** at baseline (enforced by Check #16 in `scripts/verify-ci-contracts.sh`).
+* **BFF/BLL Caller Error Logging, Sanitization & Latency Cascade Hardening:** Added structured `slog.Error` caller logging, `503`/`504` gRPC mapping, and internal IP/DB/vendor sanitization across `customerbff`, `employeebff`, `internal/handler`, `customerbll`, and `internalbll`; skipped `GetPortfolio` during `handleLogin` when `name != ""`; and short-circuited sequential broker timeouts in `customerbll.GetPortfolio` to eliminate the `C6` login cascade.
+* **Mock `/sim/faults` Auth/Transport & ACH Clearing Fixes:** Exempted `/sim/faults` from API auth in `cmd/mock-bank/auth.go` and `cmd/mock-broker/auth.go`, reused `d.client.transport` (`OCI_INGRESS_IP`-aware) in `simulation/driver_fault_patch.go`, forwarded `BankAccount`/`AccountID`/`DayOfMonth` in `handleCreateDeposit`, skipped `CreateRecurringDeposit` for `one_time` deposits (eliminating `SQLSTATE 23514`), added bank account resolution + NSF R01 pre-authorization in `InitiateACHDeposit`, and passed resolved `accountID` into `achPayload["bank_account"]` (reducing `events.banking.ach_transfer_requested.v1.dlq` from 4,200 messages to **0**).
 
 ---
 
@@ -737,246 +767,24 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ---
 
-## 7. Future Work & PR-Scoped Technical Roadmap
+## 7. Future Work & Technical Roadmap
 
-The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`, `7.21`–`7.24`), alongside an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
+Completed roadmap work has been promoted into Section 5 above. Only open or exploratory future items remain below.
 
-### 7.0 Rules That Apply to Every Step
+### 7.0 Rules That Apply to Future Work
 
-1. **Demo Mocks in Every Environment:** OCI is a demo platform. Both `oci-core` ("prod") and `oci-dev` ("dev") are fed by mock external systems in `external-sim` (bank, broker, edge hardware) that pretend to be real third parties. Mocks feeding `oci-core` are expected and correct. What is forbidden is (a) the *simulation driver* (`simulation/`) targeting `oci-core`, and (b) fault injection or chaos affecting anything `oci-core` depends on (see Phase 4).
-2. **Baseline Definition of Done:** In addition to each step's own Verification Gate, every PR must pass the AGENTS.md §4 baseline: `go vet ./...`, `go test -race ./...`, the `scripts/init.sql` assertion check, and `python3 scripts/validate-openapi.py api/openapi.yaml`. PRs touching `web/*` must also pass `npm test` in each changed portal.
-3. **Offline vs. Cluster Gates:** Gates marked **[offline]** must pass on any workstation. Gates marked **[cluster]** require the `thinker` test cluster. If the agent has no cluster access, it must complete all offline gates, leave the cluster gates unchecked, and state that explicitly in the PR description. It must never claim a cluster gate passed without running it.
-4. **Schema Change Protocol:** The database bootstrap SQL exists in **three copies** that must stay in sync: `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml` (seed rows: `scripts/seed-dev.sql` and the `oci-dev` configmap). Bootstrap scripts only run against an empty data volume, so every schema change must be written idempotently (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) and also added to a numbered migration file `scripts/migrations/NNN-<name>.sql` that can be applied to existing databases with `psql -f`. The first step needing this (`7.8`) creates `scripts/migrations/`.
-5. **Completion Protocol:** When a step merges, the same PR replaces that step's body with a one-paragraph `> [!NOTE] **Status: Completed**` summary and adds a matching bullet to §5. Steps are never renumbered after work begins.
-
-### Execution Phases
-
-1. **Phase 1 — CI/CD Supply Chain (`7.1`–`7.5`):** toolchain alignment, Forgejo/runner storage hygiene, container builds for every mock, honest immutable-SHA promotion, and registry pre-flight checks. This phase comes first so every later PR is built and promoted reliably.
-   - [x] **7.1** Toolchain Version Single Source of Truth & Fail-Fast CI Contract Gate
-   - [x] **7.2** Forgejo Persistent Storage, Runner Disk Hygiene & Eviction Protection
-   - [x] **7.3** Container Builds & Image Promotion for All External-Sim Mocks
-   - [x] **7.4** Honest Immutable-SHA Promotion & Post-Deploy Image Verification
-   - [x] **7.5** Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
-2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
-   - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
-   - [x] **7.7** Lifelike Mock Hardware Behavior
-   - [x] **7.8** Edge Device Heartbeats — Domain Layer
-   - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-   - [x] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
-   - [x] **7.11** Daily NAV Snapshot Batch & BLL History Service *(Completed)*
-   - [x] **7.12** Portfolio History in Customer BFF & Portal
-3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
-   - [x] **7.13** Stateful Store Exporter Hardening
-   - [ ] **7.14** Stateful Store Alert Rules
-   - [ ] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics *(partially complete: Grafana Beyla completely dropped across manifests and code; wiring the 8 OpenTelemetry business metrics helpers in `pkg/telemetry/metrics.go` to domain callers remains)*
-   - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
-4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
-   - [ ] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker *(partially complete: `/sim/faults` controllers, dev-manifest wiring, and `-fault-scenarios` exist; bounded client deadlines and the contract check remain)*
-   - [ ] **7.18** RabbitMQ Poison-Pill & Dead-Letter Handling
-   - [x] **7.19** Sandboxed Chaos Suite for `oci-dev`
-5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
-   - [ ] **7.20** Zero-Trust Workload Identity & Dynamic Secret Management *(intentionally undecided, pending ADR)*
-6. **Phase 6 — Operational Hardening & Staging Hygiene (`7.21`–`7.24`):** issues uncovered during the 1-hour sustained cluster load test — Prometheus TSDB memory sizing, configurable staging rate limits, live Nextcloud COTS wiring, and `oci-dev` database retention.
-   - [ ] **7.21** Prometheus Resource Sizing & TSDB Retention Hardening
-   - [ ] **7.22** Configurable BFF Rate-Limit Policies for Staging & Load Testing
-   - [ ] **7.23** Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
-   - [ ] **7.24** Automated `oci-dev` Database Retention & Scheduled Seed Reset
+1. **Demo Mocks in Every Environment:** OCI is a demo platform. Both `oci-core` ("prod") and `oci-dev` ("dev") are fed by mock external systems in `external-sim` (bank, broker, edge hardware) that pretend to be real third parties. Mocks feeding `oci-core` are expected and correct. What is forbidden is (a) the *simulation driver* (`simulation/`) targeting `oci-core`, and (b) fault injection or chaos affecting anything `oci-core` depends on.
+2. **Baseline Definition of Done:** Every PR must pass the AGENTS.md §4 baseline: `go vet ./...`, `go test -race ./...`, the `scripts/init.sql` assertion check, and `python3 scripts/validate-openapi.py api/openapi.yaml`. PRs touching `web/*` must also pass `npm test` in each changed portal.
+3. **Offline vs. Cluster Gates:** Gates marked **[offline]** must pass on any workstation. Gates marked **[cluster]** require the `thinker` test cluster. Never claim a cluster gate passed without running it.
+4. **Schema Change Protocol:** The database bootstrap SQL exists in **three copies** that must stay in sync: `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml` (seed rows: `scripts/seed-dev.sql` and the `oci-dev` configmap). Bootstrap scripts only run against an empty data volume, so every schema change must be written idempotently (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) and also added to a numbered migration file `scripts/migrations/NNN-<name>.sql` that can be applied to existing databases with `psql -f`.
+5. **Completion Protocol:** When a future work item merges, document the shipped capability in Section 5 and remove the completed item from Section 7.
 
 ---
 
-### Phase 1: CI/CD Supply Chain & Deployment Pipeline Hardening
+### Exploratory (Architecture Undecided)
 
-#### 7.1 Toolchain Version Single Source of Truth & Fail-Fast CI Contract Gate
-> [!NOTE]
-> **Status: Completed**
-> Root `.go-version` (1.26.0) is the single source of truth: `ci.yaml` installs exactly that version, every Go Dockerfile (including `web/marketing/Dockerfile`) uses `ARG GO_VERSION` with `FROM golang:${GO_VERSION}-alpine`, and the simulator exposes `-validate-flags` for pre-flight flag validation. `scripts/verify-ci-contracts.sh` runs first in `validate-and-test` and fails the pipeline on Dockerfile/go.mod drift or simulator flag renames.
-
-#### 7.2 Forgejo Persistent Storage, Runner Disk Hygiene & Eviction Protection
-> [!NOTE]
-> **Status: Completed**
-> `forgejo.yaml` now declares a 10Gi `forgejo-data-pvc` mounted at `/var/lib/gitea` so repositories and Actions logs survive pod restarts. `forgejo-runner.yaml` runs as `system-cluster-critical` with a 20Gi `forgejo-runner-docker-pvc` backing Docker-in-Docker storage, the image build job prunes images older than 24h, `k8s/registry/registry-gc-cronjob.yaml` garbage-collects `sha-*` tags beyond the 10 newest per repository daily, and `prometheus.yaml` raises `NodeFilesystemLowSpace` (available < 20%) with runner eviction recovery documented in `docs/runbooks/cluster-load-testing.md`.
-
-#### 7.3 Container Builds & Image Promotion for All External-Sim Mocks
-> [!NOTE] **Status: Completed**
-
-#### 7.4 Honest Immutable-SHA Promotion & Post-Deploy Image Verification
-> [!NOTE] **Status: Completed**
-
-#### 7.5 Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
-> [!NOTE]
-> **Status: Completed**
-> `scripts/deploy-k8s.sh` now pre-flights every `localhost:32000/<repo>:<tag>` referenced by the selected profile against the registry tag list (host overridable via `REGISTRY_HOST`) and exits `1` with the missing-image list before applying anything; aborting `mock-hardware` waits were replaced by a `wait_rollout` helper that records failures and exits non-zero at the end. `scripts/ci-status.sh [--wait]` prints the latest Forgejo Actions run and job statuses and tails a failed job's log, and `scripts/deploy-latest.sh` chains the full loop: `go test -race ./...` → Forgejo sync → `ci-status.sh --wait` → `verify-deployed-images.sh` → live simulator run against `oci-dev` from the workstation.
-
----
-
-### Phase 2: Core Domain Completion
-
-#### 7.6 Dedicated Dev Instances of External-Sim Mocks
-> [!NOTE]
-> **Status: Completed**
-> `external-sim` now runs dedicated `mock-bank-dev`, `mock-broker-dev`, and `mock-hardware-dev` instances (with their own cert-manager certificate) serving only `oci-dev`, while the unsuffixed mocks keep serving `oci-core`; `oci-dev` BLLs point at the `-dev` services, `mock-hardware-dev` publishes to `oci-dev` RabbitMQ and `internal-bll-service.oci-dev:8086`, `OCI_WEBHOOK_URL` is empty on both bank instances, `ci.yaml` pins the `-dev` mocks to `:sha-${COMMIT_SHA}` in `deploy-oci-dev`, and `verify-ci-contracts.sh` enforces the namespace-to-mock wiring rules (no `unified-api` references remain).
-
-#### 7.7 Lifelike Mock Hardware Behavior
-> [!NOTE] **Status: Completed**
-
-#### 7.8 Edge Device Heartbeats — Domain Layer
-> [!NOTE]
-> **Status: Completed**
-> `proto/oci/facilities/v1/facilities.proto` (`RecordAssetHeartbeat`, `ListAssetConnectivity`) and `proto/oci/core_invest/v1/core_invest.proto` (`UpdateCameraStreamStatus`) are defined and reflected in `pkg/gen/go/`. Both `internal/repository/facilities/` and `internal/repository/core_invest/` implement pgx and mock methods, wired through `internal/service/` and the gRPC handlers in `cmd/facilities-api` and `cmd/core-invest-api`. Online/offline status is derived at read time (`last_ping_at >= now - stale_after_seconds`, defaulting to 180s) with `NOT_FOUND` returned for unknown serials or missing camera streams, and `scripts/migrations/README.md` documents the three-copy schema synchronization protocol.
-
-#### 7.9 Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
-> [!NOTE]
-> **Status: Completed (offline gates verified; cluster online verified, 3-minute offline scale-down check pending)**
-> `proto/oci/internal_bll/v1/internal_bll.proto` and `pkg/gen/go/internal_bll/v1/` define `ReportDeviceHeartbeat` and `ListDeviceConnectivity`, implemented in `internal/app/internalbll/` with cross-domain fan-out to `facilities-api` and `core-invest-api`. `cmd/mock-hardware` reports heartbeats every 60s using `MOCK_CAMERA_SERIAL=QR-CAM-ORANGE-01` (configured in both `k8s/external-sim/mock-hardware*.yaml` manifests and seeded in both Postgres configmaps), and `internal/app/employeebff/` exposes session-authenticated `GET /facilities/devices/connectivity` documented in `api/openapi.yaml`.
-* **Verification Gate:**
-  * [x] [offline] BLL unit tests with mock Domain clients verify fan-out and error mapping (unknown serial → `NOT_FOUND` → HTTP 404 at the BFF).
-  * [ ] [cluster] In `oci-dev`, the connectivity endpoint shows `QR-CAM-ORANGE-01` `online: true` (verified); verifying it flips to `online: false` ~3 minutes after `kubectl scale deploy/mock-hardware-dev --replicas=0 -n external-sim` remains pending.
-
-#### 7.10 Extend `core_invest.portfolio_snapshots` for Daily NAV
-> [!NOTE]
-> **Status: Completed**
-> `core_invest.portfolio_snapshots` is extended idempotently across `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, `k8s/oci-dev/postgres-dev-configmap.yaml`, and `scripts/migrations/001-portfolio-snapshot-daily-nav.sql` with `snapshot_type`, `snapshot_date`, `cash_usd`, `equity_usd`, `daily_return_pct`, and `uq_portfolio_daily_eod_snapshot`; 90 days of `daily_eod` seed rows are added to `scripts/seed-dev.sql` and the `oci-dev` configmap; `internal/repository/core_invest/` implements `UpsertDailySnapshot` and `ListSnapshots` (pgx + mock); and `core_invest.proto` / `cmd/core-invest-api` expose `RecordDailySnapshot` and `ListPortfolioSnapshots`.
-* **Verification Gate:**
-  * [x] [offline] Repository tests cover upsert idempotency (two writes for the same day → one row) and date-range filtering. Extend the `init.sql` assertion to require `uq_portfolio_daily_eod_snapshot`.
-  * [x] [cluster] `psql -f scripts/migrations/001-*.sql` runs twice cleanly against the existing `oci-dev` database (and cleanly against `postgres-core`).
-
-#### 7.11 Daily NAV Snapshot Batch & BLL History Service
-> [!NOTE]
-> **Status: Completed**
-> `CaptureDailySnapshots` and snapshot-backed `GetPortfolioHistory` (`1M|3M|6M|1Y|YTD`) are implemented in `customer_bll.proto` / `internal/app/customerbll/brokerage.go` with the consumer-side `historyProvider` interface (no `alpaca` import or multiplier fallback in `brokerage.go`). `RunDailyNAVSnapshotBatch` (`BATCH_MODE=nav-snapshot`) and the `nav-snapshot` CronJobs (`0 21 * * 1-5` UTC) are wired in `internal/app/worker/batch_jobs.go`, `cmd/worker/main.go`, `k8s/oci-core/batch-jobs.yaml`, and `k8s/oci-dev/batch-jobs.yaml`, with a `TODO(7.11)` in `internal/app/worker/schedulers.go`.
-
-#### 7.12 Portfolio History in Customer BFF & Portal
-> [!NOTE] **Status: Completed**
-
----
-
-### Phase 3: Stateful Store & OpenTelemetry Observability
-
-#### 7.13 Stateful Store Exporter Hardening
-> [!NOTE] **Status: Completed**
-
-#### 7.14 Stateful Store Alert Rules
-* **Depends On:** `7.13`.
-* **Current Codebase State:** `alert_rules.yml` in `k8s/monitoring/prometheus.yaml` has groups for RabbitMQ, COTS, PVCs, Kubernetes object state, backups, and PKI, but none for Valkey, PostgreSQL, or Meilisearch.
-* **PR Scope:**
-  1. Add a `valkey_alerts` group (`ValkeyMemorySaturation` `> 0.85` of `redis_memory_max_bytes` when that metric is non-zero; `ValkeyKeyEvictions` `increase(redis_evicted_keys_total[5m]) > 0`).
-  2. Add a `postgresql_alerts` group (`PostgresConnectionSaturation` `> 0.80` of `pg_settings_max_connections`; `PostgresDeadTupleBloat`; `PostgresXIDWraparoundRisk` on `pg_database_age`; `PostgresLowCacheHitRatio` `< 0.99`).
-  3. Add a `meilisearch_alerts` group (`MeilisearchDown` `up{job="meilisearch"} == 0`; `MeilisearchDiskUsageHigh` on the `meilisearch-data-pvc` kubelet volume stats).
-  4. Give every rule `severity` and `tier` labels, and document thresholds and remediation in `docs/runbooks/stateful-store-alerts.md`.
-* **Verification Gate:**
-  * [offline] A Python check parses the embedded `alert_rules.yml` and asserts each named alert exists with `severity` and `tier`. If `promtool` is available, `promtool check rules` passes.
-
-#### 7.15 Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
-> [!NOTE]
-> **Status: Partially Complete**
-> Done: Grafana Beyla has been completely eliminated across Kubernetes manifests, build definitions, and monorepo source code, standardizing entirely on OpenTelemetry Go SDK. Remaining: adding `RecordFelineInferenceConfidence`, wiring callers to the 8 business metrics helpers in `pkg/telemetry/metrics.go`, and adding the contract enforcement check in `verify-ci-contracts.sh`.
-* **Depends On:** `7.11`, `7.13`.
-* **Current Codebase State:** `pkg/telemetry` (`InitProvider`, OTLP to `alloy.monitoring.svc.cluster.local:4317`), `otelhttp`, and `otelgrpc` are wired into every service, so eBPF auto-instrumentation (Grafana Beyla) is redundant. Beyla appears only in historical README prose, with no manifests. Six of the eight helpers in `pkg/telemetry/metrics.go` (`RecordOrderExecutionLatency`, `RecordBracketOrderFill`, `RecordFelineBehavioralEvent`, `RecordCareScheduleUpdate`, `RecordEmergencyHoldToggle`, `RecordPebbleMTTA`) have no callers.
-* **Design Decision (fixed):** Grafana Beyla is dropped. Telemetry uses only the OpenTelemetry Go SDK.
-* **PR Scope:**
-  1. Confirm and enforce Beyla removal: add a check to `scripts/verify-ci-contracts.sh` that fails if `beyla` appears under `k8s/`, `cmd/`, `internal/`, `pkg/`, `scripts/`, or `docs/`.
-  2. Add `RecordFelineInferenceConfidence` (histogram `oci.feline.inference.confidence`) to `metrics.go`.
-  3. Wire the callers:
-     * `internal/app/customerbll/orders.go`: order execution latency and bracket fills.
-     * `internal/app/worker/consumers_invest.go`: behavioral event and inference confidence when handling `cat_spotted`.
-     * `internal/app/internalbll/`: care schedule update and medical-hold toggle handlers.
-     * `cmd/pebble-proxy/alerts_handlers.go`: MTTA on ACK, measured from the alert's creation time.
-  4. Add tests using `sdkmetric.NewManualReader()` asserting each helper records a data point.
-* **Verification Gate:**
-  * [offline] `go test -race ./pkg/telemetry/... ./internal/app/... ./cmd/pebble-proxy/...`. Every `Record*` function in `metrics.go` has at least one non-test caller (checked with `grep`).
-
-#### 7.16 Trace Context Propagation Over RabbitMQ & Grafana Correlation
-> [!NOTE]
-> **Status: Completed**
-> OpenTelemetry `TextMapCarrier` implemented for Watermill metadata. Publisher context injection and router trace extraction middleware implemented with `correlation_id` injection from spans. Grafana tempo datasource updated for cross-datasource correlation to Loki and Prometheus.
-
----
-
-### Phase 4: Fault Injection & Chaos Engineering
-
-> [!IMPORTANT]
-> **Chaos Targeting Invariant:** Fault injection and chaos may only affect `oci-dev` and the **dev mock instances** (`mock-*-dev`) in `external-sim`. The unsuffixed mocks in `external-sim` serve `oci-core` and must never be fault-injected or disrupted. Nothing in `oci-core` or `oci-internal` may be stopped, scaled, or mutated. To simulate an `oci-internal` COTS system being "down", apply a temporary `NetworkPolicy` **in `oci-dev`** that blocks egress from `oci-dev` workloads to `oci-internal`.
-
-#### 7.17 Dev-Only Fault Injection in Mock Bank & Mock Broker
-> [!NOTE]
-> **Status: Partially Complete**
-> Done: `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (set only in the `mock-*-dev.yaml` manifests, 404 when disabled, in-memory state with `DELETE` reset), the customer BLL maps upstream broker/bank failures to `Unavailable` / `FailedPrecondition`, and the simulator has an opt-in `-fault-scenarios` mode that asserts structured 5xx/422 responses and resets faults on exit. Remaining: explicit bounded context deadlines on broker/bank calls in `internal/app/customerbll/`, and the `verify-ci-contracts.sh` check that `ENABLE_FAULT_INJECTION` never appears in the unsuffixed mock manifests.
-* **Depends On:** `7.3`, `7.6`.
-* **Current Codebase State:** Neither mock has fault-injection controls. After `7.6`, dedicated `mock-bank-dev` and `mock-broker-dev` instances serve only `oci-dev`.
-* **PR Scope:**
-  1. Add a fault controller to each mock, registered **only when `ENABLE_FAULT_INJECTION=true`**. Set that variable only in the `mock-*-dev.yaml` manifests, and add a `verify-ci-contracts.sh` check that it never appears in the unsuffixed mock manifests.
-     * `cmd/mock-bank`: `GET/PUT/DELETE /sim/faults` with `{outage: bool, latency_ms: int, reject_transfers: bool}`.
-     * `cmd/mock-broker`: `GET/PUT/DELETE /sim/faults` with `{outage, latency_ms, reject_orders: bool, halted_symbols: []string}`.
-     * Fault state is in-memory; `DELETE` resets to healthy. Return 404 when disabled.
-  2. In `internal/app/customerbll/`, make sure broker/bank calls use bounded context deadlines and map upstream failures to gRPC `Unavailable`, `DeadlineExceeded`, or `FailedPrecondition` (rejections), without leaking vendor names in messages.
-  3. In `simulation/`, add an opt-in `-fault-scenarios` flag that sets faults on the `-dev` mocks, asserts the BFF returns structured 5xx/422 responses, then always resets with `defer`.
-* **Verification Gate:**
-  * [offline] Mock handler tests cover enabled/disabled registration and each fault type. BLL tests check error mapping. `./scripts/verify-ci-contracts.sh`.
-  * [cluster] `-fault-scenarios` against `oci-dev` passes and leaves `/sim/faults` healthy.
-
-#### 7.18 RabbitMQ Poison-Pill & Dead-Letter Handling
-* **Depends On:** `7.16`.
-* **Current Codebase State:** `internal/app/worker/router.go` uses no `PoisonQueue` or `Retry` middleware. `RabbitMQDeadLetterQueueNotEmpty` exists in Prometheus and expects queues matching `.*dlq.*`.
-* **PR Scope:**
-  1. Add Watermill `middleware.Retry` (3 attempts, exponential backoff) followed by `middleware.PoisonQueue` publishing to `<topic>.dlq` in `router.go`. Add an envelope validation middleware that rejects (sends straight to the poison queue without retry) messages that fail to unmarshal or lack `EventID`/`OccurredAt`.
-  2. Poison log lines contain only `event_id` (if parseable), `topic`, `correlation_id`, and the validation error, never the payload (CWE-532).
-* **Verification Gate:**
-  * [offline] GoChannel router tests: malformed, missing-field, and handler-error messages land in `.dlq`; a following valid message is still processed; and captured log output contains no payload bytes.
-
-#### 7.19 Sandboxed Chaos Suite for `oci-dev`
-> [!NOTE] **Status: Completed**
-
----
-
-### Phase 5: Exploratory (Architecture Undecided)
-
-#### 7.20 Zero-Trust Workload Identity & Dynamic Secret Management
-* **Depends On:** Phases 1–4, plus an ADR in `docs/adr/` choosing the tooling.
-* **Status:** *Intentionally undecided.* No agent should start this until the ADR exists and this item has been rewritten into PR-sized steps.
+#### Zero-Trust Workload Identity & Dynamic Secret Management
+* **Status:** *Intentionally undecided.* Do not start implementation until an ADR in `docs/adr/` chooses the tooling and breaks the work into PR-sized steps.
 * **Exploration Areas:**
   * **Dynamic secrets:** replace static Kubernetes `Secret` manifests with short-lived credentials (candidates: HashiCorp Vault, OpenBao, External Secrets Operator, CSI Secret Store).
   * **Workload identity:** cryptographically attested workload identity (candidates: SPIFFE/SPIRE, cert-manager `csi-driver-spiffe`, OpenZiti) alongside or replacing the current `pkg/mtls` dynamic CA reloading.
-
----
-
-### Phase 6: Operational Hardening & Staging Hygiene
-
-#### 7.21 Prometheus Resource Sizing & TSDB Retention Hardening
-* **Depends On:** `7.13`.
-* **Current Codebase State:** `k8s/monitoring/prometheus.yaml` deploys `prom/prometheus:v2.51.0` with `limits.memory: 512Mi` (`requests.memory: 256Mi`) and no `--storage.tsdb.retention.time` or `--storage.tsdb.retention.size` flags. After multi-day cluster runs (1,500+ WAL segments), Prometheus `OOMKilled` (Exit Code 137) repeatedly during WAL replay in `monitoring`.
-* **PR Scope:**
-  1. In `k8s/monitoring/prometheus.yaml`, raise Prometheus `requests.memory` to `512Mi` and `limits.memory` to `2Gi` (or `1.5Gi`), and add explicit `--storage.tsdb.retention.time=7d` and `--storage.tsdb.retention.size=4GB` (matching the PVC allocation) so WAL replay stays bounded.
-  2. Document Prometheus WAL recovery and sizing in `docs/runbooks/cluster-load-testing.md`.
-* **Verification Gate:**
-  * [offline] `kubectl apply --dry-run=client -f k8s/monitoring/prometheus.yaml` succeeds and retention flags are present.
-  * [cluster] `prometheus` in `monitoring` enters `1/1 Running` without OOMKill across restarts.
-
-#### 7.22 Configurable BFF Rate-Limit Policies for Staging & Load Testing
-* **Depends On:** None.
-* **Current Codebase State:** `internal/app/customerbff/router.go` wires `cachevalkey.RateLimitMiddleware` for `loginLimiter`, `orderLimiter`, and `depositLimiter` with fixed per-IP limits (e.g., 5 auth attempts per window). During multi-worker external load testing from a single workstation IP (`scripts/run-load-test.sh`), workers hit `HTTP 429` unless `ratelimit:*` keys are periodically deleted from Valkey via `kubectl exec`.
-* **PR Scope:**
-  1. Add environment-configurable rate-limit multiplier/bypass flags (e.g. `RATE_LIMIT_ENABLED` defaulting to `true`, or `RATE_LIMIT_MULTIPLIER`) in `internal/app/customerbff/` and `pkg/cache/valkey/`. Keep strict defaults in `k8s/oci-core/` and configure higher limits (or `RATE_LIMIT_ENABLED=false`) in `k8s/oci-dev/oci-customer-bff.yaml` only, enforced by `scripts/verify-ci-contracts.sh`.
-  2. Remove the `kubectl exec` `ratelimit:*` pruning workaround from `scripts/run-load-test.sh`.
-* **Verification Gate:**
-  * [offline] Unit tests verify default strict rate limiting when unset and configurable override behavior; `./scripts/verify-ci-contracts.sh` asserts `oci-core` never disables rate limiting.
-  * [cluster] Multi-worker simulator run against `oci-dev` completes without `429` throttling or Valkey key deletion.
-
-#### 7.23 Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
-* **Depends On:** None.
-* **Current Codebase State:** `k8s/oci-core/bll-services.yaml` and `k8s/oci-dev/bll-services.yaml` set `NEXTCLOUD_URL` on `internal-bll`, but omit `NEXTCLOUD_ADMIN_USER` and `NEXTCLOUD_ADMIN_PASS`. In `cmd/internal-bll/main.go`, this causes `cfg.WorkspaceClient` to remain `nil`, falling back to an in-memory map in `internal/service/workforce/intranet.go` instead of talking to `nextcloud-service.oci-internal`.
-* **PR Scope:**
-  1. Wire `NEXTCLOUD_ADMIN_USER` and `NEXTCLOUD_ADMIN_PASS` via `secretKeyRef` in `k8s/oci-core/bll-services.yaml` and `k8s/oci-dev/bll-services.yaml` (and ensure `scripts/deploy-k8s.sh` / `oci-secrets.yaml` provisions the matching secret key from the Nextcloud bootstrap credentials).
-  2. Verify `pkg/cots/nextcloud/client.go` pagination/capping and error handling when Nextcloud returns documents or WebDAV archives under load.
-* **Verification Gate:**
-  * [offline] Unit tests in `cmd/internal-bll` and `pkg/cots/nextcloud` verify `WorkspaceClient` initialization when env vars are set.
-  * [cluster] `internal-bll` logs Nextcloud client initialization and `rick_read_nextcloud_docs` / `senior_dev_author_adr` persist to `nextcloud` in `oci-internal`.
-
-#### 7.24 Automated `oci-dev` Database Retention & Scheduled Seed Reset
-* **Depends On:** None.
-* **Current Codebase State:** Sustained simulation load tests append tens of thousands of synthetic rows to `postgres-dev` (`ops.it_tickets` ~97k, `workforce.onboarding_checklists` ~86k, `facilities.hardware_assets` ~48k, `core_invest.brokerage_orders` ~47k). There is no automated pruning or scheduled reset CronJob for `oci-dev`, requiring manual SQL cleanup between load test campaigns.
-* **PR Scope:**
-  1. Add a lightweight `oci-dev`-only `CronJob` (e.g. `k8s/oci-dev/dev-db-retention-cronjob.yaml`) or `scripts/prune-dev-db.sh` that retains the baseline seed rows + recent window (e.g., last 24h or latest 500 rows per high-churn table) and runs `VACUUM ANALYZE`.
-  2. Document pre/post load-test database hygiene in `docs/runbooks/cluster-load-testing.md`.
-* **Verification Gate:**
-  * [offline] `scripts/prune-dev-db.sh` passes shellcheck/dry-run and preserves all seed persona IDs from `scripts/seed-dev.sql`.
-  * [cluster] Running the retention job against `postgres-dev` bounds table sizes while keeping a subsequent simulator run at 73/73 passing.

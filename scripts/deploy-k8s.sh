@@ -185,6 +185,23 @@ else
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
 fi
 
+# Synchronize Nextcloud COTS bootstrap credentials from oci-internal app-secrets
+# into oci-core-secrets / oci-dev-secrets so internal-bll connects with live credentials.
+if kubectl get secret app-secrets -n oci-internal &>/dev/null; then
+    NC_USER=$(kubectl get secret app-secrets -n oci-internal -o jsonpath='{.data.NEXTCLOUD_ADMIN_USER}' 2>/dev/null || true)
+    NC_PASS=$(kubectl get secret app-secrets -n oci-internal -o jsonpath='{.data.NEXTCLOUD_ADMIN_PASSWORD}' 2>/dev/null || true)
+    if [[ -n "${NC_USER}" && -n "${NC_PASS}" ]]; then
+        for ns_secret in "oci-core:oci-core-secrets" "oci-dev:oci-dev-secrets"; do
+            ns="${ns_secret%%:*}"
+            sec="${ns_secret##*:}"
+            if kubectl get secret "${sec}" -n "${ns}" &>/dev/null; then
+                kubectl patch secret "${sec}" -n "${ns}" --type merge \
+                    -p "{\"data\":{\"NEXTCLOUD_ADMIN_USER\":\"${NC_USER}\",\"NEXTCLOUD_ADMIN_PASS\":\"${NC_PASS}\"}}" >/dev/null 2>&1 || true
+            fi
+        done
+    fi
+fi
+
 echo ""
 echo "8. Waiting for database and messaging workloads to become ready..."
 if [[ "${PROFILE}" == "business-only" ]]; then

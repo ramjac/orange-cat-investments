@@ -30,6 +30,26 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
+func initWorkspaceClient(logger *slog.Logger) wfService.WorkspaceClient {
+	ncURL := os.Getenv("NEXTCLOUD_URL")
+	ncUser := os.Getenv("NEXTCLOUD_ADMIN_USER")
+	ncPass := os.Getenv("NEXTCLOUD_ADMIN_PASS")
+	if ncPass == "" {
+		ncPass = os.Getenv("NEXTCLOUD_ADMIN_PASSWORD")
+	}
+	if ncURL == "" || ncUser == "" {
+		return nil
+	}
+	if logger != nil {
+		logger.Info("initialized Nextcloud COTS workspace client", "url", ncURL, "admin_user", ncUser)
+	}
+	return wfService.WorkspaceClient(nextcloud.NewClient(nextcloud.Config{
+		BaseURL:       ncURL,
+		AdminUser:     ncUser,
+		AdminPassword: ncPass,
+	}))
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	ctx := context.Background()
@@ -133,12 +153,8 @@ func main() {
 			APISecret: os.Getenv("FRAPPE_API_SECRET"),
 		}))
 	}
-	if ncURL := os.Getenv("NEXTCLOUD_URL"); ncURL != "" && os.Getenv("NEXTCLOUD_ADMIN_USER") != "" {
-		cfg.WorkspaceClient = wfService.WorkspaceClient(nextcloud.NewClient(nextcloud.Config{
-			BaseURL:       ncURL,
-			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
-			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASS"),
-		}))
+	if wsClient := initWorkspaceClient(logger); wsClient != nil {
+		cfg.WorkspaceClient = wsClient
 	}
 	if fgURL := os.Getenv("FORGEJO_URL"); fgURL != "" {
 		cfg.VCSClient = saga.NewForgejoVCSAdapter(forgejo.NewClient(forgejo.Config{

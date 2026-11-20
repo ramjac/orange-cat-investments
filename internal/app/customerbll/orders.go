@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -14,6 +15,7 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -64,6 +66,7 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	// 2. Execute order with broker
+	execStart := time.Now()
 	if s.brokerClient == nil {
 		if s.ciClient != nil {
 			price := in.LimitPrice
@@ -79,6 +82,10 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 				OrderType:   orderType,
 			})
 			if err == nil && res != nil && res.Order != nil {
+				telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
+				if strings.EqualFold(res.Order.Status, "filled") {
+					telemetry.RecordBracketOrderFill(ctx)
+				}
 				return &customerbllv1.ValidateAndExecuteOrderResponse{
 					OrderID:     res.Order.OrderID,
 					CustomerID:  in.CustomerID,
@@ -98,7 +105,8 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	clientOrderID := "ord-" + watermill.NewUUID()[:8]
-	brokerResp, err := s.brokerClient.CreateOrder(ctx, in.PortfolioID, alpaca.CreateOrderRequest{
+	brokerCtx, brokerCancel := s.withUpstreamTimeout(ctx)
+	brokerResp, err := s.brokerClient.CreateOrder(brokerCtx, in.PortfolioID, alpaca.CreateOrderRequest{
 		Symbol:        in.Symbol,
 		Qty:           in.Quantity,
 		Side:          in.Side,
@@ -107,10 +115,12 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		LimitPrice:    limitPricePtr,
 		ClientOrderID: clientOrderID,
 	})
+	brokerCancel()
 	if err != nil {
-		s.log().Error("broker order execution failed", "error", err, "portfolio_id", in.PortfolioID)
-		return nil, status.Errorf(codes.Unavailable, "broker order rejected: %s", err.Error())
+		s.log().Error("broker order execution failed", "error", sanitizeVendorNames(err.Error()), "portfolio_id", in.PortfolioID)
+		return nil, mapUpstreamError("broker", err)
 	}
+	recordUpstreamSuccess(ctx, "broker")
 	if brokerResp == nil {
 		return nil, status.Error(codes.Unavailable, "empty response from broker")
 	}
@@ -125,6 +135,11 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	orderStatus := brokerResp.Status
 	if orderStatus == "" {
 		orderStatus = "submitted"
+	}
+
+	telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
+	if strings.EqualFold(orderStatus, "filled") {
+		telemetry.RecordBracketOrderFill(ctx)
 	}
 
 	orderID := brokerResp.ID
@@ -247,11 +262,17 @@ func (s *Server) GetTickerSnapshot(ctx context.Context, in *customerbllv1.GetTic
 	if len(symbols) == 0 {
 		symbols = []string{"AAPL", "NVDA", "MSFT", "TSLA"}
 	}
-	bars, err := s.brokerClient.GetLatestBars(ctx, symbols)
+	barsCtx, barsCancel := s.withUpstreamTimeout(ctx)
+	bars, err := s.brokerClient.GetLatestBars(barsCtx, symbols)
+	barsCancel()
 	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "failed to fetch market data from broker: %v", err)
+		s.log().Error("failed to fetch market data bars from broker", "error", sanitizeVendorNames(err.Error()))
+		return nil, mapUpstreamError("broker", err)
 	}
-	quotes, _ := s.brokerClient.GetLatestQuotes(ctx, symbols)
+	recordUpstreamSuccess(ctx, "broker")
+	quotesCtx, quotesCancel := s.withUpstreamTimeout(ctx)
+	quotes, _ := s.brokerClient.GetLatestQuotes(quotesCtx, symbols)
+	quotesCancel()
 
 	out := make([]*customerbllv1.TickerQuote, 0, len(symbols))
 	for _, sym := range symbols {

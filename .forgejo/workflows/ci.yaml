@@ -30,6 +30,10 @@ jobs:
             echo "/usr/local/go/bin" >> $GITHUB_PATH
           fi
 
+      - name: Set up Python & Dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml python3-pip
+
       - name: Verify CI Contracts
         run: ./scripts/verify-ci-contracts.sh
 
@@ -37,10 +41,6 @@ jobs:
         run: |
           node --version
           npm --version
-
-      - name: Set up Python & Dependencies
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml python3-pip
 
       - name: Validate OpenAPI 3.1 Contract Specification
         run: python3 scripts/validate-openapi.py api/openapi.yaml

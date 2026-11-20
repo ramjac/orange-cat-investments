@@ -178,6 +178,54 @@ func TestRateLimitMiddleware(t *testing.T) {
 	assert.NotEmpty(t, rec3.Header().Get("Retry-After"))
 }
 
+func TestRateLimitMiddleware_EnvOverrides(t *testing.T) {
+	keyFunc := func(r *http.Request) string {
+		return "ip:" + ClientIP(r)
+	}
+	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	t.Run("multiplier scales effective limit", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_ENABLED", "true")
+		t.Setenv("RATE_LIMIT_MULTIPLIER", "3")
+
+		limiter := NewRateLimiter(nil, nil)
+		handler := RateLimitMiddleware(limiter, keyFunc, 2, time.Minute)(baseHandler)
+
+		for i := 1; i <= 6; i++ {
+			req := httptest.NewRequest("GET", "/test", nil)
+			req.RemoteAddr = "198.51.100.10:1234"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code, "request %d should succeed under 3x multiplier", i)
+			assert.Equal(t, "6", rec.Header().Get("X-RateLimit-Limit"))
+		}
+
+		req7 := httptest.NewRequest("GET", "/test", nil)
+		req7.RemoteAddr = "198.51.100.10:1234"
+		rec7 := httptest.NewRecorder()
+		handler.ServeHTTP(rec7, req7)
+		assert.Equal(t, http.StatusTooManyRequests, rec7.Code)
+	})
+
+	t.Run("disabled bypasses throttling", func(t *testing.T) {
+		t.Setenv("RATE_LIMIT_ENABLED", "false")
+
+		limiter := NewRateLimiter(nil, nil)
+		handler := RateLimitMiddleware(limiter, keyFunc, 1, time.Minute)(baseHandler)
+
+		for i := 1; i <= 5; i++ {
+			req := httptest.NewRequest("GET", "/test", nil)
+			req.RemoteAddr = "198.51.100.11:1234"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code, "request %d should bypass rate limit when disabled", i)
+			assert.Empty(t, rec.Header().Get("X-RateLimit-Limit"))
+		}
+	})
+}
+
 func TestInvalidationListener(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

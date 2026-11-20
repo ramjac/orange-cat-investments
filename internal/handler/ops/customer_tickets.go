@@ -72,7 +72,7 @@ func (h *Handler) ListCustomerTickets(w http.ResponseWriter, r *http.Request) {
 		Offset:     0,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeOpsGRPCError(w, "ListCustomerTickets", err, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -116,7 +116,7 @@ func (h *Handler) CreateCustomerTicket(w http.ResponseWriter, r *http.Request) {
 		Body:       req.Body,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "CreateCustomerTicket", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -138,7 +138,7 @@ func (h *Handler) GetCustomerTicket(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.bllClient.GetTicket(r.Context(), &opsv1.GetTicketRequest{TicketID: id})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeOpsGRPCError(w, "GetCustomerTicket", err, http.StatusNotFound)
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *Handler) ListCustomerTicketComments(w http.ResponseWriter, r *http.Requ
 		TicketID: id,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeOpsGRPCError(w, "ListCustomerTicketComments", err, http.StatusInternalServerError)
 		return
 	}
 	var publicComments []*opsv1.TicketComment
@@ -243,7 +243,7 @@ func (h *Handler) AddCustomerTicketComment(w http.ResponseWriter, r *http.Reques
 		IsInternal:     false,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "AddCustomerTicketComment", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
