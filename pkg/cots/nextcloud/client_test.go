@@ -300,7 +300,13 @@ func TestNextcloudClient_LiveNextcloudHTMLFallbackAndWebDAVMKCOL(t *testing.T) {
 			exists := createdDirs[parent]
 			mu.Unlock()
 			if !exists {
-				w.WriteHeader(http.StatusConflict)
+				// Simulate Nextcloud 28 SabreDAV returning 403 for missing 1-level dirs (e.g. /Documents)
+				// and 409/404 for deeper missing directories.
+				if strings.HasSuffix(parent, "/Documents") {
+					w.WriteHeader(http.StatusForbidden)
+				} else {
+					w.WriteHeader(http.StatusConflict)
+				}
 				_, _ = w.Write([]byte("<d:error>Parent node does not exist</d:error>"))
 				return
 			}

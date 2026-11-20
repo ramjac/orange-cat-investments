@@ -992,8 +992,9 @@ func (c *Client) putWebDAVFile(ctx context.Context, webdavPath, contentType stri
 }
 
 // UploadWebDAVFile uploads raw file bytes to Nextcloud WebDAV path via HTTP PUT.
-// If the parent collection does not exist yet (HTTP 409 Conflict / 404 Not Found),
-// it creates intermediate directories via MKCOL and retries the PUT once.
+// If the parent collection does not exist yet (Nextcloud SabreDAV returns HTTP 409 Conflict,
+// 404 Not Found, or 403 Forbidden depending on nesting depth), it creates intermediate
+// directories via MKCOL and retries the PUT once.
 func (c *Client) UploadWebDAVFile(ctx context.Context, webdavPath, contentType string, content []byte) error {
 	if webdavPath == "" {
 		return errors.New("webdavPath cannot be empty")
@@ -1006,7 +1007,7 @@ func (c *Client) UploadWebDAVFile(ctx context.Context, webdavPath, contentType s
 	if err != nil {
 		return err
 	}
-	if statusCode == http.StatusConflict || statusCode == http.StatusNotFound {
+	if statusCode == http.StatusConflict || statusCode == http.StatusNotFound || statusCode == http.StatusForbidden {
 		if mkErr := c.ensureWebDAVParentDirs(ctx, webdavPath); mkErr != nil {
 			return mkErr
 		}
