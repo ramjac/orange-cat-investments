@@ -26,7 +26,8 @@ var (
 	EmergencyHoldToggles      metric.Int64Counter
 
 	// Operational Metrics
-	PebbleMTTADuration metric.Float64Histogram
+	PebbleMTTADuration      metric.Float64Histogram
+	UpstreamRequestsCounter metric.Int64Counter
 )
 
 func initMetrics(serviceName string) error {
@@ -98,6 +99,13 @@ func initMetrics(serviceName string) error {
 		return err
 	}
 
+	UpstreamRequestsCounter, err = meter.Int64Counter("oci.upstream.requests.total",
+		metric.WithDescription("Total number of outbound requests to external bank and broker providers"),
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -152,5 +160,16 @@ func RecordEmergencyHoldToggle(ctx context.Context) {
 func RecordPebbleMTTA(ctx context.Context, durationSec float64) {
 	if PebbleMTTADuration != nil {
 		PebbleMTTADuration.Record(ctx, durationSec)
+	}
+}
+
+func RecordUpstreamRequest(ctx context.Context, service, status string) {
+	if UpstreamRequestsCounter != nil {
+		UpstreamRequestsCounter.Add(ctx, 1,
+			metric.WithAttributes(
+				attribute.String("service", service),
+				attribute.String("status", status),
+			),
+		)
 	}
 }

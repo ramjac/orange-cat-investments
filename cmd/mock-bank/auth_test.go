@@ -15,12 +15,14 @@ func TestRequireBankAuth(t *testing.T) {
 		_, _ = w.Write([]byte("authorized"))
 	}))
 
-	// 1. Healthz should bypass auth
-	reqHealth := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	rrHealth := httptest.NewRecorder()
-	handler.ServeHTTP(rrHealth, reqHealth)
-	if rrHealth.Code != http.StatusOK {
-		t.Errorf("expected 200 for healthz, got %d", rrHealth.Code)
+	// 1. Healthz and /sim/faults should bypass auth
+	for _, path := range []string{"/healthz", "/sim/faults"} {
+		reqBypass := httptest.NewRequest(http.MethodPut, path, nil)
+		rrBypass := httptest.NewRecorder()
+		handler.ServeHTTP(rrBypass, reqBypass)
+		if rrBypass.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", path, rrBypass.Code)
+		}
 	}
 
 	// 2. Missing credentials should return 401

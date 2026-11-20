@@ -302,3 +302,16 @@ spec:
       ports:
         - protocol: TCP
           port: 8086
+    # Gatus uptime monitor TCP connectivity health probes from monitoring namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app: gatus
+      ports:
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086

@@ -13,7 +13,10 @@ import (
 func (d *Driver) testFaultScenarios(ctx context.Context) error {
 	d.logger.Info("starting fault injection scenarios")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: d.client.transport,
+	}
 
 	bankURL := strings.TrimRight(d.cfg.BankURL, "/") + "/sim/faults"
 	brokerURL := strings.TrimRight(d.cfg.BrokerURL, "/") + "/sim/faults"

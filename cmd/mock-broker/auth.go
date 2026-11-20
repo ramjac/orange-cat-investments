@@ -10,8 +10,9 @@ import (
 // AuthMiddleware validates Alpaca API credentials from request headers.
 func AuthMiddleware(expectedKey, expectedSecret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Bypass health check endpoints
-		if r.URL.Path == "/healthz" || r.URL.Path == "/health" {
+		// Bypass health check endpoints and dev-only fault injection control plane
+		// (/sim/faults is only registered on the mux when ENABLE_FAULT_INJECTION=true).
+		if r.URL.Path == "/healthz" || r.URL.Path == "/health" || r.URL.Path == "/sim/faults" {
 			next.ServeHTTP(w, r)
 			return
 		}

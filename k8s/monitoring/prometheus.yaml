@@ -78,7 +78,9 @@ data:
       - job_name: 'rabbitmq'
         metrics_path: '/metrics/per-object'
         static_configs:
-          - targets: ['rabbitmq-service.oci-core.svc.cluster.local:15692']
+          - targets:
+              - 'rabbitmq-service.oci-core.svc.cluster.local:15692'
+              - 'rabbitmq-service.oci-dev.svc.cluster.local:15692'
 
       - job_name: 'forgejo'
         metrics_path: '/metrics'
@@ -88,7 +90,9 @@ data:
       - job_name: 'zitadel'
         metrics_path: '/debug/metrics'
         static_configs:
-          - targets: ['zitadel-service.oci-core.svc.cluster.local:8080']
+          - targets:
+              - 'zitadel-service.oci-core.svc.cluster.local:8080'
+              - 'zitadel-service.oci-dev.svc.cluster.local:8080'
 
       - job_name: 'meilisearch'
         metrics_path: '/metrics'
@@ -286,6 +290,33 @@ data:
             annotations:
               summary: "Container {{ $labels.container }} in Pod {{ $labels.pod }} was OOMKilled"
               description: "Container {{ $labels.container }} in namespace {{ $labels.namespace }} was terminated due to Out-Of-Memory eviction."
+          - alert: DeploymentZeroAvailableReplicas
+            expr: kube_deployment_status_replicas_available{namespace=~"oci-core|oci-dev|oci-internal|external-sim"} == 0
+            for: 30s
+            labels:
+              severity: critical
+              tier: kubernetes
+            annotations:
+              summary: "Deployment {{ $labels.deployment }} in {{ $labels.namespace }} has zero available replicas"
+              description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has 0 available replicas for more than 30 seconds."
+          - alert: StatefulSetReplicasUnavailable
+            expr: kube_statefulset_status_replicas_ready{namespace=~"oci-core|oci-dev|oci-internal"} == 0
+            for: 30s
+            labels:
+              severity: critical
+              tier: kubernetes
+            annotations:
+              summary: "StatefulSet {{ $labels.statefulset }} in {{ $labels.namespace }} has zero ready replicas"
+              description: "StatefulSet {{ $labels.namespace }}/{{ $labels.statefulset }} has 0 ready replicas for more than 30 seconds."
+          - alert: ScrapeTargetDown
+            expr: up == 0
+            for: 30s
+            labels:
+              severity: warning
+              tier: observability
+            annotations:
+              summary: "Prometheus scrape target {{ $labels.job }} ({{ $labels.instance }}) is down"
+              description: "Target {{ $labels.instance }} in job {{ $labels.job }} has been unreachable for 30 seconds."
 
       - name: automated_backup_verification
         rules:
@@ -383,14 +414,14 @@ data:
       - name: meilisearch_alerts
         rules:
           - alert: MeilisearchDown
-            expr: up{job="meilisearch"} == 0
+            expr: up{job="meilisearch"} == 0 or kube_deployment_status_replicas_available{deployment="meilisearch",namespace=~"oci-core|oci-dev"} == 0
             for: 1m
             labels:
               severity: critical
               tier: search
             annotations:
-              summary: "Meilisearch search engine is down ({{ $labels.instance }})"
-              description: "Prometheus cannot scrape Meilisearch target {{ $labels.instance }}. Search queries will fail."
+              summary: "Meilisearch search engine is down ({{ $labels.namespace }}/{{ $labels.instance }})"
+              description: "Meilisearch is down or has zero available replicas. Search queries will fail."
           - alert: MeilisearchDiskUsageHigh
             expr: (kubelet_volume_stats_used_bytes{persistentvolumeclaim="meilisearch-data-pvc"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim="meilisearch-data-pvc"}) > 0.80
             for: 5m
@@ -400,6 +431,36 @@ data:
             annotations:
               summary: "Meilisearch PVC {{ $labels.persistentvolumeclaim }} disk usage > 80%"
               description: "Meilisearch data volume in namespace {{ $labels.namespace }} is at {{ $value | humanizePercentage }} capacity."
+
+      - name: service_and_upstream_error_alerts
+        rules:
+          - alert: HighHTTP5xxErrorRate
+            expr: sum by (job, service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[2m])) > 0.05
+            for: 30s
+            labels:
+              severity: warning
+              tier: application
+            annotations:
+              summary: "Elevated HTTP 5xx error rate on {{ $labels.service_name }}"
+              description: "Service {{ $labels.service_name }} is returning HTTP 5xx responses at {{ $value }} req/s over the last 2m."
+          - alert: UpstreamBankOrBrokerErrorSpike
+            expr: sum by (service, status) (rate(oci_upstream_requests_total{status=~"unavailable|rejected"}[2m])) > 0
+            for: 30s
+            labels:
+              severity: critical
+              tier: upstream
+            annotations:
+              summary: "Upstream {{ $labels.service }} errors detected ({{ $labels.status }})"
+              description: "Outbound requests to upstream {{ $labels.service }} are failing with status={{ $labels.status }}."
+          - alert: UpstreamBankOrBrokerTimeoutSpike
+            expr: sum by (service) (rate(oci_upstream_requests_total{status="timeout"}[2m])) > 0
+            for: 30s
+            labels:
+              severity: critical
+              tier: upstream
+            annotations:
+              summary: "Upstream {{ $labels.service }} request timeouts detected"
+              description: "Outbound requests to upstream {{ $labels.service }} are exceeding the configured deadline."
 ---
 apiVersion: apps/v1
 kind: Deployment

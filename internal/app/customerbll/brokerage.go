@@ -28,11 +28,17 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 	custID := in.CustomerID
 	portfolioID := in.PortfolioID
 
+	brokerDegraded := false
 	if portfolioID == "" && s.brokerClient != nil {
 		listCtx, listCancel := s.withUpstreamTimeout(ctx)
 		accs, err := s.brokerClient.ListAccounts(listCtx)
 		listCancel()
-		if err == nil {
+		if err != nil {
+			brokerDegraded = true
+			_ = mapUpstreamError("broker", err)
+			s.log().Warn("broker account listing failed; falling back to core-invest-api", "error", sanitizeVendorNames(err.Error()))
+		} else {
+			recordUpstreamSuccess(ctx, "broker")
 			for _, a := range accs {
 				if a.ID == custID || a.AccountNumber == custID || (custID != "" && strings.Contains(strings.ToLower(a.CustomerName), strings.ToLower(custID))) {
 					portfolioID = a.ID
@@ -48,36 +54,46 @@ func (s *Server) GetPortfolio(ctx context.Context, in *customerbllv1.GetPortfoli
 		portfolioID = fmt.Sprintf("port-%s", custID)
 	}
 
-	if s.brokerClient != nil && portfolioID != "" {
+	if !brokerDegraded && s.brokerClient != nil && portfolioID != "" {
 		accCtx, accCancel := s.withUpstreamTimeout(ctx)
 		acc, accErr := s.brokerClient.GetAccount(accCtx, portfolioID)
 		accCancel()
-		positions, posErr := bPositions(ctx, s, portfolioID)
-		if accErr == nil && acc != nil && posErr == nil {
-			accountName := "OCI Investment Portfolio"
-			if acc.AccountNumber != "" {
-				accountName = fmt.Sprintf("Account %s", acc.AccountNumber)
-			}
-			customerName := custID
-			if acc.CustomerName != "" {
-				customerName = acc.CustomerName
-			}
-			if in.CustomerName != "" {
-				customerName = in.CustomerName
-			}
-			histPoints := getHistoricalValuationPoints(ctx, s.ciClient, portfolioID, "1M")
+		if accErr != nil {
+			_ = mapUpstreamError("broker", accErr)
+			s.log().Warn("broker account lookup failed; skipping positions and falling back to core-invest-api", "portfolio_id", portfolioID, "error", sanitizeVendorNames(accErr.Error()))
+		} else if acc != nil {
+			recordUpstreamSuccess(ctx, "broker")
+			positions, posErr := bPositions(ctx, s, portfolioID)
+			if posErr != nil {
+				_ = mapUpstreamError("broker", posErr)
+				s.log().Warn("broker positions lookup failed; falling back to core-invest-api", "portfolio_id", portfolioID, "error", sanitizeVendorNames(posErr.Error()))
+			} else {
+				recordUpstreamSuccess(ctx, "broker")
+				accountName := "OCI Investment Portfolio"
+				if acc.AccountNumber != "" {
+					accountName = fmt.Sprintf("Account %s", acc.AccountNumber)
+				}
+				customerName := custID
+				if acc.CustomerName != "" {
+					customerName = acc.CustomerName
+				}
+				if in.CustomerName != "" {
+					customerName = in.CustomerName
+				}
+				histPoints := getHistoricalValuationPoints(ctx, s.ciClient, portfolioID, "1M")
 
-			return &customerbllv1.GetPortfolioResponse{
-				PortfolioID:           portfolioID,
-				CustomerID:            custID,
-				CustomerName:          customerName,
-				AccountName:           accountName,
-				TotalBalanceUSD:       acc.PortfolioValue,
-				CashBalanceUSD:        acc.Cash,
-				Status:                acc.Status,
-				Holdings:              positions,
-				HistoricalPerformance: histPoints,
-			}, nil
+				return &customerbllv1.GetPortfolioResponse{
+					PortfolioID:           portfolioID,
+					CustomerID:            custID,
+					CustomerName:          customerName,
+					AccountName:           accountName,
+					TotalBalanceUSD:       acc.PortfolioValue,
+					CashBalanceUSD:        acc.Cash,
+					Status:                acc.Status,
+					Holdings:              positions,
+					HistoricalPerformance: histPoints,
+				}, nil
+			}
 		}
 	}
 
@@ -439,9 +455,10 @@ func (s *Server) CaptureDailySnapshots(ctx context.Context, in *customerbllv1.Ca
 		accs, err := s.brokerClient.ListAccounts(listCtx)
 		listCancel()
 		if err != nil {
-			s.log().Error("failed to list broker accounts for daily snapshots", "error", err)
+			s.log().Error("failed to list broker accounts for daily snapshots", "error", sanitizeVendorNames(err.Error()))
 			return nil, mapUpstreamError("broker", err)
 		}
+		recordUpstreamSuccess(ctx, "broker")
 		for _, acc := range accs {
 			val := acc.PortfolioValue
 			if val == 0 {

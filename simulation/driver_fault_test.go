@@ -114,11 +114,27 @@ func TestDriver_TestFaultScenarios(t *testing.T) {
 	require.NoError(t, err)
 	drv.registry = reg
 
+	var customTransportCalls int
+	origTransport := drv.client.transport
+	drv.client.transport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/sim/faults" {
+			customTransportCalls++
+		}
+		return origTransport.RoundTrip(req)
+	})
+
 	err = drv.testFaultScenarios(context.Background())
 	require.NoError(t, err)
+	assert.GreaterOrEqual(t, customTransportCalls, 5, "fault injection must use d.client.transport (OCI_INGRESS_IP-aware)")
 
 	mu.Lock()
 	defer mu.Unlock()
 	assert.True(t, bankReset, "mock-bank /sim/faults must be reset via defer")
 	assert.True(t, brokerReset, "mock-broker /sim/faults must be reset via defer")
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

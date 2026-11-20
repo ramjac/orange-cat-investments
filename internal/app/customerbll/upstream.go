@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -47,19 +48,24 @@ func (s *Server) withUpstreamTimeout(ctx context.Context) (context.Context, cont
 
 // mapUpstreamError converts broker/bank HTTP or transport errors into gRPC
 // status errors (Unavailable, DeadlineExceeded, FailedPrecondition, NotFound)
-// without leaking upstream vendor names or raw network URLs.
+// without leaking upstream vendor names or raw network URLs, and records the
+// outcome in the oci.upstream.requests.total OTel counter.
 func mapUpstreamError(service string, err error) error {
 	if err == nil {
+		telemetry.RecordUpstreamRequest(context.Background(), service, "ok")
 		return nil
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
+		telemetry.RecordUpstreamRequest(context.Background(), service, "timeout")
 		return status.Errorf(codes.DeadlineExceeded, "%s request timed out", service)
 	}
 	if errors.Is(err, context.Canceled) {
+		telemetry.RecordUpstreamRequest(context.Background(), service, "unavailable")
 		return status.Errorf(codes.Canceled, "%s request canceled", service)
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
+		telemetry.RecordUpstreamRequest(context.Background(), service, "timeout")
 		return status.Errorf(codes.DeadlineExceeded, "%s request timed out", service)
 	}
 
@@ -72,20 +78,29 @@ func mapUpstreamError(service string, err error) error {
 			code == http.StatusForbidden ||
 			code == http.StatusPreconditionFailed ||
 			code == http.StatusUnprocessableEntity:
+			telemetry.RecordUpstreamRequest(context.Background(), service, "rejected")
 			if msg == "" {
 				return status.Errorf(codes.FailedPrecondition, "%s rejected request", service)
 			}
 			return status.Errorf(codes.FailedPrecondition, "%s rejected request: %s", service, msg)
 		case code == http.StatusNotFound:
+			telemetry.RecordUpstreamRequest(context.Background(), service, "rejected")
 			return status.Errorf(codes.NotFound, "%s resource not found", service)
 		case code == http.StatusRequestTimeout || code == http.StatusGatewayTimeout:
+			telemetry.RecordUpstreamRequest(context.Background(), service, "timeout")
 			return status.Errorf(codes.DeadlineExceeded, "%s request timed out", service)
 		default:
+			telemetry.RecordUpstreamRequest(context.Background(), service, "unavailable")
 			return status.Errorf(codes.Unavailable, "%s service unavailable", service)
 		}
 	}
 
+	telemetry.RecordUpstreamRequest(context.Background(), service, "unavailable")
 	return status.Errorf(codes.Unavailable, "%s service unavailable", service)
+}
+
+func recordUpstreamSuccess(ctx context.Context, service string) {
+	telemetry.RecordUpstreamRequest(ctx, service, "ok")
 }
 
 func sanitizeVendorNames(msg string) string {

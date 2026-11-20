@@ -117,9 +117,10 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	})
 	brokerCancel()
 	if err != nil {
-		s.log().Error("broker order execution failed", "error", err, "portfolio_id", in.PortfolioID)
+		s.log().Error("broker order execution failed", "error", sanitizeVendorNames(err.Error()), "portfolio_id", in.PortfolioID)
 		return nil, mapUpstreamError("broker", err)
 	}
+	recordUpstreamSuccess(ctx, "broker")
 	if brokerResp == nil {
 		return nil, status.Error(codes.Unavailable, "empty response from broker")
 	}
@@ -265,9 +266,10 @@ func (s *Server) GetTickerSnapshot(ctx context.Context, in *customerbllv1.GetTic
 	bars, err := s.brokerClient.GetLatestBars(barsCtx, symbols)
 	barsCancel()
 	if err != nil {
-		s.log().Error("failed to fetch market data bars from broker", "error", err)
+		s.log().Error("failed to fetch market data bars from broker", "error", sanitizeVendorNames(err.Error()))
 		return nil, mapUpstreamError("broker", err)
 	}
+	recordUpstreamSuccess(ctx, "broker")
 	quotesCtx, quotesCancel := s.withUpstreamTimeout(ctx)
 	quotes, _ := s.brokerClient.GetLatestQuotes(quotesCtx, symbols)
 	quotesCancel()

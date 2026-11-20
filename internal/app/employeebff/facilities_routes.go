@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -26,7 +28,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		assetType := r.URL.Query().Get("asset_type")
 		resp, err := b.bllClient.ListAssets(r.Context(), &facilitiesv1.ListAssetsRequest{Limit: 100, AssetType: assetType})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListAssets", err, http.StatusInternalServerError)
 			return
 		}
 		assets := resp.Assets
@@ -67,7 +69,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			ZoneID:       req.ZoneID,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "CreateAsset", err, http.StatusBadRequest)
 			return
 		}
 
@@ -139,7 +141,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			Category:       "facilities",
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "CreateTicket", err, http.StatusBadRequest)
 			return
 		}
 
@@ -215,7 +217,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 
 		resp, err := b.bllClient.SyncOfflineLogs(r.Context(), &facilitiesv1.SyncOfflineLogsRequest{Logs: pbLogs})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "SyncOfflineLogs", err, http.StatusInternalServerError)
 			return
 		}
 
@@ -238,7 +240,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 		}
 		resp, err := b.bllClient.ListFirmwareReleases(r.Context(), &facilitiesv1.ListFirmwareReleasesRequest{})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListFirmwareReleases", err, http.StatusInternalServerError)
 			return
 		}
 		releases := resp.Releases
@@ -284,7 +286,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			Status:     "available",
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "CreateFirmwareRelease", err, http.StatusBadRequest)
 			return
 		}
 
@@ -315,7 +317,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			AssetIDs:  req.AssetIDs,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			b.handleGRPCError(w, "TriggerOTARollout", err, http.StatusBadRequest)
 			return
 		}
 
@@ -342,7 +344,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			Status:  status,
 		})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			b.handleGRPCError(w, "ListOTAJobs", err, http.StatusInternalServerError)
 			return
 		}
 		jobs := resp.Jobs
@@ -369,7 +371,7 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			ZoneID: zoneID,
 		})
 		if err != nil {
-			writeGRPCError(w, err)
+			b.handleGRPCError(w, "ListDeviceConnectivity", err, http.StatusInternalServerError)
 			return
 		}
 		items := resp.Assets
@@ -387,15 +389,92 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/facilities/devices/connectivity", sessionAuth(http.HandlerFunc(listDeviceConnectivity)))
 }
 
-func writeGRPCError(w http.ResponseWriter, err error) {
-	switch status.Code(err) {
-	case codes.NotFound:
-		http.Error(w, err.Error(), http.StatusNotFound)
-	case codes.InvalidArgument:
-		http.Error(w, err.Error(), http.StatusBadRequest)
-	case codes.Unavailable:
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-	default:
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+func containsSensitiveInternalError(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"dial tcp",
+		"connection refused",
+		"transport:",
+		"user=",
+		"database=",
+		"password=",
+		"sqlstate",
+		"failed to connect to",
+		"rpc error:",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
 	}
+	return false
+}
+
+func sanitizeEmployeeErrorMessage(code codes.Code, msg string) string {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed != "" && !containsSensitiveInternalError(trimmed) {
+		return trimmed
+	}
+	switch code {
+	case codes.Unavailable:
+		return "internal service temporarily unavailable"
+	case codes.DeadlineExceeded:
+		return "internal service request timed out"
+	case codes.NotFound:
+		return "resource not found"
+	case codes.InvalidArgument:
+		return "invalid request parameters"
+	case codes.PermissionDenied:
+		return "permission denied"
+	case codes.Unauthenticated:
+		return "authentication required"
+	default:
+		return "internal service error"
+	}
+}
+
+func (b *EmployeeBFF) handleGRPCError(w http.ResponseWriter, op string, err error, fallbackStatus int) {
+	logger := b.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	st, ok := status.FromError(err)
+	code := status.Code(err)
+	rawMsg := err.Error()
+	if ok && st.Message() != "" {
+		rawMsg = st.Message()
+	}
+
+	var httpStatus int
+	switch code {
+	case codes.NotFound:
+		httpStatus = http.StatusNotFound
+	case codes.InvalidArgument:
+		httpStatus = http.StatusBadRequest
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
+	case codes.Unauthenticated:
+		httpStatus = http.StatusUnauthorized
+	case codes.Unavailable:
+		httpStatus = http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		httpStatus = http.StatusGatewayTimeout
+	default:
+		httpStatus = fallbackStatus
+	}
+
+	if httpStatus >= 500 || code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Internal || code == codes.Unknown {
+		logger.Error("internal-bll gRPC call failed",
+			"downstream", "internal-bll",
+			"operation", op,
+			"grpc_code", code.String(),
+			"http_status", httpStatus,
+			"error", err,
+		)
+	}
+
+	http.Error(w, sanitizeEmployeeErrorMessage(code, rawMsg), httpStatus)
+}
+
+func writeGRPCError(w http.ResponseWriter, err error) {
+	(&EmployeeBFF{logger: slog.Default()}).handleGRPCError(w, "internal-bll", err, http.StatusInternalServerError)
 }

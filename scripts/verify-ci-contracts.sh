@@ -278,6 +278,41 @@ if [ ! -f k8s/oci-dev/dev-db-retention-cronjob.yaml ] || ! grep -q "namespace: o
   failed=1
 fi
 
+# 14. Verify Promtail Kubernetes pod log scraping and CRI parsing (7.25)
+echo "Verifying Promtail Kubernetes pod log scraping in k8s/logging/promtail.yaml..."
+for pat in "kind: ServiceAccount" "kind: ClusterRole" "/var/log/pods" "kubernetes_sd_configs" "cri:" "target_label: namespace" "target_label: pod" "target_label: container" "target_label: app"; do
+  if ! grep -q "$pat" k8s/logging/promtail.yaml; then
+    echo "ERROR: k8s/logging/promtail.yaml missing required pod-logging setting: $pat"
+    failed=1
+  fi
+done
+
+# 15. Verify Prometheus availability/error/upstream alerts and oci-dev RabbitMQ/ZITADEL scraping (7.26)
+echo "Verifying Phase 7.26 Prometheus alert rules and oci-dev RabbitMQ metrics..."
+if ! grep -q "15692" k8s/oci-dev/rabbitmq.yaml || ! grep -q "rabbitmq_prometheus" k8s/oci-dev/rabbitmq.yaml; then
+  echo "ERROR: k8s/oci-dev/rabbitmq.yaml must enable rabbitmq_prometheus plugin and expose port 15692"
+  failed=1
+fi
+for pat in "rabbitmq-service.oci-dev.svc.cluster.local:15692" "zitadel-service.oci-dev.svc.cluster.local:8080" "DeploymentZeroAvailableReplicas" "StatefulSetReplicasUnavailable" "ScrapeTargetDown" "HighHTTP5xxErrorRate" "UpstreamBankOrBrokerErrorSpike" "UpstreamBankOrBrokerTimeoutSpike"; do
+  if ! grep -q "$pat" k8s/monitoring/prometheus.yaml; then
+    echo "ERROR: k8s/monitoring/prometheus.yaml missing required Phase 7.26 config/alert: $pat"
+    failed=1
+  fi
+done
+
+# 16. Verify Gatus baseline probes use in-cluster URLs and TCP checks for mTLS gRPC & Frappe (7.27)
+echo "Verifying Gatus probes in k8s/monitoring/gatus.yaml..."
+if grep -qE "url: \"https://[a-z.]*oci\.local" k8s/monitoring/gatus.yaml; then
+  echo "ERROR: k8s/monitoring/gatus.yaml must not probe external https://*.oci.local hostnames"
+  failed=1
+fi
+for pat in "tcp://customer-bll-service.oci-core.svc.cluster.local:8085" "tcp://internal-bll-service.oci-core.svc.cluster.local:8086" "tcp://workforce-api-service.oci-core.svc.cluster.local:50051" "tcp://facilities-api-service.oci-core.svc.cluster.local:50052" "tcp://core-invest-api-service.oci-core.svc.cluster.local:50053" "tcp://ops-api-service.oci-core.svc.cluster.local:50054" "tcp://erpnext-service.oci-internal.svc.cluster.local:8000" "tcp://frappe-hr-service.oci-internal.svc.cluster.local:8000"; do
+  if ! grep -q "$pat" k8s/monitoring/gatus.yaml; then
+    echo "ERROR: k8s/monitoring/gatus.yaml missing required TCP probe: $pat"
+    failed=1
+  fi
+done
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1

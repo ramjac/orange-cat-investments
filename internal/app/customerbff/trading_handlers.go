@@ -13,6 +13,7 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
+	"google.golang.org/grpc/status"
 )
 
 func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +67,7 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		LimitPrice:  req.Price,
 	})
 	if err != nil {
-		writeGRPCError(w, err, http.StatusBadGateway)
+		b.handleGRPCError(w, "ValidateAndExecuteOrder", err, http.StatusBadGateway)
 		return
 	}
 
@@ -104,6 +105,7 @@ func (b *CustomerBFF) handleGetTradeLogs(w http.ResponseWriter, r *http.Request)
 		CustomerID: session.CustomerID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListTradeOrders", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []*coreinvestv1.BrokerageOrder{})
 		return
 	}
@@ -131,7 +133,7 @@ func (b *CustomerBFF) handleTickerSSE(w http.ResponseWriter, r *http.Request) {
 		Symbols: symbols,
 	})
 	if err != nil {
-		writeGRPCError(w, err, http.StatusBadGateway)
+		b.handleGRPCError(w, "GetTickerSnapshot", err, http.StatusBadGateway)
 		return
 	}
 
@@ -165,7 +167,7 @@ func (b *CustomerBFF) handleGetZoomieIndex(w http.ResponseWriter, r *http.Reques
 
 	resp, err := b.bllClient.GetZoomieIndex(r.Context(), &customerbllv1.GetZoomieIndexRequest{})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to get zoomie index")
+		b.handleGRPCError(w, "GetZoomieIndex", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -199,6 +201,7 @@ func (b *CustomerBFF) handleGetAPIKeys(w http.ResponseWriter, r *http.Request) {
 		CustomerID: custID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListAPIKeys", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []any{})
 		return
 	}
@@ -254,7 +257,7 @@ func (b *CustomerBFF) handleCreateAPIKey(w http.ResponseWriter, r *http.Request)
 		Permissions: req.Permissions,
 	})
 	if err != nil {
-		writeGRPCError(w, err, http.StatusBadGateway)
+		b.handleGRPCError(w, "CreateAPIKey", err, http.StatusBadGateway)
 		return
 	}
 
@@ -297,7 +300,7 @@ func (b *CustomerBFF) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request)
 		KeyID:      keyID,
 	})
 	if err != nil {
-		writeGRPCError(w, err, http.StatusBadGateway)
+		b.handleGRPCError(w, "RevokeAPIKey", err, http.StatusBadGateway)
 		return
 	}
 
@@ -321,6 +324,7 @@ func (b *CustomerBFF) handleGetWebhooks(w http.ResponseWriter, r *http.Request) 
 		CustomerID: custID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListWebhooks", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []any{})
 		return
 	}
@@ -382,7 +386,7 @@ func (b *CustomerBFF) handleCreateWebhook(w http.ResponseWriter, r *http.Request
 		Secret:     secret,
 	})
 	if err != nil {
-		writeGRPCError(w, err, http.StatusBadGateway)
+		b.handleGRPCError(w, "CreateWebhook", err, http.StatusBadGateway)
 		return
 	}
 
@@ -423,7 +427,7 @@ func (b *CustomerBFF) handleDeleteWebhook(w http.ResponseWriter, r *http.Request
 		WebhookID:  id,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		b.handleGRPCError(w, "DeleteWebhook", err, http.StatusInternalServerError)
 		return
 	}
 

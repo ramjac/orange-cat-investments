@@ -30,6 +30,9 @@ func TestBusinessMetricsRecordDataPoints(t *testing.T) {
 	RecordCareScheduleUpdate(ctx)
 	RecordEmergencyHoldToggle(ctx)
 	RecordPebbleMTTA(ctx, 4.2)
+	RecordUpstreamRequest(ctx, "broker", "ok")
+	RecordUpstreamRequest(ctx, "broker", "timeout")
+	RecordUpstreamRequest(ctx, "bank", "unavailable")
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(ctx, &rm))
@@ -56,6 +59,7 @@ func TestBusinessMetricsRecordDataPoints(t *testing.T) {
 		"oci.feline.care_schedule_updates.total",
 		"oci.feline.emergency_hold_toggles.total",
 		"oci.operational.pebble_mtta.duration",
+		"oci.upstream.requests.total",
 	}
 	for _, name := range expectedMetrics {
 		assert.Greater(t, recorded[name], 0, "expected metric %s to have at least one data point", name)

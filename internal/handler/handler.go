@@ -2,11 +2,15 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type WorkforceHandler struct {
@@ -197,7 +201,7 @@ func (h *WorkforceHandler) listEmployees(w http.ResponseWriter, r *http.Request)
 			Status:       status,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeGRPCError(w, "ListEmployees", err, http.StatusInternalServerError)
 			return
 		}
 		items := resp.Employees
@@ -220,9 +224,101 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
+func containsSensitiveDetails(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"dial tcp",
+		"connection refused",
+		"transport:",
+		"user=",
+		"database=",
+		"password=",
+		"sqlstate",
+		"failed to connect to",
+		"rpc error:",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeWorkforceError(httpStatus int, message string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed != "" && !containsSensitiveDetails(trimmed) {
+		return trimmed
+	}
+	switch httpStatus {
+	case http.StatusServiceUnavailable:
+		return "workforce service temporarily unavailable"
+	case http.StatusGatewayTimeout:
+		return "workforce service request timed out"
+	case http.StatusNotFound:
+		return "resource not found"
+	case http.StatusBadRequest:
+		return "invalid request parameters"
+	default:
+		return "internal workforce service error"
+	}
+}
+
+func writeGRPCError(w http.ResponseWriter, op string, err error, fallbackStatus int) {
+	st, ok := status.FromError(err)
+	code := status.Code(err)
+	rawMsg := err.Error()
+	if ok && st.Message() != "" {
+		rawMsg = st.Message()
+	}
+
+	httpStatus := fallbackStatus
+	switch code {
+	case codes.Unavailable:
+		httpStatus = http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		httpStatus = http.StatusGatewayTimeout
+	case codes.NotFound:
+		httpStatus = http.StatusNotFound
+	case codes.InvalidArgument:
+		httpStatus = http.StatusBadRequest
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
+	case codes.Unauthenticated:
+		httpStatus = http.StatusUnauthorized
+	}
+
+	if httpStatus >= 500 || code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Internal || code == codes.Unknown {
+		slog.Error("internal-bll workforce gRPC call failed",
+			"downstream", "internal-bll",
+			"operation", op,
+			"grpc_code", code.String(),
+			"http_status", httpStatus,
+			"error", err,
+		)
+	}
+
+	writeJSON(w, httpStatus, map[string]string{
+		"code":    http.StatusText(httpStatus),
+		"message": sanitizeWorkforceError(httpStatus, rawMsg),
+	})
+}
+
 func writeError(w http.ResponseWriter, status int, message string) {
+	if status >= 500 || containsSensitiveDetails(message) {
+		slog.Error("workforce handler error",
+			"downstream", "internal-bll",
+			"http_status", status,
+			"error", message,
+		)
+	}
+	if status == http.StatusBadRequest && (strings.Contains(strings.ToLower(message), "code = unavailable") || strings.Contains(strings.ToLower(message), "connection refused")) {
+		status = http.StatusServiceUnavailable
+	}
+	if status == http.StatusBadRequest && strings.Contains(strings.ToLower(message), "code = deadlineexceeded") {
+		status = http.StatusGatewayTimeout
+	}
 	writeJSON(w, status, map[string]string{
 		"code":    http.StatusText(status),
-		"message": message,
+		"message": sanitizeWorkforceError(status, message),
 	})
 }

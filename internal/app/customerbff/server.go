@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
@@ -100,28 +101,106 @@ func CustomerFromContext(ctx context.Context) *CustomerSession {
 	return session.CustomerFromContext(ctx)
 }
 
-func writeGRPCError(w http.ResponseWriter, err error, fallbackStatus int) {
-	st, ok := status.FromError(err)
-	msg := err.Error()
-	if ok && st.Message() != "" {
-		msg = st.Message()
+func containsSensitiveInternalDetails(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"dial tcp",
+		"connection refused",
+		"transport:",
+		"user=",
+		"database=",
+		"password=",
+		"sqlstate",
+		"failed to connect to",
+		"rpc error:",
+		"alpaca",
+		"plaid",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
 	}
-	switch status.Code(err) {
-	case codes.InvalidArgument:
-		httputil.WriteError(w, http.StatusBadRequest, msg)
-	case codes.Unauthenticated:
-		httputil.WriteError(w, http.StatusUnauthorized, msg)
-	case codes.PermissionDenied:
-		httputil.WriteError(w, http.StatusForbidden, msg)
-	case codes.NotFound:
-		httputil.WriteError(w, http.StatusNotFound, msg)
-	case codes.FailedPrecondition:
-		httputil.WriteError(w, http.StatusUnprocessableEntity, msg)
+	return false
+}
+
+func sanitizeClientErrorMessage(code codes.Code, msg string) string {
+	trimmed := strings.TrimSpace(msg)
+	if trimmed != "" && !containsSensitiveInternalDetails(trimmed) {
+		return trimmed
+	}
+	switch code {
 	case codes.Unavailable:
-		httputil.WriteError(w, http.StatusServiceUnavailable, msg)
+		return "customer service temporarily unavailable"
 	case codes.DeadlineExceeded:
-		httputil.WriteError(w, http.StatusGatewayTimeout, msg)
+		return "customer service request timed out"
+	case codes.NotFound:
+		return "resource not found"
+	case codes.InvalidArgument:
+		return "invalid request parameters"
+	case codes.FailedPrecondition:
+		return "request precondition failed"
+	case codes.Unauthenticated:
+		return "authentication required"
+	case codes.PermissionDenied:
+		return "permission denied"
 	default:
-		httputil.WriteError(w, fallbackStatus, msg)
+		return "internal service error"
 	}
+}
+
+func (b *CustomerBFF) log() *slog.Logger {
+	if b != nil && b.logger != nil {
+		return b.logger
+	}
+	return slog.Default()
+}
+
+func (b *CustomerBFF) handleGRPCError(w http.ResponseWriter, op string, err error, fallbackStatus int) {
+	writeGRPCErrorWithLogger(b.log(), op, w, err, fallbackStatus)
+}
+
+func writeGRPCError(w http.ResponseWriter, err error, fallbackStatus int) {
+	writeGRPCErrorWithLogger(slog.Default(), "customer-bll", w, err, fallbackStatus)
+}
+
+func writeGRPCErrorWithLogger(logger *slog.Logger, op string, w http.ResponseWriter, err error, fallbackStatus int) {
+	st, ok := status.FromError(err)
+	code := status.Code(err)
+	rawMsg := err.Error()
+	if ok && st.Message() != "" {
+		rawMsg = st.Message()
+	}
+
+	var httpStatus int
+	switch code {
+	case codes.InvalidArgument:
+		httpStatus = http.StatusBadRequest
+	case codes.Unauthenticated:
+		httpStatus = http.StatusUnauthorized
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
+	case codes.NotFound:
+		httpStatus = http.StatusNotFound
+	case codes.FailedPrecondition:
+		httpStatus = http.StatusUnprocessableEntity
+	case codes.Unavailable:
+		httpStatus = http.StatusServiceUnavailable
+	case codes.DeadlineExceeded:
+		httpStatus = http.StatusGatewayTimeout
+	default:
+		httpStatus = fallbackStatus
+	}
+
+	if logger != nil && (httpStatus >= 500 || code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Internal || code == codes.Unknown) {
+		logger.Error("customer-bll gRPC call failed",
+			"downstream", "customer-bll",
+			"operation", op,
+			"grpc_code", code.String(),
+			"http_status", httpStatus,
+			"error", err,
+		)
+	}
+
+	clientMsg := sanitizeClientErrorMessage(code, rawMsg)
+	httputil.WriteError(w, httpStatus, clientMsg)
 }
