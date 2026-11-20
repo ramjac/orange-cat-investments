@@ -764,7 +764,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & PR-Scoped Technical Roadmap
 
-The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7.1`–`7.19`, `7.21`–`7.29`), alongside an intentionally undecided exploratory item (`7.20`). Steps are numbered in execution order; each lists **Depends On**, **Current Codebase State**, **PR Scope**, and **Verification Gate**. An agent should take the lowest-numbered step whose dependencies are complete.
+Phases 1–4 and 6–7 (`7.1`–`7.19`, `7.21`–`7.29`) are **completed**; only the exploratory Phase 5 item (`7.20`) remains intentionally undecided pending an ADR. Steps are numbered in execution order and never renumbered after work begins.
 
 ### 7.0 Rules That Apply to Every Step
 
@@ -776,37 +776,37 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 ### Execution Phases
 
-1. **Phase 1 — CI/CD Supply Chain (`7.1`–`7.5`):** toolchain alignment, Forgejo/runner storage hygiene, container builds for every mock, honest immutable-SHA promotion, and registry pre-flight checks. This phase comes first so every later PR is built and promoted reliably.
+1. **Phase 1 — CI/CD Supply Chain (`7.1`–`7.5`) *(Completed)*:** toolchain alignment, Forgejo/runner storage hygiene, container builds for every mock, honest immutable-SHA promotion, and registry pre-flight checks. This phase comes first so every later PR is built and promoted reliably.
    - [x] **7.1** Toolchain Version Single Source of Truth & Fail-Fast CI Contract Gate
    - [x] **7.2** Forgejo Persistent Storage, Runner Disk Hygiene & Eviction Protection
    - [x] **7.3** Container Builds & Image Promotion for All External-Sim Mocks
    - [x] **7.4** Honest Immutable-SHA Promotion & Post-Deploy Image Verification
    - [x] **7.5** Registry Pre-Flight, Pipeline Status Helper & Single-Command Deploy
-2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`):** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
+2. **Phase 2 — Core Domain Completion (`7.6`–`7.12`) *(Completed)*:** dedicated dev instances of the mocks, lifelike mock hardware, edge device heartbeats/discovery, and the daily NAV snapshot engine.
    - [x] **7.6** Dedicated Dev Instances of External-Sim Mocks
    - [x] **7.7** Lifelike Mock Hardware Behavior
    - [x] **7.8** Edge Device Heartbeats — Domain Layer
    - [x] **7.9** Edge Device Heartbeats — BLL, Mock Wiring & BFF Exposure
    - [x] **7.10** Extend `core_invest.portfolio_snapshots` for Daily NAV
-   - [x] **7.11** Daily NAV Snapshot Batch & BLL History Service *(Completed)*
+   - [x] **7.11** Daily NAV Snapshot Batch & BLL History Service
    - [x] **7.12** Portfolio History in Customer BFF & Portal
-3. **Phase 3 — Observability (`7.13`–`7.16`):** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
+3. **Phase 3 — Observability (`7.13`–`7.16`) *(Completed)*:** stateful store exporters and alerts, custom OpenTelemetry business metrics (Grafana Beyla dropped), and trace propagation over RabbitMQ.
    - [x] **7.13** Stateful Store Exporter Hardening
    - [x] **7.14** Stateful Store Alert Rules
    - [x] **7.15** Drop Grafana Beyla & Wire OpenTelemetry Business Metrics
    - [x] **7.16** Trace Context Propagation Over RabbitMQ & Grafana Correlation
-4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`):** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
+4. **Phase 4 — Fault Injection & Chaos (`7.17`–`7.19`) *(Completed)*:** fault injection on dev-only mocks, poison-pill/DLQ handling, and a chaos suite confined to `oci-dev` and the dev mocks in `external-sim`.
    - [x] **7.17** Dev-Only Fault Injection in Mock Bank & Mock Broker
    - [x] **7.18** RabbitMQ Poison-Pill & Dead-Letter Handling
    - [x] **7.19** Sandboxed Chaos Suite for `oci-dev`
-5. **Phase 5 — Exploratory (`7.20`):** zero-trust secrets and workload identity, undecided.
+5. **Phase 5 — Exploratory (`7.20`) *(Undecided / Open)*:** zero-trust secrets and workload identity, undecided.
    - [ ] **7.20** Zero-Trust Workload Identity & Dynamic Secret Management *(intentionally undecided, pending ADR)*
-6. **Phase 6 — Operational Hardening & Staging Hygiene (`7.21`–`7.24`):** issues uncovered during the 1-hour sustained cluster load test — Prometheus TSDB memory sizing, configurable staging rate limits, live Nextcloud COTS wiring, and `oci-dev` database retention.
+6. **Phase 6 — Operational Hardening & Staging Hygiene (`7.21`–`7.24`) *(Completed)*:** issues uncovered during the 1-hour sustained cluster load test — Prometheus TSDB memory sizing, configurable staging rate limits, live Nextcloud COTS wiring, and `oci-dev` database retention.
    - [x] **7.21** Prometheus Resource Sizing & TSDB Retention Hardening
    - [x] **7.22** Configurable BFF Rate-Limit Policies for Staging & Load Testing
    - [x] **7.23** Wire Live Nextcloud COTS Credentials in `internal-bll` Manifests
    - [x] **7.24** Automated `oci-dev` Database Retention & Scheduled Seed Reset
-7. **Phase 7 — Chaos-Driven Observability, Alerting, Logging & Resilience Hardening (`7.25`–`7.29`):** gaps uncovered during the 34-scenario single-fault chaos audit (`docs/reports/chaos-audit-report.md`) — Kubernetes pod log shipping to Loki, service availability/error-rate/upstream-fault Prometheus alerts, broken baseline Gatus probes, descriptive BFF/BLL caller error logging & sanitization, `/sim/faults` auth/transport fixes, and silent background ACH DLQ clearing bugs.
+7. **Phase 7 — Chaos-Driven Observability, Alerting, Logging & Resilience Hardening (`7.25`–`7.29`) *(Completed)*:** gaps uncovered during the 34-scenario single-fault chaos audit (`docs/reports/chaos-audit-report.md`) — Kubernetes pod log shipping to Loki, service availability/error-rate/upstream-fault Prometheus alerts, broken baseline Gatus probes, descriptive BFF/BLL caller error logging & sanitization, `/sim/faults` auth/transport fixes, and silent background ACH DLQ clearing bugs.
    - [x] **7.25** Ship Kubernetes Pod Logs to Loki via Promtail/Alloy & Verify Centralized Log Queries
    - [x] **7.26** Prometheus Service Availability, Error-Rate, Upstream-Fault & `oci-dev` Scrape Alerting
    - [x] **7.27** Repair Baseline-Broken Gatus Probes & Expand COTS/Dev Health Coverage
@@ -910,8 +910,8 @@ The remaining roadmap is an ordered sequence of **Pull-Request-sized steps** (`7
 
 #### 7.17 Dev-Only Fault Injection in Mock Bank & Mock Broker
 > [!NOTE]
-> **Status: Completed (offline gates verified; cluster `-fault-scenarios` run pending deployment to `oci-dev`)**
-> `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (configured strictly in `k8s/external-sim/mock-*-dev.yaml`, enforced by `scripts/verify-ci-contracts.sh` so it never appears in unsuffixed mock manifests or `k8s/oci-core/`). `pkg/broker/alpaca` and `pkg/bank/plaid` return structured `APIError`s; `internal/app/customerbll/upstream.go` wraps all broker/bank calls with bounded context deadlines (`UPSTREAM_TIMEOUT`, default `5s`) and maps failures to gRPC `Unavailable`, `DeadlineExceeded`, or `FailedPrecondition` without leaking vendor names; `internal/app/customerbff` translates those codes into structured `503`/`504`/`422` JSON responses; and `simulation/driver_fault_patch.go` (`-fault-scenarios`) verifies structured `5xx`/`422` propagation and always resets `/sim/faults` via `defer`.
+> **Status: Completed**
+> `cmd/mock-bank` and `cmd/mock-broker` expose `GET/PUT/DELETE /sim/faults` registered only when `ENABLE_FAULT_INJECTION=true` (configured strictly in `k8s/external-sim/mock-*-dev.yaml`, enforced by `scripts/verify-ci-contracts.sh` so it never appears in unsuffixed mock manifests or `k8s/oci-core/`). `pkg/broker/alpaca` and `pkg/bank/plaid` return structured `APIError`s; `internal/app/customerbll/upstream.go` wraps all broker/bank calls with bounded context deadlines (`UPSTREAM_TIMEOUT`, default `5s`) and maps failures to gRPC `Unavailable`, `DeadlineExceeded`, or `FailedPrecondition` without leaking vendor names; `internal/app/customerbff` translates those codes into structured `503`/`504`/`422` JSON responses; and `simulation/driver_fault_patch.go` (`-fault-scenarios`) was verified live against `oci-dev` (`11/11` actions passed, `503`/`422` propagation confirmed, and `/sim/faults` reset via `defer`).
 
 #### 7.18 RabbitMQ Poison-Pill & Dead-Letter Handling
 > [!NOTE]
