@@ -301,6 +301,12 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **BFF/BLL Caller Error Logging, Sanitization & Latency Cascade Hardening:** Added structured `slog.Error` caller logging, `503`/`504` gRPC mapping, and internal IP/DB/vendor sanitization across `customerbff`, `employeebff`, `internal/handler`, `customerbll`, and `internalbll`; skipped `GetPortfolio` during `handleLogin` when `name != ""`; and short-circuited sequential broker timeouts in `customerbll.GetPortfolio` to eliminate the `C6` login cascade.
 * **Mock `/sim/faults` Auth/Transport & ACH Clearing Fixes:** Exempted `/sim/faults` from API auth in `cmd/mock-bank/auth.go` and `cmd/mock-broker/auth.go`, reused `d.client.transport` (`OCI_INGRESS_IP`-aware) in `simulation/driver_fault_patch.go`, forwarded `BankAccount`/`AccountID`/`DayOfMonth` in `handleCreateDeposit`, skipped `CreateRecurringDeposit` for `one_time` deposits (eliminating `SQLSTATE 23514`), added bank account resolution + NSF R01 pre-authorization in `InitiateACHDeposit`, and passed resolved `accountID` into `achPayload["bank_account"]` (reducing `events.banking.ach_transfer_requested.v1.dlq` from 4,200 messages to **0**).
 
+### 5.28 Zero-Trust Workload Identity & Dynamic Secret Management
+* **SPIFFE URI SAN Workload Authorization (`7.20a`):** Added `VerifyServerIdentity` (`spiffe://oci.local/ns/<ns>/sa/<sa>` and DNS/IP SAN validation) in `pkg/mtls/mtls.go` and unary/stream gRPC SPIFFE authorization interceptors (`WithAllowedPeerSPIFFEIDs`, `AllowedDomainAPICallers`, `AllowedCustomerBLLCallers`, `AllowedInternalBLLCallers`) in `pkg/grpcutil/interceptors.go`. Provisioned dedicated `ServiceAccount`s and `POD_NAMESPACE` Downward API injection across Domain APIs, BLLs, BFFs, Worker, Pebble Proxy, and `mock-hardware`, and enforced fail-closed mTLS startup in `cmd/internal-bll/main.go`.
+* **Ephemeral In-Memory X.509-SVID Mounts (`7.20b`):** Deployed `cert-manager-csi-driver-spiffe` (`k8s/ha/lan/tls/csi-driver-spiffe.yaml`, `driver: spiffe.csi.cert-manager.io` with `spiffe.csi.cert-manager.io/fs-group: "65532"` and pod `supplementalGroups: [65532]`) mounting 1-hour TTL certificates on in-memory `tmpfs` at `/etc/tls/certs` hot-reloaded by `pkg/mtls.DynamicCertReloader`, removing static `kind: Certificate` CRs and `*-tls-certs` Secret volumes (enforced by Check #17 in `scripts/verify-ci-contracts.sh`).
+* **OpenBao & Dynamic Schema-Isolated PostgreSQL Credentials (`7.20c`):** Deployed OpenBao `2.1.0` (`k8s/oci-core/openbao.yaml`) and automated idempotent Kubernetes Auth and Database Secrets Engine provisioning in `scripts/init-openbao.sh` issuing 24-hour dynamic PostgreSQL roles strictly scoped to each Domain API's schema (`workforce`, `facilities`, `core_invest`, `ops`), removed cross-schema `ops.*` queries from `internal/repository/core_invest/gdpr_pgx.go`, and added file-backed `pgxpool` credential hot-reloading (`BeforeConnect`, `MaxConnLifetime = 30m`) in `pkg/dbpool/dbpool.go`.
+* **External Secrets Operator (ESO) & Static Secret Elimination (`7.20d`):** Installed External Secrets Operator (`v2.15.0`) with `ClusterSecretStore/openbao-kv-store` (`k8s/oci-core/external-secrets-stores.yaml`), `ExternalSecret` (`external-secrets.io/v1`), and per-domain `VaultDynamicSecret` (`generators.external-secrets.io/v1alpha1`) manifests in `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `k8s/oci-internal/internal-secrets.yaml`, eliminating raw static `kind: Secret` credential manifests (enforced by Check #18 in `scripts/verify-ci-contracts.sh`).
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -769,7 +775,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & Technical Roadmap
 
-Completed roadmap work (`Phase 1`–`Phase 4`, `Phase 6`–`Phase 7`: steps `7.1`–`7.19` and `7.21`–`7.29`) has been promoted into Section 5 above. Only open future work phases remain below.
+Completed roadmap work (`Phase 1`–`Phase 7`: steps `7.1`–`7.29`) has been promoted into Section 5 above. Only open future work phases remain below.
 
 ### 7.0 Rules That Apply to Future Work
 
@@ -783,83 +789,28 @@ Completed roadmap work (`Phase 1`–`Phase 4`, `Phase 6`–`Phase 7`: steps `7.1
 
 ### Execution Phases
 
-1. **Phase 5 — Zero-Trust Workload Identity & Dynamic Secret Management (`7.20a`–`7.20d`) *(Architecture Specified in [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md))*:** SPIFFE URI SAN caller authorization in `pkg/grpcutil`, ephemeral `tmpfs` SVIDs via `cert-manager-csi-driver-spiffe`, dynamic schema-isolated PostgreSQL roles via OpenBao, and External Secrets Operator (ESO) integration eliminating static `Secret` manifests.
-   - [ ] **7.20a** ADR 0004 & SPIFFE URI SAN Caller Authorization in `pkg/grpcutil`
-   - [ ] **7.20b** Ephemeral In-Memory SVID Mounts via `cert-manager-csi-driver-spiffe`
-   - [ ] **7.20c** OpenBao Deployment & Dynamic PostgreSQL Database Secrets Engine
-   - [ ] **7.20d** External Secrets Operator (ESO) Integration & Static Secret Elimination
-2. **Phase 8 — Artifact Management & Software Supply Chain Security (`7.30`–`7.35`):** Semgrep architectural invariant SAST + `govulncheck` + `gosec` + `gitleaks`, Distroless runtime containers, Forgejo Package Registry integration, Harbor Enterprise Container Registry replacing barebones `registry:2`, CycloneDX SBOMs (`syft`) + `cosign` signing for containers and OTA firmware, and Kyverno admission control.
+1. **Phase 8 — Artifact Management & Software Supply Chain Security (`7.30`–`7.35`):** Semgrep architectural invariant SAST + `govulncheck` + `gosec` + `gitleaks`, Distroless runtime containers, Forgejo Package Registry integration, Harbor Enterprise Container Registry replacing barebones `registry:2`, CycloneDX SBOMs (`syft`) + `cosign` signing for containers and OTA firmware, and Kyverno admission control.
    - [ ] **7.30** Architectural Invariant SAST (`.semgrep.yml`), `govulncheck`, `gosec`, & `gitleaks` Gate
    - [ ] **7.31** Distroless Base Image Migration (`gcr.io/distroless/static-debian12:nonroot`)
    - [ ] **7.32** Forgejo Package Registry Integration (Go Modules, NPM Cache & OTA Firmware Bundles)
    - [ ] **7.33** Harbor Enterprise Container Registry Replacing Barebones `registry:2`, Pull-Through Proxy Cache & Trivy Gate
    - [ ] **7.34** CycloneDX SBOM Generation (`syft`) & Cryptographic Signing (`cosign`) for Containers and OTA Firmware
    - [ ] **7.35** Kyverno Cluster Admission Control Policies
-3. **Phase 9 — Enterprise Zero-Trust Networking & Edge Security (`7.36`–`7.39`):** Default-deny Ingress/Egress `NetworkPolicy` microsegmentation matrix across all workload namespaces, migration from legacy `Ingress` to Kubernetes Gateway API, Coraza OWASP CRS WAF middleware in BFFs, and `coturn` STUN/TURN WebRTC media relay.
+2. **Phase 9 — Enterprise Zero-Trust Networking & Edge Security (`7.36`–`7.39`):** Default-deny Ingress/Egress `NetworkPolicy` microsegmentation matrix across all workload namespaces, migration from legacy `Ingress` to Kubernetes Gateway API, Coraza OWASP CRS WAF middleware in BFFs, and `coturn` STUN/TURN WebRTC media relay.
    - [ ] **7.36** Default-Deny Zero-Trust `NetworkPolicy` Microsegmentation Matrix
    - [ ] **7.37** Migrate from Legacy `Ingress` to Kubernetes Gateway API (`Gateway`, `HTTPRoute`, `GRPCRoute`)
    - [ ] **7.38** Edge Web Application Firewall (Coraza OWASP CRS Middleware in BFFs)
    - [ ] **7.39** In-Cluster STUN/TURN Media Relay (`coturn`) for WebRTC Habitat Streams
-4. **Phase 10 — Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`):** Transactional SQL Outbox pattern + Valkey `Idempotency-Key` locks, tamper-evident SHA-256 hash-chain audit ledger (`ops.audit_logs`), and Embedded OPA (Rego Go SDK) policy evaluation in the BLL tier.
+3. **Phase 10 — Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`):** Transactional SQL Outbox pattern + Valkey `Idempotency-Key` locks, tamper-evident SHA-256 hash-chain audit ledger (`ops.audit_logs`), and Embedded OPA (Rego Go SDK) policy evaluation in the BLL tier.
    - [ ] **7.40** Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware
    - [ ] **7.41** Tamper-Evident Cryptographic Hash-Chain Audit Log (`ops.audit_logs`)
    - [ ] **7.42** Policy-as-Code Authorization Engine (Embedded OPA / Rego Go SDK in BLL Tier)
-5. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
+4. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
    - [ ] **7.43** S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
    - [ ] **7.44** Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
    - [ ] **7.45** In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
    - [ ] **7.46** Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
    - [ ] **7.47** Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
-
----
-
-### Phase 5: Zero-Trust Workload Identity & Dynamic Secret Management (`7.20a`–`7.20d`)
-
-Implements [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md) using **OpenBao + External Secrets Operator (ESO)** for dynamic credentials and **`cert-manager-csi-driver-spiffe` + X.509 URI SAN gRPC enforcement** for cryptographic workload identity.
-
-#### 7.20a ADR 0004 & SPIFFE URI SAN Caller Authorization in `pkg/grpcutil`
-* **Depends On:** None.
-* **Current Codebase State:** `pkg/mtls/mtls.go` verifies that client certificates are signed by `oci-lan-root-ca-key-pair`, and `k8s/oci-core/domain-apis.yaml` issues `cert-manager` certificates with `commonName` and `dnsNames` only. Any pod holding a valid CA-signed certificate (e.g., a compromised BFF pod if network policy were bypassed) is trusted at the TLS layer by Domain APIs. [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md) defines the target SPIFFE URI SAN architecture.
-* **PR Scope:**
-  1. Add dedicated `ServiceAccount` manifests and `uris: ["spiffe://oci.local/ns/<ns>/sa/<service>"]` to all `Certificate` resources in `k8s/oci-core/` and `k8s/oci-dev/`.
-  2. Add unary and streaming gRPC server interceptors (`WithAllowedPeerSPIFFEIDs(allowed ...string)`) in `pkg/grpcutil/interceptors.go` and wire them into `pkg/grpcutil/server.go`:
-     * Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) accept strictly `customer-bll`, `internal-bll`, and `oci-worker` SPIFFE IDs in their own namespace (`PermissionDenied` on any other URI SAN, including BFFs or sibling Domain APIs).
-     * BLL APIs (`customer-bll`, `internal-bll`) accept strictly `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, and `oci-worker` SPIFFE IDs.
-* **Verification Gate:**
-  * [offline] Unit tests in `pkg/grpcutil/grpcutil_test.go` generate leaf certs with BFF, BLL, Worker, and unauthorized Domain API SPIFFE URI SANs and verify that unauthorized callers receive gRPC `PermissionDenied` (`codes.PermissionDenied`).
-  * [cluster] All `Certificate` resources in `oci-core` and `oci-dev` reissue with X.509 URI SANs (`openssl x509 -noout -text` confirms `URI:spiffe://oci.local/...`) and live simulator passes 100%.
-
-#### 7.20b Ephemeral In-Memory SVID Mounts via `cert-manager-csi-driver-spiffe`
-* **Depends On:** `7.20a`.
-* **Current Codebase State:** Workloads mount long-lived Kubernetes `Secret` TLS volumes (`*-tls-certs` persisted in `etcd`) into `/etc/tls/certs`.
-* **PR Scope:**
-  1. Add deployment manifests/installation script for `cert-manager-csi-driver-spiffe` configured against `oci-lan-issuer` (`trustDomain: oci.local`).
-  2. Replace static `secret:` TLS volume definitions in `k8s/oci-core/` and `k8s/oci-dev/` (`domain-apis.yaml`, `bll-services.yaml`, `oci-*-bff.yaml`, `oci-worker.yaml`, `oci-pebble-proxy.yaml`) with ephemeral CSI inline volumes (`driver: spiffe.csi.cert-manager.io`, 1-hour certificate TTL mounted on `tmpfs`), preserving `/etc/tls/certs/tls.crt` and `/etc/tls/certs/tls.key` so `pkg/mtls.DynamicCertReloader` hot-reloads SVID rotations without code changes.
-* **Verification Gate:**
-  * [offline] `scripts/verify-ci-contracts.sh` asserts that all custom microservices in `k8s/oci-core/` and `k8s/oci-dev/` use `driver: spiffe.csi.cert-manager.io` rather than static `*-tls-certs` Secrets.
-  * [cluster] Inspecting mounted `/etc/tls/certs/tls.crt` inside running pods confirms 1-hour validity and automatic renewal without pod restarts.
-
-#### 7.20c OpenBao Deployment & Dynamic PostgreSQL Database Secrets Engine
-* **Depends On:** `7.20b`.
-* **Current Codebase State:** `postgres-core`, `postgres-dev`, and `postgres-internal` use static shared credentials stored in `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `k8s/oci-internal/internal-secrets.yaml`. Furthermore, all 4 Domain APIs connect as the same superuser (`oci`), meaning schema isolation between `workforce`, `facilities`, `core_invest`, and `ops` is enforced only by convention rather than database role grants.
-* **PR Scope:**
-  1. Deploy **OpenBao** (`k8s/oci-core/openbao.yaml`) with persistent storage, Kubernetes Auth Method enabled, and an automated initialization/unseal bootstrap script (`scripts/init-openbao.sh`).
-  2. Configure OpenBao's **PostgreSQL Database Secrets Engine** against `postgres-core`, `postgres-dev`, and `postgres-internal` with per-domain least-privilege role templates (e.g., `workforce-api` receives time-bound 24h credentials with `GRANT USAGE ON SCHEMA workforce` and `SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA workforce`, with zero access to `core_invest`, `facilities`, or `ops`).
-  3. Add dynamic credential rotation support in the `pgxpool` connection setup (`internal/repository/`) so Domain APIs seamlessly reconnect when OpenBao rotates credentials.
-* **Verification Gate:**
-  * [offline] Unit tests verify least-privilege role SQL templates and `pgxpool` credential reload callbacks.
-  * [cluster] OpenBao dynamically issues per-domain PostgreSQL users (`v-k8s-workforce-*`, `v-k8s-core-invest-*`), and cross-schema SQL queries from `workforce-api` to `core_invest.investment_portfolios` are rejected by PostgreSQL with `ERROR: permission denied for schema core_invest` (`SQLSTATE 42501`).
-
-#### 7.20d External Secrets Operator (ESO) Integration & Static Secret Elimination
-* **Depends On:** `7.20c`.
-* **Current Codebase State:** Static `Secret` YAML manifests (`k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, `k8s/oci-internal/internal-secrets.yaml`) contain plaintext base64-encoded bootstrap strings in Git.
-* **PR Scope:**
-  1. Deploy **External Secrets Operator (ESO)** and define `SecretStore` resources pointing to OpenBao's KV-v2 and Database engines.
-  2. Replace `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `k8s/oci-internal/internal-secrets.yaml` with `ExternalSecret` CRDs (`refreshInterval: 1h`) for `DATABASE_URL`, `RABBITMQ_URL`, `NEXTCLOUD_ADMIN_PASS`, `MEILISEARCH_MASTER_KEY`, and mock API keys.
-  3. Add a check in `scripts/verify-ci-contracts.sh` forbidding raw `kind: Secret` manifests with static application credentials in `k8s/oci-core/`, `k8s/oci-dev/`, and `k8s/oci-internal/`.
-* **Verification Gate:**
-  * [offline] `./scripts/verify-ci-contracts.sh` passes and verifies zero static `kind: Secret` credential manifests remain.
-  * [cluster] `kubectl get externalsecrets -A` reports `SecretSynced` (`Ready=True`) across `oci-core`, `oci-dev`, and `oci-internal`, and full live simulation passes.
 
 ---
 
