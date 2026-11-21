@@ -128,15 +128,58 @@ if kubectl get crd certificates.cert-manager.io &>/dev/null; then
         echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
 
         # Ensure fallback oci-ca-bundle ConfigMap exists in core application namespaces
-        for ns in oci-core oci-internal oci-dev default; do
+        for ns in oci-core oci-internal oci-dev external-sim default; do
             kubectl create configmap oci-ca-bundle \
                 --namespace "${ns}" \
                 --from-file=ca.crt="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" \
                 --dry-run=client -o yaml | kubectl apply -f - &>/dev/null || true
         done
+        if kubectl get crd bundles.trust.cert-manager.io &>/dev/null; then
+            kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/oci-ca-bundle.yaml"
+        fi
     fi
+
+    echo "Deploying cert-manager-csi-driver-spiffe (ephemeral in-memory SPIFFE SVIDs)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/csi-driver-spiffe.yaml"
+    wait_rollout kubectl rollout status deployment/cert-manager-csi-driver-spiffe-approver -n cert-manager --timeout=120s
+    wait_rollout kubectl rollout status daemonset/cert-manager-csi-driver-spiffe-driver -n cert-manager --timeout=120s
 else
     echo "WARNING: cert-manager CRDs not detected. Please install cert-manager (e.g., 'kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml' or 'microk8s enable cert-manager')."
+fi
+
+echo ""
+echo "Checking External Secrets Operator (ESO) & OpenBao prerequisites..."
+if ! kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
+    if command -v helm &>/dev/null; then
+        helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
+        helm repo update external-secrets >/dev/null 2>&1 || true
+        helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets --create-namespace --set installCRDs=true --wait
+    else
+        echo "WARNING: External Secrets Operator CRDs not installed and local helm CLI unavailable."
+        echo "Install ESO via Helm before running ExternalSecret sync."
+    fi
+fi
+
+echo "Deploying OpenBao & bootstrapping KV-v2 secrets..."
+kubectl apply -f "${REPO_ROOT}/k8s/oci-core/openbao.yaml"
+"${REPO_ROOT}/scripts/init-openbao.sh"
+if kubectl get crd clustersecretstores.external-secrets.io &>/dev/null; then
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-core/external-secrets-stores.yaml"
+    if [[ "${PROFILE}" == "business-only" ]]; then
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/app-secrets -n oci-internal --timeout=120s || true
+    elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/oci-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/oci-dev-secrets -n oci-dev --timeout=120s || true
+    else
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-core/oci-secrets.yaml"
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/oci-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/oci-core-secrets -n oci-core --timeout=120s || true
+        kubectl wait --for=condition=Ready externalsecret/app-secrets -n oci-internal --timeout=120s || true
+        kubectl wait --for=condition=Ready externalsecret/oci-dev-secrets -n oci-dev --timeout=120s || true
+    fi
 fi
 
 echo ""
@@ -185,23 +228,6 @@ else
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
 fi
 
-# Synchronize Nextcloud COTS bootstrap credentials from oci-internal app-secrets
-# into oci-core-secrets / oci-dev-secrets so internal-bll connects with live credentials.
-if kubectl get secret app-secrets -n oci-internal &>/dev/null; then
-    NC_USER=$(kubectl get secret app-secrets -n oci-internal -o jsonpath='{.data.NEXTCLOUD_ADMIN_USER}' 2>/dev/null || true)
-    NC_PASS=$(kubectl get secret app-secrets -n oci-internal -o jsonpath='{.data.NEXTCLOUD_ADMIN_PASSWORD}' 2>/dev/null || true)
-    if [[ -n "${NC_USER}" && -n "${NC_PASS}" ]]; then
-        for ns_secret in "oci-core:oci-core-secrets" "oci-dev:oci-dev-secrets"; do
-            ns="${ns_secret%%:*}"
-            sec="${ns_secret##*:}"
-            if kubectl get secret "${sec}" -n "${ns}" &>/dev/null; then
-                kubectl patch secret "${sec}" -n "${ns}" --type merge \
-                    -p "{\"data\":{\"NEXTCLOUD_ADMIN_USER\":\"${NC_USER}\",\"NEXTCLOUD_ADMIN_PASS\":\"${NC_PASS}\"}}" >/dev/null 2>&1 || true
-            fi
-        done
-    fi
-fi
-
 echo ""
 echo "8. Waiting for database and messaging workloads to become ready..."
 if [[ "${PROFILE}" == "business-only" ]]; then
@@ -224,6 +250,18 @@ else
     echo "Waiting for RabbitMQ..."
     wait_rollout kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s
 fi
+
+echo ""
+echo "Configuring OpenBao Dynamic PostgreSQL Database Roles & reconciling ExternalSecrets..."
+"${REPO_ROOT}/scripts/init-openbao.sh" --db-only
+for es_ns in oci-core oci-dev; do
+    if kubectl get externalsecret workforce-db-secret -n "${es_ns}" &>/dev/null; then
+        kubectl annotate externalsecret --all -n "${es_ns}" "force-sync=$(date +%s)" --overwrite >/dev/null 2>&1 || true
+        for sec in workforce-db-secret facilities-db-secret core-invest-db-secret ops-db-secret; do
+            kubectl wait --for=condition=Ready "externalsecret/${sec}" -n "${es_ns}" --timeout=120s || true
+        done
+    fi
+done
 
 # Provision starter platform administrator in Forgejo IdP if deployed
 if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-admin-credentials -n oci-internal &>/dev/null; then

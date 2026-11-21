@@ -93,18 +93,6 @@ func (r *pgxRepository) ExecuteGDPRErasure(ctx context.Context, customerID strin
 		scrubbedTables = append(scrubbedTables, "core_invest.investment_portfolios")
 	}
 
-	_, _ = r.db.Exec(ctx, `UPDATE ops.it_tickets
-                           SET author_username = 'ANONYMIZED_GDPR_USER',
-                               body = '[Content redacted pursuant to GDPR Article 17 erasure request]'
-                           WHERE author_username = $1`, customerID)
-	scrubbedTables = append(scrubbedTables, "ops.it_tickets")
-
-	_, _ = r.db.Exec(ctx, `UPDATE ops.ticket_comments
-                           SET author_username = 'ANONYMIZED_GDPR_USER',
-                               comment = '[Content redacted pursuant to GDPR Article 17 erasure request]'
-                           WHERE author_username = $1`, customerID)
-	scrubbedTables = append(scrubbedTables, "ops.ticket_comments")
-
 	return &GDPRErasureStats{
 		CustomerIDHash:       custHash,
 		CustomerEmailHash:    custHash,

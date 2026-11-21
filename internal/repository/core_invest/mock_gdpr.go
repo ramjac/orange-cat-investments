@@ -84,8 +84,6 @@ func (m *mockRepository) ExecuteGDPRErasure(ctx context.Context, customerID stri
 		}
 	}
 
-	tables = append(tables, "ops.it_tickets", "ops.ticket_comments")
-
 	return &GDPRErasureStats{
 		CustomerIDHash:       custHash,
 		CustomerEmailHash:    custHash,

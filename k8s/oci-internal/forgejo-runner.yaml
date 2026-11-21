@@ -13,9 +13,16 @@ metadata:
   labels:
     app: forgejo-runner
 rules:
-  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io"]
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io", "external-secrets.io", "generators.external-secrets.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings", "rolebindings", "roles", "clusterroles"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["system:auth-delegator"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -16,6 +16,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/telemetry"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -93,7 +94,13 @@ func main() {
 	})
 	defer bllSrv.Close()
 
-	grpcServer := grpcutil.NewServer(serverTLS)
+	var serverOpts []grpc.ServerOption
+	if serverTLS != nil {
+		serverOpts = append(serverOpts, grpcutil.WithAllowedPeerSPIFFEIDs(
+			grpcutil.AllowedCustomerBLLCallers(grpcutil.ResolveNamespace())...,
+		)...)
+	}
+	grpcServer := grpcutil.NewServer(serverTLS, serverOpts...)
 	customerbllv1.RegisterCustomerBLLServiceServer(grpcServer, bllSrv)
 
 	healthSrv := health.NewServer()

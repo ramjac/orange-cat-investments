@@ -29,4 +29,5 @@ spec:
             - oci-core
             - oci-internal
             - oci-dev
+            - external-sim
             - default

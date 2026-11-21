@@ -21,6 +21,7 @@ spec:
             app: recurring-ach-processor
             tier: batch
         spec:
+          serviceAccountName: oci-worker
           restartPolicy: OnFailure
           containers:
             - name: processor
@@ -58,8 +59,9 @@ spec:
                   memory: 128Mi
           volumes:
             - name: tls-certs
-              secret:
-                secretName: oci-worker-tls-certs
+              csi:
+                driver: spiffe.csi.cert-manager.io
+                readOnly: true
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle
@@ -87,6 +89,7 @@ spec:
             app: eom-statement-generator
             tier: batch
         spec:
+          serviceAccountName: oci-worker
           restartPolicy: OnFailure
           containers:
             - name: generator
@@ -124,8 +127,9 @@ spec:
                   memory: 512Mi
           volumes:
             - name: tls-certs
-              secret:
-                secretName: oci-worker-tls-certs
+              csi:
+                driver: spiffe.csi.cert-manager.io
+                readOnly: true
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle
@@ -153,6 +157,7 @@ spec:
             app: nav-snapshot
             tier: batch
         spec:
+          serviceAccountName: oci-worker
           restartPolicy: OnFailure
           containers:
             - name: snapshot
@@ -190,8 +195,9 @@ spec:
                   memory: 128Mi
           volumes:
             - name: tls-certs
-              secret:
-                secretName: oci-worker-tls-certs
+              csi:
+                driver: spiffe.csi.cert-manager.io
+                readOnly: true
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle

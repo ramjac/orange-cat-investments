@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -216,6 +217,51 @@ func NewServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, er
 	return tlsConfig, nil
 }
 
+// VerifyServerIdentity verifies that a server's leaf X.509 certificate matches expectedHost
+// via standard DNS/IP SAN verification or via a SPIFFE URI SAN of the form
+// spiffe://oci.local/ns/<namespace>/sa/<service-account>.
+func VerifyServerIdentity(leaf *x509.Certificate, expectedHost string) error {
+	if expectedHost == "" {
+		return nil
+	}
+	if leaf == nil {
+		return fmt.Errorf("server certificate is nil")
+	}
+	if len(leaf.DNSNames) > 0 || len(leaf.IPAddresses) > 0 {
+		if err := leaf.VerifyHostname(expectedHost); err == nil {
+			return nil
+		}
+	}
+
+	host := expectedHost
+	if h, _, err := net.SplitHostPort(expectedHost); err == nil {
+		host = h
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) > 0 && parts[0] != "" {
+		targetSvc := strings.TrimSuffix(parts[0], "-service")
+		targetNS := ""
+		if len(parts) >= 2 && parts[1] != "svc" && parts[1] != "local" {
+			targetNS = parts[1]
+		}
+
+		for _, u := range leaf.URIs {
+			if u == nil || u.Scheme != "spiffe" || u.Host != "oci.local" {
+				continue
+			}
+			segs := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+			if len(segs) == 4 && segs[0] == "ns" && segs[2] == "sa" {
+				certNS, certSA := segs[1], segs[3]
+				if (targetNS == "" || certNS == targetNS) && (certSA == targetSvc || certSA == parts[0]) {
+					return nil
+				}
+			}
+		}
+	}
+
+	return fmt.Errorf("mTLS server identity verification failed: neither DNS/IP SAN nor SPIFFE URI SAN matched %q", expectedHost)
+}
+
 // NewClientTLSConfig creates a client-side tls.Config for mTLS with dynamic client cert reloading
 // and dynamic server CA pool hot-swapping for zero-downtime certificate rollovers.
 func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, error) {
@@ -267,7 +313,7 @@ func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, er
 				expectedHost = tlsConfig.ServerName
 			}
 			if expectedHost != "" {
-				if err := cs.PeerCertificates[0].VerifyHostname(expectedHost); err != nil {
+				if err := VerifyServerIdentity(cs.PeerCertificates[0], expectedHost); err != nil {
 					return fmt.Errorf("mTLS hostname verification failed for %s: %w", expectedHost, err)
 				}
 			}

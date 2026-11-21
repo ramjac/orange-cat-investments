@@ -26,6 +26,7 @@ import (
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -179,7 +180,13 @@ func main() {
 		cfg,
 	)
 
-	grpcSrv := grpcutil.NewServer(serverTLS)
+	var serverOpts []grpc.ServerOption
+	if serverTLS != nil {
+		serverOpts = append(serverOpts, grpcutil.WithAllowedPeerSPIFFEIDs(
+			grpcutil.AllowedInternalBLLCallers(grpcutil.ResolveNamespace())...,
+		)...)
+	}
+	grpcSrv := grpcutil.NewServer(serverTLS, serverOpts...)
 	internalbllv1.RegisterInternalBLLServiceServer(grpcSrv, bllSrv)
 
 	healthSrv := health.NewServer()

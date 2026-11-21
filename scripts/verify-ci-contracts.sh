@@ -313,6 +313,54 @@ for pat in "tcp://customer-bll-service.oci-core.svc.cluster.local:8085" "tcp://i
   fi
 done
 
+# 17. Enforce ephemeral SPIFFE CSI SVIDs across custom mTLS microservices (7.20b)
+echo "Verifying ephemeral SPIFFE CSI SVID mounts across custom workloads..."
+spiffe_tls_manifests=(
+  k8s/oci-core/domain-apis.yaml
+  k8s/oci-core/bll-services.yaml
+  k8s/oci-core/oci-customer-bff.yaml
+  k8s/oci-core/oci-employee-bff.yaml
+  k8s/oci-core/oci-pebble-proxy.yaml
+  k8s/oci-core/oci-worker.yaml
+  k8s/oci-core/batch-jobs.yaml
+  k8s/oci-dev/domain-apis.yaml
+  k8s/oci-dev/bll-services.yaml
+  k8s/oci-dev/oci-customer-bff.yaml
+  k8s/oci-dev/oci-employee-bff.yaml
+  k8s/oci-dev/oci-pebble-proxy.yaml
+  k8s/oci-dev/oci-worker.yaml
+  k8s/oci-dev/batch-jobs.yaml
+  k8s/external-sim/mock-hardware.yaml
+  k8s/external-sim/mock-hardware-dev.yaml
+)
+for manifest in "${spiffe_tls_manifests[@]}"; do
+  if ! grep -q "driver: spiffe.csi.cert-manager.io" "$manifest"; then
+    echo "ERROR: $manifest must mount ephemeral SPIFFE SVIDs via driver: spiffe.csi.cert-manager.io"
+    failed=1
+  fi
+  if grep -qE "secretName: .*-tls-certs" "$manifest"; then
+    echo "ERROR: $manifest still references static TLS secret (*-tls-certs)"
+    failed=1
+  fi
+  if grep -q "^kind: Certificate$" "$manifest"; then
+    echo "ERROR: $manifest must not define standalone kind: Certificate resources"
+    failed=1
+  fi
+done
+
+# 18. Enforce ExternalSecret usage and block raw static kind: Secret manifests (7.20d)
+echo "Verifying elimination of static kind: Secret manifests in k8s/oci-core, oci-dev, oci-internal..."
+if grep -rnE "^kind: Secret$" k8s/oci-core/*.yaml k8s/oci-dev/*.yaml k8s/oci-internal/*.yaml 2>/dev/null; then
+  echo "ERROR: Static kind: Secret manifests are prohibited in k8s/oci-core/, k8s/oci-dev/, and k8s/oci-internal/"
+  failed=1
+fi
+for es_manifest in k8s/oci-core/oci-secrets.yaml k8s/oci-dev/oci-secrets.yaml k8s/oci-internal/internal-secrets.yaml; do
+  if ! grep -q "^kind: ExternalSecret$" "$es_manifest"; then
+    echo "ERROR: $es_manifest must define ExternalSecret resources"
+    failed=1
+  fi
+done
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1

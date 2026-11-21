@@ -1,4 +1,13 @@
 # Customer Business Logic Layer (Customer BLL) API - Development
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: customer-bll
+  namespace: oci-dev
+  labels:
+    app: customer-bll
+    tier: bll
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,6 +27,7 @@ spec:
         app: customer-bll
         tier: bll
     spec:
+      serviceAccountName: customer-bll
       containers:
         - name: customer-bll
           image: localhost:32000/customer-bll:latest
@@ -28,6 +38,10 @@ spec:
           env:
             - name: PORT
               value: "8085"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: WORKFORCE_API_URL
               value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
             - name: CORE_INVEST_API_URL
@@ -82,28 +96,13 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: customer-bll-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: customer-bll-tls
-  namespace: oci-dev
-spec:
-  secretName: customer-bll-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: customer-bll-service.oci-dev.svc.cluster.local
-  dnsNames:
-    - customer-bll-service
-    - customer-bll-service.oci-dev.svc
-    - customer-bll-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -122,6 +121,15 @@ spec:
     app: customer-bll
 ---
 # Internal Business Logic Layer (Internal BLL) API - Development
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: internal-bll
+  namespace: oci-dev
+  labels:
+    app: internal-bll
+    tier: bll
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -141,6 +149,7 @@ spec:
         app: internal-bll
         tier: bll
     spec:
+      serviceAccountName: internal-bll
       containers:
         - name: internal-bll
           image: localhost:32000/internal-bll:latest
@@ -151,6 +160,10 @@ spec:
           env:
             - name: PORT
               value: "8086"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: WORKFORCE_API_URL
               value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
             - name: FACILITIES_API_URL
@@ -218,28 +231,13 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: internal-bll-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: internal-bll-tls
-  namespace: oci-dev
-spec:
-  secretName: internal-bll-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: internal-bll-service.oci-dev.svc.cluster.local
-  dnsNames:
-    - internal-bll-service
-    - internal-bll-service.oci-dev.svc
-    - internal-bll-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
