@@ -338,6 +338,10 @@ for manifest in "${spiffe_tls_manifests[@]}"; do
     echo "ERROR: $manifest must mount ephemeral SPIFFE SVIDs via driver: spiffe.csi.cert-manager.io"
     failed=1
   fi
+  if ! grep -q "spiffe.csi.cert-manager.io/fs-group" "$manifest"; then
+    echo "ERROR: $manifest must set spiffe.csi.cert-manager.io/fs-group on SPIFFE CSI volumes"
+    failed=1
+  fi
   if grep -qE "secretName: .*-tls-certs" "$manifest"; then
     echo "ERROR: $manifest still references static TLS secret (*-tls-certs)"
     failed=1

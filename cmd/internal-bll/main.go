@@ -77,13 +77,20 @@ func main() {
 
 	var serverTLS, clientTLS *tls.Config
 	if certFile != "" && keyFile != "" {
-		if sTLS, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA); err == nil {
-			serverTLS = sTLS
+		sTLS, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Error("failed to configure server mTLS in Internal BLL", "error", err)
+			os.Exit(1)
 		}
+		serverTLS = sTLS
+		logger.Info("Internal BLL configured with dynamic server mTLS")
 		if clientCA != "" {
-			if cTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA); err == nil {
-				clientTLS = cTLS
+			cTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+			if err != nil {
+				logger.Error("failed to configure client mTLS in Internal BLL", "error", err)
+				os.Exit(1)
 			}
+			clientTLS = cTLS
 		}
 	}
 

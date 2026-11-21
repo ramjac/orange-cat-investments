@@ -28,6 +28,8 @@ spec:
         tier: domain-api
     spec:
       serviceAccountName: workforce-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: workforce-api
           image: localhost:32000/workforce-api:latest
@@ -91,6 +93,8 @@ spec:
           csi:
             driver: spiffe.csi.cert-manager.io
             readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
@@ -148,6 +152,8 @@ spec:
         tier: domain-api
     spec:
       serviceAccountName: facilities-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: facilities-api
           image: localhost:32000/facilities-api:latest
@@ -209,6 +215,8 @@ spec:
           csi:
             driver: spiffe.csi.cert-manager.io
             readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
@@ -266,6 +274,8 @@ spec:
         tier: domain-api
     spec:
       serviceAccountName: core-invest-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: core-invest-api
           image: localhost:32000/core-invest-api:latest
@@ -329,6 +339,8 @@ spec:
           csi:
             driver: spiffe.csi.cert-manager.io
             readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
@@ -386,6 +398,8 @@ spec:
         tier: domain-api
     spec:
       serviceAccountName: ops-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: ops-api
           image: localhost:32000/ops-api:latest
@@ -447,6 +461,8 @@ spec:
           csi:
             driver: spiffe.csi.cert-manager.io
             readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle

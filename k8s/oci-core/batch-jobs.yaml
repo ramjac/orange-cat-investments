@@ -22,6 +22,8 @@ spec:
             tier: batch
         spec:
           serviceAccountName: oci-worker
+          securityContext:
+            supplementalGroups: [65532]
           restartPolicy: OnFailure
           containers:
             - name: processor
@@ -62,6 +64,8 @@ spec:
               csi:
                 driver: spiffe.csi.cert-manager.io
                 readOnly: true
+                volumeAttributes:
+                  spiffe.csi.cert-manager.io/fs-group: "65532"
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle
@@ -90,6 +94,8 @@ spec:
             tier: batch
         spec:
           serviceAccountName: oci-worker
+          securityContext:
+            supplementalGroups: [65532]
           restartPolicy: OnFailure
           containers:
             - name: generator
@@ -130,6 +136,8 @@ spec:
               csi:
                 driver: spiffe.csi.cert-manager.io
                 readOnly: true
+                volumeAttributes:
+                  spiffe.csi.cert-manager.io/fs-group: "65532"
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle
@@ -158,6 +166,8 @@ spec:
             tier: batch
         spec:
           serviceAccountName: oci-worker
+          securityContext:
+            supplementalGroups: [65532]
           restartPolicy: OnFailure
           containers:
             - name: snapshot
@@ -198,6 +208,8 @@ spec:
               csi:
                 driver: spiffe.csi.cert-manager.io
                 readOnly: true
+                volumeAttributes:
+                  spiffe.csi.cert-manager.io/fs-group: "65532"
             - name: ca-cert
               configMap:
                 name: oci-ca-bundle

@@ -25,6 +25,8 @@ spec:
         environment: simulated-external
     spec:
       serviceAccountName: mock-hardware-dev
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: mock-hardware-dev
           image: localhost:32000/mock-hardware:latest
@@ -61,6 +63,8 @@ spec:
           csi:
             driver: spiffe.csi.cert-manager.io
             readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
