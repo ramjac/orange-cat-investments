@@ -769,7 +769,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & Technical Roadmap
 
-Completed roadmap work has been promoted into Section 5 above. Only open or exploratory future items remain below.
+Completed roadmap work (`Phase 1`–`Phase 4`, `Phase 6`–`Phase 7`: steps `7.1`–`7.19` and `7.21`–`7.29`) has been promoted into Section 5 above. Only open future work phases remain below.
 
 ### 7.0 Rules That Apply to Future Work
 
@@ -781,10 +781,318 @@ Completed roadmap work has been promoted into Section 5 above. Only open or expl
 
 ---
 
-### Exploratory (Architecture Undecided)
+### Execution Phases
 
-#### Zero-Trust Workload Identity & Dynamic Secret Management
-* **Status:** *Intentionally undecided.* Do not start implementation until an ADR in `docs/adr/` chooses the tooling and breaks the work into PR-sized steps.
-* **Exploration Areas:**
-  * **Dynamic secrets:** replace static Kubernetes `Secret` manifests with short-lived credentials (candidates: HashiCorp Vault, OpenBao, External Secrets Operator, CSI Secret Store).
-  * **Workload identity:** cryptographically attested workload identity (candidates: SPIFFE/SPIRE, cert-manager `csi-driver-spiffe`, OpenZiti) alongside or replacing the current `pkg/mtls` dynamic CA reloading.
+1. **Phase 5 — Zero-Trust Workload Identity & Dynamic Secret Management (`7.20a`–`7.20d`) *(Architecture Specified in [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md))*:** SPIFFE URI SAN caller authorization in `pkg/grpcutil`, ephemeral `tmpfs` SVIDs via `cert-manager-csi-driver-spiffe`, dynamic schema-isolated PostgreSQL roles via OpenBao, and External Secrets Operator (ESO) integration eliminating static `Secret` manifests.
+   - [ ] **7.20a** ADR 0004 & SPIFFE URI SAN Caller Authorization in `pkg/grpcutil`
+   - [ ] **7.20b** Ephemeral In-Memory SVID Mounts via `cert-manager-csi-driver-spiffe`
+   - [ ] **7.20c** OpenBao Deployment & Dynamic PostgreSQL Database Secrets Engine
+   - [ ] **7.20d** External Secrets Operator (ESO) Integration & Static Secret Elimination
+2. **Phase 8 — Artifact Management & Software Supply Chain Security (`7.30`–`7.35`):** Semgrep architectural invariant SAST + `govulncheck` + `gosec` + `gitleaks`, Distroless runtime containers, Forgejo Package Registry integration, Harbor Enterprise Container Registry replacing barebones `registry:2`, CycloneDX SBOMs (`syft`) + `cosign` signing for containers and OTA firmware, and Kyverno admission control.
+   - [ ] **7.30** Architectural Invariant SAST (`.semgrep.yml`), `govulncheck`, `gosec`, & `gitleaks` Gate
+   - [ ] **7.31** Distroless Base Image Migration (`gcr.io/distroless/static-debian12:nonroot`)
+   - [ ] **7.32** Forgejo Package Registry Integration (Go Modules, NPM Cache & OTA Firmware Bundles)
+   - [ ] **7.33** Harbor Enterprise Container Registry Replacing Barebones `registry:2`, Pull-Through Proxy Cache & Trivy Gate
+   - [ ] **7.34** CycloneDX SBOM Generation (`syft`) & Cryptographic Signing (`cosign`) for Containers and OTA Firmware
+   - [ ] **7.35** Kyverno Cluster Admission Control Policies
+3. **Phase 9 — Enterprise Zero-Trust Networking & Edge Security (`7.36`–`7.39`):** Default-deny Ingress/Egress `NetworkPolicy` microsegmentation matrix across all workload namespaces, migration from legacy `Ingress` to Kubernetes Gateway API, Coraza OWASP CRS WAF middleware in BFFs, and `coturn` STUN/TURN WebRTC media relay.
+   - [ ] **7.36** Default-Deny Zero-Trust `NetworkPolicy` Microsegmentation Matrix
+   - [ ] **7.37** Migrate from Legacy `Ingress` to Kubernetes Gateway API (`Gateway`, `HTTPRoute`, `GRPCRoute`)
+   - [ ] **7.38** Edge Web Application Firewall (Coraza OWASP CRS Middleware in BFFs)
+   - [ ] **7.39** In-Cluster STUN/TURN Media Relay (`coturn`) for WebRTC Habitat Streams
+4. **Phase 10 — Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`):** Transactional SQL Outbox pattern + Valkey `Idempotency-Key` locks, tamper-evident SHA-256 hash-chain audit ledger (`ops.audit_logs`), and Embedded OPA (Rego Go SDK) policy evaluation in the BLL tier.
+   - [ ] **7.40** Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware
+   - [ ] **7.41** Tamper-Evident Cryptographic Hash-Chain Audit Log (`ops.audit_logs`)
+   - [ ] **7.42** Policy-as-Code Authorization Engine (Embedded OPA / Rego Go SDK in BLL Tier)
+5. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
+   - [ ] **7.43** S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
+   - [ ] **7.44** Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
+   - [ ] **7.45** In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
+   - [ ] **7.46** Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
+   - [ ] **7.47** Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
+
+---
+
+### Phase 5: Zero-Trust Workload Identity & Dynamic Secret Management (`7.20a`–`7.20d`)
+
+Implements [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md) using **OpenBao + External Secrets Operator (ESO)** for dynamic credentials and **`cert-manager-csi-driver-spiffe` + X.509 URI SAN gRPC enforcement** for cryptographic workload identity.
+
+#### 7.20a ADR 0004 & SPIFFE URI SAN Caller Authorization in `pkg/grpcutil`
+* **Depends On:** None.
+* **Current Codebase State:** `pkg/mtls/mtls.go` verifies that client certificates are signed by `oci-lan-root-ca-key-pair`, and `k8s/oci-core/domain-apis.yaml` issues `cert-manager` certificates with `commonName` and `dnsNames` only. Any pod holding a valid CA-signed certificate (e.g., a compromised BFF pod if network policy were bypassed) is trusted at the TLS layer by Domain APIs. [ADR 0004](docs/adr/0004-zero-trust-workload-identity-and-dynamic-secrets.md) defines the target SPIFFE URI SAN architecture.
+* **PR Scope:**
+  1. Add dedicated `ServiceAccount` manifests and `uris: ["spiffe://oci.local/ns/<ns>/sa/<service>"]` to all `Certificate` resources in `k8s/oci-core/` and `k8s/oci-dev/`.
+  2. Add unary and streaming gRPC server interceptors (`WithAllowedPeerSPIFFEIDs(allowed ...string)`) in `pkg/grpcutil/interceptors.go` and wire them into `pkg/grpcutil/server.go`:
+     * Domain APIs (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`) accept strictly `customer-bll`, `internal-bll`, and `oci-worker` SPIFFE IDs in their own namespace (`PermissionDenied` on any other URI SAN, including BFFs or sibling Domain APIs).
+     * BLL APIs (`customer-bll`, `internal-bll`) accept strictly `oci-customer-bff`, `oci-employee-bff`, `oci-pebble-proxy`, and `oci-worker` SPIFFE IDs.
+* **Verification Gate:**
+  * [offline] Unit tests in `pkg/grpcutil/grpcutil_test.go` generate leaf certs with BFF, BLL, Worker, and unauthorized Domain API SPIFFE URI SANs and verify that unauthorized callers receive gRPC `PermissionDenied` (`codes.PermissionDenied`).
+  * [cluster] All `Certificate` resources in `oci-core` and `oci-dev` reissue with X.509 URI SANs (`openssl x509 -noout -text` confirms `URI:spiffe://oci.local/...`) and live simulator passes 100%.
+
+#### 7.20b Ephemeral In-Memory SVID Mounts via `cert-manager-csi-driver-spiffe`
+* **Depends On:** `7.20a`.
+* **Current Codebase State:** Workloads mount long-lived Kubernetes `Secret` TLS volumes (`*-tls-certs` persisted in `etcd`) into `/etc/tls/certs`.
+* **PR Scope:**
+  1. Add deployment manifests/installation script for `cert-manager-csi-driver-spiffe` configured against `oci-lan-issuer` (`trustDomain: oci.local`).
+  2. Replace static `secret:` TLS volume definitions in `k8s/oci-core/` and `k8s/oci-dev/` (`domain-apis.yaml`, `bll-services.yaml`, `oci-*-bff.yaml`, `oci-worker.yaml`, `oci-pebble-proxy.yaml`) with ephemeral CSI inline volumes (`driver: spiffe.csi.cert-manager.io`, 1-hour certificate TTL mounted on `tmpfs`), preserving `/etc/tls/certs/tls.crt` and `/etc/tls/certs/tls.key` so `pkg/mtls.DynamicCertReloader` hot-reloads SVID rotations without code changes.
+* **Verification Gate:**
+  * [offline] `scripts/verify-ci-contracts.sh` asserts that all custom microservices in `k8s/oci-core/` and `k8s/oci-dev/` use `driver: spiffe.csi.cert-manager.io` rather than static `*-tls-certs` Secrets.
+  * [cluster] Inspecting mounted `/etc/tls/certs/tls.crt` inside running pods confirms 1-hour validity and automatic renewal without pod restarts.
+
+#### 7.20c OpenBao Deployment & Dynamic PostgreSQL Database Secrets Engine
+* **Depends On:** `7.20b`.
+* **Current Codebase State:** `postgres-core`, `postgres-dev`, and `postgres-internal` use static shared credentials stored in `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `k8s/oci-internal/internal-secrets.yaml`. Furthermore, all 4 Domain APIs connect as the same superuser (`oci`), meaning schema isolation between `workforce`, `facilities`, `core_invest`, and `ops` is enforced only by convention rather than database role grants.
+* **PR Scope:**
+  1. Deploy **OpenBao** (`k8s/oci-core/openbao.yaml`) with persistent storage, Kubernetes Auth Method enabled, and an automated initialization/unseal bootstrap script (`scripts/init-openbao.sh`).
+  2. Configure OpenBao's **PostgreSQL Database Secrets Engine** against `postgres-core`, `postgres-dev`, and `postgres-internal` with per-domain least-privilege role templates (e.g., `workforce-api` receives time-bound 24h credentials with `GRANT USAGE ON SCHEMA workforce` and `SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA workforce`, with zero access to `core_invest`, `facilities`, or `ops`).
+  3. Add dynamic credential rotation support in the `pgxpool` connection setup (`internal/repository/`) so Domain APIs seamlessly reconnect when OpenBao rotates credentials.
+* **Verification Gate:**
+  * [offline] Unit tests verify least-privilege role SQL templates and `pgxpool` credential reload callbacks.
+  * [cluster] OpenBao dynamically issues per-domain PostgreSQL users (`v-k8s-workforce-*`, `v-k8s-core-invest-*`), and cross-schema SQL queries from `workforce-api` to `core_invest.investment_portfolios` are rejected by PostgreSQL with `ERROR: permission denied for schema core_invest` (`SQLSTATE 42501`).
+
+#### 7.20d External Secrets Operator (ESO) Integration & Static Secret Elimination
+* **Depends On:** `7.20c`.
+* **Current Codebase State:** Static `Secret` YAML manifests (`k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, `k8s/oci-internal/internal-secrets.yaml`) contain plaintext base64-encoded bootstrap strings in Git.
+* **PR Scope:**
+  1. Deploy **External Secrets Operator (ESO)** and define `SecretStore` resources pointing to OpenBao's KV-v2 and Database engines.
+  2. Replace `k8s/oci-core/oci-secrets.yaml`, `k8s/oci-dev/oci-secrets.yaml`, and `k8s/oci-internal/internal-secrets.yaml` with `ExternalSecret` CRDs (`refreshInterval: 1h`) for `DATABASE_URL`, `RABBITMQ_URL`, `NEXTCLOUD_ADMIN_PASS`, `MEILISEARCH_MASTER_KEY`, and mock API keys.
+  3. Add a check in `scripts/verify-ci-contracts.sh` forbidding raw `kind: Secret` manifests with static application credentials in `k8s/oci-core/`, `k8s/oci-dev/`, and `k8s/oci-internal/`.
+* **Verification Gate:**
+  * [offline] `./scripts/verify-ci-contracts.sh` passes and verifies zero static `kind: Secret` credential manifests remain.
+  * [cluster] `kubectl get externalsecrets -A` reports `SecretSynced` (`Ready=True`) across `oci-core`, `oci-dev`, and `oci-internal`, and full live simulation passes.
+
+---
+
+### Phase 8: Artifact Management & Software Supply Chain Security (`7.30`–`7.35`)
+
+Elevates the CI/CD pipeline (`.forgejo/workflows/ci.yaml`) to SLSA Level 2/3 compliance with automated architectural SAST, distroless containers, self-hosted package/container registries (Forgejo Package Registry + Harbor replacing `registry:2`), SBOMs, Cosign signatures, and Kyverno admission gates.
+
+#### 7.30 Architectural Invariant SAST (`.semgrep.yml`), `govulncheck`, `gosec`, & `gitleaks` Gate
+* **Depends On:** None.
+* **Current Codebase State:** Architectural rules in `AGENTS.md` §3 rely on manual review, and `.forgejo/workflows/ci.yaml` only runs `go vet ./...`.
+* **PR Scope:**
+  1. Create `.semgrep.yml` enforcing `AGENTS.md` invariants mechanically:
+     * Block imports of `github.com/jackc/pgx/v5/pgxpool` or `pkg/gen/go/oci/(workforce|facilities|core_invest|ops)` inside `cmd/customer-bff/**`, `cmd/employee-bff/**`, `internal/app/customerbff/**`, and `internal/app/employeebff/**`.
+     * Block cross-domain imports between Domain APIs (`cmd/*-api/**`).
+     * Block vendor identifiers (`alpaca`, `plaid`) outside `pkg/broker/alpaca/**`, `pkg/bank/plaid/**`, `cmd/mock-*/**`, `simulation/**`, and `*_test.go`.
+     * Block hardcoded persona/entity IDs (`emp-feline-*`, `emp-human-*`, `cust-active-*`, `cust-longterm-*`) inside `cmd/**` (excluding `cmd/mock-*`), `internal/**`, and `pkg/**` (excluding `*_test.go`).
+  2. Add `.golangci.yml` enabling `gosec` (CWE-532 log hygiene, TLS `MinVersion`, SQL injection checks) and `.gitleaks.toml` (blocking `starter-admin-credentials.txt`, private keys, and PATs).
+  3. Wire `semgrep`, `govulncheck ./...`, `golangci-lint run`, and `gitleaks detect` into `scripts/verify-ci-contracts.sh` and the `validate-and-test` job in `.forgejo/workflows/ci.yaml`.
+* **Verification Gate:**
+  * [offline] `semgrep --config .semgrep.yml --error`, `govulncheck ./...`, `golangci-lint run`, and `gitleaks detect` pass with zero findings on the monorepo, and negative fixture tests confirm `.semgrep.yml` catches synthetic violations of each rule.
+  * [cluster] Forgejo Actions `validate-and-test` job executes all 4 scanners cleanly on push.
+
+#### 7.31 Distroless Base Image Migration (`gcr.io/distroless/static-debian12:nonroot`)
+* **Depends On:** `7.1`.
+* **Current Codebase State:** All 13 Go Dockerfiles (`cmd/*/Dockerfile` and `web/marketing/Dockerfile`) compile static binaries with `CGO_ENABLED=0 GOOS=linux` in stage 1, but copy them into `FROM alpine:3.20` in stage 2 (which includes `/bin/sh` and `apk`).
+* **PR Scope:**
+  1. Switch the runtime stage of all 13 Go Dockerfiles (`workforce-api`, `facilities-api`, `core-invest-api`, `ops-api`, `customer-bll`, `internal-bll`, `customer-bff`, `employee-bff`, `pebble-proxy`, `worker`, `mock-bank`, `mock-broker`, `mock-hardware`, plus `web/marketing/Dockerfile`) from `alpine:3.20` to `gcr.io/distroless/static-debian12:nonroot` (`USER nonroot:nonroot`).
+  2. Add explicit `securityContext` (`runAsNonRoot: true`, `runAsUser: 65532`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`, `capabilities: {drop: ["ALL"]}`) to all Go service Deployments in `k8s/oci-core/`, `k8s/oci-dev/`, and `k8s/external-sim/`.
+  3. Add a contract check in `scripts/verify-ci-contracts.sh` requiring `gcr.io/distroless/static-debian12:nonroot` across all Go Dockerfiles.
+* **Verification Gate:**
+  * [offline] `./scripts/verify-ci-contracts.sh` passes and `docker build` succeeds for all 13 Go images; `docker run --entrypoint /bin/sh` fails as expected because no shell exists in the image.
+  * [cluster] All pods in `oci-dev`, `oci-core`, and `external-sim` roll out cleanly under `readOnlyRootFilesystem: true` and `uid=65532`.
+
+#### 7.32 Forgejo Package Registry Integration (Go Modules, NPM Cache & OTA Firmware Bundles)
+* **Depends On:** None.
+* **Current Codebase State:** Forgejo runs in `oci-internal` (`k8s/oci-internal/forgejo.yaml`) with built-in multi-format package registry capabilities unused. Firmware releases in `facilities.firmware_releases` currently reference static placeholder URLs (`https://firmware.oci.local/...`).
+* **PR Scope:**
+  1. Enable and configure the Forgejo Package Registry (`[packages]` in `forgejo.yaml`) for `generic` (OTA `.bin` firmware & Pebble `.pbw` bundles), `go`, and `npm` package types.
+  2. Add a CI workflow step and helper script (`scripts/publish-firmware-package.sh`) that packages edge camera firmware and Pebble `.pbw` artifacts and uploads them to `http://forgejo-service.oci-internal.svc.cluster.local:3000/api/packages/oci/generic/edge-firmware/<version>/`.
+  3. Update `internal/app/worker/` (`ota_pipeline_handler`) and `simulation/` (`bob_builder` firmware release actions) to publish and fetch real binary payloads and verify SHA-256 digests against Forgejo's generic package registry.
+* **Verification Gate:**
+  * [offline] Unit tests verify `ota_pipeline_handler` downloads and validates SHA-256 checksums from package registry URLs.
+  * [cluster] Pushing a firmware release via the simulator or CI publishes the binary to Forgejo Packages (`GET /api/v1/packages/oci` lists the artifact) and `oci-worker-dev` completes the OTA job.
+
+#### 7.33 Harbor Enterprise Container Registry Replacing Barebones `registry:2`, Pull-Through Proxy Cache & Trivy Gate
+* **Depends On:** `7.2`.
+* **Current Codebase State:** Container images are hosted in MicroK8s's barebones `registry:2` on `localhost:32000` (`k8s/registry/registry.yaml`) with a shell CronJob (`k8s/registry/registry-gc-cronjob.yaml`) for tag cleanup and no authentication, CVE scanning, or upstream pull-through caching.
+* **PR Scope:**
+  1. Replace the barebones `registry:2` deployment (`k8s/registry/registry.yaml`) and retire `k8s/registry/registry-gc-cronjob.yaml` by deploying **Harbor** (`k8s/registry/harbor.yaml`: Core, Portal, Registry, Jobservice, and embedded **Trivy** scanner; backed by `postgres-internal` and `valkey`) bound to `:32000` / `registry.oci.local` and authenticated via Forgejo OIDC.
+  2. Configure Harbor projects:
+     * `oci` (hosting OCI microservices with native tag retention keeping the latest 10 `sha-*` tags and immutable `:prod-stable` tag rules).
+     * `proxy-dockerhub`, `proxy-ghcr`, and `proxy-gcr` as **Pull-Through Proxy Caches** so Docker builds (`golang`, `node`, `distroless`) never hit external rate limits or fail during WAN blips.
+  3. Add a `trivy image --exit-code 1 --severity CRITICAL,HIGH` vulnerability scan gate in `.forgejo/workflows/ci.yaml` prior to `deploy-oci-dev`.
+* **Verification Gate:**
+  * [offline] Manifest validation (`kubectl apply --dry-run=client`) and CI contract checks verify Harbor manifests and Trivy scan gating in `ci.yaml`.
+  * [cluster] Harbor UI/API serves container pulls on `:32000`, caches upstream base images, scans pushed `sha-<COMMIT>` images with Trivy, and blocks promotion on critical CVEs.
+
+#### 7.34 CycloneDX SBOM Generation (`syft`) & Cryptographic Signing (`cosign`) for Containers and OTA Firmware
+* **Depends On:** `7.32`, `7.33`.
+* **Current Codebase State:** Container images and `facilities.firmware_releases` rows have no SBOM attestations or cryptographic signatures; `ota_pipeline_handler` only checks SHA-256 hashes (or metadata) without verifying an asymmetric publisher signature.
+* **PR Scope:**
+  1. Provision a Cosign keypair (`cosign.key` stored in OpenBao / runner secret; `cosign.pub` distributed via `ConfigMap/oci-cosign-pub` across `oci-core`, `oci-dev`, and `external-sim`).
+  2. In `.forgejo/workflows/ci.yaml`, generate a CycloneDX SBOM (`syft <image> -o cyclonedx-json=sbom.cdx.json`) for every built image, sign the image digest with `cosign sign --key ...`, and attach the SBOM attestation (`cosign attest --type cyclonedx`).
+  3. Add idempotent column `cosign_signature TEXT NOT NULL DEFAULT ''` to `facilities.firmware_releases` (synced across `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, `k8s/oci-dev/postgres-dev-configmap.yaml`, and `scripts/migrations/002-firmware-cosign-signature.sql`) and update `facilities.proto` + `internal/app/worker/` (`ota_pipeline_handler`) and `cmd/mock-hardware` to cryptographically verify the Ed25519/ECDSA Cosign signature against `cosign.pub` before applying any OTA firmware update (rejecting unsigned/tampered firmware to `.dlq` / `failed` job status).
+* **Verification Gate:**
+  * [offline] Unit tests verify `ota_pipeline_handler` accepts validly signed firmware payloads and rejects tampered or unsigned firmware binaries; SQL 3-copy sync check passes.
+  * [cluster] `cosign verify --key cosign.pub localhost:32000/<app>:sha-<COMMIT>` succeeds for all 16 images in Harbor.
+
+#### 7.35 Kyverno Cluster Admission Control Policies
+* **Depends On:** `7.20b`, `7.31`, `7.34`.
+* **Current Codebase State:** Security invariants (immutable tags in `oci-core`, non-root execution, no `subPath` TLS mounts per `AGENTS.md` Security Invariant #1) are checked only by CI scripts, not enforced by the Kubernetes API Server at admission time.
+* **PR Scope:**
+  1. Deploy **Kyverno** (`k8s/security/kyverno.yaml`) and author four `ClusterPolicy` manifests in `k8s/security/kyverno-policies.yaml` (`validationFailureAction: Enforce` on `oci-core` and `oci-dev`):
+     * `verify-oci-image-signatures`: Require valid `cosign` signature matching `cosign.pub` on all `localhost:32000/*` images in `oci-core`.
+     * `disallow-latest-tag`: Reject any Pod/Deployment in `oci-core` using `:latest` or `:dev-latest`.
+     * `enforce-restricted-pss`: Require `runAsNonRoot: true`, `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false`, and `capabilities.drop: ["ALL"]`.
+     * `forbid-tls-subpath-mounts`: Reject any Pod in `oci-core` or `oci-dev` that uses `volumeMounts[*].subPath` on a TLS certificate or CA volume (mechanically enforcing `AGENTS.md` Security Invariant #1).
+* **Verification Gate:**
+  * [offline] `kyverno apply k8s/security/kyverno-policies.yaml --resource k8s/oci-core/` passes 100% on valid manifests and fails on negative test fixtures (`:latest` tag, `subPath: tls.crt`, unsigned image, or `runAsNonRoot: false`).
+  * [cluster] `kubectl run unsigned-test --image=localhost:32000/workforce-api:latest -n oci-core` is rejected by the admission webhook.
+
+---
+
+### Phase 9: Enterprise Zero-Trust Networking & Edge Security (`7.36`–`7.39`)
+
+Turns the cluster network and HTTP edge into active zero-trust enforcement planes.
+
+#### 7.36 Default-Deny Zero-Trust `NetworkPolicy` Microsegmentation Matrix
+* **Depends On:** None.
+* **Current Codebase State:** Only `domain-apis-network-policy` and `bll-services-network-policy` exist (and they only restrict `Ingress`, leaving `Egress` unrestricted across all namespaces).
+* **PR Scope:**
+  1. Deploy a baseline `default-deny-all` (`policyTypes: [Ingress, Egress]`) `NetworkPolicy` in `oci-core`, `oci-dev`, `oci-internal`, and `external-sim` (`k8s/oci-core/network-policies.yaml`, `k8s/oci-dev/network-policies.yaml`, `k8s/oci-internal/network-policies.yaml`, `k8s/external-sim/network-policies.yaml`).
+  2. Define explicit Layer-3/Layer-4 Ingress + Egress allowlists matching the 5-tier architecture:
+     * **Global Egress:** All pods $\rightarrow$ `kube-dns` (`UDP/TCP :53`) and OTel Collector / Prometheus (`monitoring`).
+     * **Ingress Controller** $\rightarrow$ `oci-customer-bff:8083`, `oci-employee-bff:8081`, `oci-pebble-proxy:8082`, and Portal containers (`:8080`/`:80`).
+     * **BFFs (`customer-bff`, `employee-bff`) Egress:** Strictly to `customer-bll:8085`, `internal-bll:8086`, `valkey:6379`, `meilisearch:7700`, and IdPs (`zitadel:8080`, `forgejo:3000`) / COTS (`nextcloud:80`, `erpnext:8000`, `snipe-it:80`). Zero network path to `postgres-core:5432` or Domain APIs (`:50051–50054`).
+     * **BLLs (`customer-bll`, `internal-bll`) Egress:** Strictly to Domain APIs (`:50051–50054`), `rabbitmq:5672`, COTS APIs (`oci-internal`), and `external-sim` mocks (`:8088`, `:8089`).
+     * **Domain APIs (`:50051–50054`) Egress:** Strictly to `postgres-core:5432` (or `postgres-dev:5432`). Zero east-west paths between Domain API pods.
+     * **External-Sim Mocks:** Zero egress to `postgres-core` or `postgres-internal` (except `mock-hardware` to `rabbitmq:5672` and `internal-bll:8086`).
+* **Verification Gate:**
+  * [offline] `scripts/verify-ci-contracts.sh` parses all `NetworkPolicy` manifests to verify `default-deny-all` (`Ingress` + `Egress`) exists in all 4 workload namespaces and that BFFs have no egress rule to `:5432` or `:50051–50054`.
+  * [cluster] Chaos verification confirms `oci-customer-bff` cannot open a TCP connection to `postgres-core-service:5432` or `core-invest-api-service:50053`, while the full 13-persona simulator passes 73/73.
+
+#### 7.37 Migrate from Legacy `Ingress` to Kubernetes Gateway API (`Gateway`, `HTTPRoute`, `GRPCRoute`)
+* **Depends On:** `7.36`.
+* **Current Codebase State:** Routing uses feature-frozen `networking.k8s.io/v1` `Ingress` resources (`k8s/oci-core/oci-ingress.yaml`, `k8s/oci-dev/oci-ingress.yaml`, `k8s/oci-internal/internal-ingress.yaml`).
+* **PR Scope:**
+  1. Install Gateway API CRDs (`gateway.networking.k8s.io/v1`) and configure the cluster gateway controller (`GatewayClass: oci-gateway-class` and shared `Gateway: oci-edge-gateway` in `k8s/ha/lan/tls/gateway.yaml`, owned by infrastructure persona `Frank Operations`).
+  2. Replace `Ingress` manifests with namespace-scoped `HTTPRoute` manifests in `k8s/oci-core/http-routes.yaml`, `k8s/oci-dev/http-routes.yaml`, `k8s/oci-internal/http-routes.yaml`, and `k8s/external-sim/http-routes.yaml` (owned by developer persona `Elise Dev`).
+  3. Add a simulation action for `Frank Operations` (`frank_audit_gateway_routes`) inspecting Gateway status and `HTTPRoute` attachment health.
+* **Verification Gate:**
+  * [offline] `kubectl apply --dry-run=client` validates all `Gateway` and `HTTPRoute` manifests; `scripts/verify-ci-contracts.sh` ensures no legacy `kind: Ingress` remains.
+  * [cluster] All `*.oci.local` routes resolve through the Gateway and the full live simulator passes.
+
+#### 7.38 Edge Web Application Firewall (Coraza OWASP CRS Middleware in BFFs)
+* **Depends On:** None.
+* **Current Codebase State:** `cmd/customer-bff` and `cmd/employee-bff` enforce session cookies, double-submit CSRF, and sliding-window rate limits, but have no L7 WAF payload inspection for SQLi, XSS, or path traversal.
+* **PR Scope:**
+  1. Create `pkg/waf/coraza.go` wrapping **Coraza WAF** (`github.com/corazawaf/coraza/v3`) with embedded OWASP Core Rule Set (CRS) directives tuned for JSON REST APIs and SSE streams, exporting a standard `func(http.Handler) http.Handler` Chi middleware and custom OTel metric `RecordWAFBlockedRequest`.
+  2. Wire the Coraza WAF middleware into `internal/app/customerbff/router.go` and `internal/app/employeebff/router.go`.
+  3. Extend the simulator (`Frank Operations` security audit persona action) to send synthetic SQL injection (`' OR 1=1--`) and XSS (`<script>alert(1)</script>`) probes against `oci-dev` BFF endpoints and assert `HTTP 403 Forbidden` responses without leaking internal stack traces.
+* **Verification Gate:**
+  * [offline] Unit tests in `pkg/waf/coraza_test.go` verify that SQLi, XSS, and path traversal payloads (`../../etc/passwd`) return `403 Forbidden` while legitimate customer/employee JSON payloads and WebRTC/SSE requests pass with sub-millisecond overhead.
+  * [cluster] Simulator security audit confirms `403` on WAF attack probes against `oci-dev` and Prometheus records `oci_waf_blocked_requests_total`.
+
+#### 7.39 In-Cluster STUN/TURN Media Relay (`coturn`) for WebRTC Habitat Streams
+* **Depends On:** `7.36`.
+* **Current Codebase State:** `web/customer-portal` streams habitat video via WebRTC, but has no STUN/TURN server configured for NAT traversal across strict enterprise firewalls.
+* **PR Scope:**
+  1. Deploy **`coturn`** (`k8s/oci-core/coturn.yaml` and `k8s/oci-dev/coturn.yaml`) with ephemeral time-limited HMAC-SHA1 TURN REST API credentials (`use-auth-secret`).
+  2. Add an ICE server discovery endpoint (`GET /api/v1/customer/webrtc/ice-servers`) on `customer-bff` that dynamically generates short-lived TURN credentials (valid for 1 hour) and returns the `iceServers` configuration (`stun:turn.oci.local:3478`, `turn:turn.oci.local:3478`) to the Vue 3 WebRTC player (`web/customer-portal`).
+* **Verification Gate:**
+  * [offline] Unit tests verify HMAC-SHA1 ephemeral TURN credential generation and `/api/v1/customer/webrtc/ice-servers` OpenAPI 3.1 contract compliance.
+  * [cluster] `coturn` pod is healthy and `GET /api/v1/customer/webrtc/ice-servers` returns valid `stun:`/`turn:` URIs and time-bound credentials.
+
+---
+
+### Phase 10: Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`)
+
+Eliminates dual-write race conditions, duplicate financial executions, and ad-hoc authorization checks while adding cryptographic SOC 2 / SEC 17a-4 audit trails.
+
+#### 7.40 Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware
+* **Depends On:** None.
+* **Current Codebase State:** BLL services commit state changes via gRPC to Domain APIs and then separately publish `envelope.EventEnvelope[T]` events to RabbitMQ (dual-write risk if RabbitMQ or the pod crashes mid-flight). Financial POST endpoints (`POST /api/v1/customer/orders`, `POST /api/v1/customer/deposits`) lack idempotency key deduplication on network retries.
+* **PR Scope:**
+  1. Add schema-scoped `outbox_events` tables (`workforce.outbox_events`, `facilities.outbox_events`, `core_invest.outbox_events`, `ops.outbox_events`) across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/003-transactional-outbox.sql`.
+  2. Update Domain API repositories to insert outgoing `envelope.EventEnvelope[T]` records into `<schema>.outbox_events` inside the **same `pgx.Tx` transaction** as the domain mutation, and run a Watermill SQL Outbox Forwarder in `cmd/worker` (or Domain API background relay) that streams committed outbox rows to RabbitMQ with `FOR UPDATE SKIP LOCKED`.
+  3. Implement `IdempotencyMiddleware` in `pkg/cache/valkey/idempotency.go` using atomic Valkey `SET idempotency:{customer_id}:{key} <state> NX EX 86400` locks: require `Idempotency-Key` UUID headers on `POST /api/v1/customer/orders` and `POST /api/v1/customer/deposits` in `customer-bff`, replaying the cached status/response body on duplicate retries and returning `409 Conflict` if an identical key is currently in-flight.
+* **Verification Gate:**
+  * [offline] Unit tests verify that (a) a simulated RabbitMQ outage during order placement persists the event in `core_invest.outbox_events` and publishes it once RabbitMQ recovers, and (b) replaying `POST /api/v1/customer/orders` with the same `Idempotency-Key` executes the trade exactly once and returns the cached response.
+  * [cluster] Chaos test killing RabbitMQ mid-transaction verifies zero lost events once RabbitMQ restarts, and simulator verifies idempotent order replay.
+
+#### 7.41 Tamper-Evident Cryptographic Hash-Chain Audit Log (`ops.audit_logs`)
+* **Depends On:** `7.40`.
+* **Current Codebase State:** Sensitive operations (Dr. Elena toggling an Emergency Medical Trading Hold, Carol executing a risk override, Alice offboarding an employee, or Arthur/Chloe revoking an API key) do not write to an immutable, cryptographically verifiable audit ledger.
+* **PR Scope:**
+  1. Add table `ops.audit_logs` (`seq_id BIGSERIAL PRIMARY KEY`, `event_id UUID NOT NULL`, `occurred_at TIMESTAMPTZ NOT NULL`, `actor_id VARCHAR(128) NOT NULL`, `action VARCHAR(128) NOT NULL`, `resource_type VARCHAR(64) NOT NULL`, `resource_id VARCHAR(128) NOT NULL`, `metadata_json JSONB`, `prev_hash CHAR(64) NOT NULL`, `row_hash CHAR(64) NOT NULL`) across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/004-tamper-evident-audit-log.sql`.
+  2. Add PostgreSQL triggers on `ops.audit_logs` that:
+     * Reject any `UPDATE`, `DELETE`, or `TRUNCATE` statement with `RAISE EXCEPTION 'ops.audit_logs is append-only and immutable'`.
+     * Automatically compute `prev_hash` (from `seq_id - 1`, or 64 zeros for genesis) and `row_hash = encode(sha256((prev_hash || occurred_at || actor_id || action || resource_id || metadata_json)::bytea), 'hex')` under advisory lock.
+  3. Expose `AppendAuditLog` and `VerifyAuditChain` RPCs on `ops-api` (`ops.proto`) and `internal-bll`, wire all high-sensitivity mutations (medical hold toggle, employee offboarding, API key revocation, GDPR erasure) to emit audit records, and expose `GET /ops/audit-logs/verify` on `employee-bff` for `Frank Operations`.
+* **Verification Gate:**
+  * [offline] Unit and SQL tests verify hash-chain calculation, trigger rejection of `UPDATE`/`DELETE`, and detection of synthetic bit-flips by `VerifyAuditChain`.
+  * [cluster] `Frank Operations` simulator action calls `GET /ops/audit-logs/verify` after a full persona cycle and receives `{"valid": true, "verified_records": N}`.
+
+#### 7.42 Policy-as-Code Authorization Engine (Embedded OPA / Rego Go SDK in BLL Tier)
+* **Depends On:** `7.41`.
+* **Current Codebase State:** Authorization rules (such as verifying that an active feline Emergency Medical Trading Hold blocks algorithmic order execution, or that only `hr` / a direct manager can approve a leave request or trigger offboarding) are scattered across procedural `if` statements in handlers and services.
+* **PR Scope:**
+  1. Create `pkg/authz/policy` embedding the Open Policy Agent (`github.com/open-policy-agent/opa/v1/rego`) Go SDK with versioned Rego policies in `pkg/authz/policy/policies/*.rego`:
+     * `workforce.rego`: RBAC + relationship rules for leave approval, review cycles, medical hold toggling (`vet` role required), and offboarding (`hr` role required).
+     * `trading.rego`: Pre-trade authorization policies verifying customer account status, active feline medical hold status, and margin/risk thresholds.
+  2. Wire policy evaluation into `customer-bll` and `internal-bll` before domain mutations, logging every policy denial to `ops.audit_logs` (`7.41`).
+* **Verification Gate:**
+  * [offline] Table-driven Rego policy unit tests (`go test -race ./pkg/authz/policy/...`) cover 100% of persona roles and allow/deny edge cases (e.g., non-vet attempting to toggle medical hold returns `PermissionDenied`).
+  * [cluster] Full live simulation (including negative authorization checks) passes against `oci-dev`.
+
+---
+
+### Phase 11: Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`)
+
+Completes the self-hosted enterprise infrastructure with S3 blob storage, point-in-time database recovery, an in-cluster SMTP verification server, automated schema migrations + connection pooling, and wire-level contract breaking-change gates.
+
+#### 7.43 S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
+* **Depends On:** None.
+* **Current Codebase State:** Generated end-of-month investor statements (`core_invest.investment_statements`), Form 1099-B tax documents, and firmware blobs store only metadata rows in PostgreSQL without an underlying S3 object store for binary blobs.
+* **PR Scope:**
+  1. Deploy **Garage** (lightweight Rust S3-compatible object store, `< 64 MiB` idle RAM) in `k8s/oci-core/garage.yaml` and `k8s/oci-dev/garage.yaml` with dedicated PVCs and buckets `oci-statements`, `oci-firmware`, and `oci-backups`.
+  2. Implement a vendor-neutral S3 storage driver in `pkg/blobstore/s3` (using standard AWS S3 v2 SDK pointed at Garage's cluster endpoint, consumed via generic `blobStore` variables per `AGENTS.md` §3 Rule 6).
+  3. Update `customer-bll` (`GenerateStatement` / EOM PDF batch runner) and `internal-bll` (`facilities` firmware catalog) to upload generated PDF/1099-B and firmware blobs to Garage and return time-limited pre-signed S3 download URLs.
+* **Verification Gate:**
+  * [offline] Unit tests with an in-memory/httptest S3 server verify blob upload, SHA-256 content integrity, and pre-signed URL generation.
+  * [cluster] Arthur Pendelton's statement generation action uploads a PDF to Garage in `oci-dev` and downloads it via the returned pre-signed URL (`HTTP 200`, `%PDF-` header).
+
+#### 7.44 Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
+* **Depends On:** `7.43`.
+* **Current Codebase State:** Database backups rely solely on a daily `pg_dump` CronJob (`scripts/backup-db.sh`), offering a 24-hour Recovery Point Objective (RPO) and no Point-In-Time Recovery (PITR).
+* **PR Scope:**
+  1. Configure `postgres-core` and `postgres-internal` with `wal_level = replica`, `archive_mode = on`, and a **PgBackRest** sidecar streaming compressed, encrypted Write-Ahead Logs (WAL) and daily differential backups directly to the `oci-backups` bucket in `Garage` (`7.43`).
+  2. Add `scripts/verify-pitr-restore.sh` and update `docs/runbooks/stateful-store-alerts.md` with a step-by-step PITR restore drill (`--type=time "--target=YYYY-MM-DD HH:MM:SS"`).
+  3. Export PgBackRest backup lag metrics to Prometheus (`PostgresWALArchiveFailing` alert rule in `k8s/monitoring/prometheus.yaml`).
+* **Verification Gate:**
+  * [offline] `scripts/verify-ci-contracts.sh` validates the `PostgresWALArchiveFailing` alert rule and PgBackRest configuration.
+  * [cluster] Executing a PITR drill on a test table in `oci-dev` restores the database state to a target timestamp prior to a synthetic `DROP TABLE`.
+
+#### 7.45 In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
+* **Depends On:** None.
+* **Current Codebase State:** Onboarding sagas, trade executions, ZITADEL registrations, Forgejo PR notifications, and Nextcloud shares lack an in-cluster SMTP server to deliver and verify transactional emails.
+* **PR Scope:**
+  1. Deploy **Mailpit** (`k8s/oci-internal/mailpit.yaml`) exposing SMTP on `mailpit-service.oci-internal.svc.cluster.local:1025` and its REST inspection API/UI on `:8025` (`mail.oci.local`).
+  2. Wire `SMTP_HOST=mailpit-service.oci-internal.svc.cluster.local:1025` into `oci-worker` (sending trade confirmation, ACH settlement, and onboarding welcome emails), Forgejo, Nextcloud, and ZITADEL.
+  3. Extend the OCI Platform Simulator (`simulation/actions.go`) to query Mailpit's native REST API (`GET /api/v1/messages?query=to:rick@oci.local` and `to:chloe@example.com`) after `OnboardingSaga` and trade execution to assert that expected transactional emails were delivered.
+* **Verification Gate:**
+  * [offline] Unit tests verify worker SMTP notification formatting and CWE-532 redaction in logs.
+  * [cluster] Simulator verifies live email delivery in Mailpit for `Rick Newhire` onboarding and `Chloe Spark` order execution.
+
+#### 7.46 Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
+* **Depends On:** None.
+* **Current Codebase State:** Per `scripts/migrations/README.md`, numbered migrations in `scripts/migrations/NNN-*.sql` must be applied manually with `psql -f` on existing volumes, and 10-worker concurrent simulation runs open direct PostgreSQL connections from every microservice and COTS pod.
+* **PR Scope:**
+  1. Build a lightweight migration runner (`cmd/db-migrate` using `pressly/goose/v3` or a Kubernetes Job `k8s/oci-core/db-migrate-job.yaml` and `k8s/oci-dev/db-migrate-job.yaml`) that automatically applies `scripts/migrations/*.sql` in sequence and tracks versions in `public.goose_db_version` during `deploy-oci-dev` and `promote-oci-core` in `.forgejo/workflows/ci.yaml`.
+  2. Add a CI contract check in `scripts/verify-ci-contracts.sh` verifying that every table/column in `scripts/migrations/*.sql` is also present in `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml`.
+  3. Deploy **PgBouncer** (`pool_mode = transaction`, `max_client_conn = 500`, `default_pool_size = 25`) in front of `postgres-core`, `postgres-dev`, and `postgres-internal`, routing all Domain APIs and COTS apps through the pooled service port.
+* **Verification Gate:**
+  * [offline] Unit test applies `scripts/init.sql` followed by all `scripts/migrations/*.sql` idempotently; `./scripts/verify-ci-contracts.sh` enforces 3-copy SQL sync.
+  * [cluster] 10-worker concurrent load test (`scripts/run-load-test.sh`) runs through PgBouncer with active PostgreSQL backend connections (`pg_stat_activity`) staying below 35.
+
+#### 7.47 Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
+* **Depends On:** None.
+* **Current Codebase State:** `AGENTS.md` §4 validates `api/openapi.yaml` syntax via `scripts/validate-openapi.py`, and `.proto` files are compiled manually without automated breaking-change detection against `main`.
+* **PR Scope:**
+  1. Add `buf.yaml` and `buf.gen.yaml` at the repository root configuring `buf lint` (`STANDARD` category) and `buf breaking` (`FILE` / `WIRE_JSON` categories) across `proto/oci/**`.
+  2. Add `buf lint`, `buf breaking --against '.git#branch=main'`, and `oasdiff breaking main:api/openapi.yaml api/openapi.yaml` to `scripts/verify-ci-contracts.sh` and `.forgejo/workflows/ci.yaml` so any wire-breaking Protobuf change (between BLLs and Domain APIs) or breaking OpenAPI 3.1 REST change (between BFFs and Vue/Flutter/Pebble clients) fails CI automatically.
+* **Verification Gate:**
+  * [offline] `./scripts/verify-ci-contracts.sh` executes `buf lint`, `buf breaking`, and `oasdiff` cleanly, and negative test cases confirm renaming a proto field number or removing a required OpenAPI response field triggers a non-zero exit code.
+  * [cluster] Forgejo Actions `validate-and-test` runs contract diffing on every PR.
