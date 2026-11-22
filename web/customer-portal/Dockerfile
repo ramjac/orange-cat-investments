@@ -19,6 +19,8 @@ RUN npm run build
 # Production runtime using minimal NGINX
 FROM nginx:1.27-alpine
 
+RUN apk update && apk upgrade --no-cache
+
 COPY web/customer-portal/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/web/customer-portal/dist /usr/share/nginx/html
 
