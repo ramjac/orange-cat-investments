@@ -194,7 +194,7 @@ fi
 
 echo ""
 echo "Deploying Harbor Enterprise Container Registry (:32000 / registry.oci.local)..."
-kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml"
+kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml" || true
 
 echo ""
 echo "Deploying Kubernetes Gateway API v1 CRDs & Edge Gateway (oci-edge-gateway)..."
