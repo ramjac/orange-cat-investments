@@ -188,7 +188,7 @@ func (h *GatewayHandler) HandleIncidentBroadcast(w http.ResponseWriter, r *http.
 		ticketID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
 	}
 
-	title := req.Title
+	var title string
 	if req.RoomZone != "" {
 		title = fmt.Sprintf("🚨 %s (%s)", req.Title, req.RoomZone)
 	} else {

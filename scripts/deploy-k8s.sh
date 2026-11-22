@@ -198,7 +198,7 @@ kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml" || true
 
 echo ""
 echo "Deploying Kubernetes Gateway API v1 CRDs & Edge Gateway (oci-edge-gateway)..."
-kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || true
+kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || (sleep 2 && kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml")
 
 echo ""
 if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then

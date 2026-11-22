@@ -114,11 +114,11 @@ func NewServer(cfg Config) *Server {
 		if brokerURL != "" {
 			apiKey := os.Getenv("APCA_API_KEY_ID")
 			if apiKey == "" {
-				apiKey = "CK_OCI_TEST_KEY_01"
+				apiKey = "CK_OCI_TEST_KEY_01" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			apiSecret := os.Getenv("APCA_API_SECRET_KEY")
 			if apiSecret == "" {
-				apiSecret = "SK_OCI_TEST_SECRET_01"
+				apiSecret = "SK_OCI_TEST_SECRET_01" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			s.brokerClient = alpaca.NewClient(alpaca.Config{
 				BaseURL:   brokerURL,
@@ -142,7 +142,7 @@ func NewServer(cfg Config) *Server {
 			}
 			secret := os.Getenv("PLAID_SECRET")
 			if secret == "" {
-				secret = "sec_oci_sim_test_8829"
+				secret = "sec_oci_sim_test_8829" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			s.bankClient = plaid.NewClient(plaid.Config{
 				BaseURL:  bankURL,

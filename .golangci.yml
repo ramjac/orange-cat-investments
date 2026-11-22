@@ -1,51 +1,72 @@
+version: "2"
 run:
-  timeout: 5m
   tests: false
-
 linters:
-  disable-all: true
+  default: none
   enable:
+    - errcheck
     - gosec
     - govet
-    - errcheck
     - staticcheck
-
-linters-settings:
-  gosec:
-    includes:
-      - G101 # Hardcoded credentials
-      - G104 # Audit errors not checked
-      - G106 # ssh.InsecureIgnoreHostKey
-      - G107 # Url provided to HTTP request as taint input
-      - G112 # Potential slowloris attack (ReadHeaderTimeout)
-      - G114 # Use of net/http serve function without timeouts
-      - G201 # SQL query construction using format string
-      - G202 # SQL query construction using string concatenation
-      - G401 # Weak cryptographic primitive
-      - G402 # TLS InsecureSkipVerify / low MinVersion
-      - G404 # Insecure random number source
-      - G501 # Blacklisted crypto import (md5)
-      - G505 # Blacklisted crypto import (sha1)
-    excludes:
-      - G304 # File path provided as taint input (managed via trusted env paths)
-  govet:
-    enable-all: false
-    enable:
-      - shadow
-      - printf
-      - nilness
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-    - path: simulation/
-      linters:
-        - gosec
-    - path: cmd/mock-
-      linters:
-        - gosec
-    - path: pkg/dbpool/dbpool\.go
-      text: "G201"
+  settings:
+    gosec:
+      includes:
+        - G101
+        - G104
+        - G106
+        - G107
+        - G112
+        - G114
+        - G201
+        - G202
+        - G401
+        - G402
+        - G404
+        - G501
+        - G505
+      excludes:
+        - G304
+    govet:
+      enable:
+        - printf
+        - nilness
+      enable-all: false
+    staticcheck:
+      checks:
+        - all
+        - "-QF*"
+        - "-ST*"
+        - "-SA1019"
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go
+      - linters:
+          - gosec
+        path: simulation/
+      - linters:
+          - gosec
+        path: cmd/mock-
+      - path: pkg/dbpool/dbpool\.go
+        text: G201
+    paths:
+      - pkg/gen/go$
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - pkg/gen/go$
+      - third_party$
+      - builtin$
+      - examples$

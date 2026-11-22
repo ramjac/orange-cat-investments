@@ -31,7 +31,7 @@ func (f *BankFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	case http.MethodPut:
 		var req BankFaultsResponse
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -44,7 +44,7 @@ func (f *BankFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.RejectTransfers = req.RejectTransfers
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(req)
 	case http.MethodDelete:
 		f.mu.Lock()
 		f.Outage = false
@@ -70,13 +70,13 @@ func (f *BankFaults) check(w http.ResponseWriter, action string) bool {
 
 	if outage {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "mock bank service outage injected"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "mock bank service outage injected"})
 		return true
 	}
 
 	if action == "transfer" && rejectTransfers {
 		w.WriteHeader(http.StatusPreconditionFailed)
-		json.NewEncoder(w).Encode(map[string]string{"error": "transfer rejected by injected fault"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "transfer rejected by injected fault"})
 		return true
 	}
 

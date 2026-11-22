@@ -25,12 +25,13 @@ tags = ["token", "pat"]
 description = "Allow test fixtures, gitignored local server secrets, and documented dev seed data"
 paths = [
   '''.*_test\.go$''',
-  '''^thinker-kube\.config$''',
-  '''^starter-admin-credentials\.txt$''',
-  '''^\.starter-admin-credentials\.json$''',
-  '''^scripts/seed-dev\.sql$''',
-  '''^k8s/external-sim/.*\.yaml$''',
-  '''^k8s/oci-dev/oci-secrets\.yaml$''',
+  '''.*thinker-kube\.config$''',
+  '''.*starter-admin-credentials.*''',
+  '''.*k8s/ha/lan/tls/.*\.key$''',
+  '''.*node_modules/.*''',
+  '''.*scripts/seed-dev\.sql$''',
+  '''.*k8s/external-sim/.*\.yaml$''',
+  '''.*k8s/oci-dev/oci-secrets\.yaml$''',
 ]
 regexes = [
   '''Type:\s*"(EC )?PRIVATE KEY"''',

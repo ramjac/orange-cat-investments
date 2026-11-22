@@ -130,12 +130,7 @@ func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardE
 		if s.hwClient != nil {
 			if assets, hwErr := s.hwClient.AssignInitialHardware(ctx, created.EmployeeID, in.RoleTitle, in.Department); hwErr == nil {
 				for _, a := range assets {
-					hwAssets = append(hwAssets, internalbllv1.AssetAllocation{
-						AssetTag:    a.AssetTag,
-						Name:        a.Name,
-						Category:    a.Category,
-						StatusLabel: a.StatusLabel,
-					})
+					hwAssets = append(hwAssets, internalbllv1.AssetAllocation(a))
 				}
 			}
 		}
