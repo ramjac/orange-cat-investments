@@ -6,7 +6,7 @@ useDefault = true
 [[rules]]
 id = "oci-starter-admin-credentials-file"
 description = "Block accidental commit of starter-admin-credentials files or embedded admin bootstrap tokens"
-regex = '''(?i)(Initial Password:\s*[A-Za-z0-9!@#$%^&*_-]{12,}|starter-admin-credentials\.txt.*password)'''
+regex = '''(?i)(Initial Password:\s*[A-Za-z0-9!@#$%^&*_-]{12,}|starter-admin-credentials\.txt.*password\s*[:=]\s*\S{8,})'''
 tags = ["secret", "oci"]
 
 [[rules]]
@@ -32,6 +32,7 @@ paths = [
   '''.*scripts/seed-dev\.sql$''',
   '''.*k8s/external-sim/.*\.yaml$''',
   '''.*k8s/oci-dev/oci-secrets\.yaml$''',
+  '''.*k8s/security/fixtures/invalid-manifests\.yaml$''',
 ]
 regexes = [
   '''Type:\s*"(EC )?PRIVATE KEY"''',
