@@ -288,7 +288,7 @@ func NewClientTLSConfig(certFile, keyFile, serverCAFile string) (*tls.Config, er
 		MinVersion:           tls.VersionTLS12,
 		GetClientCertificate: reloader.GetClientCertificate,
 		RootCAs:              initialPool,
-		InsecureSkipVerify:   true, // Dynamic chain verification handled strictly in VerifyConnection
+		InsecureSkipVerify:   true, // #nosec G402 -- Dynamic chain verification handled strictly in VerifyConnection
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			pool, err := caReloader.ReloadIfNeeded()
 			if err != nil {

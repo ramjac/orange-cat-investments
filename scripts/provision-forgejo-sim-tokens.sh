@@ -29,7 +29,7 @@ DEPLOY="deployment/forgejo"
 TOKEN_PREFIX="oci-sim"
 TOKEN_NAME="${TOKEN_PREFIX}-$(date +%Y%m%d%H%M%S)"
 PERSONA_PASSWORD="password123"
-PERSONAS=("emp-human-elise" "emp-human-marcus")
+PERSONAS=("emp-human-elise" "emp-human-marcus" "emp-human-bob")
 
 command -v kubectl >/dev/null 2>&1 || {
     echo "ERROR: kubectl is required to provision Forgejo simulation tokens." >&2
@@ -103,15 +103,21 @@ for persona in "${PERSONAS[@]}"; do
     done < <(echo "${listed}" | python3 -c "import json,sys; [print(str(t['id']) + '\t' + t['name'] + '\t' + t.get('sha1','')) for t in json.load(sys.stdin)]" 2>/dev/null || true)
 done
 
-# Ensure developer personas have collaborator access on the target repositories
+# Ensure developer/facilities personas have collaborator access on the target repositories
+# and package write access in the 'oci' organization.
 ADMIN_PWD=$(kubectl get secret starter-admin-credentials -n "${NS}" -o jsonpath='{.data.ADMIN_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
 if [[ -n "${ADMIN_PWD}" ]]; then
+    OWNERS_TEAM_ID=$(curl -sf -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/orgs/oci/teams" 2>/dev/null | \
+        python3 -c "import json,sys; teams=json.load(sys.stdin); print(next((str(t['id']) for t in teams if t.get('name')=='Owners'), ''))" 2>/dev/null || true)
     for persona in "${PERSONAS[@]}"; do
         for repo in monorepo orange-cat-investments; do
             curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/repos/oci/${repo}/collaborators/${persona}" \
                 -H "Content-Type: application/json" \
                 -d '{"permission": "admin"}' >/dev/null 2>&1 || true
         done
+        if [[ -n "${OWNERS_TEAM_ID}" ]]; then
+            curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/teams/${OWNERS_TEAM_ID}/members/${persona}" >/dev/null 2>&1 || true
+        fi
     done
 fi
 

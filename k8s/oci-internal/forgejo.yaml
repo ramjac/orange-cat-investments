@@ -74,6 +74,12 @@ spec:
               value: "true"
             - name: FORGEJO__actions__DEFAULT_ACTIONS_URL
               value: "github"
+            - name: FORGEJO__packages__ENABLED
+              value: "true"
+            - name: FORGEJO__packages__CHUNKED_UPLOAD_PATH
+              value: "/var/lib/gitea/data/tmp/package-upload"
+            - name: FORGEJO__packages__LIMIT_TOTAL_OWNER_SIZE
+              value: "-1"
           resources:
             requests:
               cpu: 200m

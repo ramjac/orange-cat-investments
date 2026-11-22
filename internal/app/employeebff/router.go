@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
+	"github.com/orange-cat-investments/oci/pkg/waf"
 )
 
 // SetupRouter creates and configures the production chi.Router for Employee BFF.
@@ -17,6 +18,7 @@ func (b *EmployeeBFF) SetupRouter() http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(versioning.Middleware(versioning.DefaultConfig()))
+	r.Use(waf.Middleware(waf.DefaultConfig()))
 	r.Mount("/", mux)
 
 	return r

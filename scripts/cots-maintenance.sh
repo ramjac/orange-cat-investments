@@ -69,25 +69,25 @@ case "${CMD}" in
         ;;
 
     enable-maintenance)
-        echo "Enabling maintenance banner on oci-internal ingress..."
-        if kubectl get ingress oci-internal-ingress -n oci-internal &>/dev/null; then
-            kubectl annotate ingress oci-internal-ingress -n oci-internal \
-                nginx.ingress.kubernetes.io/server-snippet="return 503 'OCI Systems Under Scheduled Maintenance. Back shortly.';" \
+        echo "Enabling maintenance banner on oci-internal Gateway HTTPRoutes..."
+        if kubectl get httproute -n oci-internal -l oci.local/cots-route=true &>/dev/null; then
+            kubectl annotate httproute -n oci-internal -l oci.local/cots-route=true \
+                oci.local/maintenance-banner="OCI Systems Under Scheduled Maintenance. Back shortly." \
                 --overwrite
-            echo "✅ Maintenance banner applied to oci-internal-ingress."
+            echo "✅ Maintenance banner applied to oci-internal COTS HTTPRoutes."
         else
-            echo "⚠️  oci-internal-ingress not found in oci-internal."
+            echo "⚠️  oci-internal COTS HTTPRoutes not found in oci-internal."
         fi
         ;;
 
     disable-maintenance)
-        echo "Removing maintenance banner from oci-internal ingress..."
-        if kubectl get ingress oci-internal-ingress -n oci-internal &>/dev/null; then
-            kubectl annotate ingress oci-internal-ingress -n oci-internal \
-                nginx.ingress.kubernetes.io/server-snippet- || true
-            echo "✅ Maintenance banner removed from oci-internal-ingress."
+        echo "Removing maintenance banner from oci-internal Gateway HTTPRoutes..."
+        if kubectl get httproute -n oci-internal -l oci.local/cots-route=true &>/dev/null; then
+            kubectl annotate httproute -n oci-internal -l oci.local/cots-route=true \
+                oci.local/maintenance-banner- || true
+            echo "✅ Maintenance banner removed from oci-internal COTS HTTPRoutes."
         else
-            echo "⚠️  oci-internal-ingress not found in oci-internal."
+            echo "⚠️  oci-internal COTS HTTPRoutes not found in oci-internal."
         fi
         ;;
 

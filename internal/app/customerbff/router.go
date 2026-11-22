@@ -9,6 +9,7 @@ import (
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/orange-cat-investments/oci/pkg/versioning"
+	"github.com/orange-cat-investments/oci/pkg/waf"
 )
 
 // Routes builds and returns the chi.Router for CustomerBFF.
@@ -19,6 +20,7 @@ func (b *CustomerBFF) Routes() http.Handler {
 	r.Use(chimiddleware.RealIP)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(versioning.Middleware(versioning.DefaultConfig()))
+	r.Use(waf.Middleware(waf.DefaultConfig()))
 
 	// Sliding-window rate limiters
 	loginLimiter := func(next http.Handler) http.Handler { return next }
@@ -70,6 +72,7 @@ func (b *CustomerBFF) Routes() http.Handler {
 		pr.Get("/api/v1/customer/webhooks", b.handleGetWebhooks)
 		pr.Get("/api/v1/customer/transparency/welfare", b.handleGetESGTransparency)
 		pr.Get("/api/v1/customer/streams", b.handleGetStreams)
+		pr.Get("/api/v1/customer/webrtc/ice-servers", b.handleGetWebRTCICEServers)
 		pr.Get("/api/v1/customer/support/tickets", b.handleListCustomerTickets)
 		pr.Get("/api/v1/customer/support/tickets/{id}", b.handleGetCustomerTicket)
 		pr.Get("/api/v1/customer/support/tickets/{id}/comments", b.handleListCustomerTicketComments)

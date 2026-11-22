@@ -1,0 +1,155 @@
+# ==============================================================================
+# Kyverno Cluster Admission Control Policies (Phase 8 / 7.35)
+# ==============================================================================
+# Enforces Cosign image signatures, immutable tags in oci-core, restricted Pod
+# Security Standards across Go services, and AGENTS.md Security Invariant #1
+# (prohibiting subPath mounts on TLS certificates/CAs) at admission time.
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-oci-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify OCI Container Image Signatures
+    policies.kyverno.io/category: Software Supply Chain Security
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-cosign-signature-oci-core
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - oci-core
+      verifyImages:
+        - imageReferences:
+            - "localhost:32000/*"
+          mutateDigest: false
+          verifyDigest: false
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |-
+                      -----BEGIN PUBLIC KEY-----
+                      MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAESwQInsTZawJZ97DRZHZ3hXPpVGJV
+                      cVEA1vAdWFySBBTnzBDrJ0eA2Oq2Am1/zUNRdob171FJO1b6nWnfB2ehKA==
+                      -----END PUBLIC KEY-----
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Mutable :latest Tags in Production
+    policies.kyverno.io/category: Software Supply Chain Security
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-latest-and-dev-latest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - oci-core
+      validate:
+        message: "OCI production namespace oci-core prohibits :latest and :dev-latest tags; deploy immutable :sha-<COMMIT> or :prod-stable images."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest & !*:dev-latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-restricted-pss
+  annotations:
+    policies.kyverno.io/title: Enforce Restricted Pod Security Standard on Go Services
+    policies.kyverno.io/category: Pod Security Standards (Restricted)
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restricted-go-container-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - oci-core
+                - oci-dev
+      exclude:
+        any:
+          - resources:
+              selector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - postgres-core
+                      - postgres-core-backup
+                      - postgres-dev
+                      - valkey
+                      - rabbitmq
+                      - meilisearch
+                      - zitadel
+                      - openbao
+                      - oci-customer-portal
+                      - oci-customer-portal-dev
+                      - oci-employee-portal
+                      - oci-employee-portal-dev
+                      - dev-db-retention
+      validate:
+        message: "OCI workloads in oci-core and oci-dev must run non-root with readOnlyRootFilesystem, allowPrivilegeEscalation=false, and drop ALL capabilities."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  runAsNonRoot: true
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                      - ALL
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: forbid-tls-subpath-mounts
+  annotations:
+    policies.kyverno.io/title: Forbid subPath Mounts on TLS Certificates and CA Bundles
+    policies.kyverno.io/category: AGENTS.md Security Invariant #1
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: reject-tls-subpath-volume-mounts
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - oci-core
+                - oci-dev
+      validate:
+        message: "AGENTS.md Security Invariant #1 Violation: volumeMounts[*].subPath on TLS certificates or CA volumes breaks live cert/CA rotation and is prohibited."
+        foreach:
+          - list: "request.object.spec.containers[].volumeMounts[]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.subPath || '' }}"
+                    operator: NotEquals
+                    value: ""
+                  - key: "{{ regex_match('.*(tls|cert|ca).*', element.mountPath || '') || regex_match('.*(tls|cert|ca).*', element.name || '') }}"
+                    operator: Equals
+                    value: true

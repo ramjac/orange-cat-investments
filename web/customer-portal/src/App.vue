@@ -1242,12 +1242,21 @@ async function initWebRTCStream() {
   stopWebRTCStream();
 
   try {
-    const config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun.oci.local:3478' }
-      ]
-    };
+    let iceServers = [
+      { urls: 'stun:turn.oci.local:3478' }
+    ];
+    try {
+      const iceRes = await fetch('/api/v1/customer/webrtc/ice-servers', { credentials: 'include' });
+      if (iceRes.ok) {
+        const iceData = await iceRes.json();
+        if (Array.isArray(iceData.iceServers) && iceData.iceServers.length > 0) {
+          iceServers = iceData.iceServers;
+        }
+      }
+    } catch {
+      // Fallback to in-cluster STUN URI if discovery endpoint is unreachable
+    }
+    const config = { iceServers };
 
     const pc = new RTCPeerConnection(config);
     peerConnection.value = pc;

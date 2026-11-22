@@ -31,6 +31,14 @@ spec:
         - name: mock-hardware
           image: localhost:32000/mock-hardware:latest
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
@@ -44,6 +52,8 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: COSIGN_PUB_KEY_FILE
+              value: "/etc/oci/cosign/cosign.pub"
           resources:
             requests:
               cpu: 50m
@@ -58,6 +68,9 @@ spec:
             - name: ca-cert
               mountPath: /etc/tls/ca
               readOnly: true
+            - name: cosign-pub
+              mountPath: /etc/oci/cosign
+              readOnly: true
       volumes:
         - name: tls-certs
           csi:
@@ -68,4 +81,8 @@ spec:
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
+            optional: true
+        - name: cosign-pub
+          configMap:
+            name: oci-cosign-pub
             optional: true

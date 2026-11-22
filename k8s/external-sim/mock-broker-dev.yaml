@@ -31,6 +31,14 @@ spec:
         - name: mock-broker-dev
           image: localhost:32000/mock-broker:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8089
               name: http
@@ -85,35 +93,3 @@ spec:
       name: http
   selector:
     app: mock-broker-dev
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: mock-broker-dev-ingress
-  namespace: external-sim
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-spec:
-  rules:
-    - host: broker-api-dev.sim.oci.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: mock-broker-dev-service
-                port:
-                  number: 8089
-    - host: data-api-dev.sim.oci.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: mock-broker-dev-service
-                port:
-                  number: 8089

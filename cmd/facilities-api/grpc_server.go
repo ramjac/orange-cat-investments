@@ -99,6 +99,7 @@ func toProtoFirmwareRelease(r *facilities.FirmwareRelease) *facilitiesv1.Firmwar
 		MinHardwareVersion: strVal(r.MinHardwareVersion),
 		Status:             r.Status,
 		CreatedAt:          r.CreatedAt.Format(time.RFC3339),
+		CosignSignature:    r.CosignSignature,
 	}
 }
 
@@ -264,6 +265,7 @@ func (s *FacilitiesGRPCServer) CreateFirmwareRelease(ctx context.Context, in *fa
 		Version:            in.Version,
 		FileURL:            in.FileURL,
 		Checksum:           in.Checksum,
+		CosignSignature:    in.CosignSignature,
 		MinHardwareVersion: strPtr(in.MinHardwareVersion),
 		Status:             in.Status,
 	})

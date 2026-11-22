@@ -103,6 +103,21 @@ func (m *mockFacClient) CreateOTAJob(_ context.Context, in *facilitiesv1.CreateO
 	return &facilitiesv1.CreateOTAJobResponse{Jobs: jobs}, nil
 }
 
+func (m *mockFacClient) ListFirmwareReleases(_ context.Context, _ *facilitiesv1.ListFirmwareReleasesRequest) (*facilitiesv1.ListFirmwareReleasesResponse, error) {
+	return &facilitiesv1.ListFirmwareReleasesResponse{
+		Releases: []*facilitiesv1.FirmwareRelease{
+			{
+				ReleaseID:       "rel-v2.1",
+				DeviceType:      "edge_camera",
+				Version:         "2.1.0",
+				FileURL:         "http://forgejo-service.oci-internal.svc.cluster.local:3000/api/packages/oci/generic/edge-firmware/2.1.0/edge_camera.bin",
+				Checksum:        "abc123",
+				CosignSignature: "sig-test",
+			},
+		},
+	}, nil
+}
+
 type mockOpsClient struct {
 	opsv1.OpsServiceClient
 }

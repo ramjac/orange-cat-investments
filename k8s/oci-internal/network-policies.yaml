@@ -1,0 +1,228 @@
+# ==============================================================================
+# Zero-Trust NetworkPolicy Microsegmentation Matrix: oci-internal (Phase 9 / 7.36)
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: oci-internal
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Global Egress: Allow every pod in oci-internal to query cluster DNS and export telemetry
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: global-dns-and-telemetry-egress
+  namespace: oci-internal
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 9090
+---
+# Observability Ingress: Allow Prometheus & Gatus in monitoring to scrape/probe oci-internal pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-scrape-ingress
+  namespace: oci-internal
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - prometheus
+                  - gatus
+---
+# COTS Applications & Harbor Registry
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cots-and-harbor-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - forgejo
+          - nextcloud
+          - nextcloud-db-migration
+          - erpnext-frappe
+          - frappe-hr
+          - snipe-it
+          - harbor-core
+          - harbor-portal
+          - harbor-registry
+          - harbor-jobservice
+          - harbor-trivy
+          - harbor-proxy
+          - harbor-bootstrap
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-internal
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Forgejo Actions Runner (CI/CD pipeline runner)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: forgejo-runner-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchLabels:
+      app: forgejo-runner
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-sim
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 16443
+        - protocol: TCP
+          port: 32000
+---
+# Internal PostgreSQL & Backup CronJob
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-internal-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-internal
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: openbao
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-internal-backup-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-internal-backup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-internal
+      ports:
+        - protocol: TCP
+          port: 5432

@@ -1,0 +1,144 @@
+# ==============================================================================
+# Kubernetes Gateway API Routes: oci-internal COTS (Phase 9 / 7.37)
+# ==============================================================================
+# Owner: Elise Dev (emp-human-elise) — Core Application Developer
+# ==============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-internal-nextcloud-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    oci.local/cots-route: "true"
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - nextcloud.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: nextcloud-service
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-internal-forgejo-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    oci.local/cots-route: "true"
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - forgejo.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: forgejo-service
+          port: 3000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-internal-erpnext-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    oci.local/cots-route: "true"
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - erpnext.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: erpnext-service
+          port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-internal-hr-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    oci.local/cots-route: "true"
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - hr.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: frappe-hr-service
+          port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-internal-snipeit-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    oci.local/cots-route: "true"
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - snipeit.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: snipe-it-service
+          port: 80

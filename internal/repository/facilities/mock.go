@@ -380,6 +380,16 @@ func (m *mockRepository) CreateFirmwareRelease(ctx context.Context, release *Fir
 }
 
 func (m *mockRepository) ListFirmwareReleases(ctx context.Context, deviceType string) ([]*FirmwareRelease, error) {
+	if deviceType == "" {
+		var all []*FirmwareRelease
+		for _, list := range m.releases {
+			all = append(all, list...)
+		}
+		if len(all) > 0 {
+			return all, nil
+		}
+		deviceType = "edge_camera"
+	}
 	if list, ok := m.releases[deviceType]; ok && len(list) > 0 {
 		return list, nil
 	}
@@ -389,7 +399,7 @@ func (m *mockRepository) ListFirmwareReleases(ctx context.Context, deviceType st
 			ReleaseID:  "release-uuid-v2",
 			DeviceType: deviceType,
 			Version:    "2.1.0",
-			FileURL:    "https://firmware.oci.local/edge_camera/v2.1.0.bin",
+			FileURL:    "http://forgejo-service.oci-internal.svc.cluster.local:3000/api/packages/oci/generic/edge-firmware/2.1.0/edge_camera.bin",
 			Checksum:   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			Status:     "published",
 			CreatedAt:  now,

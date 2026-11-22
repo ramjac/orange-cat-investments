@@ -29,6 +29,14 @@ spec:
             - name: processor
               image: localhost:32000/oci-worker:latest
               imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/usr/local/bin/oci-worker"]
               env:
                 - name: ENABLE_CORE_INVEST
@@ -101,6 +109,14 @@ spec:
             - name: generator
               image: localhost:32000/oci-worker:latest
               imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/usr/local/bin/oci-worker"]
               env:
                 - name: ENABLE_CORE_INVEST
@@ -173,6 +189,14 @@ spec:
             - name: snapshot
               image: localhost:32000/oci-worker:latest
               imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
               command: ["/usr/local/bin/oci-worker"]
               env:
                 - name: ENABLE_CORE_INVEST

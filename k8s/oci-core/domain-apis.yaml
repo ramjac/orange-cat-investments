@@ -32,8 +32,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: workforce-api
-          image: localhost:32000/workforce-api:latest
+          image: localhost:32000/workforce-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50051
               name: grpc-http
@@ -156,8 +164,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: facilities-api
-          image: localhost:32000/facilities-api:latest
+          image: localhost:32000/facilities-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50052
               name: grpc-http
@@ -278,8 +294,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: core-invest-api
-          image: localhost:32000/core-invest-api:latest
+          image: localhost:32000/core-invest-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50053
               name: grpc-http
@@ -402,8 +426,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: ops-api
-          image: localhost:32000/ops-api:latest
+          image: localhost:32000/ops-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50054
               name: grpc-http
@@ -489,47 +521,3 @@ spec:
       name: grpc-http
   selector:
     app: ops-api
----
-# NetworkPolicy: Restrict Ingress to Domain APIs strictly to BLL, batch jobs, and Worker pods
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: domain-apis-network-policy
-  namespace: oci-core
-spec:
-  podSelector:
-    matchLabels:
-      tier: domain-api
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              tier: bll
-      ports:
-        - protocol: TCP
-          port: 50051
-        - protocol: TCP
-          port: 50052
-        - protocol: TCP
-          port: 50053
-        - protocol: TCP
-          port: 50054
-    # Gatus uptime monitor TCP connectivity health probes from monitoring namespace.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring
-          podSelector:
-            matchLabels:
-              app: gatus
-      ports:
-        - protocol: TCP
-          port: 50051
-        - protocol: TCP
-          port: 50052
-        - protocol: TCP
-          port: 50053
-        - protocol: TCP
-          port: 50054

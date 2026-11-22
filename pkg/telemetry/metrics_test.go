@@ -33,6 +33,7 @@ func TestBusinessMetricsRecordDataPoints(t *testing.T) {
 	RecordUpstreamRequest(ctx, "broker", "ok")
 	RecordUpstreamRequest(ctx, "broker", "timeout")
 	RecordUpstreamRequest(ctx, "bank", "unavailable")
+	RecordWAFBlockedRequest(ctx, "942100", "sqli", "query")
 
 	var rm metricdata.ResourceMetrics
 	require.NoError(t, reader.Collect(ctx, &rm))
@@ -60,6 +61,7 @@ func TestBusinessMetricsRecordDataPoints(t *testing.T) {
 		"oci.feline.emergency_hold_toggles.total",
 		"oci.operational.pebble_mtta.duration",
 		"oci.upstream.requests.total",
+		"oci.waf.blocked_requests.total",
 	}
 	for _, name := range expectedMetrics {
 		assert.Greater(t, recorded[name], 0, "expected metric %s to have at least one data point", name)

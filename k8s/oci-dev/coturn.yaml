@@ -1,0 +1,105 @@
+# ==============================================================================
+# In-Cluster STUN/TURN Media Relay (coturn) for WebRTC Habitat Streams (7.39)
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  namespace: oci-dev
+  labels:
+    app: coturn
+    tier: edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coturn
+  template:
+    metadata:
+      labels:
+        app: coturn
+        tier: edge
+    spec:
+      containers:
+        - name: coturn
+          image: coturn/coturn:4.6.2-alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - -n
+            - --log-file=stdout
+            - --no-cli
+            - --listening-port=3478
+            - --min-port=49152
+            - --max-port=49200
+            - --use-auth-secret
+            - --static-auth-secret=$(TURN_AUTH_SECRET)
+            - --realm=oci.local
+            - --no-multicast-peers
+            - --no-loopback-peers
+            - --turndb=/tmp/turndb
+          env:
+            - name: TURN_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: TURN_AUTH_SECRET
+                  optional: true
+          ports:
+            - name: stun-turn-udp
+              containerPort: 3478
+              protocol: UDP
+            - name: stun-turn-tcp
+              containerPort: 3478
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            tcpSocket:
+              port: 3478
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3478
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coturn-service
+  namespace: oci-dev
+  labels:
+    app: coturn
+    tier: edge
+spec:
+  selector:
+    app: coturn
+  ports:
+    - name: stun-turn-udp
+      port: 3478
+      targetPort: 3478
+      protocol: UDP
+    - name: stun-turn-tcp
+      port: 3478
+      targetPort: 3478
+      protocol: TCP

@@ -13,7 +13,7 @@ metadata:
   labels:
     app: forgejo-runner
 rules:
-  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io", "external-secrets.io", "generators.external-secrets.io"]
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io", "external-secrets.io", "generators.external-secrets.io", "kyverno.io", "admissionregistration.k8s.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["rbac.authorization.k8s.io"]
@@ -190,7 +190,8 @@ spec:
             - --host=unix:///var/run/docker.sock
             - --insecure-registry=localhost:32000
             - --insecure-registry=127.0.0.1:32000
-            - --insecure-registry=container-registry.kube-system.svc.cluster.local:5000
+            - --insecure-registry=registry.oci.local
+            - --insecure-registry=harbor-service.oci-internal.svc.cluster.local:32000
           securityContext:
             privileged: true
           env:

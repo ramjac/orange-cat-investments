@@ -58,9 +58,9 @@ fi
 echo ""
 echo "Checking container registry pre-flight..."
 REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
-if [[ "${REGISTRY_HOST}" == "localhost" ]] && ! curl -s --connect-timeout 1 "http://localhost:32000/v2/_catalog" &>/dev/null; then
+if [[ "${REGISTRY_HOST}" == "localhost" ]] && ! curl -s --connect-timeout 1 "http://localhost:32000/v2/" &>/dev/null; then
     CLUSTER_HOST=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null | sed -E 's|https?://([^:/]+).*|\1|')
-    if [[ -n "${CLUSTER_HOST}" ]] && curl -s --connect-timeout 2 "http://${CLUSTER_HOST}:32000/v2/_catalog" &>/dev/null; then
+    if [[ -n "${CLUSTER_HOST}" ]] && curl -s --connect-timeout 2 "http://${CLUSTER_HOST}:32000/v2/" &>/dev/null; then
         REGISTRY_HOST="${CLUSTER_HOST}"
     fi
 fi
@@ -183,17 +183,31 @@ if kubectl get crd clustersecretstores.external-secrets.io &>/dev/null; then
 fi
 
 echo ""
-echo "Checking local container registry (:32000)..."
-if ! kubectl get svc -n kube-system container-registry &>/dev/null && ! kubectl get svc -n container-registry registry &>/dev/null; then
-    echo "Deploying in-cluster container registry on NodePort 32000..."
-    kubectl apply -f "${REPO_ROOT}/k8s/registry/registry.yaml"
+echo "Deploying Kyverno Admission Controller & Supply Chain ClusterPolicies..."
+if kubectl get crd clusterpolicies.kyverno.io &>/dev/null; then
+    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno-policies.yaml"
+else
+    echo "Installing Kyverno CRDs and admission controller..."
+    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno.yaml" || true
 fi
+
+echo ""
+echo "Deploying Harbor Enterprise Container Registry (:32000 / registry.oci.local)..."
+kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml"
+
+echo ""
+echo "Deploying Kubernetes Gateway API v1 CRDs & Edge Gateway (oci-edge-gateway)..."
+kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || true
 
 echo ""
 if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo ""
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/network-policies.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/http-routes.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/cosign-pub-configmap.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-bank-dev.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-broker-dev.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-hardware-dev.yaml"

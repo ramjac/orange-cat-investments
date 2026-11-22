@@ -31,8 +31,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: oci-pebble-proxy
-          image: localhost:32000/oci-pebble-proxy:latest
+          image: localhost:32000/oci-pebble-proxy:prod-stable
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8082
               name: http

@@ -26,8 +26,9 @@ var (
 	EmergencyHoldToggles      metric.Int64Counter
 
 	// Operational Metrics
-	PebbleMTTADuration      metric.Float64Histogram
-	UpstreamRequestsCounter metric.Int64Counter
+	PebbleMTTADuration        metric.Float64Histogram
+	UpstreamRequestsCounter   metric.Int64Counter
+	WAFBlockedRequestsCounter metric.Int64Counter
 )
 
 func initMetrics(serviceName string) error {
@@ -106,6 +107,13 @@ func initMetrics(serviceName string) error {
 		return err
 	}
 
+	WAFBlockedRequestsCounter, err = meter.Int64Counter("oci.waf.blocked_requests.total",
+		metric.WithDescription("Total number of HTTP requests blocked by the Coraza OWASP CRS WAF middleware"),
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -169,6 +177,19 @@ func RecordUpstreamRequest(ctx context.Context, service, status string) {
 			metric.WithAttributes(
 				attribute.String("service", service),
 				attribute.String("status", status),
+			),
+		)
+	}
+}
+
+// RecordWAFBlockedRequest increments oci.waf.blocked_requests.total when a request is rejected by the Coraza WAF middleware.
+func RecordWAFBlockedRequest(ctx context.Context, ruleID, category, target string) {
+	if WAFBlockedRequestsCounter != nil {
+		WAFBlockedRequestsCounter.Add(ctx, 1,
+			metric.WithAttributes(
+				attribute.String("rule_id", ruleID),
+				attribute.String("category", category),
+				attribute.String("target", target),
 			),
 		)
 	}

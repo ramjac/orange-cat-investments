@@ -1,0 +1,51 @@
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  disable-all: true
+  enable:
+    - gosec
+    - govet
+    - errcheck
+    - staticcheck
+
+linters-settings:
+  gosec:
+    includes:
+      - G101 # Hardcoded credentials
+      - G104 # Audit errors not checked
+      - G106 # ssh.InsecureIgnoreHostKey
+      - G107 # Url provided to HTTP request as taint input
+      - G112 # Potential slowloris attack (ReadHeaderTimeout)
+      - G114 # Use of net/http serve function without timeouts
+      - G201 # SQL query construction using format string
+      - G202 # SQL query construction using string concatenation
+      - G401 # Weak cryptographic primitive
+      - G402 # TLS InsecureSkipVerify / low MinVersion
+      - G404 # Insecure random number source
+      - G501 # Blacklisted crypto import (md5)
+      - G505 # Blacklisted crypto import (sha1)
+    excludes:
+      - G304 # File path provided as taint input (managed via trusted env paths)
+  govet:
+    enable-all: false
+    enable:
+      - shadow
+      - printf
+      - nilness
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck
+    - path: simulation/
+      linters:
+        - gosec
+    - path: cmd/mock-
+      linters:
+        - gosec
+    - path: pkg/dbpool/dbpool\.go
+      text: "G201"

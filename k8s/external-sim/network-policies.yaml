@@ -1,0 +1,219 @@
+# ==============================================================================
+# Zero-Trust NetworkPolicy Microsegmentation Matrix: external-sim (Phase 9 / 7.36)
+# ==============================================================================
+# Invariant: Simulated external 3rd-party services have ZERO egress to
+# postgres-core, postgres-dev, or postgres-internal (:5432).
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: external-sim
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Global Egress: Allow every pod in external-sim to query cluster DNS and export telemetry
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: global-dns-and-telemetry-egress
+  namespace: external-sim
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 9090
+---
+# Observability Ingress: Allow Prometheus & Gatus in monitoring to scrape/probe external-sim pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-scrape-ingress
+  namespace: external-sim
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - prometheus
+                  - gatus
+---
+# Mock Bank & Mock Broker: Strict stateless mocks with zero database/internal egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mock-bank-and-broker-network-policy
+  namespace: external-sim
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - mock-bank
+          - mock-bank-dev
+          - mock-broker
+          - mock-broker-dev
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              tier: bll
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+          podSelector:
+            matchLabels:
+              tier: bll
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: forgejo-runner
+      ports:
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+  egress: []
+---
+# Mock Hardware (Production Target): Strictly RabbitMQ :5672 and Internal BLL :8086 in oci-core (+ Forgejo :3000)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mock-hardware-core-network-policy
+  namespace: external-sim
+spec:
+  podSelector:
+    matchLabels:
+      app: mock-hardware
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: internal-bll
+      ports:
+        - protocol: TCP
+          port: 8086
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: forgejo
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# Mock Hardware (Staging Target): Strictly RabbitMQ :5672 and Internal BLL :8086 in oci-dev (+ Forgejo :3000)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mock-hardware-dev-network-policy
+  namespace: external-sim
+spec:
+  podSelector:
+    matchLabels:
+      app: mock-hardware-dev
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+          podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+          podSelector:
+            matchLabels:
+              app: internal-bll
+      ports:
+        - protocol: TCP
+          port: 8086
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: forgejo
+      ports:
+        - protocol: TCP
+          port: 3000

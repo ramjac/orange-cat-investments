@@ -1,0 +1,37 @@
+title = "Orange Cat Investments (OCI) Secret Detection Policy"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "oci-starter-admin-credentials-file"
+description = "Block accidental commit of starter-admin-credentials files or embedded admin bootstrap tokens"
+regex = '''(?i)(Initial Password:\s*[A-Za-z0-9!@#$%^&*_-]{12,}|starter-admin-credentials\.txt.*password)'''
+tags = ["secret", "oci"]
+
+[[rules]]
+id = "oci-pem-private-key"
+description = "Block private cryptographic key material in tracked repository files"
+regex = '''-----BEGIN ((EC|RSA|OPENSSH|PGP) )?PRIVATE KEY-----'''
+tags = ["key", "pem"]
+
+[[rules]]
+id = "oci-pat-or-bearer-token"
+description = "Block hardcoded Forgejo/GitHub personal access tokens or OpenBao root tokens"
+regex = '''(?i)(ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|hvs\.[A-Za-z0-9_-]{20,})'''
+tags = ["token", "pat"]
+
+[allowlist]
+description = "Allow test fixtures, gitignored local server secrets, and documented dev seed data"
+paths = [
+  '''.*_test\.go$''',
+  '''^thinker-kube\.config$''',
+  '''^starter-admin-credentials\.txt$''',
+  '''^\.starter-admin-credentials\.json$''',
+  '''^scripts/seed-dev\.sql$''',
+  '''^k8s/external-sim/.*\.yaml$''',
+  '''^k8s/oci-dev/oci-secrets\.yaml$''',
+]
+regexes = [
+  '''Type:\s*"(EC )?PRIVATE KEY"''',
+]

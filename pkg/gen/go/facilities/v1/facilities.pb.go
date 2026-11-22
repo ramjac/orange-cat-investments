@@ -123,6 +123,7 @@ type FirmwareRelease struct {
 	MinHardwareVersion string `json:"min_hardware_version"`
 	Status             string `json:"status"`
 	CreatedAt          string `json:"created_at"`
+	CosignSignature    string `json:"cosign_signature"`
 }
 
 type CreateFirmwareReleaseRequest struct {
@@ -132,6 +133,7 @@ type CreateFirmwareReleaseRequest struct {
 	Checksum           string `json:"checksum"`
 	MinHardwareVersion string `json:"min_hardware_version"`
 	Status             string `json:"status"`
+	CosignSignature    string `json:"cosign_signature"`
 }
 
 type CreateFirmwareReleaseResponse struct {

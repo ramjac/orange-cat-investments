@@ -16,8 +16,8 @@ func (r *pgxRepository) CreateFirmwareRelease(ctx context.Context, release *Firm
 	if release.Status == "" {
 		release.Status = "published"
 	}
-	query := `INSERT INTO facilities.firmware_releases (device_type, version, file_url, checksum, min_hardware_version, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING release_id, created_at, updated_at`
-	err := r.db.QueryRow(ctx, query, release.DeviceType, release.Version, release.FileURL, release.Checksum, release.MinHardwareVersion, release.Status).Scan(&release.ReleaseID, &release.CreatedAt, &release.UpdatedAt)
+	query := `INSERT INTO facilities.firmware_releases (device_type, version, file_url, checksum, min_hardware_version, cosign_signature, status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING release_id, created_at, updated_at`
+	err := r.db.QueryRow(ctx, query, release.DeviceType, release.Version, release.FileURL, release.Checksum, release.MinHardwareVersion, release.CosignSignature, release.Status).Scan(&release.ReleaseID, &release.CreatedAt, &release.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -29,8 +29,17 @@ func (r *pgxRepository) ListFirmwareReleases(ctx context.Context, deviceType str
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
-	query := `SELECT release_id, device_type, version, file_url, checksum, min_hardware_version, status, created_at, updated_at FROM facilities.firmware_releases WHERE device_type = $1 ORDER BY created_at DESC`
-	rows, err := r.db.Query(ctx, query, deviceType)
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if deviceType == "" {
+		query := `SELECT release_id, device_type, version, file_url, checksum, min_hardware_version, cosign_signature, status, created_at, updated_at FROM facilities.firmware_releases ORDER BY created_at DESC`
+		rows, err = r.db.Query(ctx, query)
+	} else {
+		query := `SELECT release_id, device_type, version, file_url, checksum, min_hardware_version, cosign_signature, status, created_at, updated_at FROM facilities.firmware_releases WHERE device_type = $1 ORDER BY created_at DESC`
+		rows, err = r.db.Query(ctx, query, deviceType)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +48,7 @@ func (r *pgxRepository) ListFirmwareReleases(ctx context.Context, deviceType str
 	var list []*FirmwareRelease
 	for rows.Next() {
 		var f FirmwareRelease
-		if err := rows.Scan(&f.ReleaseID, &f.DeviceType, &f.Version, &f.FileURL, &f.Checksum, &f.MinHardwareVersion, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ReleaseID, &f.DeviceType, &f.Version, &f.FileURL, &f.Checksum, &f.MinHardwareVersion, &f.CosignSignature, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, &f)

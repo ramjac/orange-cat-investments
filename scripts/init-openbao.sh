@@ -122,6 +122,10 @@ HCL
     CORE_APCA_SECRET=$(read_secret_key "oci-core" "oci-core-secrets" "APCA_API_SECRET_KEY" "SK_OCI_TEST_SECRET_01")
     CORE_PLAID_ID=$(read_secret_key "oci-core" "oci-core-secrets" "PLAID_CLIENT_ID" "mock-client-id")
     CORE_PLAID_SECRET=$(read_secret_key "oci-core" "oci-core-secrets" "PLAID_SECRET" "mock-secret")
+    CORE_TURN_SECRET=$(read_secret_key "oci-core" "oci-core-secrets" "TURN_AUTH_SECRET" "")
+    if [[ -z "${CORE_TURN_SECRET}" ]]; then
+        CORE_TURN_SECRET=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    fi
     INT_NC_USER=$(read_secret_key "oci-internal" "app-secrets" "NEXTCLOUD_ADMIN_USER" "admin")
     INT_NC_PASS=$(read_secret_key "oci-internal" "app-secrets" "NEXTCLOUD_ADMIN_PASSWORD" "oci_nextcloud_admin_pass")
 
@@ -140,6 +144,7 @@ HCL
         APCA_API_SECRET_KEY="${CORE_APCA_SECRET}" \
         PLAID_CLIENT_ID="${CORE_PLAID_ID}" \
         PLAID_SECRET="${CORE_PLAID_SECRET}" \
+        TURN_AUTH_SECRET="${CORE_TURN_SECRET}" \
         NEXTCLOUD_ADMIN_USER="${INT_NC_USER}" \
         NEXTCLOUD_ADMIN_PASS="${INT_NC_PASS}" >/dev/null
 
@@ -150,6 +155,10 @@ HCL
     DEV_RMQ_PASS=$(read_secret_key "oci-dev" "oci-dev-secrets" "RABBITMQ_DEFAULT_PASS" "oci_rabbit_pass")
     DEV_MEILI_KEY=$(read_secret_key "oci-dev" "oci-dev-secrets" "MEILI_MASTER_KEY" "oci_meilisearch_master_key_32bytes")
     DEV_ZITADEL_KEY=$(read_secret_key "oci-dev" "oci-dev-secrets" "ZITADEL_MASTERKEY" "MasterKeyForZitadel32BytesLong!!")
+    DEV_TURN_SECRET=$(read_secret_key "oci-dev" "oci-dev-secrets" "TURN_AUTH_SECRET" "")
+    if [[ -z "${DEV_TURN_SECRET}" ]]; then
+        DEV_TURN_SECRET=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    fi
 
     bao_authed bao kv put secret/oci-dev/config \
         DATABASE_URL="postgres://${DEV_PG_USER}:${DEV_PG_PASS}@postgres-dev-service.oci-dev.svc.cluster.local:5432/${DEV_PG_DB}?sslmode=disable" \
@@ -166,6 +175,7 @@ HCL
         APCA_API_SECRET_KEY="DEV_SECRET_01" \
         PLAID_CLIENT_ID="mock-dev-client" \
         PLAID_SECRET="mock-dev-secret" \
+        TURN_AUTH_SECRET="${DEV_TURN_SECRET}" \
         NEXTCLOUD_ADMIN_USER="${INT_NC_USER}" \
         NEXTCLOUD_ADMIN_PASS="${INT_NC_PASS}" >/dev/null
 
@@ -174,6 +184,8 @@ HCL
     INT_PG_DB=$(read_secret_key "oci-internal" "app-secrets" "POSTGRES_DB" "oci_internal")
     INT_FG_PASS=$(read_secret_key "oci-internal" "app-secrets" "FORGEJO_DB_PASSWD" "${INT_PG_PASS}")
     INT_SNIPE_KEY=$(read_secret_key "oci-internal" "app-secrets" "SNIPEIT_APP_KEY" "base64:dGVzdGtleWZvcnNuaXBlaXRhcHBpbnByb2R1Y3Rpb24=")
+    INT_HARBOR_PASS=$(read_secret_key "oci-internal" "app-secrets" "HARBOR_ADMIN_PASSWORD" "OciHarborAdmin123!")
+    INT_HARBOR_CORE_SECRET=$(read_secret_key "oci-internal" "app-secrets" "HARBOR_CORE_SECRET" "oci_harbor_core_secret_32bytes!!")
 
     bao_authed bao kv put secret/oci-internal/config \
         POSTGRES_USER="${INT_PG_USER}" \
@@ -182,7 +194,33 @@ HCL
         NEXTCLOUD_ADMIN_USER="${INT_NC_USER}" \
         NEXTCLOUD_ADMIN_PASSWORD="${INT_NC_PASS}" \
         FORGEJO_DB_PASSWD="${INT_FG_PASS}" \
-        SNIPEIT_APP_KEY="${INT_SNIPE_KEY}" >/dev/null
+        SNIPEIT_APP_KEY="${INT_SNIPE_KEY}" \
+        HARBOR_ADMIN_PASSWORD="${INT_HARBOR_PASS}" \
+        HARBOR_CORE_SECRET="${INT_HARBOR_CORE_SECRET}" >/dev/null
+
+    # Seed Cosign signing keypair in OpenBao (preserving existing key if present) and sync ConfigMap/oci-cosign-pub
+    EXISTING_COSIGN_PUB=$(bao_authed bao kv get -field=COSIGN_PUB secret/oci-core/cosign 2>/dev/null || true)
+    if [[ -z "${EXISTING_COSIGN_PUB}" ]] && command -v openssl &>/dev/null; then
+        COSIGN_TMP=$(mktemp -d)
+        openssl ecparam -name prime256v1 -genkey -noout -out "${COSIGN_TMP}/ec.key" 2>/dev/null
+        openssl pkcs8 -topk8 -nocrypt -in "${COSIGN_TMP}/ec.key" -out "${COSIGN_TMP}/cosign.key" 2>/dev/null
+        openssl ec -in "${COSIGN_TMP}/ec.key" -pubout -out "${COSIGN_TMP}/cosign.pub" 2>/dev/null
+        COSIGN_PRIV_VAL=$(cat "${COSIGN_TMP}/cosign.key")
+        COSIGN_PUB_VAL=$(cat "${COSIGN_TMP}/cosign.pub")
+        rm -rf "${COSIGN_TMP}"
+        bao_authed bao kv put secret/oci-core/cosign \
+            COSIGN_KEY="${COSIGN_PRIV_VAL}" \
+            COSIGN_PUB="${COSIGN_PUB_VAL}" >/dev/null
+        EXISTING_COSIGN_PUB="${COSIGN_PUB_VAL}"
+    fi
+    if [[ -n "${EXISTING_COSIGN_PUB}" ]]; then
+        for cosign_ns in oci-core oci-dev external-sim; do
+            kubectl create configmap oci-cosign-pub \
+                --namespace "${cosign_ns}" \
+                --from-literal=cosign.pub="${EXISTING_COSIGN_PUB}" \
+                --dry-run=client -o yaml | kubectl apply -f - >/dev/null 2>&1 || true
+        done
+    fi
     echo "OpenBao KV-v2 paths seeded."
 fi
 

@@ -1,0 +1,265 @@
+# ==============================================================================
+# Kubernetes Gateway API Routes: oci-core (Phase 9 / 7.37)
+# ==============================================================================
+# Owner: Elise Dev (emp-human-elise) — Core Application Developer
+# ==============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-api-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - api.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/customer/
+        - path:
+            type: PathPrefix
+            value: /customer/
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-customer-bff-service
+          port: 8083
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-employee-bff-service
+          port: 8081
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-customer-bff-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - customer-bff.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-customer-bff-service
+          port: 8083
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-customer-portal-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - customer.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-customer-bff-service
+          port: 8083
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: oci-customer-portal-service
+          port: 5174
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-employee-bff-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - employee-bff.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-employee-bff-service
+          port: 8081
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-employee-portal-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - employee.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-employee-bff-service
+          port: 8081
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: oci-employee-portal-service
+          port: 5173
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-pebble-proxy-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - pebble-proxy.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 3600s
+      backendRefs:
+        - name: oci-pebble-proxy-service
+          port: 8082
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-auth-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - auth.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: zitadel-service
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: oci-core-auth-grpc-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+      sectionName: grpc-tls
+  hostnames:
+    - auth.oci.local
+  rules:
+    - backendRefs:
+        - name: zitadel-service
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-marketing-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - oci.local
+    - www.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: oci-marketing-service
+          port: 80

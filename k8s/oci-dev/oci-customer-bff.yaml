@@ -33,6 +33,14 @@ spec:
         - name: oci-customer-bff-dev
           image: localhost:32000/oci-customer-bff:latest
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8083
               name: http
@@ -53,6 +61,14 @@ spec:
               value: "/etc/tls/certs/tls.key"
             - name: CA_CERT_FILE
               value: "/etc/tls/ca/ca.crt"
+            - name: TURN_SERVER_HOST
+              value: "turn.oci.local:3478"
+            - name: TURN_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: TURN_AUTH_SECRET
+                  optional: true
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs

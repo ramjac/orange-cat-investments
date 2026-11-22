@@ -305,11 +305,13 @@ data:
         file_url TEXT NOT NULL,
         checksum VARCHAR(64) NOT NULL,
         min_hardware_version VARCHAR(50),
+        cosign_signature TEXT NOT NULL DEFAULT '',
         status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'deprecated')),
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT uq_device_version UNIQUE (device_type, version)
     );
+    ALTER TABLE facilities.firmware_releases ADD COLUMN IF NOT EXISTS cosign_signature TEXT NOT NULL DEFAULT '';
     
     -- Maintenance Logs (Offline field maintenance logs synced via mobile app)
     CREATE TABLE IF NOT EXISTS facilities.maintenance_logs (

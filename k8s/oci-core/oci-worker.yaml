@@ -31,8 +31,16 @@ spec:
         supplementalGroups: [65532]
       containers:
         - name: oci-worker
-          image: localhost:32000/oci-worker:latest
+          image: localhost:32000/oci-worker:prod-stable
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8080
               name: health
@@ -63,6 +71,8 @@ spec:
               value: "/etc/oci/tls/ca.crt"
             - name: CA_KEY_PATH
               value: "/etc/oci/tls/ca.key"
+            - name: COSIGN_PUB_KEY_FILE
+              value: "/etc/oci/cosign/cosign.pub"
             - name: INTERNAL_SERVICE_KEY
               valueFrom:
                 secretKeyRef:
@@ -78,6 +88,9 @@ spec:
               readOnly: true
             - name: ca-bundle
               mountPath: /etc/oci/tls
+              readOnly: true
+            - name: cosign-pub
+              mountPath: /etc/oci/cosign
               readOnly: true
           resources:
             requests:
@@ -112,4 +125,8 @@ spec:
         - name: ca-bundle
           configMap:
             name: oci-ca-bundle
+            optional: true
+        - name: cosign-pub
+          configMap:
+            name: oci-cosign-pub
             optional: true

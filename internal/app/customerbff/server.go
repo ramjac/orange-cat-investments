@@ -24,12 +24,14 @@ type SessionStore = sessionvalkey.CustomerSessionStore
 // Invariant: CustomerBFF never connects directly to database schemas (pgxpool) or Domain APIs.
 // All business domain logic and persistence are delegated to Customer BLL over gRPC.
 type CustomerBFF struct {
-	bllClient    customerbllv1.CustomerBLLServiceClient
-	sessions     SessionStore
-	cache        cachevalkey.Cache
-	rateLimiter  *cachevalkey.RateLimiter
-	logger       *slog.Logger
-	searchClient *meilisearch.Client
+	bllClient      customerbllv1.CustomerBLLServiceClient
+	sessions       SessionStore
+	cache          cachevalkey.Cache
+	rateLimiter    *cachevalkey.RateLimiter
+	logger         *slog.Logger
+	searchClient   *meilisearch.Client
+	turnServerHost string
+	turnAuthSecret string
 }
 
 // NewCustomerBFF initializes a new CustomerBFF instance.
@@ -59,14 +61,30 @@ func NewCustomerBFF(bllClient customerbllv1.CustomerBLLServiceClient, logger *sl
 		sess = sessionvalkey.NewMemoryCustomerSessionStore()
 	}
 
-	return &CustomerBFF{
-		bllClient:    bllClient,
-		sessions:     sess,
-		cache:        cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger),
-		rateLimiter:  cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
-		logger:       logger,
-		searchClient: sClient,
+	turnServerHost := strings.TrimSpace(os.Getenv("TURN_SERVER_HOST"))
+	if turnServerHost == "" {
+		turnServerHost = "turn.oci.local:3478"
 	}
+	turnAuthSecret := os.Getenv("TURN_AUTH_SECRET")
+
+	return &CustomerBFF{
+		bllClient:      bllClient,
+		sessions:       sess,
+		cache:          cachevalkey.NewCache(valkeyAddr, valkeyPass, 0, logger),
+		rateLimiter:    cachevalkey.NewRateLimiterWithAddr(valkeyAddr, valkeyPass, 0, logger),
+		logger:         logger,
+		searchClient:   sClient,
+		turnServerHost: turnServerHost,
+		turnAuthSecret: turnAuthSecret,
+	}
+}
+
+// SetTURNConfig configures the STUN/TURN relay host and shared HMAC-SHA1 auth secret.
+func (b *CustomerBFF) SetTURNConfig(serverHost, authSecret string) {
+	if strings.TrimSpace(serverHost) != "" {
+		b.turnServerHost = strings.TrimSpace(serverHost)
+	}
+	b.turnAuthSecret = authSecret
 }
 
 func (b *CustomerBFF) SetBLLClient(client customerbllv1.CustomerBLLServiceClient) {
@@ -113,8 +131,6 @@ func containsSensitiveInternalDetails(msg string) bool {
 		"sqlstate",
 		"failed to connect to",
 		"rpc error:",
-		"alpaca",
-		"plaid",
 	} {
 		if strings.Contains(lower, needle) {
 			return true

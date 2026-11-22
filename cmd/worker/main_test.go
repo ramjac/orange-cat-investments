@@ -3,9 +3,21 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +25,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/internal/app/worker"
+	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -302,19 +315,22 @@ func TestWorkerRouter_OTAPipelineHandler(t *testing.T) {
 
 	<-router.Running()
 
+	fwURL, fwSum, fwSig := setupSignedFirmwareFixture(t)
+
 	event := worker.EventEnvelope[worker.OTATriggeredPayload]{
 		EventID:       watermill.NewUUID(),
 		EventType:     "facilities.ota_triggered.v1",
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-corr-ota",
 		Payload: worker.OTATriggeredPayload{
-			JobID:      "job-router-1",
-			AssetID:    "asset-router-2",
-			ReleaseID:  "release-router-3",
-			DeviceType: "edge_camera",
-			Version:    "2.1.0",
-			FileURL:    "https://firmware.oci.local/v2.1.0.bin",
-			Checksum:   "sha256checksum",
+			JobID:           "job-router-1",
+			AssetID:         "asset-router-2",
+			ReleaseID:       "release-router-3",
+			DeviceType:      "edge_camera",
+			Version:         "2.1.0",
+			FileURL:         fwURL,
+			Checksum:        fwSum,
+			CosignSignature: fwSig,
 		},
 	}
 	payloadBytes, err := json.Marshal(event)
@@ -371,9 +387,39 @@ func TestHandleBacktestRun_DoesNotLogRawPayload(t *testing.T) {
 	assert.Contains(t, logs, "test-msg-uuid-456")
 }
 
+func setupSignedFirmwareFixture(t *testing.T) (fileURL, checksumHex, cosignSig string) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	require.NoError(t, err)
+	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	require.NoError(t, err)
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+
+	pubPath := filepath.Join(t.TempDir(), "cosign.pub")
+	require.NoError(t, os.WriteFile(pubPath, pubPEM, 0o600))
+	t.Setenv(cosignverify.DefaultPublicKeyEnv, pubPath)
+
+	payload := []byte("OCI-EDGE-CAMERA-v2.1.0-SIGNED-FIRMWARE")
+	sum := sha256.Sum256(payload)
+	checksumHex = hex.EncodeToString(sum[:])
+	cosignSig, err = cosignverify.SignBlob(privPEM, payload)
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/v2.1.0.bin", checksumHex, cosignSig
+}
+
 func TestHandleOTATriggered(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	mockBLL := &mockInternalBLLClient{}
+	fwURL, fwSum, fwSig := setupSignedFirmwareFixture(t)
 
 	event := worker.EventEnvelope[worker.OTATriggeredPayload]{
 		EventID:       watermill.NewUUID(),
@@ -381,13 +427,14 @@ func TestHandleOTATriggered(t *testing.T) {
 		OccurredAt:    time.Now().UTC(),
 		CorrelationID: "test-corr-id",
 		Payload: worker.OTATriggeredPayload{
-			JobID:      "job-123",
-			AssetID:    "asset-456",
-			ReleaseID:  "release-789",
-			DeviceType: "edge_camera",
-			Version:    "2.1.0",
-			FileURL:    "https://firmware.oci.local/v2.1.0.bin",
-			Checksum:   "sha256checksum",
+			JobID:           "job-123",
+			AssetID:         "asset-456",
+			ReleaseID:       "release-789",
+			DeviceType:      "edge_camera",
+			Version:         "2.1.0",
+			FileURL:         fwURL,
+			Checksum:        fwSum,
+			CosignSignature: fwSig,
 		},
 	}
 
@@ -412,8 +459,9 @@ func TestHandleOTATriggered_DoesNotLogRawPayload(t *testing.T) {
 	buf := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(buf, nil))
 	mockBLL := &mockInternalBLLClient{}
+	fwURL, fwSum, fwSig := setupSignedFirmwareFixture(t)
 
-	secretPayloadStr := `{"secret_ota_token":"SUPER_SECRET_OTA_KEY","payload":{"job_id":"job-1","asset_id":"asset-1","release_id":"rel-1","device_type":"edge_cam","version":"1.0","file_url":"http://url","checksum":"chk"}}`
+	secretPayloadStr := fmt.Sprintf(`{"secret_ota_token":"SUPER_SECRET_OTA_KEY","payload":{"job_id":"job-1","asset_id":"asset-1","release_id":"rel-1","device_type":"edge_cam","version":"1.0","file_url":%q,"checksum":%q,"cosign_signature":%q}}`, fwURL, fwSum, fwSig)
 	msg := message.NewMessage("test-msg-uuid-789", []byte(secretPayloadStr))
 
 	outMsgs, err := worker.HandleOTATriggered(context.Background(), logger, mockBLL, msg)

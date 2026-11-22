@@ -1,0 +1,115 @@
+rules:
+  - id: oci-bff-no-direct-db-or-domain-import
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Invariant Violation: BFF services must NEVER import pgxpool or
+      connect directly to Domain APIs. Delegate exclusively through the BLL tier.
+    paths:
+      include:
+        - cmd/customer-bff/**
+        - cmd/employee-bff/**
+        - internal/app/customerbff/**
+        - internal/app/employeebff/**
+      exclude:
+        - "**/*_test.go"
+    pattern-either:
+      - pattern-regex: '"github\.com/jackc/pgx/v5/pgxpool"'
+      - pattern-regex: '"github\.com/orange-cat-investments/oci/pkg/gen/go/oci/(workforce|facilities|core_invest|ops)[^"]*"'
+      - pattern-regex: '\b(New)?(Workforce|Facilities|CoreInvest|Ops)ServiceClient\b'
+
+  - id: oci-workforce-api-no-cross-domain-import
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Invariant Violation: workforce-api must never import other Domain API
+      protobuf packages, services, or repositories.
+    paths:
+      include:
+        - cmd/workforce-api/**
+      exclude:
+        - "**/*_test.go"
+    pattern-regex: '"github\.com/orange-cat-investments/oci/(pkg/gen/go/(oci/)?(facilities|core_invest|ops)|internal/(repository|service)/(facilities|core_invest|ops))[^"]*"'
+
+  - id: oci-facilities-api-no-cross-domain-import
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Invariant Violation: facilities-api must never import other Domain API
+      protobuf packages, services, or repositories.
+    paths:
+      include:
+        - cmd/facilities-api/**
+      exclude:
+        - "**/*_test.go"
+    pattern-regex: '"github\.com/orange-cat-investments/oci/(pkg/gen/go/(oci/)?(workforce|core_invest|ops)|internal/(repository|service)/(workforce|core_invest|ops))[^"]*"'
+
+  - id: oci-core-invest-api-no-cross-domain-import
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Invariant Violation: core-invest-api must never import other Domain API
+      protobuf packages, services, or repositories.
+    paths:
+      include:
+        - cmd/core-invest-api/**
+      exclude:
+        - "**/*_test.go"
+    pattern-regex: '"github\.com/orange-cat-investments/oci/(pkg/gen/go/(oci/)?(workforce|facilities|ops)|internal/(repository|service)/(workforce|facilities|ops))[^"]*"'
+
+  - id: oci-ops-api-no-cross-domain-import
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Invariant Violation: ops-api must never import other Domain API
+      protobuf packages, services, or repositories.
+    paths:
+      include:
+        - cmd/ops-api/**
+      exclude:
+        - "**/*_test.go"
+    pattern-regex: '"github\.com/orange-cat-investments/oci/(pkg/gen/go/(oci/)?(workforce|facilities|core_invest)|internal/(repository|service)/(workforce|facilities|core_invest))[^"]*"'
+
+  - id: oci-no-vendor-identifiers-outside-drivers
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Rule 6 Violation: Vendor product identifiers (alpaca/plaid) must not
+      leak outside pkg/broker/alpaca/**, pkg/bank/plaid/**, cmd/mock-*/**, or simulation/**.
+      Use domain-centric names such as brokerClient / bankClient.
+    paths:
+      include:
+        - cmd/**
+        - internal/**
+        - pkg/**
+      exclude:
+        - pkg/broker/alpaca/**
+        - pkg/bank/plaid/**
+        - cmd/mock-*/**
+        - simulation/**
+        - "**/*_test.go"
+    patterns:
+      - pattern-either:
+          - pattern-regex: '(?i)"[^"\n]*(alpaca|plaid)[^"\n]*"'
+          - pattern-regex: '(?i)\b(alpaca|plaid)(_?(client|url|key|secret|token|config|cfg|service|svc|handler|repo))\b'
+          - pattern-regex: '(?im)^\s*(var|const)\s+(alpaca|plaid)[A-Za-z0-9_]*\b'
+          - pattern-regex: '(?i)\b(alpaca|plaid)\s*:='
+      - pattern-not-inside: os.Getenv(...)
+      - pattern-not-regex: '(pkg/(broker/alpaca|bank/plaid)|"?(ALPACA|PLAID)_(BASE_URL|DATA_URL|CLIENT_ID|SECRET)"?)'
+
+  - id: oci-no-hardcoded-persona-ids
+    languages: [go]
+    severity: ERROR
+    message: >-
+      AGENTS.md §3 Rule 1 Violation: Hardcoded persona or entity IDs are prohibited in
+      oci-core production applications. Extract IDs dynamically from context or DB.
+    paths:
+      include:
+        - cmd/**
+        - internal/**
+        - pkg/**
+      exclude:
+        - cmd/mock-*/**
+        - "**/mock*.go"
+        - "**/*_test.go"
+    pattern-regex: '\b(emp-feline-|emp-human-|cust-active-|cust-longterm-)[a-z0-9]+\b'

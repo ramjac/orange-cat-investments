@@ -34,6 +34,14 @@ spec:
         - name: customer-bll
           image: localhost:32000/customer-bll:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8085
               name: http
@@ -160,6 +168,14 @@ spec:
         - name: internal-bll
           image: localhost:32000/internal-bll:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8086
               name: http
@@ -262,62 +278,3 @@ spec:
       name: http
   selector:
     app: internal-bll
----
-# NetworkPolicy: Restrict Ingress to BLL services to BFF, Batch, and Worker pods
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: bll-services-network-policy
-  namespace: oci-dev
-spec:
-  podSelector:
-    matchLabels:
-      tier: bll
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              tier: bff
-        - podSelector:
-            matchLabels:
-              tier: batch
-        - podSelector:
-            matchLabels:
-              tier: worker
-        - podSelector:
-            matchLabels:
-              app: oci-worker-dev
-        - podSelector:
-            matchLabels:
-              app: oci-pebble-proxy-dev
-      ports:
-        - protocol: TCP
-          port: 8085
-        - protocol: TCP
-          port: 8086
-    # Simulated edge hardware (external-sim) ingests environmental telemetry via Internal BLL gRPC.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: external-sim
-          podSelector:
-            matchLabels:
-              app: mock-hardware-dev
-      ports:
-        - protocol: TCP
-          port: 8086
-    # Gatus uptime monitor TCP connectivity health probes from monitoring namespace.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring
-          podSelector:
-            matchLabels:
-              app: gatus
-      ports:
-        - protocol: TCP
-          port: 8085
-        - protocol: TCP
-          port: 8086

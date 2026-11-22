@@ -8,10 +8,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/mock-broker ./cmd/mock-broker
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
 COPY --from=builder /app/bin/mock-broker /usr/local/bin/mock-broker
 
-RUN adduser -D -g "" -u 1000 oci
-USER oci
+USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/mock-broker"]

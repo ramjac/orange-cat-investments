@@ -114,16 +114,33 @@ func (s *Server) TriggerOTARollout(ctx context.Context, in *facilitiesv1.CreateO
 		return nil, s.logDomainError("facilities-api", "CreateOTAJob", err)
 	}
 	if s.publisher != nil {
+		var relMeta *facilitiesv1.FirmwareRelease
+		if listResp, listErr := s.facClient.ListFirmwareReleases(ctx, &facilitiesv1.ListFirmwareReleasesRequest{}); listErr == nil && listResp != nil {
+			for _, r := range listResp.Releases {
+				if r != nil && r.ReleaseID == in.ReleaseID {
+					relMeta = r
+					break
+				}
+			}
+		}
 		for _, job := range resp.Jobs {
+			otaPayload := envelope.OTATriggeredPayload{
+				JobID:     job.JobID,
+				AssetID:   job.AssetID,
+				ReleaseID: job.ReleaseID,
+			}
+			if relMeta != nil {
+				otaPayload.DeviceType = relMeta.DeviceType
+				otaPayload.Version = relMeta.Version
+				otaPayload.FileURL = relMeta.FileURL
+				otaPayload.Checksum = relMeta.Checksum
+				otaPayload.CosignSignature = relMeta.CosignSignature
+			}
 			_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(ctx,
 				fmt.Sprintf("evt-ota-%d", time.Now().UnixNano()),
 				"events.facilities.ota_triggered.v1",
 				"",
-				envelope.OTATriggeredPayload{
-					JobID:     job.JobID,
-					AssetID:   job.AssetID,
-					ReleaseID: job.ReleaseID,
-				},
+				otaPayload,
 			))
 		}
 	}

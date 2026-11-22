@@ -32,7 +32,29 @@ jobs:
 
       - name: Set up Python & Dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml python3-pip
+          apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml python3-pip curl ca-certificates
+
+      - name: Install & Run Supply Chain SAST, Vulnerability, Linter & Secret Scanners (7.30)
+        run: |
+          export PATH="$(go env GOPATH)/bin:${PATH}"
+          if ! command -v govulncheck &>/dev/null; then
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+          fi
+          if ! command -v golangci-lint &>/dev/null; then
+            go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          fi
+          if ! command -v gitleaks &>/dev/null; then
+            curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -C /usr/local/bin -xz gitleaks
+          fi
+          if ! command -v semgrep &>/dev/null; then
+            pip3 install --no-cache-dir --break-system-packages semgrep || true
+          fi
+          if command -v semgrep &>/dev/null; then
+            semgrep --config .semgrep.yml --error
+          fi
+          govulncheck ./...
+          golangci-lint run
+          gitleaks detect --no-git --config .gitleaks.toml
 
       - name: Verify CI Contracts
         run: ./scripts/verify-ci-contracts.sh
@@ -51,6 +73,7 @@ jobs:
           with open('scripts/init.sql') as f:
               sql = f.read()
           assert 'facilities.firmware_releases' in sql
+          assert 'cosign_signature' in sql
           assert 'facilities.maintenance_logs' in sql
           assert 'facilities.device_ota_jobs' in sql
           assert 'uq_portfolio_daily_eod_snapshot' in sql
@@ -95,6 +118,15 @@ jobs:
             echo "Installing kubectl CLI..."
             curl -fsSL https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
           fi
+          if ! command -v trivy &>/dev/null; then
+            curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.58.1
+          fi
+          if ! command -v syft &>/dev/null; then
+            curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.18.1
+          fi
+          if ! command -v cosign &>/dev/null; then
+            curl -fsSL https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64 -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+          fi
           if [ -f /data/kubeconfig ]; then
             export KUBECONFIG=/data/kubeconfig
             echo "KUBECONFIG configured via in-cluster runner storage (/data/kubeconfig)."
@@ -124,11 +156,36 @@ jobs:
           docker build -t localhost:32000/mock-bank:dev-latest -t localhost:32000/mock-bank:sha-${COMMIT_SHA} -f cmd/mock-bank/Dockerfile .
           docker build -t localhost:32000/mock-broker:dev-latest -t localhost:32000/mock-broker:sha-${COMMIT_SHA} -f cmd/mock-broker/Dockerfile .
 
-          echo "Pushing images directly to in-cluster container registry (localhost:32000)..."
+          echo "Running Trivy vulnerability gate (7.33) & generating CycloneDX SBOMs (7.34)..."
+          mkdir -p /tmp/sboms
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+            trivy image --exit-code 1 --severity CRITICAL,HIGH localhost:32000/${app}:sha-${COMMIT_SHA}
+            syft localhost:32000/${app}:sha-${COMMIT_SHA} -o cyclonedx-json=/tmp/sboms/${app}.cdx.json
+          done
+
+          echo "Pushing images directly to Harbor container registry (localhost:32000)..."
           for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
             docker push localhost:32000/${app}:dev-latest
             docker push localhost:32000/${app}:sha-${COMMIT_SHA}
           done
+
+          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
+            echo "${COSIGN_PRIVATE_KEY}" > /tmp/cosign.key
+            chmod 600 /tmp/cosign.key
+            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+              DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/${app}:sha-${COMMIT_SHA} 2>/dev/null || echo "localhost:32000/${app}:sha-${COMMIT_SHA}")
+              COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign --yes --key /tmp/cosign.key "${DIGEST_REF}"
+              COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign attest --yes --key /tmp/cosign.key --predicate "/tmp/sboms/${app}.cdx.json" --type cyclonedx "${DIGEST_REF}"
+            done
+            rm -f /tmp/cosign.key
+          fi
+
+          if [ -n "${FORGEJO_PACKAGE_TOKEN:-}" ]; then
+            ./scripts/publish-firmware-package.sh \
+              --forgejo-url http://forgejo-service.oci-internal.svc.cluster.local:3000 \
+              --version "2.2.${COMMIT_SHA}" \
+              --token "${FORGEJO_PACKAGE_TOKEN}"
+          fi
 
       - name: Deploy Manifests to Kubernetes oci-dev Namespace
         run: |
@@ -136,8 +193,9 @@ jobs:
           if [ -f /data/kubeconfig ]; then
             export KUBECONFIG=/data/kubeconfig
           fi
-          echo "Applying development environment manifests to oci-dev for sha-${COMMIT_SHA}..."
+          echo "Applying Gateway API CRDs & development environment manifests to oci-dev for sha-${COMMIT_SHA}..."
           kubectl apply -f k8s/namespaces/namespaces.yaml
+          kubectl apply -f k8s/ha/lan/tls/gateway.yaml || true
           kubectl apply -f k8s/oci-dev/
           
           echo "Setting immutable image tags (sha-${COMMIT_SHA}) on oci-dev deployments..."
@@ -155,6 +213,9 @@ jobs:
           kubectl set image deployment/oci-worker-dev oci-worker-dev=localhost:32000/oci-worker:sha-${COMMIT_SHA} -n oci-dev
           kubectl set image deployment/oci-marketing oci-marketing=localhost:32000/oci-marketing:sha-${COMMIT_SHA} -n oci-dev
 
+          kubectl apply -f k8s/external-sim/network-policies.yaml
+          kubectl apply -f k8s/external-sim/http-routes.yaml
+          kubectl apply -f k8s/external-sim/cosign-pub-configmap.yaml
           kubectl apply -f k8s/external-sim/mock-hardware-dev.yaml
           kubectl set image deployment/mock-hardware-dev mock-hardware-dev=localhost:32000/mock-hardware:sha-${COMMIT_SHA} -n external-sim
           kubectl rollout status deployment/mock-hardware-dev -n external-sim --timeout=120s
@@ -210,6 +271,9 @@ jobs:
           if ! command -v kubectl &>/dev/null; then
             curl -fsSL https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
           fi
+          if ! command -v cosign &>/dev/null; then
+            curl -fsSL https://github.com/sigstore/cosign/releases/download/v2.4.1/cosign-linux-amd64 -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+          fi
           if [ -f /data/kubeconfig ]; then
             export KUBECONFIG=/data/kubeconfig
           fi
@@ -224,6 +288,14 @@ jobs:
             docker push localhost:32000/${app}:prod-stable
             docker push localhost:32000/${app}:latest
           done
+          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
+            echo "${COSIGN_PRIVATE_KEY}" > /tmp/cosign.key
+            chmod 600 /tmp/cosign.key
+            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+              COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign --yes --key /tmp/cosign.key "localhost:32000/${app}:prod-stable"
+            done
+            rm -f /tmp/cosign.key
+          fi
 
       - name: Apply Rolling Update to Production oci-core
         run: |
@@ -231,6 +303,10 @@ jobs:
             export KUBECONFIG=/data/kubeconfig
           fi
           COMMIT_SHA=$(git rev-parse --short HEAD)
+          kubectl apply -f k8s/ha/lan/tls/gateway.yaml || true
+          kubectl apply -f k8s/external-sim/network-policies.yaml
+          kubectl apply -f k8s/external-sim/http-routes.yaml
+          kubectl apply -f k8s/external-sim/cosign-pub-configmap.yaml
           kubectl apply -f k8s/external-sim/mock-hardware.yaml
           kubectl apply -f k8s/external-sim/mock-bank.yaml
           kubectl apply -f k8s/external-sim/mock-broker.yaml

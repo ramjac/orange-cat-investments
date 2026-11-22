@@ -238,7 +238,10 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			http.Error(w, "internal-bll unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		resp, err := b.bllClient.ListFirmwareReleases(r.Context(), &facilitiesv1.ListFirmwareReleasesRequest{})
+		deviceType := r.URL.Query().Get("device_type")
+		resp, err := b.bllClient.ListFirmwareReleases(r.Context(), &facilitiesv1.ListFirmwareReleasesRequest{
+			DeviceType: deviceType,
+		})
 		if err != nil {
 			b.handleGRPCError(w, "ListFirmwareReleases", err, http.StatusInternalServerError)
 			return
@@ -262,28 +265,49 @@ func (b *EmployeeBFF) RegisterFacilitiesRoutes(mux *http.ServeMux) {
 			return
 		}
 		var req struct {
-			ReleaseID      string `json:"release_id"`
-			Version        string `json:"version"`
-			TargetHardware string `json:"target_hardware"`
-			ChecksumSHA256 string `json:"checksum_sha256"`
-			BinaryURL      string `json:"binary_url"`
-			ReleaseNotes   string `json:"release_notes"`
+			ReleaseID       string `json:"release_id"`
+			Version         string `json:"version"`
+			TargetHardware  string `json:"target_hardware"`
+			DeviceType      string `json:"device_type"`
+			ChecksumSHA256  string `json:"checksum_sha256"`
+			Checksum        string `json:"checksum"`
+			BinaryURL       string `json:"binary_url"`
+			FileURL         string `json:"file_url"`
+			CosignSignature string `json:"cosign_signature"`
+			Status          string `json:"status"`
+			ReleaseNotes    string `json:"release_notes"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		deviceType := req.TargetHardware
+		if deviceType == "" {
+			deviceType = req.DeviceType
+		}
+		checksum := req.ChecksumSHA256
+		if checksum == "" {
+			checksum = req.Checksum
+		}
 		fileURL := req.BinaryURL
+		if fileURL == "" {
+			fileURL = req.FileURL
+		}
 		if fileURL == "" {
 			fileURL = req.ReleaseID
 		}
+		relStatus := req.Status
+		if relStatus == "" || relStatus == "available" {
+			relStatus = "published"
+		}
 		resp, err := b.bllClient.CreateFirmwareRelease(r.Context(), &facilitiesv1.CreateFirmwareReleaseRequest{
-			DeviceType: req.TargetHardware,
-			Version:    req.Version,
-			FileURL:    fileURL,
-			Checksum:   req.ChecksumSHA256,
-			Status:     "available",
+			DeviceType:      deviceType,
+			Version:         req.Version,
+			FileURL:         fileURL,
+			Checksum:        checksum,
+			CosignSignature: req.CosignSignature,
+			Status:          relStatus,
 		})
 		if err != nil {
 			b.handleGRPCError(w, "CreateFirmwareRelease", err, http.StatusBadRequest)

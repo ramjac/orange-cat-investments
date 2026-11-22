@@ -66,6 +66,7 @@ func main() {
 	go runCatSpottedGenerator(ctx, pub, bllClient, logger, b)
 	go runEnvironmentalGenerator(ctx, bllClient, logger, b)
 	go runHeartbeatGenerator(ctx, bllClient, logger)
+	go runFirmwareVerificationLoop(ctx, bllClient, logger)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
