@@ -93,7 +93,9 @@ spec:
           image: ghcr.io/kyverno/kyverno:v1.13.4
           imagePullPolicy: IfNotPresent
           args:
-            - --autogenInternals=false
+            - --autoUpdateWebhooks=false
+            - --allowInsecureRegistry=true
+            - --forceFailurePolicyIgnore=true
             - --enablePolicyException=true
             - --backgroundServiceAccountName=system:serviceaccount:kyverno:kyverno-admission-controller
           env:
@@ -109,6 +111,12 @@ spec:
               value: kyverno-admission-controller
             - name: KYVERNO_SVC
               value: kyverno-svc
+            - name: KYVERNO_DEPLOYMENT
+              value: kyverno-admission-controller
+            - name: INIT_CONFIG
+              value: kyverno
+            - name: METRICS_CONFIG
+              value: kyverno-metrics
             - name: TUF_ROOT
               value: /tmp/.sigstore
           ports:

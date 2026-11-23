@@ -27,12 +27,6 @@ data:
         rootdirectory: /storage
       delete:
         enabled: true
-    auth:
-      token:
-        realm: http://registry.oci.local/service/token
-        service: harbor-registry
-        issuer: harbor-token-issuer
-        rootcertbundle: /etc/registry/root.crt
   core.env: |
     CORE_URL=http://harbor-core-service.oci-internal.svc.cluster.local:80
     JOBSERVICE_URL=http://harbor-jobservice-service.oci-internal.svc.cluster.local:8080
@@ -61,6 +55,11 @@ data:
       worker_connections 1024;
     }
     http {
+      client_body_temp_path /tmp/client_body_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
       client_max_body_size 0;
       proxy_read_timeout 900;
       upstream core {

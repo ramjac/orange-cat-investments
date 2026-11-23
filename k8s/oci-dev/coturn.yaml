@@ -32,19 +32,25 @@ spec:
             capabilities:
               drop:
                 - ALL
+          command:
+            - /bin/sh
+            - -c
           args:
-            - -n
-            - --log-file=stdout
-            - --no-cli
-            - --listening-port=3478
-            - --min-port=49152
-            - --max-port=49200
-            - --use-auth-secret
-            - --static-auth-secret=$(TURN_AUTH_SECRET)
-            - --realm=oci.local
-            - --no-multicast-peers
-            - --no-loopback-peers
-            - --turndb=/tmp/turndb
+            - |
+              cp /usr/bin/turnserver /tmp/turnserver
+              exec /tmp/turnserver \
+                -n \
+                --log-file=stdout \
+                --no-cli \
+                --listening-port=3478 \
+                --min-port=49152 \
+                --max-port=49200 \
+                --use-auth-secret \
+                --static-auth-secret="${TURN_AUTH_SECRET:-oci-turn-secret}" \
+                --realm=oci.local \
+                --no-multicast-peers \
+                --pidfile=/tmp/turnserver.pid \
+                --userdb=/tmp/turndb
           env:
             - name: TURN_AUTH_SECRET
               valueFrom:

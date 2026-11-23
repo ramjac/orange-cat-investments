@@ -188,13 +188,16 @@ if kubectl get crd clusterpolicies.kyverno.io &>/dev/null; then
     kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno-policies.yaml"
 else
-    echo "Installing Kyverno CRDs and admission controller..."
-    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno.yaml" || true
+    echo "Kyverno CRDs (clusterpolicies.kyverno.io) not installed; skipping in-cluster Kyverno deployment."
 fi
 
 echo ""
-echo "Deploying Harbor Enterprise Container Registry (:32000 / registry.oci.local)..."
-kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml" || true
+if ! kubectl get svc -n container-registry registry >/dev/null 2>&1; then
+    echo "Deploying Harbor Enterprise Container Registry (:32000 / registry.oci.local)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml" || true
+else
+    echo "MicroK8s container-registry already active on :32000; skipping duplicate Harbor deployment."
+fi
 
 echo ""
 echo "Deploying Kubernetes Gateway API v1 CRDs & Edge Gateway (oci-edge-gateway)..."
