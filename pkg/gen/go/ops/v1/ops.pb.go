@@ -208,6 +208,16 @@ type SendPushNotificationResponse struct {
 	DispatchedAt string `json:"dispatched_at"`
 }
 
+type ScrubCustomerGDPRDataRequest struct {
+	CustomerID string `json:"customer_id"`
+}
+
+type ScrubCustomerGDPRDataResponse struct {
+	CustomerID           string   `json:"customer_id"`
+	ScrubbedRecordsCount int32    `json:"scrubbed_records_count"`
+	AnonymizedTables     []string `json:"anonymized_tables"`
+}
+
 type OpsServiceClient interface {
 	CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *GetTicketRequest) (*GetTicketResponse, error)
@@ -223,6 +233,7 @@ type OpsServiceClient interface {
 	CreateAlert(ctx context.Context, in *CreateAlertRequest) (*CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
+	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
 }
 
 type OpsServiceServer interface {
@@ -240,4 +251,5 @@ type OpsServiceServer interface {
 	CreateAlert(ctx context.Context, in *CreateAlertRequest) (*CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
+	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
 }

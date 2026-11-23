@@ -180,6 +180,8 @@ func writeOpsGRPCError(w http.ResponseWriter, op string, err error, fallbackStat
 		httpStatus = http.StatusForbidden
 	case codes.Unauthenticated:
 		httpStatus = http.StatusUnauthorized
+	case codes.Internal, codes.DataLoss:
+		httpStatus = http.StatusInternalServerError
 	}
 
 	if httpStatus >= 500 || code == codes.Unavailable || code == codes.DeadlineExceeded || code == codes.Internal || code == codes.Unknown {

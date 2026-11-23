@@ -212,6 +212,24 @@ func TestCorazaMiddlewarePreservesSSEStreaming(t *testing.T) {
 	badRec := httptest.NewRecorder()
 	router.ServeHTTP(badRec, badReq)
 	assert.Equal(t, http.StatusForbidden, badRec.Code)
+
+	// Sending Accept: text/event-stream on a non-streaming POST must NOT bypass body inspection.
+	spoofedPost := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", bytes.NewBufferString(`{"symbol":"' OR 1=1--","side":"buy","qty":1}`))
+	spoofedPost.Header.Set("Content-Type", "application/json")
+	spoofedPost.Header.Set("Accept", "text/event-stream")
+	spoofedRec := httptest.NewRecorder()
+	router.ServeHTTP(spoofedRec, spoofedPost)
+	assert.Equal(t, http.StatusForbidden, spoofedRec.Code)
+	assert.Equal(t, "942100", spoofedRec.Header().Get("X-OCI-WAF-Rule"))
+
+	// Oversized POST body with Accept: text/event-stream must still enforce MaxBodyBytes.
+	oversizedBody := bytes.Repeat([]byte("a"), DefaultMaxBodyBytes+16)
+	oversizedPost := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", bytes.NewReader(oversizedBody))
+	oversizedPost.Header.Set("Content-Type", "text/plain")
+	oversizedPost.Header.Set("Accept", "text/event-stream")
+	oversizedRec := httptest.NewRecorder()
+	router.ServeHTTP(oversizedRec, oversizedPost)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, oversizedRec.Code)
 }
 
 func TestCorazaMiddlewareSubMillisecondOverhead(t *testing.T) {

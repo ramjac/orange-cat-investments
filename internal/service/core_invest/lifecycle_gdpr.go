@@ -258,6 +258,10 @@ func (s *coreInvestService) CloseAndLiquidateAccount(ctx context.Context, req Cl
 }
 
 func (s *coreInvestService) ExecuteGDPRErasure(ctx context.Context, customerID, email string) (*reporting.GDPRDeletionCertificate, error) {
+	return s.ExecuteGDPRErasureWithScope(ctx, customerID, email, nil, 0)
+}
+
+func (s *coreInvestService) ExecuteGDPRErasureWithScope(ctx context.Context, customerID, email string, additionalTables []string, additionalRecordsScrubbed int) (*reporting.GDPRDeletionCertificate, error) {
 	if customerID == "" {
 		return nil, errors.New("customer_id is required")
 	}
@@ -265,6 +269,12 @@ func (s *coreInvestService) ExecuteGDPRErasure(ctx context.Context, customerID, 
 	stats, err := s.repo.ExecuteGDPRErasure(ctx, customerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute gdpr erasure in repository: %w", err)
+	}
+
+	tablesScrubbed := mergeUniqueTables(stats.TablesScrubbed, additionalTables)
+	recordsScrubbed := stats.RecordsScrubbedCount
+	if additionalRecordsScrubbed > 0 {
+		recordsScrubbed += additionalRecordsScrubbed
 	}
 
 	now := time.Now().UTC()
@@ -294,9 +304,9 @@ func (s *coreInvestService) ExecuteGDPRErasure(ctx context.Context, customerID, 
 		CustomerEmailHash:    emailHash,
 		LegalBasis:           "GDPR Article 17 - Right to Erasure / Right to be Forgotten",
 		SupervisoryAuthority: "Orange Cat Investments Data Protection Office",
-		TablesScrubbed:       stats.TablesScrubbed,
+		TablesScrubbed:       tablesScrubbed,
 		SessionsPurgedCount:  1,
-		RecordsScrubbedCount: stats.RecordsScrubbedCount,
+		RecordsScrubbedCount: recordsScrubbed,
 		DigitalSignature:     signature,
 		ComplianceStatement:  "Permanent and irrecoverable erasure of personal data executed in accordance with GDPR Article 17.",
 		CreatedAt:            now,
@@ -317,6 +327,30 @@ func (s *coreInvestService) ExecuteGDPRErasure(ctx context.Context, customerID, 
 		DigitalSignature:     signature,
 		ComplianceStatement:  certRecord.ComplianceStatement,
 	}, nil
+}
+
+func mergeUniqueTables(existing, extras []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(extras))
+	out := make([]string, 0, len(existing)+len(extras))
+	for _, t := range existing {
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; !ok {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	for _, t := range extras {
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; !ok {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (s *coreInvestService) GetGDPRErasureCertificate(ctx context.Context, id string) (*core_invest.GDPRCertificateRecord, error) {

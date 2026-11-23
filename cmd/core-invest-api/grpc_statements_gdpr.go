@@ -10,7 +10,7 @@ import (
 )
 
 func (s *CoreInvestGRPCServer) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
-	cert, err := s.svc.ExecuteGDPRErasure(ctx, in.CustomerID, in.Email)
+	cert, err := s.svc.ExecuteGDPRErasureWithScope(ctx, in.CustomerID, in.Email, in.AdditionalAnonymizedTables, int(in.AdditionalRecordsScrubbedCount))
 	if err != nil {
 		return nil, err
 	}

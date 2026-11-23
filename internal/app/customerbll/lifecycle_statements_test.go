@@ -124,12 +124,12 @@ type mockGDPRCoreInvestClient struct {
 
 type mockGDPROpsClient struct {
 	opsv1.OpsServiceClient
-	closeTicketFunc func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error)
+	scrubGDPRFunc func(ctx context.Context, in *opsv1.ScrubCustomerGDPRDataRequest) (*opsv1.ScrubCustomerGDPRDataResponse, error)
 }
 
-func (m *mockGDPROpsClient) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
-	if m.closeTicketFunc != nil {
-		return m.closeTicketFunc(ctx, in)
+func (m *mockGDPROpsClient) ScrubCustomerGDPRData(ctx context.Context, in *opsv1.ScrubCustomerGDPRDataRequest) (*opsv1.ScrubCustomerGDPRDataResponse, error) {
+	if m.scrubGDPRFunc != nil {
+		return m.scrubGDPRFunc(ctx, in)
 	}
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
@@ -298,24 +298,30 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		assert.Contains(t, st.Message(), "received nil response")
 	})
 
-	t.Run("integrated mode orchestrates opsClient GDPR erasure and appends ops tables", func(t *testing.T) {
+	t.Run("integrated mode orchestrates opsClient GDPR erasure and passes ops scope to core-invest", func(t *testing.T) {
 		opsCalled := false
 		mockOps := &mockGDPROpsClient{
-			closeTicketFunc: func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+			scrubGDPRFunc: func(ctx context.Context, in *opsv1.ScrubCustomerGDPRDataRequest) (*opsv1.ScrubCustomerGDPRDataResponse, error) {
 				opsCalled = true
-				assert.Equal(t, "cust-777", in.TicketID)
-				assert.Equal(t, "GDPR_ARTICLE_17_ERASURE", in.ResolutionNotes)
-				return &opsv1.CloseTicketResponse{Ticket: &opsv1.ITTicket{TicketID: in.TicketID, State: "gdpr_erased"}}, nil
+				assert.Equal(t, "cust-777", in.CustomerID)
+				return &opsv1.ScrubCustomerGDPRDataResponse{
+					CustomerID:           in.CustomerID,
+					ScrubbedRecordsCount: 3,
+					AnonymizedTables:     []string{"ops.it_tickets", "ops.ticket_comments"},
+				}, nil
 			},
 		}
 		mockCI := &mockGDPRCoreInvestClient{
 			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+				assert.Equal(t, []string{"ops.it_tickets", "ops.ticket_comments"}, in.AdditionalAnonymizedTables)
+				assert.Equal(t, int32(3), in.AdditionalRecordsScrubbedCount)
 				return &coreinvestv1.ExecuteGDPRErasureResponse{
 					Certificate: &coreinvestv1.GDPRErasureCertificate{
-						CertificateID:    "cert-ci-ops-001",
-						CustomerID:       in.CustomerID,
-						AnonymizedTables: []string{"core_invest.investment_portfolios"},
-						Status:           "erased",
+						CertificateID:        "cert-ci-ops-001",
+						CustomerID:           in.CustomerID,
+						AnonymizedTables:     append([]string{"core_invest.investment_portfolios"}, in.AdditionalAnonymizedTables...),
+						RecordsScrubbedCount: 2 + in.AdditionalRecordsScrubbedCount,
+						Status:               "erased",
 					},
 				}, nil
 			},
@@ -332,12 +338,13 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, opsCalled)
 		assert.Equal(t, []string{"core_invest.investment_portfolios", "ops.it_tickets", "ops.ticket_comments"}, resp.Certificate.AnonymizedTables)
+		assert.Equal(t, int32(5), resp.Certificate.RecordsScrubbedCount)
 	})
 
 	t.Run("opsClient GDPR erasure failure aborts erasure before reporting complete", func(t *testing.T) {
 		ciCalled := false
 		mockOps := &mockGDPROpsClient{
-			closeTicketFunc: func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+			scrubGDPRFunc: func(ctx context.Context, in *opsv1.ScrubCustomerGDPRDataRequest) (*opsv1.ScrubCustomerGDPRDataResponse, error) {
 				return nil, status.Error(codes.Unavailable, "ops-api down")
 			},
 		}

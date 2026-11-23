@@ -83,7 +83,7 @@ func (s *coreInvestService) StartBacktestRun(ctx context.Context, strategyID str
 			ctx,
 			eventID,
 			envelope.TopicBacktestRun,
-			createdRun.BacktestID,
+			"",
 			map[string]any{
 				"backtest_id": createdRun.BacktestID,
 				"strategy_id": createdRun.StrategyID,

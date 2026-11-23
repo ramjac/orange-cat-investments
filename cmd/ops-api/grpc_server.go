@@ -8,6 +8,8 @@ import (
 	"github.com/orange-cat-investments/oci/internal/repository/ops"
 	ops_svc "github.com/orange-cat-investments/oci/internal/service/ops"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type OpsGRPCServer struct {
@@ -179,19 +181,6 @@ func (s *OpsGRPCServer) AcknowledgeTicket(ctx context.Context, in *opsv1.Acknowl
 }
 
 func (s *OpsGRPCServer) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
-	if in.ResolutionNotes == "GDPR_ARTICLE_17_ERASURE" {
-		count, err := s.svc.ScrubCustomerGDPRData(ctx, in.TicketID)
-		if err != nil {
-			return nil, err
-		}
-		return &opsv1.CloseTicketResponse{
-			Ticket: &opsv1.ITTicket{
-				TicketID:        in.TicketID,
-				State:           "gdpr_erased",
-				ResolutionNotes: fmt.Sprintf("scrubbed_records=%d", count),
-			},
-		}, nil
-	}
 	ticket, err := s.svc.UpdateITTicket(ctx, in.TicketID, &ops_svc.UpdateTicketRequest{
 		State:           "closed",
 		ResolutionNotes: in.ResolutionNotes,
@@ -200,6 +189,21 @@ func (s *OpsGRPCServer) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRe
 		return nil, err
 	}
 	return &opsv1.CloseTicketResponse{Ticket: toProtoTicket(ticket)}, nil
+}
+
+func (s *OpsGRPCServer) ScrubCustomerGDPRData(ctx context.Context, in *opsv1.ScrubCustomerGDPRDataRequest) (*opsv1.ScrubCustomerGDPRDataResponse, error) {
+	if in == nil || in.CustomerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
+	}
+	count, err := s.svc.ScrubCustomerGDPRData(ctx, in.CustomerID)
+	if err != nil {
+		return nil, err
+	}
+	return &opsv1.ScrubCustomerGDPRDataResponse{
+		CustomerID:           in.CustomerID,
+		ScrubbedRecordsCount: int32(count),
+		AnonymizedTables:     []string{"ops.it_tickets", "ops.ticket_comments"},
+	}, nil
 }
 
 func (s *OpsGRPCServer) CreateCustomerTicket(ctx context.Context, in *opsv1.CreateCustomerTicketRequest) (*opsv1.CreateCustomerTicketResponse, error) {

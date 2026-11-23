@@ -70,6 +70,7 @@ type CustomerLifecycleService interface {
 	RegisterCustomer(ctx context.Context, req CustomerRegistrationRequest) (*CustomerRegistrationResult, error)
 	CloseAndLiquidateAccount(ctx context.Context, req CloseAccountRequest) (*LiquidationResult, error)
 	ExecuteGDPRErasure(ctx context.Context, customerID, email string) (*reporting.GDPRDeletionCertificate, error)
+	ExecuteGDPRErasureWithScope(ctx context.Context, customerID, email string, additionalTables []string, additionalRecordsScrubbed int) (*reporting.GDPRDeletionCertificate, error)
 	GetGDPRErasureCertificate(ctx context.Context, id string) (*core_invest.GDPRCertificateRecord, error)
 }
 

@@ -329,10 +329,7 @@ func (e *Engine) InspectRequest(r *http.Request) (*Violation, error) {
 }
 
 func (e *Engine) isSSEStream(r *http.Request) bool {
-	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
-		return true
-	}
-	return slices.Contains(e.ssePaths, r.URL.Path)
+	return r.Method == http.MethodGet && slices.Contains(e.ssePaths, r.URL.Path)
 }
 
 func collectURICandidates(r *http.Request) []string {

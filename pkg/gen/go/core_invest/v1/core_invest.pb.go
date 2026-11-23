@@ -143,8 +143,10 @@ type GDPRErasureCertificate struct {
 }
 
 type ExecuteGDPRErasureRequest struct {
-	CustomerID string `json:"customer_id"`
-	Email      string `json:"email"`
+	CustomerID                     string   `json:"customer_id"`
+	Email                          string   `json:"email"`
+	AdditionalAnonymizedTables     []string `json:"additional_anonymized_tables,omitempty"`
+	AdditionalRecordsScrubbedCount int32    `json:"additional_records_scrubbed_count,omitempty"`
 }
 
 type ExecuteGDPRErasureResponse struct {
