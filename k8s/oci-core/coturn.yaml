@@ -37,6 +37,10 @@ spec:
             - -c
           args:
             - |
+              if [ -z "${TURN_AUTH_SECRET:-}" ]; then
+                echo "FATAL: TURN_AUTH_SECRET must be non-empty" >&2
+                exit 1
+              fi
               cp /usr/bin/turnserver /tmp/turnserver
               exec /tmp/turnserver \
                 -n \
@@ -45,8 +49,9 @@ spec:
                 --listening-port=3478 \
                 --min-port=49152 \
                 --max-port=49200 \
+                --external-ip="${EXTERNAL_IP}" \
                 --use-auth-secret \
-                --static-auth-secret="${TURN_AUTH_SECRET:-oci-turn-secret}" \
+                --static-auth-secret="${TURN_AUTH_SECRET}" \
                 --realm=oci.local \
                 --no-multicast-peers \
                 --pidfile=/tmp/turnserver.pid \
@@ -57,7 +62,11 @@ spec:
                 secretKeyRef:
                   name: oci-core-secrets
                   key: TURN_AUTH_SECRET
-                  optional: true
+                  optional: false
+            - name: EXTERNAL_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
           ports:
             - name: stun-turn-udp
               containerPort: 3478
@@ -97,7 +106,11 @@ metadata:
   labels:
     app: coturn
     tier: edge
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "turn.oci.local"
 spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
   selector:
     app: coturn
   ports:
@@ -109,3 +122,199 @@ spec:
       port: 3478
       targetPort: 3478
       protocol: TCP
+    - name: relay-udp-49152
+      port: 49152
+      targetPort: 49152
+      protocol: UDP
+    - name: relay-udp-49153
+      port: 49153
+      targetPort: 49153
+      protocol: UDP
+    - name: relay-udp-49154
+      port: 49154
+      targetPort: 49154
+      protocol: UDP
+    - name: relay-udp-49155
+      port: 49155
+      targetPort: 49155
+      protocol: UDP
+    - name: relay-udp-49156
+      port: 49156
+      targetPort: 49156
+      protocol: UDP
+    - name: relay-udp-49157
+      port: 49157
+      targetPort: 49157
+      protocol: UDP
+    - name: relay-udp-49158
+      port: 49158
+      targetPort: 49158
+      protocol: UDP
+    - name: relay-udp-49159
+      port: 49159
+      targetPort: 49159
+      protocol: UDP
+    - name: relay-udp-49160
+      port: 49160
+      targetPort: 49160
+      protocol: UDP
+    - name: relay-udp-49161
+      port: 49161
+      targetPort: 49161
+      protocol: UDP
+    - name: relay-udp-49162
+      port: 49162
+      targetPort: 49162
+      protocol: UDP
+    - name: relay-udp-49163
+      port: 49163
+      targetPort: 49163
+      protocol: UDP
+    - name: relay-udp-49164
+      port: 49164
+      targetPort: 49164
+      protocol: UDP
+    - name: relay-udp-49165
+      port: 49165
+      targetPort: 49165
+      protocol: UDP
+    - name: relay-udp-49166
+      port: 49166
+      targetPort: 49166
+      protocol: UDP
+    - name: relay-udp-49167
+      port: 49167
+      targetPort: 49167
+      protocol: UDP
+    - name: relay-udp-49168
+      port: 49168
+      targetPort: 49168
+      protocol: UDP
+    - name: relay-udp-49169
+      port: 49169
+      targetPort: 49169
+      protocol: UDP
+    - name: relay-udp-49170
+      port: 49170
+      targetPort: 49170
+      protocol: UDP
+    - name: relay-udp-49171
+      port: 49171
+      targetPort: 49171
+      protocol: UDP
+    - name: relay-udp-49172
+      port: 49172
+      targetPort: 49172
+      protocol: UDP
+    - name: relay-udp-49173
+      port: 49173
+      targetPort: 49173
+      protocol: UDP
+    - name: relay-udp-49174
+      port: 49174
+      targetPort: 49174
+      protocol: UDP
+    - name: relay-udp-49175
+      port: 49175
+      targetPort: 49175
+      protocol: UDP
+    - name: relay-udp-49176
+      port: 49176
+      targetPort: 49176
+      protocol: UDP
+    - name: relay-udp-49177
+      port: 49177
+      targetPort: 49177
+      protocol: UDP
+    - name: relay-udp-49178
+      port: 49178
+      targetPort: 49178
+      protocol: UDP
+    - name: relay-udp-49179
+      port: 49179
+      targetPort: 49179
+      protocol: UDP
+    - name: relay-udp-49180
+      port: 49180
+      targetPort: 49180
+      protocol: UDP
+    - name: relay-udp-49181
+      port: 49181
+      targetPort: 49181
+      protocol: UDP
+    - name: relay-udp-49182
+      port: 49182
+      targetPort: 49182
+      protocol: UDP
+    - name: relay-udp-49183
+      port: 49183
+      targetPort: 49183
+      protocol: UDP
+    - name: relay-udp-49184
+      port: 49184
+      targetPort: 49184
+      protocol: UDP
+    - name: relay-udp-49185
+      port: 49185
+      targetPort: 49185
+      protocol: UDP
+    - name: relay-udp-49186
+      port: 49186
+      targetPort: 49186
+      protocol: UDP
+    - name: relay-udp-49187
+      port: 49187
+      targetPort: 49187
+      protocol: UDP
+    - name: relay-udp-49188
+      port: 49188
+      targetPort: 49188
+      protocol: UDP
+    - name: relay-udp-49189
+      port: 49189
+      targetPort: 49189
+      protocol: UDP
+    - name: relay-udp-49190
+      port: 49190
+      targetPort: 49190
+      protocol: UDP
+    - name: relay-udp-49191
+      port: 49191
+      targetPort: 49191
+      protocol: UDP
+    - name: relay-udp-49192
+      port: 49192
+      targetPort: 49192
+      protocol: UDP
+    - name: relay-udp-49193
+      port: 49193
+      targetPort: 49193
+      protocol: UDP
+    - name: relay-udp-49194
+      port: 49194
+      targetPort: 49194
+      protocol: UDP
+    - name: relay-udp-49195
+      port: 49195
+      targetPort: 49195
+      protocol: UDP
+    - name: relay-udp-49196
+      port: 49196
+      targetPort: 49196
+      protocol: UDP
+    - name: relay-udp-49197
+      port: 49197
+      targetPort: 49197
+      protocol: UDP
+    - name: relay-udp-49198
+      port: 49198
+      targetPort: 49198
+      protocol: UDP
+    - name: relay-udp-49199
+      port: 49199
+      targetPort: 49199
+      protocol: UDP
+    - name: relay-udp-49200
+      port: 49200
+      targetPort: 49200
+      protocol: UDP

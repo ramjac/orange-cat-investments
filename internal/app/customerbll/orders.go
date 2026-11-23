@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -83,9 +82,6 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 			})
 			if err == nil && res != nil && res.Order != nil {
 				telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
-				if strings.EqualFold(res.Order.Status, "filled") {
-					telemetry.RecordBracketOrderFill(ctx)
-				}
 				return &customerbllv1.ValidateAndExecuteOrderResponse{
 					OrderID:     res.Order.OrderID,
 					CustomerID:  in.CustomerID,
@@ -138,9 +134,6 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	telemetry.RecordOrderExecutionLatency(ctx, float64(time.Since(execStart).Microseconds())/1000.0)
-	if strings.EqualFold(orderStatus, "filled") {
-		telemetry.RecordBracketOrderFill(ctx)
-	}
 
 	orderID := brokerResp.ID
 	if orderID == "" {

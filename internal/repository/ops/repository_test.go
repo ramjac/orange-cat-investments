@@ -165,6 +165,17 @@ func TestOpsPgxRepository(t *testing.T) {
 		custCommentsAfter, err := repo.ListTicketComments(ctx, ticketID, false)
 		assert.NoError(t, err)
 		assert.Len(t, custCommentsAfter, 2)
+
+		// Scrub customer GDPR data across ops tickets & comments
+		scrubbedCount, err := repo.ScrubCustomerGDPRData(ctx, "cust-longterm-arthur")
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, scrubbedCount, 2)
+
+		scrubbedTicket, err := repo.GetITTicketByID(ctx, ticketID)
+		assert.NoError(t, err)
+		assert.Equal(t, "ANONYMIZED_GDPR_USER", scrubbedTicket.AuthorUsername)
+		assert.Nil(t, scrubbedTicket.CustomerID)
+		assert.Equal(t, "[Content redacted pursuant to GDPR Article 17 erasure request]", *scrubbedTicket.Body)
 	})
 }
 

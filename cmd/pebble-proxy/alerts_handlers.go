@@ -37,6 +37,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alerts := res.Alerts
+	activeTicketIDs := make(map[string]struct{}, len(alerts))
 	payloads := make([]*pebble.PebbleAlertPayload, 0, len(alerts))
 	for _, a := range alerts {
 		priority := "HIGH"
@@ -52,6 +53,9 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 			if t, err := time.Parse(time.RFC3339, a.CreatedAt); err == nil {
 				createdAt = t
 			}
+		}
+		if a.TicketID != "" {
+			activeTicketIDs[a.TicketID] = struct{}{}
 		}
 		h.recordAlertCreatedAt(a.TicketID, createdAt)
 
@@ -75,6 +79,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 			AppMessageDict: dict,
 		})
 	}
+	h.pruneInactiveAlerts(activeTicketIDs)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

@@ -22,16 +22,12 @@ regex = '''(?i)(ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|hvs\.[A-Za-z0-9_-]
 tags = ["token", "pat"]
 
 [allowlist]
-description = "Allow test fixtures, gitignored local server secrets, and documented dev seed data"
+description = "Allow test fixtures, mock external-sim manifests, and documented dev seed data"
 paths = [
   '''.*_test\.go$''',
-  '''.*thinker-kube\.config$''',
-  '''.*starter-admin-credentials.*''',
-  '''.*k8s/ha/lan/tls/.*\.key$''',
   '''.*node_modules/.*''',
   '''.*scripts/seed-dev\.sql$''',
   '''.*k8s/external-sim/.*\.yaml$''',
-  '''.*k8s/oci-dev/oci-secrets\.yaml$''',
   '''.*k8s/security/fixtures/invalid-manifests\.yaml$''',
 ]
 regexes = [

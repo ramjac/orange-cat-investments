@@ -95,6 +95,7 @@ spec:
           - harbor-trivy
           - harbor-proxy
           - harbor-bootstrap
+          - cots-maintenance-responder
   policyTypes:
     - Ingress
     - Egress

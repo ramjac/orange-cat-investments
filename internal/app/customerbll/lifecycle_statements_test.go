@@ -12,6 +12,7 @@ import (
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -119,6 +120,18 @@ func TestListStatements_NilRequest(t *testing.T) {
 type mockGDPRCoreInvestClient struct {
 	coreinvestv1.CoreInvestServiceClient
 	executeGDPRErasureFunc func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error)
+}
+
+type mockGDPROpsClient struct {
+	opsv1.OpsServiceClient
+	closeTicketFunc func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error)
+}
+
+func (m *mockGDPROpsClient) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+	if m.closeTicketFunc != nil {
+		return m.closeTicketFunc(ctx, in)
+	}
+	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
 func (m *mockGDPRCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
@@ -283,6 +296,71 @@ func TestExecuteGDPRErasure(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, codes.Internal, st.Code())
 		assert.Contains(t, st.Message(), "received nil response")
+	})
+
+	t.Run("integrated mode orchestrates opsClient GDPR erasure and appends ops tables", func(t *testing.T) {
+		opsCalled := false
+		mockOps := &mockGDPROpsClient{
+			closeTicketFunc: func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+				opsCalled = true
+				assert.Equal(t, "cust-777", in.TicketID)
+				assert.Equal(t, "GDPR_ARTICLE_17_ERASURE", in.ResolutionNotes)
+				return &opsv1.CloseTicketResponse{Ticket: &opsv1.ITTicket{TicketID: in.TicketID, State: "gdpr_erased"}}, nil
+			},
+		}
+		mockCI := &mockGDPRCoreInvestClient{
+			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+				return &coreinvestv1.ExecuteGDPRErasureResponse{
+					Certificate: &coreinvestv1.GDPRErasureCertificate{
+						CertificateID:    "cert-ci-ops-001",
+						CustomerID:       in.CustomerID,
+						AnonymizedTables: []string{"core_invest.investment_portfolios"},
+						Status:           "erased",
+					},
+				}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockCI)
+		s.SetOpsClient(mockOps)
+
+		resp, err := s.ExecuteGDPRErasure(context.Background(), &customerbllv1.ExecuteGDPRErasureRequest{
+			CustomerID: "cust-777",
+			Email:      "alice@example.com",
+		})
+		require.NoError(t, err)
+		assert.True(t, opsCalled)
+		assert.Equal(t, []string{"core_invest.investment_portfolios", "ops.it_tickets", "ops.ticket_comments"}, resp.Certificate.AnonymizedTables)
+	})
+
+	t.Run("opsClient GDPR erasure failure aborts erasure before reporting complete", func(t *testing.T) {
+		ciCalled := false
+		mockOps := &mockGDPROpsClient{
+			closeTicketFunc: func(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+				return nil, status.Error(codes.Unavailable, "ops-api down")
+			},
+		}
+		mockCI := &mockGDPRCoreInvestClient{
+			executeGDPRErasureFunc: func(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
+				ciCalled = true
+				return &coreinvestv1.ExecuteGDPRErasureResponse{}, nil
+			},
+		}
+
+		s := NewServer(Config{})
+		s.SetCoreInvestClient(mockCI)
+		s.SetOpsClient(mockOps)
+
+		resp, err := s.ExecuteGDPRErasure(context.Background(), &customerbllv1.ExecuteGDPRErasureRequest{
+			CustomerID: "cust-777",
+			Email:      "alice@example.com",
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.False(t, ciCalled)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "gdpr ops erasure failed")
 	})
 }
 

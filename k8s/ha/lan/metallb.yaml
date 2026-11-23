@@ -7,6 +7,7 @@ spec:
   addresses:
     # Dedicated static LAN IP addresses for cluster ingress / LoadBalancer services.
     # Note: 192.168.1.250 is reserved exclusively for the kube-vip control-plane VIP.
+    - 192.168.1.240-192.168.1.245
     - 192.168.1.251-192.168.1.254
   autoAssign: true
 ---

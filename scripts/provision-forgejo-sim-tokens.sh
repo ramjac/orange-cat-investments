@@ -28,7 +28,6 @@ NS="oci-internal"
 DEPLOY="deployment/forgejo"
 TOKEN_PREFIX="oci-sim"
 TOKEN_NAME="${TOKEN_PREFIX}-$(date +%Y%m%d%H%M%S)"
-PERSONA_PASSWORD="password123"
 PERSONAS=("emp-human-elise" "emp-human-marcus" "emp-human-bob")
 
 command -v kubectl >/dev/null 2>&1 || {
@@ -48,20 +47,21 @@ declare -A GENERATED=()
 declare -A SHA1S=()
 
 for persona in "${PERSONAS[@]}"; do
+    persona_password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
     if ! kubectl exec -n "${NS}" "${DEPLOY}" -- forgejo admin user list 2>/dev/null | awk '{print $2}' | grep -qx "${persona}"; then
         email_part="${persona#emp-human-}"
         email="${email_part}@oci.local"
         echo "Creating Forgejo user '${persona}' (${email})..."
         kubectl exec -n "${NS}" "${DEPLOY}" -- forgejo admin user create \
             --username "${persona}" \
-            --password "${PERSONA_PASSWORD}" \
+            --password "${persona_password}" \
             --email "${email}" \
             --must-change-password=false >/dev/null
     else
-        echo "Forgejo user '${persona}' exists; syncing password..."
+        echo "Forgejo user '${persona}' exists; rotating password..."
+        kubectl exec -n "${NS}" "${DEPLOY}" -- forgejo admin user change-password \
+            -u "${persona}" -p "${persona_password}" --must-change-password=false >/dev/null
     fi
-    kubectl exec -n "${NS}" "${DEPLOY}" -- forgejo admin user change-password \
-        -u "${persona}" -p "${PERSONA_PASSWORD}" --must-change-password=false >/dev/null
 
     raw_token="$(kubectl exec -n "${NS}" "${DEPLOY}" -- forgejo admin user generate-access-token \
         -u "${persona}" -t "${TOKEN_NAME}" --scopes all --raw | tr -d '\r\n')"
@@ -103,20 +103,36 @@ for persona in "${PERSONAS[@]}"; do
     done < <(echo "${listed}" | python3 -c "import json,sys; [print(str(t['id']) + '\t' + t['name'] + '\t' + t.get('sha1','')) for t in json.load(sys.stdin)]" 2>/dev/null || true)
 done
 
-# Ensure developer/facilities personas have collaborator access on the target repositories
-# and package write access in the 'oci' organization.
+# Ensure developer/facilities personas have least-privilege write collaborator access
+# on target repositories and package-publishing permissions via a dedicated team
+# (never org-wide Owners admin privileges).
 ADMIN_PWD=$(kubectl get secret starter-admin-credentials -n "${NS}" -o jsonpath='{.data.ADMIN_PASSWORD}' 2>/dev/null | base64 -d 2>/dev/null || true)
 if [[ -n "${ADMIN_PWD}" ]]; then
-    OWNERS_TEAM_ID=$(curl -sf -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/orgs/oci/teams" 2>/dev/null | \
-        python3 -c "import json,sys; teams=json.load(sys.stdin); print(next((str(t['id']) for t in teams if t.get('name')=='Owners'), ''))" 2>/dev/null || true)
+    TEAMS_JSON=$(curl -sf -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/orgs/oci/teams" 2>/dev/null || echo "[]")
+    OWNERS_TEAM_ID=$(echo "${TEAMS_JSON}" | python3 -c "import json,sys; teams=json.load(sys.stdin); print(next((str(t['id']) for t in teams if t.get('name')=='Owners'), ''))" 2>/dev/null || true)
+    PKG_TEAM_ID=$(echo "${TEAMS_JSON}" | python3 -c "import json,sys; teams=json.load(sys.stdin); print(next((str(t['id']) for t in teams if t.get('name')=='package-publishers'), ''))" 2>/dev/null || true)
+    if [[ -z "${PKG_TEAM_ID}" ]]; then
+        CREATED_TEAM_JSON=$(curl -sf -X POST -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/orgs/oci/teams" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"package-publishers","description":"Least-privilege package and repo write access for CI/simulator personas","permission":"write","can_create_org_repo":false,"includes_all_repositories":false,"units_map":{"repo.code":"write","repo.issues":"write","repo.pulls":"write","repo.packages":"write"}}' 2>/dev/null || true)
+        PKG_TEAM_ID=$(echo "${CREATED_TEAM_JSON}" | python3 -c "import json,sys; print(str(json.load(sys.stdin).get('id','')))" 2>/dev/null || true)
+    fi
+    if [[ -n "${PKG_TEAM_ID}" ]]; then
+        for repo in monorepo orange-cat-investments; do
+            curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/teams/${PKG_TEAM_ID}/repos/oci/${repo}" >/dev/null 2>&1 || true
+        done
+    fi
     for persona in "${PERSONAS[@]}"; do
         for repo in monorepo orange-cat-investments; do
             curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/repos/oci/${repo}/collaborators/${persona}" \
                 -H "Content-Type: application/json" \
-                -d '{"permission": "admin"}' >/dev/null 2>&1 || true
+                -d '{"permission": "write"}' >/dev/null 2>&1 || true
         done
+        if [[ -n "${PKG_TEAM_ID}" ]]; then
+            curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/teams/${PKG_TEAM_ID}/members/${persona}" >/dev/null 2>&1 || true
+        fi
         if [[ -n "${OWNERS_TEAM_ID}" ]]; then
-            curl -sf -X PUT -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/teams/${OWNERS_TEAM_ID}/members/${persona}" >/dev/null 2>&1 || true
+            curl -sf -X DELETE -u "oci-admin:${ADMIN_PWD}" "http://localhost:${PF_PORT}/api/v1/teams/${OWNERS_TEAM_ID}/members/${persona}" >/dev/null 2>&1 || true
         fi
     done
 fi

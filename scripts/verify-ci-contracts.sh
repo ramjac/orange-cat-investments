@@ -398,10 +398,13 @@ if command -v golangci-lint &>/dev/null; then
   fi
 fi
 if command -v gitleaks &>/dev/null; then
-  if ! gitleaks detect --no-git --config .gitleaks.toml; then
+  gitleaks_tmp="$(mktemp -d)"
+  git ls-files -z | xargs -0 tar -cf - | tar -xf - -C "$gitleaks_tmp"
+  if ! gitleaks detect --no-git --source "$gitleaks_tmp" --config .gitleaks.toml; then
     echo "ERROR: gitleaks detect reported secrets"
     failed=1
   fi
+  rm -rf "$gitleaks_tmp"
 fi
 if ! python3 - <<'PY'
 import fnmatch, os, re, sys, yaml

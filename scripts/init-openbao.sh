@@ -89,22 +89,55 @@ if [[ "${DB_ONLY}" != true ]]; then
     bao_authed sh -c 'BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="'"${ROOT_TOKEN}"'" bao write auth/kubernetes/config \
         kubernetes_host="https://kubernetes.default.svc"' >/dev/null
 
-    bao_authed bao policy write eso-reader - <<'HCL' >/dev/null
-path "secret/data/oci-*" {
+    bao_authed bao policy write eso-core-reader - <<'HCL' >/dev/null
+path "secret/data/oci-core/*" {
   capabilities = ["read"]
 }
-path "secret/metadata/oci-*" {
+path "secret/metadata/oci-core/*" {
   capabilities = ["read", "list"]
 }
-path "database/creds/*" {
+path "database/creds/*-core" {
   capabilities = ["read"]
 }
 HCL
 
-    bao_authed bao write auth/kubernetes/role/eso-reader \
-        bound_service_account_names="*" \
-        bound_service_account_namespaces="oci-core,oci-dev,oci-internal,external-secrets" \
-        policies="eso-reader" \
+    bao_authed bao policy write eso-dev-reader - <<'HCL' >/dev/null
+path "secret/data/oci-dev/*" {
+  capabilities = ["read"]
+}
+path "secret/metadata/oci-dev/*" {
+  capabilities = ["read", "list"]
+}
+path "database/creds/*-dev" {
+  capabilities = ["read"]
+}
+HCL
+
+    bao_authed bao policy write eso-internal-reader - <<'HCL' >/dev/null
+path "secret/data/oci-internal/*" {
+  capabilities = ["read"]
+}
+path "secret/metadata/oci-internal/*" {
+  capabilities = ["read", "list"]
+}
+HCL
+
+    bao_authed bao write auth/kubernetes/role/eso-core-reader \
+        bound_service_account_names="eso-store-sa,workforce-api,facilities-api,core-invest-api,ops-api" \
+        bound_service_account_namespaces="oci-core" \
+        policies="eso-core-reader" \
+        ttl=1h >/dev/null
+
+    bao_authed bao write auth/kubernetes/role/eso-dev-reader \
+        bound_service_account_names="eso-store-sa,workforce-api,facilities-api,core-invest-api,ops-api" \
+        bound_service_account_namespaces="oci-dev" \
+        policies="eso-dev-reader" \
+        ttl=1h >/dev/null
+
+    bao_authed bao write auth/kubernetes/role/eso-internal-reader \
+        bound_service_account_names="eso-store-sa" \
+        bound_service_account_namespaces="oci-internal" \
+        policies="eso-internal-reader" \
         ttl=1h >/dev/null
 
     echo "Enabling and seeding OpenBao KV-v2 engine (secret/)..."

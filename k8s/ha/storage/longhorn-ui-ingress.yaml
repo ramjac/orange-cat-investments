@@ -12,6 +12,7 @@ spec:
       kind: Gateway
       name: oci-edge-gateway
       namespace: oci-core
+      sectionName: https-core
   hostnames:
     - longhorn.oci.local
   rules:
@@ -24,3 +25,56 @@ spec:
       backendRefs:
         - name: longhorn-frontend
           port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: longhorn-ui-https-redirect
+  namespace: longhorn-system
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+      sectionName: http
+  hostnames:
+    - longhorn.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: longhorn-ui-private-cidr-policy
+  namespace: longhorn-system
+  labels:
+    owner: emp-human-frank
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: longhorn-ui-route
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: allow-private-rfc1918-lan
+        action: Allow
+        principal:
+          clientCIDRs:
+            - 192.168.0.0/16
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 127.0.0.1/32

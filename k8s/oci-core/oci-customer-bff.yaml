@@ -68,7 +68,7 @@ spec:
                 secretKeyRef:
                   name: oci-core-secrets
                   key: TURN_AUTH_SECRET
-                  optional: true
+                  optional: false
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs

@@ -62,13 +62,13 @@ spec:
             - name: CA_CERT_FILE
               value: "/etc/tls/ca/ca.crt"
             - name: TURN_SERVER_HOST
-              value: "turn.oci.local:3478"
+              value: "dev.turn.oci.local:3478"
             - name: TURN_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
                   name: oci-dev-secrets
                   key: TURN_AUTH_SECRET
-                  optional: true
+                  optional: false
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/tls/certs

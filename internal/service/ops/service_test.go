@@ -81,6 +81,10 @@ func (m *mockOpsRepo) CloseITTicket(ctx context.Context, ticketID string) (*ops.
 	}, nil
 }
 
+func (m *mockOpsRepo) ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error) {
+	return 0, nil
+}
+
 func (m *mockOpsRepo) ListITTicketsBySource(ctx context.Context, source string, limit, offset int32) ([]*ops.ITTicket, error) {
 	return m.ListOpenITTickets(ctx, limit, offset)
 }

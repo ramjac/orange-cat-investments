@@ -43,41 +43,48 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 		portfolioID = fmt.Sprintf("port-%s", in.CustomerID)
 	}
 
-	accountID := in.AccountID
+	requestedAccountID := strings.TrimSpace(in.AccountID)
+	accountID := ""
 	var matchedAccount *plaid.Account
-	if s.bankClient != nil {
+	if s.bankClient == nil {
+		if requestedAccountID != "" {
+			return nil, status.Error(codes.FailedPrecondition, "bank provider unavailable to verify account ownership")
+		}
+	} else {
 		bankCtx, bankCancel := s.withUpstreamTimeout(ctx)
 		accs, err := s.bankClient.GetAccounts(bankCtx, in.CustomerID)
 		bankCancel()
-		if err == nil && len(accs) == 0 && in.CustomerID != "" {
-			fallbackCtx, fallbackCancel := s.withUpstreamTimeout(ctx)
-			accs, err = s.bankClient.GetAccounts(fallbackCtx, "")
-			fallbackCancel()
-		}
 		if err != nil {
 			s.log().Warn("failed to resolve linked bank accounts from bank provider", "customer_id", in.CustomerID, "error", sanitizeVendorNames(err.Error()))
-		} else if len(accs) > 0 {
-			recordUpstreamSuccess(ctx, "bank")
-			for i := range accs {
-				a := &accs[i]
-				if accountID != "" && a.AccountID == accountID {
+			return nil, mapUpstreamError("bank", err)
+		}
+		recordUpstreamSuccess(ctx, "bank")
+		if len(accs) == 0 {
+			return nil, status.Error(codes.FailedPrecondition, "no linked bank accounts found for customer")
+		}
+		for i := range accs {
+			a := &accs[i]
+			if requestedAccountID != "" {
+				if a.AccountID == requestedAccountID {
 					matchedAccount = a
 					break
 				}
-				if in.BankAccount != "" && (strings.EqualFold(a.AccountID, in.BankAccount) ||
-					strings.EqualFold(a.Name, in.BankAccount) ||
-					(a.AccountNumber != "" && strings.Contains(in.BankAccount, a.AccountNumber))) {
-					matchedAccount = a
-					break
-				}
+				continue
 			}
-			if matchedAccount == nil && accountID == "" {
-				matchedAccount = &accs[0]
-			}
-			if matchedAccount != nil {
-				accountID = matchedAccount.AccountID
+			if in.BankAccount != "" && (strings.EqualFold(a.AccountID, in.BankAccount) ||
+				strings.EqualFold(a.Name, in.BankAccount) ||
+				(a.AccountNumber != "" && strings.Contains(in.BankAccount, a.AccountNumber))) {
+				matchedAccount = a
+				break
 			}
 		}
+		if requestedAccountID != "" && matchedAccount == nil {
+			return nil, status.Errorf(codes.PermissionDenied, "bank account %s is not owned by customer", requestedAccountID)
+		}
+		if matchedAccount == nil {
+			matchedAccount = &accs[0]
+		}
+		accountID = matchedAccount.AccountID
 	}
 
 	if matchedAccount != nil && matchedAccount.AvailableBalance > 0 && in.AmountUSD > matchedAccount.AvailableBalance {

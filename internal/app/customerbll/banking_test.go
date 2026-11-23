@@ -379,23 +379,54 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 }
 
 func TestInitiateACHDeposit_BankAndFrequencyResolution(t *testing.T) {
-	t.Run("fetch bank account from bank client when account_id is empty and bank errors out gracefully", func(t *testing.T) {
+	t.Run("reject deposit when bank lookup fails during ownership check", func(t *testing.T) {
 		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
 		defer bankServer.Close()
 
+		pub := newMockRecordingPublisher()
 		s := NewServer(Config{
 			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
 		})
 
 		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
 			CustomerID: "cust-001",
 			AmountUSD:  100.0,
 		})
-		require.NoError(t, err)
-		assert.Equal(t, "pending_settlement", resp.Status)
-		assert.Equal(t, "one_time", resp.Frequency)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Unavailable, status.Code(err))
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
+	})
+
+	t.Run("reject unowned account_id with PermissionDenied", func(t *testing.T) {
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "cust-001", r.URL.Query().Get("owner_id"))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accounts": []plaid.Account{
+					{AccountID: "acc_owned_001", Name: "Checking"},
+				},
+			})
+		}))
+		defer bankServer.Close()
+
+		pub := newMockRecordingPublisher()
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cust-001",
+			AccountID:  "acc_other_customer_999",
+			AmountUSD:  100.0,
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
 	})
 
 	t.Run("fetch bank account from bank client when account_id is empty", func(t *testing.T) {

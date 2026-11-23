@@ -3,8 +3,10 @@ package internalbll
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -88,6 +90,10 @@ func (s *Server) ExecuteBrokerageOrder(ctx context.Context, in *coreinvestv1.Cre
 	if err != nil {
 		s.logger.Error("failed to create order in core-invest-api", "error", err)
 		return nil, fmt.Errorf("core-invest create order failed: %w", err)
+	}
+	if in != nil && strings.EqualFold(in.OrderType, "bracket") && res != nil && res.Order != nil &&
+		(strings.EqualFold(res.Order.Status, "filled") || strings.EqualFold(res.Order.Status, "executed")) {
+		telemetry.RecordBracketOrderFill(ctx)
 	}
 	return res, nil
 }

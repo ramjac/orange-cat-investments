@@ -290,3 +290,34 @@ func (r *mockRepository) ListTicketComments(ctx context.Context, ticketID string
 	}
 	return result, nil
 }
+
+func (r *mockRepository) ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error) {
+	if customerID == "" {
+		return 0, fmt.Errorf("customer_id cannot be empty")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().UTC()
+	redacted := "[Content redacted pursuant to GDPR Article 17 erasure request]"
+	count := 0
+	for _, t := range r.tickets {
+		if t.AuthorUsername == customerID || (t.CustomerID != nil && *t.CustomerID == customerID) {
+			t.AuthorUsername = "ANONYMIZED_GDPR_USER"
+			t.CustomerID = nil
+			t.Body = &redacted
+			t.UpdatedAt = now
+			count++
+		}
+	}
+	for _, list := range r.comments {
+		for _, c := range list {
+			if c.AuthorUsername == customerID {
+				c.AuthorUsername = "ANONYMIZED_GDPR_USER"
+				c.Comment = redacted
+				count++
+			}
+		}
+	}
+	return count, nil
+}

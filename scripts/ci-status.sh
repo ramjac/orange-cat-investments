@@ -23,7 +23,9 @@ if [[ -z "${FORGEJO_URL}" ]]; then
 fi
 
 PF_PID=""
+RUNS_TMP="$(mktemp /tmp/oci_ci_runs.XXXXXX.json)"
 cleanup() {
+    rm -f "${RUNS_TMP}"
     if [[ -n "${PF_PID}" ]]; then
         kill "${PF_PID}" 2>/dev/null || true
     fi
@@ -58,9 +60,8 @@ fi
 TARGET_ORG="oci"
 REPO_NAME="monorepo"
 
-RUNS_HTTP_CODE=$(curl -s -o /tmp/oci_ci_runs.json -w "%{http_code}" "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/actions/runs?page=1&limit=1")
-RUNS_JSON=$(cat /tmp/oci_ci_runs.json 2>/dev/null || true)
-rm -f /tmp/oci_ci_runs.json
+RUNS_HTTP_CODE=$(curl -s -o "${RUNS_TMP}" -w "%{http_code}" "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/actions/runs?page=1&limit=1")
+RUNS_JSON=$(cat "${RUNS_TMP}" 2>/dev/null || true)
 
 if [[ "$RUNS_HTTP_CODE" == "404" ]]; then
     # Forgejo 7.x / Gitea 1.21 does not expose /actions/runs; use combined commit status API.
@@ -119,7 +120,13 @@ except Exception:
         echo "Final Status: ${RUN_STATUS}"
     fi
 
-    if [[ "$RUN_STATUS" == "failure" || "$RUN_STATUS" == "error" ]]; then
+    if [[ "$RUN_STATUS" == "failure" || "$RUN_STATUS" == "error" || "$RUN_STATUS" == "unknown" ]]; then
+        exit 1
+    fi
+    if [[ "$WAIT" == true && "$RUN_STATUS" != "success" ]]; then
+        exit 1
+    fi
+    if [[ "$RUN_STATUS" != "success" && "$RUN_STATUS" != "pending" && "$RUN_STATUS" != "" ]]; then
         exit 1
     fi
     exit 0

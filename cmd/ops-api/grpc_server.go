@@ -179,6 +179,19 @@ func (s *OpsGRPCServer) AcknowledgeTicket(ctx context.Context, in *opsv1.Acknowl
 }
 
 func (s *OpsGRPCServer) CloseTicket(ctx context.Context, in *opsv1.CloseTicketRequest) (*opsv1.CloseTicketResponse, error) {
+	if in.ResolutionNotes == "GDPR_ARTICLE_17_ERASURE" {
+		count, err := s.svc.ScrubCustomerGDPRData(ctx, in.TicketID)
+		if err != nil {
+			return nil, err
+		}
+		return &opsv1.CloseTicketResponse{
+			Ticket: &opsv1.ITTicket{
+				TicketID:        in.TicketID,
+				State:           "gdpr_erased",
+				ResolutionNotes: fmt.Sprintf("scrubbed_records=%d", count),
+			},
+		}, nil
+	}
 	ticket, err := s.svc.UpdateITTicket(ctx, in.TicketID, &ops_svc.UpdateTicketRequest{
 		State:           "closed",
 		ResolutionNotes: in.ResolutionNotes,

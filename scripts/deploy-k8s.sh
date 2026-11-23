@@ -164,7 +164,7 @@ fi
 echo "Deploying OpenBao & bootstrapping KV-v2 secrets..."
 kubectl apply -f "${REPO_ROOT}/k8s/oci-core/openbao.yaml"
 "${REPO_ROOT}/scripts/init-openbao.sh"
-if kubectl get crd clustersecretstores.external-secrets.io &>/dev/null; then
+if kubectl get crd secretstores.external-secrets.io &>/dev/null; then
     kubectl apply -f "${REPO_ROOT}/k8s/oci-core/external-secrets-stores.yaml"
     if [[ "${PROFILE}" == "business-only" ]]; then
         kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
@@ -200,8 +200,25 @@ else
 fi
 
 echo ""
-echo "Deploying Kubernetes Gateway API v1 CRDs & Edge Gateway (oci-edge-gateway)..."
-kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || (sleep 2 && kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml")
+echo "Deploying Kubernetes Gateway API v1 CRDs, Envoy Gateway Controller & Edge Gateway (oci-edge-gateway)..."
+if ! kubectl get deployment envoy-gateway -n envoy-gateway-system &>/dev/null; then
+    if command -v helm &>/dev/null; then
+        helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.2.4 \
+            -n envoy-gateway-system --create-namespace --wait || true
+    fi
+fi
+if kubectl get deployment envoy-gateway -n envoy-gateway-system &>/dev/null; then
+    python3 -c '
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if isinstance(d, dict) and d.get("kind") in ("CustomResourceDefinition", "GatewayClass", "Gateway")]
+print(yaml.safe_dump_all(docs, sort_keys=False))
+' "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" | kubectl apply -f - || true
+else
+    kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || (sleep 2 && kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml")
+fi
+wait_rollout kubectl rollout status deployment/envoy-gateway -n envoy-gateway-system --timeout=120s
+wait_rollout kubectl wait --for=condition=Accepted gateway/oci-edge-gateway -n oci-core --timeout=120s
+wait_rollout kubectl wait --for=condition=Programmed gateway/oci-edge-gateway -n oci-core --timeout=120s
 
 echo ""
 if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
@@ -244,6 +261,22 @@ else
     echo "7. Deploying Development & Simulation Staging (oci-dev)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
 fi
+
+echo ""
+echo "Verifying Gateway API HTTPRoute acceptance..."
+ROUTE_NAMESPACES=("oci-core" "oci-internal" "external-sim" "oci-dev")
+if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+    ROUTE_NAMESPACES=("oci-dev" "external-sim")
+elif [[ "${PROFILE}" == "business-only" ]]; then
+    ROUTE_NAMESPACES=("oci-internal")
+fi
+for r_ns in "${ROUTE_NAMESPACES[@]}"; do
+    read -r -a route_names <<< "$(kubectl get httproute -n "${r_ns}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+    for route_name in "${route_names[@]}"; do
+        [[ -n "${route_name}" ]] || continue
+        wait_rollout kubectl wait --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'=True "httproute/${route_name}" -n "${r_ns}" --timeout=60s
+    done
+done
 
 echo ""
 echo "8. Waiting for database and messaging workloads to become ready..."

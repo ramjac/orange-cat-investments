@@ -147,6 +147,176 @@ spec:
           type: object
           x-kubernetes-preserve-unknown-fields: true
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: envoy-gateway-system
+  labels:
+    owner: emp-human-frank
+    app.kubernetes.io/part-of: oci-gateway-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+  labels:
+    app: envoy-gateway
+    control-plane: envoy-gateway
+    app.kubernetes.io/part-of: oci-gateway-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: envoy-gateway
+  labels:
+    app: envoy-gateway
+    app.kubernetes.io/part-of: oci-gateway-api
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "services", "endpoints", "pods", "secrets", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses", "gateways", "httproutes", "grpcroutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses/status", "gateways/status", "httproutes/status", "grpcroutes/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: envoy-gateway
+  labels:
+    app: envoy-gateway
+    app.kubernetes.io/part-of: oci-gateway-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: envoy-gateway
+subjects:
+  - kind: ServiceAccount
+    name: envoy-gateway
+    namespace: envoy-gateway-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+  labels:
+    app: envoy-gateway
+    control-plane: envoy-gateway
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: envoy-gateway
+  template:
+    metadata:
+      labels:
+        app: envoy-gateway
+        control-plane: envoy-gateway
+    spec:
+      serviceAccountName: envoy-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: envoy-gateway
+          image: docker.io/envoyproxy/gateway:v1.2.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: ENVOY_GATEWAY_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+          ports:
+            - name: grpc
+              containerPort: 18000
+              protocol: TCP
+            - name: metrics
+              containerPort: 19001
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+  labels:
+    app: envoy-gateway
+    control-plane: envoy-gateway
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  selector:
+    control-plane: envoy-gateway
+  ports:
+    - name: grpc
+      port: 18000
+      targetPort: 18000
+      protocol: TCP
+    - name: metrics
+      port: 19001
+      targetPort: 19001
+      protocol: TCP
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -155,8 +325,8 @@ metadata:
     owner: emp-human-frank
     app.kubernetes.io/part-of: oci-gateway-api
 spec:
-  controllerName: gateway.networking.k8s.io/oci-gateway-controller
-  description: "OCI Zero-Trust Enterprise GatewayClass (NGINX Gateway Fabric / Envoy Gateway)"
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  description: "OCI Zero-Trust Enterprise GatewayClass (Envoy Gateway)"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

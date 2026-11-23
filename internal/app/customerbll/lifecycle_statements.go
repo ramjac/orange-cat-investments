@@ -10,6 +10,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
+	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -78,6 +79,14 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 	if in == nil || in.CustomerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "customer_id is required")
 	}
+	if s.opsClient != nil {
+		if _, err := s.opsClient.CloseTicket(ctx, &opsv1.CloseTicketRequest{
+			TicketID:        in.CustomerID,
+			ResolutionNotes: "GDPR_ARTICLE_17_ERASURE",
+		}); err != nil {
+			return nil, status.Errorf(codes.Internal, "gdpr ops erasure failed: %v", err)
+		}
+	}
 	if s.ciClient != nil {
 		res, err := s.ciClient.ExecuteGDPRErasure(ctx, &coreinvestv1.ExecuteGDPRErasureRequest{
 			CustomerID: in.CustomerID,
@@ -89,6 +98,9 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 		if res == nil {
 			return nil, status.Errorf(codes.Internal, "gdpr erasure failed: received nil response")
 		}
+		if s.opsClient != nil && res.Certificate != nil {
+			res.Certificate.AnonymizedTables = appendUniqueTables(res.Certificate.AnonymizedTables, "ops.it_tickets", "ops.ticket_comments")
+		}
 		return &customerbllv1.ExecuteGDPRErasureResponse{Certificate: res.Certificate}, nil
 	}
 
@@ -96,6 +108,10 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 	custHash := hex.EncodeToString(h[:])
 	eh := sha256.Sum256([]byte(in.Email))
 	emailHash := hex.EncodeToString(eh[:])
+	anonymizedTables := []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions", "core_invest.recurring_deposits"}
+	if s.opsClient != nil {
+		anonymizedTables = appendUniqueTables(anonymizedTables, "ops.it_tickets", "ops.ticket_comments")
+	}
 
 	return &customerbllv1.ExecuteGDPRErasureResponse{
 		Certificate: &coreinvestv1.GDPRErasureCertificate{
@@ -106,7 +122,7 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 			ErasedAt:             time.Now().UTC().Format(time.RFC3339),
 			LegalBasis:           "GDPR Article 17 - Right to Erasure / Right to be Forgotten",
 			SupervisoryAuthority: "Orange Cat Investments Data Protection Office",
-			AnonymizedTables:     []string{"core_invest.investment_portfolios", "core_invest.customer_api_keys", "core_invest.webhook_subscriptions", "core_invest.recurring_deposits"},
+			AnonymizedTables:     anonymizedTables,
 			SessionsPurgedCount:  1,
 			RecordsScrubbedCount: 4,
 			ComplianceHash:       fmt.Sprintf("hmac-sha256:%s", custHash[:32]),
@@ -114,6 +130,21 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 			Status:               "erased",
 		},
 	}, nil
+}
+
+func appendUniqueTables(existing []string, extras ...string) []string {
+	seen := make(map[string]struct{}, len(existing))
+	for _, t := range existing {
+		seen[t] = struct{}{}
+	}
+	out := append([]string(nil), existing...)
+	for _, extra := range extras {
+		if _, ok := seen[extra]; !ok {
+			out = append(out, extra)
+			seen[extra] = struct{}{}
+		}
+	}
+	return out
 }
 
 func (s *Server) GetGDPRCertificate(ctx context.Context, in *customerbllv1.GetGDPRCertificateRequest) (*customerbllv1.GetGDPRCertificateResponse, error) {

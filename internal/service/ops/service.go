@@ -69,6 +69,7 @@ type Service interface {
 	ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*ops.TicketComment, error)
 	CreateCustomerTicket(ctx context.Context, req *CreateCustomerTicketRequest) (*ops.ITTicket, error)
 	SendPushNotification(ctx context.Context, req *PushNotificationRequest) (*PushNotificationResponse, error)
+	ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error)
 }
 
 type opsService struct {
@@ -316,4 +317,11 @@ func (s *opsService) CreateCustomerTicket(ctx context.Context, req *CreateCustom
 		CustomerID:     req.CustomerID,
 		IsUrgent:       false,
 	})
+}
+
+func (s *opsService) ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error) {
+	if customerID == "" {
+		return 0, errors.New("customer_id cannot be empty")
+	}
+	return s.repo.ScrubCustomerGDPRData(ctx, customerID)
 }
