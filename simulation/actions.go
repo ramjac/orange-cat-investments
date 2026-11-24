@@ -1477,6 +1477,36 @@ func (r *Registry) createFrankPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "frank_verify_audit_chain",
+				Description: "Verifies cryptographic SHA-256 hash-chain integrity across ops.audit_logs",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/ops/audit-logs/verify"
+					resp, respBytes, err := client.Do(ctx, http.MethodGet, endpoint, nil)
+					if err != nil {
+						return nil, fmt.Errorf("audit chain verification request failed: %w", err)
+					}
+					var verifyResp struct {
+						Valid           bool   `json:"valid"`
+						VerifiedRecords int64  `json:"verified_records"`
+						LatestHash      string `json:"latest_hash"`
+						BrokenAtID      int64  `json:"broken_at_id"`
+						Reason          string `json:"reason"`
+					}
+					_ = json.Unmarshal(respBytes, &verifyResp)
+					ok := resp.StatusCode == http.StatusOK && verifyResp.Valid
+					return &ActionResult{
+						PersonaID:   "emp-human-frank",
+						PersonaName: "Frank Operations",
+						ActionName:  "frank_verify_audit_chain",
+						Endpoint:    endpoint,
+						Success:     ok,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audit chain verification: valid=%v verified_records=%d latest_hash=%s broken_at_id=%d", verifyResp.Valid, verifyResp.VerifiedRecords, verifyResp.LatestHash, verifyResp.BrokenAtID),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }

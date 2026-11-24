@@ -316,6 +316,10 @@ func (s *Server) RevokeAPIKey(ctx context.Context, in *customerbllv1.RevokeAPIKe
 			KeyID:      in.KeyID,
 		})
 	}
+	s.recordAudit(ctx, in.CustomerID, "customer", "customer.api_key.revoked", "api_key", in.KeyID, map[string]any{
+		"key_id": in.KeyID,
+		"status": "revoked",
+	})
 	return &customerbllv1.RevokeAPIKeyResponse{Status: "revoked"}, nil
 }
 

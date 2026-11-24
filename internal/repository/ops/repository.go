@@ -56,6 +56,9 @@ type Repository interface {
 	ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error)
 	ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error)
 	AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error)
+	AppendAuditLog(ctx context.Context, entry *AuditLog) (*AuditLog, error)
+	VerifyAuditChain(ctx context.Context) (*AuditChainVerification, error)
+	ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*AuditLog, error)
 }
 
 type DBExecutor interface {

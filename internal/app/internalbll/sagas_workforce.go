@@ -259,6 +259,12 @@ func (s *Server) OffboardEmployee(ctx context.Context, in *internalbllv1.Offboar
 		CareTransition:   careTransition,
 		Message:          fmt.Sprintf("Employee offboarded successfully with status %s", updated.Status),
 	}
+	s.recordAudit(ctx, "workforce.employee.offboarded", "employee", updated.EmployeeID, map[string]any{
+		"employee_id":        updated.EmployeeID,
+		"target_status":      updated.Status,
+		"trading_hold_state": tradingHold,
+		"reason":             in.Reason,
+	})
 	return &internalbllv1.OffboardEmployeeSagaResponse{SagaResult: res}, nil
 }
 

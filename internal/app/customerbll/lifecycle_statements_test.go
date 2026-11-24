@@ -134,6 +134,16 @@ func (m *mockGDPROpsClient) ScrubCustomerGDPRData(ctx context.Context, in *opsv1
 	return nil, status.Error(codes.Unimplemented, "not implemented")
 }
 
+func (m *mockGDPROpsClient) AppendAuditLog(ctx context.Context, in *opsv1.AppendAuditLogRequest) (*opsv1.AppendAuditLogResponse, error) {
+	return &opsv1.AppendAuditLogResponse{
+		Record: &opsv1.AuditLogRecord{
+			ID:      1,
+			ActorID: in.ActorID,
+			Action:  in.Action,
+		},
+	}, nil
+}
+
 func (m *mockGDPRCoreInvestClient) ExecuteGDPRErasure(ctx context.Context, in *coreinvestv1.ExecuteGDPRErasureRequest) (*coreinvestv1.ExecuteGDPRErasureResponse, error) {
 	if m.executeGDPRErasureFunc != nil {
 		return m.executeGDPRErasureFunc(ctx, in)

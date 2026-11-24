@@ -35,6 +35,10 @@ func (s *Server) SetMedicalHold(ctx context.Context, in *workforcev1.SetMedicalH
 	res, err := s.wfClient.SetMedicalHold(ctx, in)
 	if err == nil {
 		telemetry.RecordEmergencyHoldToggle(ctx)
+		s.recordAudit(ctx, "workforce.medical_hold.updated", "care_schedule", in.FelineID, map[string]any{
+			"feline_id":              in.FelineID,
+			"emergency_medical_hold": in.EmergencyMedicalHold,
+		})
 	}
 	return res, s.logDomainError("workforce-api", "SetMedicalHold", err)
 }
@@ -80,7 +84,14 @@ func (s *Server) UpdateLeaveStatus(ctx context.Context, in *workforcev1.UpdateLe
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.UpdateLeaveStatus(ctx, in)
+	res, err := s.wfClient.UpdateLeaveStatus(ctx, in)
+	if err == nil {
+		s.recordAudit(ctx, "workforce.leave_request.status_updated", "leave_request", in.LeaveID, map[string]any{
+			"leave_id": in.LeaveID,
+			"status":   in.Status,
+		})
+	}
+	return res, s.logDomainError("workforce-api", "UpdateLeaveStatus", err)
 }
 
 func (s *Server) CreateReviewCycle(ctx context.Context, in *workforcev1.CreateReviewCycleRequest) (*workforcev1.CreateReviewCycleResponse, error) {

@@ -15,6 +15,8 @@ type mockRepository struct {
 	tickets     map[string]*ITTicket
 	comments    map[string][]*TicketComment
 	outboxStore *outbox.MemoryStore
+	auditLogs   []*AuditLog
+	nextAuditID int64
 }
 
 // NewMockRepository returns an in-memory mock implementation of ops.Repository for testing and local development.
@@ -348,4 +350,109 @@ func (r *mockRepository) AckOutboxEvents(ctx context.Context, publishedIDs []int
 		r.outboxStore.MarkFailed(f.ID, f.Error, 0)
 	}
 	return len(publishedIDs) + len(failures), nil
+}
+
+func (r *mockRepository) AppendAuditLog(ctx context.Context, entry *AuditLog) (*AuditLog, error) {
+	if entry == nil || entry.ActorID == "" || entry.Action == "" {
+		return nil, fmt.Errorf("actor_id and action are required for audit logs")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.nextAuditID++
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	prevHash := AuditGenesisHash
+	if len(r.auditLogs) > 0 {
+		prevHash = r.auditLogs[len(r.auditLogs)-1].RecordHash
+	}
+	meta := normalizeAuditMetadata(entry.MetadataJSON)
+	canonicalTS := FormatCanonicalAuditTimestamp(now)
+	recHash := ComputeAuditHash(
+		prevHash,
+		entry.ActorID,
+		entry.ActorRole,
+		entry.Action,
+		entry.ResourceType,
+		entry.ResourceID,
+		meta,
+		canonicalTS,
+	)
+
+	rec := &AuditLog{
+		ID:           r.nextAuditID,
+		ActorID:      entry.ActorID,
+		ActorRole:    entry.ActorRole,
+		Action:       entry.Action,
+		ResourceType: entry.ResourceType,
+		ResourceID:   entry.ResourceID,
+		MetadataJSON: meta,
+		CreatedAt:    now,
+		CanonicalTS:  canonicalTS,
+		PreviousHash: prevHash,
+		RecordHash:   recHash,
+	}
+	r.auditLogs = append(r.auditLogs, rec)
+	cp := *rec
+	return &cp, nil
+}
+
+func (r *mockRepository) VerifyAuditChain(ctx context.Context) (*AuditChainVerification, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	cp := make([]*AuditLog, len(r.auditLogs))
+	for i, rec := range r.auditLogs {
+		c := *rec
+		cp[i] = &c
+	}
+	return verifyAuditRecords(cp), nil
+}
+
+func (r *mockRepository) ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*AuditLog, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var filtered []*AuditLog
+	for i := len(r.auditLogs) - 1; i >= 0; i-- {
+		rec := r.auditLogs[i]
+		if actorID != "" && rec.ActorID != actorID {
+			continue
+		}
+		if action != "" && rec.Action != action {
+			continue
+		}
+		c := *rec
+		filtered = append(filtered, &c)
+	}
+	if int(offset) >= len(filtered) {
+		return []*AuditLog{}, nil
+	}
+	end := int(offset + limit)
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return filtered[offset:end], nil
+}
+
+// TamperAuditLogForTest simulates out-of-band storage corruption for unit testing chain verification.
+func TamperAuditLogForTest(repo Repository, id int64, mutatedMetadata string) bool {
+	m, ok := repo.(*mockRepository)
+	if !ok {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rec := range m.auditLogs {
+		if rec.ID == id {
+			rec.MetadataJSON = mutatedMetadata
+			return true
+		}
+	}
+	return false
 }

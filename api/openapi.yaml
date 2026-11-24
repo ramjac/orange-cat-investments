@@ -1791,6 +1791,101 @@ paths:
         '400':
           $ref: '#/components/responses/400BadRequest'
 
+  /ops/audit-logs/verify:
+    get:
+      summary: Verify Tamper-Evident Audit Log Hash Chain
+      description: Walks ops.audit_logs sequentially and recalculates every SHA-256 hash link from GENESIS to verify ledger immutability.
+      operationId: verifyAuditChain
+      tags:
+        - IT Operations
+      responses:
+        '200':
+          description: Audit log cryptographic hash chain is intact
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  verified_records:
+                    type: integer
+                    format: int64
+                  latest_hash:
+                    type: string
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Caller lacks ops/admin/engineering audit verification privileges
+        '409':
+          description: Tampering or hash chain break detected in ops.audit_logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  verified_records:
+                    type: integer
+                    format: int64
+                  broken_at_id:
+                    type: integer
+                    format: int64
+                  expected_hash:
+                    type: string
+                  actual_hash:
+                    type: string
+                  reason:
+                    type: string
+
+  /ops/audit-logs:
+    get:
+      summary: List Tamper-Evident Audit Logs
+      description: Returns paginated entries from ops.audit_logs filtered optionally by actor_id or action.
+      operationId: listAuditLogs
+      tags:
+        - IT Operations
+      parameters:
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Paginated audit log records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  records:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
   /ops/tickets:
     get:
       summary: List IT Helpdesk Tickets

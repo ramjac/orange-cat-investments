@@ -253,6 +253,55 @@ type AckOutboxEventsResponse struct {
 	Acknowledged int32 `json:"acknowledged"`
 }
 
+type AuditLogRecord struct {
+	ID           int64  `json:"id"`
+	ActorID      string `json:"actor_id"`
+	ActorRole    string `json:"actor_role"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+	MetadataJSON string `json:"metadata_json"`
+	CreatedAt    string `json:"created_at"`
+	PreviousHash string `json:"previous_hash"`
+	RecordHash   string `json:"record_hash"`
+}
+
+type AppendAuditLogRequest struct {
+	ActorID      string `json:"actor_id"`
+	ActorRole    string `json:"actor_role"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+	MetadataJSON string `json:"metadata_json"`
+}
+
+type AppendAuditLogResponse struct {
+	Record *AuditLogRecord `json:"record"`
+}
+
+type VerifyAuditChainRequest struct{}
+
+type VerifyAuditChainResponse struct {
+	Valid           bool   `json:"valid"`
+	VerifiedRecords int64  `json:"verified_records"`
+	BrokenAtID      int64  `json:"broken_at_id,omitempty"`
+	ExpectedHash    string `json:"expected_hash,omitempty"`
+	ActualHash      string `json:"actual_hash,omitempty"`
+	LatestHash      string `json:"latest_hash,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+type ListAuditLogsRequest struct {
+	ActorID string `json:"actor_id"`
+	Action  string `json:"action"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
+}
+
+type ListAuditLogsResponse struct {
+	Records []*AuditLogRecord `json:"records"`
+}
+
 type OpsServiceClient interface {
 	CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *GetTicketRequest) (*GetTicketResponse, error)
@@ -271,6 +320,9 @@ type OpsServiceClient interface {
 	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
 	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
 	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
+	AppendAuditLog(ctx context.Context, in *AppendAuditLogRequest) (*AppendAuditLogResponse, error)
+	VerifyAuditChain(ctx context.Context, in *VerifyAuditChainRequest) (*VerifyAuditChainResponse, error)
+	ListAuditLogs(ctx context.Context, in *ListAuditLogsRequest) (*ListAuditLogsResponse, error)
 }
 
 type OpsServiceServer interface {
@@ -291,4 +343,7 @@ type OpsServiceServer interface {
 	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
 	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
 	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
+	AppendAuditLog(ctx context.Context, in *AppendAuditLogRequest) (*AppendAuditLogResponse, error)
+	VerifyAuditChain(ctx context.Context, in *VerifyAuditChainRequest) (*VerifyAuditChainResponse, error)
+	ListAuditLogs(ctx context.Context, in *ListAuditLogsRequest) (*ListAuditLogsResponse, error)
 }

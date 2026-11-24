@@ -539,6 +539,9 @@ type InternalBLLServiceClient interface {
 	SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error)
 	ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error)
 	AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error)
+	AppendAuditLog(ctx context.Context, in *opsv1.AppendAuditLogRequest) (*opsv1.AppendAuditLogResponse, error)
+	VerifyAuditChain(ctx context.Context, in *opsv1.VerifyAuditChainRequest) (*opsv1.VerifyAuditChainResponse, error)
+	ListAuditLogs(ctx context.Context, in *opsv1.ListAuditLogsRequest) (*opsv1.ListAuditLogsResponse, error)
 }
 
 type InternalBLLServiceServer interface {
@@ -657,4 +660,7 @@ type InternalBLLServiceServer interface {
 	SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error)
 	ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error)
 	AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error)
+	AppendAuditLog(ctx context.Context, in *opsv1.AppendAuditLogRequest) (*opsv1.AppendAuditLogResponse, error)
+	VerifyAuditChain(ctx context.Context, in *opsv1.VerifyAuditChainRequest) (*opsv1.VerifyAuditChainResponse, error)
+	ListAuditLogs(ctx context.Context, in *opsv1.ListAuditLogsRequest) (*opsv1.ListAuditLogsResponse, error)
 }

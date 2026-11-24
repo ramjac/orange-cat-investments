@@ -46,6 +46,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/ops/notifications/push", h.SendPushNotification)
 	mux.HandleFunc("POST /api/v1/ops/notifications", h.SendPushNotification)
 
+	// Tamper-Evident Audit Ledger (Phase 10 / 7.41)
+	mux.HandleFunc("GET /api/v1/ops/audit-logs/verify", h.VerifyAuditChain)
+	mux.HandleFunc("GET /api/v1/ops/audit-logs", h.ListAuditLogs)
+
 	// Customer Bug & Feedback Intake
 	mux.HandleFunc("GET /api/v1/customer/support/tickets", h.ListCustomerTickets)
 	mux.HandleFunc("POST /api/v1/customer/support/tickets", h.CreateCustomerTicket)
@@ -64,6 +68,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ops/tickets/{id}/comments", h.AddTicketComment)
 	mux.HandleFunc("POST /ops/notifications/push", h.SendPushNotification)
 	mux.HandleFunc("POST /ops/notifications", h.SendPushNotification)
+	mux.HandleFunc("GET /ops/audit-logs/verify", h.VerifyAuditChain)
+	mux.HandleFunc("GET /ops/audit-logs", h.ListAuditLogs)
 	mux.HandleFunc("GET /customer/support/tickets", h.ListCustomerTickets)
 	mux.HandleFunc("POST /customer/support/tickets", h.CreateCustomerTicket)
 	mux.HandleFunc("GET /customer/support/tickets/{id}", h.GetCustomerTicket)

@@ -127,6 +127,11 @@ service InternalBLLService {
   // Transactional SQL Outbox Relay (Phase 10 / 7.40)
   rpc ClaimOutboxEvents(ClaimBLLOutboxEventsRequest) returns (ClaimBLLOutboxEventsResponse);
   rpc AckOutboxEvents(AckBLLOutboxEventsRequest) returns (AckBLLOutboxEventsResponse);
+
+  // Tamper-Evident Cryptographic Audit Log (Phase 10 / 7.41)
+  rpc AppendAuditLog(oci.ops.v1.AppendAuditLogRequest) returns (oci.ops.v1.AppendAuditLogResponse);
+  rpc VerifyAuditChain(oci.ops.v1.VerifyAuditChainRequest) returns (oci.ops.v1.VerifyAuditChainResponse);
+  rpc ListAuditLogs(oci.ops.v1.ListAuditLogsRequest) returns (oci.ops.v1.ListAuditLogsResponse);
 }
 
 message OnboardEmployeeSagaRequest {

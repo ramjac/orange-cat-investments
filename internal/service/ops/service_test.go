@@ -134,6 +134,18 @@ func (m *mockOpsRepo) AckOutboxEvents(ctx context.Context, publishedIDs []int64,
 	return len(publishedIDs) + len(failures), nil
 }
 
+func (m *mockOpsRepo) AppendAuditLog(ctx context.Context, entry *ops.AuditLog) (*ops.AuditLog, error) {
+	return &ops.AuditLog{ID: 1, ActorID: entry.ActorID, Action: entry.Action, PreviousHash: ops.AuditGenesisHash, RecordHash: "mockhash"}, nil
+}
+
+func (m *mockOpsRepo) VerifyAuditChain(ctx context.Context) (*ops.AuditChainVerification, error) {
+	return &ops.AuditChainVerification{Valid: true, VerifiedRecords: 0}, nil
+}
+
+func (m *mockOpsRepo) ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*ops.AuditLog, error) {
+	return []*ops.AuditLog{}, nil
+}
+
 func TestOpsService(t *testing.T) {
 	repo := &mockOpsRepo{}
 	service := NewService(repo)
