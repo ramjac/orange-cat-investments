@@ -6,6 +6,11 @@ metadata:
   labels:
     app: forgejo-runner
 ---
+# Least-privilege deployer ClusterRole for Forgejo CI workflows.
+# Privileged cluster infrastructure bootstrap (e.g., SPIFFE CSI approver, Kyverno
+# admission controllers, cluster-wide RBAC) is managed out-of-band by a separately
+# controlled cluster-admin bootstrap identity via scripts/deploy-k8s.sh, never by
+# workflow jobs using /data/kubeconfig.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -13,9 +18,19 @@ metadata:
   labels:
     app: forgejo-runner
 rules:
-  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "cert-manager.io"]
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "gateway.networking.k8s.io", "gateway.envoyproxy.io", "apiextensions.k8s.io", "cert-manager.io", "external-secrets.io", "generators.external-secrets.io", "kyverno.io", "admissionregistration.k8s.io", "coordination.k8s.io", "storage.k8s.io"]
     resources: ["*"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings", "rolebindings", "roles", "clusterroles"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["system:auth-delegator", "envoy-gateway"]
+    verbs: ["bind"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -183,7 +198,8 @@ spec:
             - --host=unix:///var/run/docker.sock
             - --insecure-registry=localhost:32000
             - --insecure-registry=127.0.0.1:32000
-            - --insecure-registry=container-registry.kube-system.svc.cluster.local:5000
+            - --insecure-registry=registry.oci.local
+            - --insecure-registry=harbor-service.oci-internal.svc.cluster.local:32000
           securityContext:
             privileged: true
           env:

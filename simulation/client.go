@@ -577,6 +577,16 @@ func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string,
 		if t := os.Getenv("FORGEJO_MARCUS_TOKEN"); t != "" {
 			token = t
 		}
+	} else if username == "emp-human-bob" {
+		if t := os.Getenv("FORGEJO_BOB_TOKEN"); t != "" {
+			token = t
+		} else if token == "" {
+			if t := c.GetPersonaToken("emp-human-elise"); t != "" {
+				token = t
+			} else if t := os.Getenv("FORGEJO_ELISE_TOKEN"); t != "" {
+				token = t
+			}
+		}
 	}
 
 	var headers map[string]string
@@ -586,6 +596,97 @@ func (c *Client) DoForgejoAs(ctx context.Context, username, method, path string,
 		}
 	}
 	return c.doRequest(ctx, baseURL+path, method, body, headers)
+}
+
+// ForgejoURL returns the configured Forgejo base URL.
+func (c *Client) ForgejoURL() string {
+	return c.forgejoURL
+}
+
+// UploadForgejoGenericPackage uploads raw binary firmware artifacts to Forgejo's generic package registry
+// and returns the uploaded package URL along with the HTTP response.
+func (c *Client) UploadForgejoGenericPackage(ctx context.Context, username, owner, pkgName, version, fileName string, payload []byte) (string, *http.Response, []byte, error) {
+	if c.forgejoURL == "" {
+		return "", nil, nil, fmt.Errorf("forgejo URL is not configured")
+	}
+
+	token := c.GetPersonaToken(username)
+	if token == "" && username == "emp-human-bob" {
+		token = os.Getenv("FORGEJO_BOB_TOKEN")
+		if token == "" {
+			token = c.GetPersonaToken("emp-human-elise")
+		}
+		if token == "" {
+			token = os.Getenv("FORGEJO_ELISE_TOKEN")
+		}
+	}
+	if token == "" {
+		token = c.GetPersonaToken("default")
+	}
+	if token == "" {
+		token = os.Getenv("FORGEJO_TOKEN")
+	}
+
+	tr := c.transport
+	if tr == nil && c.httpClient != nil {
+		tr = c.httpClient.Transport
+	}
+	if tr == nil {
+		tr = http.DefaultTransport
+	}
+	httpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+
+	uploadTo := func(targetOwner string) (string, *http.Response, []byte, error) {
+		pkgPath := fmt.Sprintf("/api/packages/%s/generic/%s/%s/%s", targetOwner, pkgName, version, fileName)
+		fullURL := c.forgejoURL + pkgPath
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, fullURL, bytes.NewReader(payload))
+		if err != nil {
+			return "", nil, nil, err
+		}
+		req.Header.Set("Content-Type", "application/octet-stream")
+		if token != "" {
+			req.Header.Set("Authorization", "token "+token)
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		defer resp.Body.Close()
+		respBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return "", resp, nil, readErr
+		}
+		return fullURL, resp, respBytes, nil
+	}
+
+	targetOwner := owner
+	if targetOwner == "" {
+		targetOwner = "oci"
+	}
+	pkgURL, resp, body, err := uploadTo(targetOwner)
+	if err != nil {
+		return "", resp, body, err
+	}
+	// If the token lacks org-level package write permissions on 'oci', fall back to the authenticated user's own package namespace.
+	if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound) && token != "" {
+		userResp, userBytes, userErr := c.DoForgejoAs(ctx, username, http.MethodGet, "/api/v1/user", nil)
+		if userErr == nil && userResp != nil && userResp.StatusCode == http.StatusOK {
+			var u struct {
+				Login    string `json:"login"`
+				Username string `json:"username"`
+			}
+			if json.Unmarshal(userBytes, &u) == nil {
+				fallbackOwner := u.Login
+				if fallbackOwner == "" {
+					fallbackOwner = u.Username
+				}
+				if fallbackOwner != "" && fallbackOwner != targetOwner {
+					return uploadTo(fallbackOwner)
+				}
+			}
+		}
+	}
+	return pkgURL, resp, body, nil
 }
 
 // timesheetRef is the minimal workforce timesheet projection used for

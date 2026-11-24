@@ -1,4 +1,13 @@
 # Customer Business Logic Layer (Customer BLL) API - Development
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: customer-bll
+  namespace: oci-dev
+  labels:
+    app: customer-bll
+    tier: bll
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,16 +27,31 @@ spec:
         app: customer-bll
         tier: bll
     spec:
+      serviceAccountName: customer-bll
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: customer-bll
           image: localhost:32000/customer-bll:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8085
               name: http
           env:
             - name: PORT
               value: "8085"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: WORKFORCE_API_URL
               value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
             - name: CORE_INVEST_API_URL
@@ -82,28 +106,15 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: customer-bll-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: customer-bll-tls
-  namespace: oci-dev
-spec:
-  secretName: customer-bll-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: customer-bll-service.oci-dev.svc.cluster.local
-  dnsNames:
-    - customer-bll-service
-    - customer-bll-service.oci-dev.svc
-    - customer-bll-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -122,6 +133,15 @@ spec:
     app: customer-bll
 ---
 # Internal Business Logic Layer (Internal BLL) API - Development
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: internal-bll
+  namespace: oci-dev
+  labels:
+    app: internal-bll
+    tier: bll
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -141,16 +161,31 @@ spec:
         app: internal-bll
         tier: bll
     spec:
+      serviceAccountName: internal-bll
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: internal-bll
           image: localhost:32000/internal-bll:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8086
               name: http
           env:
             - name: PORT
               value: "8086"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: WORKFORCE_API_URL
               value: "https://workforce-api-service.oci-dev.svc.cluster.local:50051"
             - name: FACILITIES_API_URL
@@ -161,6 +196,16 @@ spec:
               value: "https://core-invest-api-service.oci-dev.svc.cluster.local:50053"
             - name: NEXTCLOUD_URL
               value: "http://nextcloud-service.oci-internal.svc.cluster.local:80"
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: NEXTCLOUD_ADMIN_USER
+            - name: NEXTCLOUD_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: NEXTCLOUD_ADMIN_PASS
             - name: FORGEJO_URL
               value: "http://forgejo-service.oci-internal.svc.cluster.local:3000"
             - name: FRAPPE_URL
@@ -208,28 +253,15 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: internal-bll-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: internal-bll-tls
-  namespace: oci-dev
-spec:
-  secretName: internal-bll-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: internal-bll-service.oci-dev.svc.cluster.local
-  dnsNames:
-    - internal-bll-service
-    - internal-bll-service.oci-dev.svc
-    - internal-bll-service.oci-dev.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service
@@ -246,49 +278,3 @@ spec:
       name: http
   selector:
     app: internal-bll
----
-# NetworkPolicy: Restrict Ingress to BLL services to BFF, Batch, and Worker pods
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: bll-services-network-policy
-  namespace: oci-dev
-spec:
-  podSelector:
-    matchLabels:
-      tier: bll
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              tier: bff
-        - podSelector:
-            matchLabels:
-              tier: batch
-        - podSelector:
-            matchLabels:
-              tier: worker
-        - podSelector:
-            matchLabels:
-              app: oci-worker-dev
-        - podSelector:
-            matchLabels:
-              app: oci-pebble-proxy-dev
-      ports:
-        - protocol: TCP
-          port: 8085
-        - protocol: TCP
-          port: 8086
-    # Simulated edge hardware (external-sim) ingests environmental telemetry via Internal BLL gRPC.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: external-sim
-          podSelector:
-            matchLabels:
-              app: mock-hardware-dev
-      ports:
-        - protocol: TCP
-          port: 8086

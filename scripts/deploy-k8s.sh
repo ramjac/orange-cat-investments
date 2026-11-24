@@ -58,9 +58,9 @@ fi
 echo ""
 echo "Checking container registry pre-flight..."
 REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
-if [[ "${REGISTRY_HOST}" == "localhost" ]] && ! curl -s --connect-timeout 1 "http://localhost:32000/v2/_catalog" &>/dev/null; then
+if [[ "${REGISTRY_HOST}" == "localhost" ]] && ! curl -s --connect-timeout 1 "http://localhost:32000/v2/" &>/dev/null; then
     CLUSTER_HOST=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null | sed -E 's|https?://([^:/]+).*|\1|')
-    if [[ -n "${CLUSTER_HOST}" ]] && curl -s --connect-timeout 2 "http://${CLUSTER_HOST}:32000/v2/_catalog" &>/dev/null; then
+    if [[ -n "${CLUSTER_HOST}" ]] && curl -s --connect-timeout 2 "http://${CLUSTER_HOST}:32000/v2/" &>/dev/null; then
         REGISTRY_HOST="${CLUSTER_HOST}"
     fi
 fi
@@ -128,29 +128,106 @@ if kubectl get crd certificates.cert-manager.io &>/dev/null; then
         echo "PKI ClusterIssuer 'oci-lan-issuer' verified."
 
         # Ensure fallback oci-ca-bundle ConfigMap exists in core application namespaces
-        for ns in oci-core oci-internal oci-dev default; do
+        for ns in oci-core oci-internal oci-dev external-sim default; do
             kubectl create configmap oci-ca-bundle \
                 --namespace "${ns}" \
                 --from-file=ca.crt="${REPO_ROOT}/k8s/ha/lan/tls/oci-lan-root-ca.crt" \
                 --dry-run=client -o yaml | kubectl apply -f - &>/dev/null || true
         done
+        if kubectl get crd bundles.trust.cert-manager.io &>/dev/null; then
+            kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/oci-ca-bundle.yaml"
+        fi
     fi
+
+    echo "Deploying cert-manager-csi-driver-spiffe (ephemeral in-memory SPIFFE SVIDs)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/csi-driver-spiffe.yaml"
+    wait_rollout kubectl rollout status deployment/cert-manager-csi-driver-spiffe-approver -n cert-manager --timeout=120s
+    wait_rollout kubectl rollout status daemonset/cert-manager-csi-driver-spiffe-driver -n cert-manager --timeout=120s
 else
     echo "WARNING: cert-manager CRDs not detected. Please install cert-manager (e.g., 'kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.17.1/cert-manager.yaml' or 'microk8s enable cert-manager')."
 fi
 
 echo ""
-echo "Checking local container registry (:32000)..."
-if ! kubectl get svc -n kube-system container-registry &>/dev/null && ! kubectl get svc -n container-registry registry &>/dev/null; then
-    echo "Deploying in-cluster container registry on NodePort 32000..."
-    kubectl apply -f "${REPO_ROOT}/k8s/registry/registry.yaml"
+echo "Checking External Secrets Operator (ESO) & OpenBao prerequisites..."
+if ! kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
+    if command -v helm &>/dev/null; then
+        helm repo add external-secrets https://charts.external-secrets.io >/dev/null 2>&1 || true
+        helm repo update external-secrets >/dev/null 2>&1 || true
+        helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets --create-namespace --set installCRDs=true --wait
+    else
+        echo "WARNING: External Secrets Operator CRDs not installed and local helm CLI unavailable."
+        echo "Install ESO via Helm before running ExternalSecret sync."
+    fi
 fi
+
+echo "Deploying OpenBao & bootstrapping KV-v2 secrets..."
+kubectl apply -f "${REPO_ROOT}/k8s/oci-core/openbao.yaml"
+"${REPO_ROOT}/scripts/init-openbao.sh"
+if kubectl get crd secretstores.external-secrets.io &>/dev/null; then
+    kubectl apply -f "${REPO_ROOT}/k8s/oci-core/external-secrets-stores.yaml"
+    if [[ "${PROFILE}" == "business-only" ]]; then
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/app-secrets -n oci-internal --timeout=120s || true
+    elif [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/oci-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/oci-dev-secrets -n oci-dev --timeout=120s || true
+    else
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-core/oci-secrets.yaml"
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/internal-secrets.yaml"
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/oci-secrets.yaml"
+        kubectl wait --for=condition=Ready externalsecret/oci-core-secrets -n oci-core --timeout=120s || true
+        kubectl wait --for=condition=Ready externalsecret/app-secrets -n oci-internal --timeout=120s || true
+        kubectl wait --for=condition=Ready externalsecret/oci-dev-secrets -n oci-dev --timeout=120s || true
+    fi
+fi
+
+echo ""
+echo "Deploying Kyverno Admission Controller & Supply Chain ClusterPolicies..."
+if kubectl get crd clusterpolicies.kyverno.io &>/dev/null; then
+    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/security/kyverno-policies.yaml"
+else
+    echo "Kyverno CRDs (clusterpolicies.kyverno.io) not installed; skipping in-cluster Kyverno deployment."
+fi
+
+echo ""
+if ! kubectl get svc -n container-registry registry >/dev/null 2>&1; then
+    echo "Deploying Harbor Enterprise Container Registry (:32000 / registry.oci.local)..."
+    kubectl apply -f "${REPO_ROOT}/k8s/registry/harbor.yaml" || true
+else
+    echo "MicroK8s container-registry already active on :32000; skipping duplicate Harbor deployment."
+fi
+
+echo ""
+echo "Deploying Kubernetes Gateway API v1 CRDs, Envoy Gateway Controller & Edge Gateway (oci-edge-gateway)..."
+if ! kubectl get deployment envoy-gateway -n envoy-gateway-system &>/dev/null; then
+    if command -v helm &>/dev/null; then
+        helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.2.4 \
+            -n envoy-gateway-system --create-namespace --wait || true
+    fi
+fi
+if kubectl get deployment envoy-gateway -n envoy-gateway-system &>/dev/null; then
+    python3 -c '
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if isinstance(d, dict) and d.get("kind") in ("CustomResourceDefinition", "GatewayClass", "Gateway")]
+print(yaml.safe_dump_all(docs, sort_keys=False))
+' "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" | kubectl apply -f - || true
+else
+    kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml" || (sleep 2 && kubectl apply -f "${REPO_ROOT}/k8s/ha/lan/tls/gateway.yaml")
+fi
+wait_rollout kubectl rollout status deployment/envoy-gateway -n envoy-gateway-system --timeout=120s
+wait_rollout kubectl wait --for=condition=Accepted gateway/oci-edge-gateway -n oci-core --timeout=120s
+wait_rollout kubectl wait --for=condition=Programmed gateway/oci-edge-gateway -n oci-core --timeout=120s
 
 echo ""
 if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
     echo ""
     echo "3. Deploying Development & Simulation Staging Suite (oci-dev & external-sim)..."
     kubectl apply -f "${REPO_ROOT}/k8s/oci-dev/"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/network-policies.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/http-routes.yaml"
+    kubectl apply -f "${REPO_ROOT}/k8s/external-sim/cosign-pub-configmap.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-bank-dev.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-broker-dev.yaml"
     kubectl apply -f "${REPO_ROOT}/k8s/external-sim/mock-hardware-dev.yaml"
@@ -186,6 +263,22 @@ else
 fi
 
 echo ""
+echo "Verifying Gateway API HTTPRoute acceptance..."
+ROUTE_NAMESPACES=("oci-core" "oci-internal" "external-sim" "oci-dev")
+if [[ "${PROFILE}" == "dev" || "${PROFILE}" == "staging" ]]; then
+    ROUTE_NAMESPACES=("oci-dev" "external-sim")
+elif [[ "${PROFILE}" == "business-only" ]]; then
+    ROUTE_NAMESPACES=("oci-internal")
+fi
+for r_ns in "${ROUTE_NAMESPACES[@]}"; do
+    read -r -a route_names <<< "$(kubectl get httproute -n "${r_ns}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+    for route_name in "${route_names[@]}"; do
+        [[ -n "${route_name}" ]] || continue
+        wait_rollout kubectl wait --for=jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'=True "httproute/${route_name}" -n "${r_ns}" --timeout=60s
+    done
+done
+
+echo ""
 echo "8. Waiting for database and messaging workloads to become ready..."
 if [[ "${PROFILE}" == "business-only" ]]; then
     echo "Waiting for Internal PostgreSQL (postgres-internal)..."
@@ -207,6 +300,18 @@ else
     echo "Waiting for RabbitMQ..."
     wait_rollout kubectl rollout status deployment/rabbitmq -n oci-core --timeout=120s
 fi
+
+echo ""
+echo "Configuring OpenBao Dynamic PostgreSQL Database Roles & reconciling ExternalSecrets..."
+"${REPO_ROOT}/scripts/init-openbao.sh" --db-only
+for es_ns in oci-core oci-dev; do
+    if kubectl get externalsecret workforce-db-secret -n "${es_ns}" &>/dev/null; then
+        kubectl annotate externalsecret --all -n "${es_ns}" "force-sync=$(date +%s)" --overwrite >/dev/null 2>&1 || true
+        for sec in workforce-db-secret facilities-db-secret core-invest-db-secret ops-db-secret; do
+            kubectl wait --for=condition=Ready "externalsecret/${sec}" -n "${es_ns}" --timeout=120s || true
+        done
+    fi
+done
 
 # Provision starter platform administrator in Forgejo IdP if deployed
 if kubectl get namespace oci-internal &>/dev/null && kubectl get secret starter-admin-credentials -n oci-internal &>/dev/null; then

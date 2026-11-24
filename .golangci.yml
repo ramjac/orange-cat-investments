@@ -1,0 +1,72 @@
+version: "2"
+run:
+  tests: false
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - staticcheck
+  settings:
+    gosec:
+      includes:
+        - G101
+        - G104
+        - G106
+        - G107
+        - G112
+        - G114
+        - G201
+        - G202
+        - G401
+        - G402
+        - G404
+        - G501
+        - G505
+      excludes:
+        - G304
+    govet:
+      enable:
+        - printf
+        - nilness
+      enable-all: false
+    staticcheck:
+      checks:
+        - all
+        - "-QF*"
+        - "-ST*"
+        - "-SA1019"
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - gosec
+        path: _test\.go
+      - linters:
+          - gosec
+        path: simulation/
+      - linters:
+          - gosec
+        path: cmd/mock-
+      - path: pkg/dbpool/dbpool\.go
+        text: G201
+    paths:
+      - pkg/gen/go$
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - pkg/gen/go$
+      - third_party$
+      - builtin$
+      - examples$

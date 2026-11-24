@@ -18,56 +18,64 @@ func (s *Server) GetAsset(ctx context.Context, in *facilitiesv1.GetAssetRequest)
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.GetAsset(ctx, in)
+	res, err := s.facClient.GetAsset(ctx, in)
+	return res, s.logDomainError("facilities-api", "GetAsset", err)
 }
 
 func (s *Server) ListAssets(ctx context.Context, in *facilitiesv1.ListAssetsRequest) (*facilitiesv1.ListAssetsResponse, error) {
 	if s.facClient == nil {
 		return &facilitiesv1.ListAssetsResponse{}, nil
 	}
-	return s.facClient.ListAssets(ctx, in)
+	res, err := s.facClient.ListAssets(ctx, in)
+	return res, s.logDomainError("facilities-api", "ListAssets", err)
 }
 
 func (s *Server) CreateAsset(ctx context.Context, in *facilitiesv1.CreateAssetRequest) (*facilitiesv1.CreateAssetResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.CreateAsset(ctx, in)
+	res, err := s.facClient.CreateAsset(ctx, in)
+	return res, s.logDomainError("facilities-api", "CreateAsset", err)
 }
 
 func (s *Server) CreateMaintenanceLog(ctx context.Context, in *facilitiesv1.CreateMaintenanceLogRequest) (*facilitiesv1.CreateMaintenanceLogResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.CreateMaintenanceLog(ctx, in)
+	res, err := s.facClient.CreateMaintenanceLog(ctx, in)
+	return res, s.logDomainError("facilities-api", "CreateMaintenanceLog", err)
 }
 
 func (s *Server) ListMaintenanceLogs(ctx context.Context, in *facilitiesv1.ListMaintenanceLogsRequest) (*facilitiesv1.ListMaintenanceLogsResponse, error) {
 	if s.facClient == nil {
 		return &facilitiesv1.ListMaintenanceLogsResponse{}, nil
 	}
-	return s.facClient.ListMaintenanceLogs(ctx, in)
+	res, err := s.facClient.ListMaintenanceLogs(ctx, in)
+	return res, s.logDomainError("facilities-api", "ListMaintenanceLogs", err)
 }
 
 func (s *Server) SyncOfflineLogs(ctx context.Context, in *facilitiesv1.SyncOfflineLogsRequest) (*facilitiesv1.SyncOfflineLogsResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.SyncOfflineLogs(ctx, in)
+	res, err := s.facClient.SyncOfflineLogs(ctx, in)
+	return res, s.logDomainError("facilities-api", "SyncOfflineLogs", err)
 }
 
 func (s *Server) CreateFirmwareRelease(ctx context.Context, in *facilitiesv1.CreateFirmwareReleaseRequest) (*facilitiesv1.CreateFirmwareReleaseResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.CreateFirmwareRelease(ctx, in)
+	res, err := s.facClient.CreateFirmwareRelease(ctx, in)
+	return res, s.logDomainError("facilities-api", "CreateFirmwareRelease", err)
 }
 
 func (s *Server) ListFirmwareReleases(ctx context.Context, in *facilitiesv1.ListFirmwareReleasesRequest) (*facilitiesv1.ListFirmwareReleasesResponse, error) {
 	if s.facClient == nil {
 		return &facilitiesv1.ListFirmwareReleasesResponse{}, nil
 	}
-	return s.facClient.ListFirmwareReleases(ctx, in)
+	res, err := s.facClient.ListFirmwareReleases(ctx, in)
+	return res, s.logDomainError("facilities-api", "ListFirmwareReleases", err)
 }
 
 func (s *Server) TriggerOTARollout(ctx context.Context, in *facilitiesv1.CreateOTAJobRequest) (*facilitiesv1.CreateOTAJobResponse, error) {
@@ -103,19 +111,36 @@ func (s *Server) TriggerOTARollout(ctx context.Context, in *facilitiesv1.CreateO
 
 	resp, err := s.facClient.CreateOTAJob(ctx, in)
 	if err != nil {
-		return nil, err
+		return nil, s.logDomainError("facilities-api", "CreateOTAJob", err)
 	}
 	if s.publisher != nil {
+		var relMeta *facilitiesv1.FirmwareRelease
+		if listResp, listErr := s.facClient.ListFirmwareReleases(ctx, &facilitiesv1.ListFirmwareReleasesRequest{}); listErr == nil && listResp != nil {
+			for _, r := range listResp.Releases {
+				if r != nil && r.ReleaseID == in.ReleaseID {
+					relMeta = r
+					break
+				}
+			}
+		}
 		for _, job := range resp.Jobs {
+			otaPayload := envelope.OTATriggeredPayload{
+				JobID:     job.JobID,
+				AssetID:   job.AssetID,
+				ReleaseID: job.ReleaseID,
+			}
+			if relMeta != nil {
+				otaPayload.DeviceType = relMeta.DeviceType
+				otaPayload.Version = relMeta.Version
+				otaPayload.FileURL = relMeta.FileURL
+				otaPayload.Checksum = relMeta.Checksum
+				otaPayload.CosignSignature = relMeta.CosignSignature
+			}
 			_ = s.publisher.Publish("events.facilities.ota_triggered.v1", envelope.NewEventEnvelope(ctx,
 				fmt.Sprintf("evt-ota-%d", time.Now().UnixNano()),
 				"events.facilities.ota_triggered.v1",
 				"",
-				envelope.OTATriggeredPayload{
-					JobID:     job.JobID,
-					AssetID:   job.AssetID,
-					ReleaseID: job.ReleaseID,
-				},
+				otaPayload,
 			))
 		}
 	}
@@ -126,21 +151,24 @@ func (s *Server) ListOTAJobs(ctx context.Context, in *facilitiesv1.ListOTAJobsRe
 	if s.facClient == nil {
 		return &facilitiesv1.ListOTAJobsResponse{}, nil
 	}
-	return s.facClient.ListOTAJobs(ctx, in)
+	res, err := s.facClient.ListOTAJobs(ctx, in)
+	return res, s.logDomainError("facilities-api", "ListOTAJobs", err)
 }
 
 func (s *Server) UpdateOTAJobStatus(ctx context.Context, in *facilitiesv1.UpdateOTAJobStatusRequest) (*facilitiesv1.UpdateOTAJobStatusResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.UpdateOTAJobStatus(ctx, in)
+	res, err := s.facClient.UpdateOTAJobStatus(ctx, in)
+	return res, s.logDomainError("facilities-api", "UpdateOTAJobStatus", err)
 }
 
 func (s *Server) IngestEnvironmentalTelemetry(ctx context.Context, in *facilitiesv1.IngestTelemetryRequest) (*facilitiesv1.IngestTelemetryResponse, error) {
 	if s.facClient == nil {
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
-	return s.facClient.IngestEnvironmentalTelemetry(ctx, in)
+	res, err := s.facClient.IngestEnvironmentalTelemetry(ctx, in)
+	return res, s.logDomainError("facilities-api", "IngestEnvironmentalTelemetry", err)
 }
 
 func (s *Server) StreamEnvironmentalTelemetry(in *facilitiesv1.StreamTelemetryRequest, stream facilitiesv1.FacilitiesService_StreamEnvironmentalTelemetryServer) error {
@@ -192,7 +220,7 @@ func (s *Server) ReportDeviceHeartbeat(ctx context.Context, in *internalbllv1.Re
 		ObservedAt:   time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
-		return nil, err
+		return nil, s.logDomainError("facilities-api", "RecordAssetHeartbeat", err)
 	}
 
 	var stream *coreinvestv1.CameraStream
@@ -208,7 +236,7 @@ func (s *Server) ReportDeviceHeartbeat(ctx context.Context, in *internalbllv1.Re
 			Status:        in.CameraStatus,
 		})
 		if err != nil {
-			return nil, err
+			return nil, s.logDomainError("core-invest-api", "UpdateCameraStreamStatus", err)
 		}
 		stream = streamResp.Stream
 	}
@@ -231,7 +259,7 @@ func (s *Server) ListDeviceConnectivity(ctx context.Context, in *internalbllv1.L
 		ZoneID: zoneID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, s.logDomainError("facilities-api", "ListAssetConnectivity", err)
 	}
 	return &internalbllv1.ListDeviceConnectivityResponse{
 		Assets: resp.Assets,

@@ -1,0 +1,697 @@
+# ==============================================================================
+# Harbor Enterprise Container Registry, Pull-Through Proxy Cache & Trivy Gate
+# ==============================================================================
+# Replaces barebones registry:2 on NodePort 32000 and registry.oci.local.
+# Deployed in oci-internal, backed by postgres-internal and Valkey, with
+# Forgejo OIDC SSO, embedded Trivy scanner, and pull-through proxy caches
+# (proxy-dockerhub, proxy-ghcr, proxy-gcr).
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-config
+  namespace: oci-internal
+  labels:
+    app: harbor
+data:
+  registry-config.yml: |
+    version: 0.1
+    log:
+      level: info
+      formatter: text
+    http:
+      addr: :5000
+      secret: harborregistrysecret
+    storage:
+      filesystem:
+        rootdirectory: /storage
+      delete:
+        enabled: true
+  core.env: |
+    CORE_URL=http://harbor-core-service.oci-internal.svc.cluster.local:80
+    JOBSERVICE_URL=http://harbor-jobservice-service.oci-internal.svc.cluster.local:8080
+    REGISTRY_URL=http://harbor-registry-service.oci-internal.svc.cluster.local:5000
+    REGISTRY_STORAGE_PROVIDER_NAME=filesystem
+    POSTGRESQL_HOST=postgres-internal-service.oci-internal.svc.cluster.local
+    POSTGRESQL_PORT=5432
+    POSTGRESQL_DATABASE=harbor
+    POSTGRESQL_SSLMODE=disable
+    _REDIS_URL_CORE=redis://valkey-service.oci-core.svc.cluster.local:6379/2
+    _REDIS_URL_REG=redis://valkey-service.oci-core.svc.cluster.local:6379/3
+    EXT_ENDPOINT=http://registry.oci.local
+    TOKEN_EXPIRATION=30
+    AUTH_MODE=oidc_auth
+    OIDC_NAME=Forgejo
+    OIDC_ENDPOINT=http://forgejo-service.oci-internal.svc.cluster.local:3000
+    OIDC_SCOPE=openid,profile,email
+    OIDC_VERIFY_CERT=false
+    OIDC_AUTO_ONBOARD=true
+    TRIVY_ADAPTER_URL=http://harbor-trivy-service.oci-internal.svc.cluster.local:8080
+    WITH_TRIVY=true
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    events {
+      worker_connections 1024;
+    }
+    http {
+      client_body_temp_path /tmp/client_body_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      client_max_body_size 0;
+      proxy_read_timeout 900;
+      upstream core {
+        server harbor-core-service.oci-internal.svc.cluster.local:80;
+      }
+      upstream portal {
+        server harbor-portal-service.oci-internal.svc.cluster.local:8080;
+      }
+      upstream registry {
+        server harbor-registry-service.oci-internal.svc.cluster.local:5000;
+      }
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://portal;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        location /api/ {
+          proxy_pass http://core/api/;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        location /service/ {
+          proxy_pass http://core/service/;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        location /c/ {
+          proxy_pass http://core/c/;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+        location /v2/ {
+          proxy_pass http://registry/v2/;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+        }
+      }
+    }
+  bootstrap-projects.sh: |
+    #!/usr/bin/env sh
+    set -eu
+    HARBOR_URL="http://harbor-core-service.oci-internal.svc.cluster.local:80"
+    AUTH="admin:${HARBOR_ADMIN_PASSWORD}"
+
+    echo "Waiting for Harbor Core API..."
+    for _ in $(seq 1 60); do
+      if wget -qO- "${HARBOR_URL}/api/v2.0/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 3
+    done
+
+    create_registry() {
+      name="$1"; rtype="$2"; url="$3"
+      curl -sf -u "${AUTH}" -X POST "${HARBOR_URL}/api/v2.0/registries" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${name}\",\"type\":\"${rtype}\",\"url\":\"${url}\",\"insecure\":false}" >/dev/null 2>&1 || true
+    }
+
+    get_registry_id() {
+      name="$1"
+      curl -sf -u "${AUTH}" "${HARBOR_URL}/api/v2.0/registries?q=name%3D${name}" | \
+        sed -n 's/.*"id":\([0-9]*\).*/\1/p' | head -n1
+    }
+
+    create_project() {
+      pname="$1"; reg_id="$2"
+      if [ -n "${reg_id}" ]; then
+        payload="{\"project_name\":\"${pname}\",\"public\":true,\"registry_id\":${reg_id}}"
+      else
+        payload="{\"project_name\":\"${pname}\",\"public\":true,\"metadata\":{\"auto_scan\":\"true\",\"severity\":\"high\"}}"
+      fi
+      curl -sf -u "${AUTH}" -X POST "${HARBOR_URL}/api/v2.0/projects" \
+        -H "Content-Type: application/json" \
+        -d "${payload}" >/dev/null 2>&1 || true
+    }
+
+    # 1. Core OCI project with tag retention (latest 10 sha-* tags) & :prod-stable immutability
+    create_project "oci" ""
+    curl -sf -u "${AUTH}" -X POST "${HARBOR_URL}/api/v2.0/projects/oci/immutabletagrules" \
+      -H "Content-Type: application/json" \
+      -d '{"disabled":false,"scope_selectors":{"repository":[{"kind":"doublestar","decoration":"repoMatches","pattern":"**"}]},"tag_selectors":[{"kind":"doublestar","decoration":"matches","pattern":"prod-stable"}]}' >/dev/null 2>&1 || true
+
+    OCI_PROJ_ID=$(curl -sf -u "${AUTH}" "${HARBOR_URL}/api/v2.0/projects?name=oci" | sed -n 's/.*"project_id":\([0-9]*\).*/\1/p' | head -n1 || true)
+    if [ -n "${OCI_PROJ_ID}" ]; then
+      curl -sf -u "${AUTH}" -X POST "${HARBOR_URL}/api/v2.0/retentions" \
+        -H "Content-Type: application/json" \
+        -d "{\"algorithm\":\"or\",\"rules\":[{\"disabled\":false,\"action\":\"retain\",\"template\":\"latestPushedK\",\"params\":{\"latestPushedK\":10},\"tag_selectors\":[{\"kind\":\"doublestar\",\"decoration\":\"matches\",\"pattern\":\"sha-*\"}],\"scope_selectors\":{\"repository\":[{\"kind\":\"doublestar\",\"decoration\":\"repoMatches\",\"pattern\":\"**\"}]}}],\"trigger\":{\"kind\":\"Schedule\",\"settings\":{\"cron\":\"0 0 * * *\"}},\"scope\":{\"level\":\"project\",\"ref\":${OCI_PROJ_ID}}}" >/dev/null 2>&1 || true
+    fi
+
+    # 2. Pull-through proxy caches for Docker Hub, GHCR, and GCR/Distroless
+    create_registry "upstream-dockerhub" "docker-hub" "https://hub.docker.com"
+    create_registry "upstream-ghcr" "github-ghcr" "https://ghcr.io"
+    create_registry "upstream-gcr" "google-gcr" "https://gcr.io"
+
+    create_project "proxy-dockerhub" "$(get_registry_id upstream-dockerhub)"
+    create_project "proxy-ghcr" "$(get_registry_id upstream-ghcr)"
+    create_project "proxy-gcr" "$(get_registry_id upstream-gcr)"
+    echo "Harbor projects, immutability, retention, and pull-through proxy caches configured."
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-registry-pvc
+  namespace: oci-internal
+  labels:
+    app: harbor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-trivy-pvc
+  namespace: oci-internal
+  labels:
+    app: harbor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: harbor-jobservice-pvc
+  namespace: oci-internal
+  labels:
+    app: harbor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-registry
+  namespace: oci-internal
+  labels:
+    app: harbor-registry
+    part-of: harbor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: harbor-registry
+  template:
+    metadata:
+      labels:
+        app: harbor-registry
+        part-of: harbor
+    spec:
+      containers:
+        - name: registry
+          image: goharbor/registry-photon:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+              name: registry
+          volumeMounts:
+            - name: registry-storage
+              mountPath: /storage
+            - name: registry-config
+              mountPath: /etc/registry/config.yml
+              subPath: registry-config.yml
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: registry-storage
+          persistentVolumeClaim:
+            claimName: harbor-registry-pvc
+        - name: registry-config
+          configMap:
+            name: harbor-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-registry-service
+  namespace: oci-internal
+  labels:
+    app: harbor-registry
+spec:
+  ports:
+    - port: 5000
+      targetPort: 5000
+      name: registry
+  selector:
+    app: harbor-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-trivy
+  namespace: oci-internal
+  labels:
+    app: harbor-trivy
+    part-of: harbor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: harbor-trivy
+  template:
+    metadata:
+      labels:
+        app: harbor-trivy
+        part-of: harbor
+    spec:
+      containers:
+        - name: trivy
+          image: goharbor/trivy-adapter-photon:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: SCANNER_TRIVY_CACHE_DIR
+              value: /home/scanner/.cache/trivy
+            - name: SCANNER_TRIVY_REPORTS_DIR
+              value: /home/scanner/.cache/reports
+            - name: SCANNER_TRIVY_INSECURE
+              value: "true"
+            - name: SCANNER_REDIS_URL
+              value: "redis://valkey-service.oci-core.svc.cluster.local:6379/4"
+          volumeMounts:
+            - name: trivy-cache
+              mountPath: /home/scanner/.cache
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: trivy-cache
+          persistentVolumeClaim:
+            claimName: harbor-trivy-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-trivy-service
+  namespace: oci-internal
+  labels:
+    app: harbor-trivy
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: harbor-trivy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-core
+  namespace: oci-internal
+  labels:
+    app: harbor-core
+    part-of: harbor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: harbor-core
+  template:
+    metadata:
+      labels:
+        app: harbor-core
+        part-of: harbor
+    spec:
+      initContainers:
+        - name: ensure-harbor-db
+          image: postgres:16-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              export PGPASSWORD="${POSTGRES_PASSWORD}"
+              until pg_isready -h postgres-internal-service.oci-internal.svc.cluster.local -p 5432 -U "${POSTGRES_USER}"; do
+                sleep 2
+              done
+              psql -h postgres-internal-service.oci-internal.svc.cluster.local -U "${POSTGRES_USER}" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'harbor'" | grep -q 1 || \
+              psql -h postgres-internal-service.oci-internal.svc.cluster.local -U "${POSTGRES_USER}" -d postgres -c "CREATE DATABASE harbor"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: core
+          image: goharbor/harbor-core:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: harbor-config
+          env:
+            - name: PORT
+              value: "8080"
+            - name: POSTGRESQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_ADMIN_PASSWORD
+            - name: CORE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_CORE_SECRET
+            - name: CSRF_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_CORE_SECRET
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /api/v2.0/ping
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-core-service
+  namespace: oci-internal
+  labels:
+    app: harbor-core
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  selector:
+    app: harbor-core
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-portal
+  namespace: oci-internal
+  labels:
+    app: harbor-portal
+    part-of: harbor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: harbor-portal
+  template:
+    metadata:
+      labels:
+        app: harbor-portal
+        part-of: harbor
+    spec:
+      containers:
+        - name: portal
+          image: goharbor/harbor-portal:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-portal-service
+  namespace: oci-internal
+  labels:
+    app: harbor-portal
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: harbor-portal
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-jobservice
+  namespace: oci-internal
+  labels:
+    app: harbor-jobservice
+    part-of: harbor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: harbor-jobservice
+  template:
+    metadata:
+      labels:
+        app: harbor-jobservice
+        part-of: harbor
+    spec:
+      containers:
+        - name: jobservice
+          image: goharbor/harbor-jobservice:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: CORE_URL
+              value: "http://harbor-core-service.oci-internal.svc.cluster.local:80"
+            - name: REGISTRY_URL
+              value: "http://harbor-registry-service.oci-internal.svc.cluster.local:5000"
+            - name: CORE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_CORE_SECRET
+            - name: JOBSERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_CORE_SECRET
+          volumeMounts:
+            - name: jobservice-logs
+              mountPath: /var/log/jobs
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: jobservice-logs
+          persistentVolumeClaim:
+            claimName: harbor-jobservice-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-jobservice-service
+  namespace: oci-internal
+  labels:
+    app: harbor-jobservice
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: harbor-jobservice
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harbor-proxy
+  namespace: oci-internal
+  labels:
+    app: harbor-proxy
+    part-of: harbor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: harbor-proxy
+  template:
+    metadata:
+      labels:
+        app: harbor-proxy
+        part-of: harbor
+    spec:
+      containers:
+        - name: nginx
+          image: goharbor/nginx-photon:v2.11.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: harbor-nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+      volumes:
+        - name: harbor-nginx-conf
+          configMap:
+            name: harbor-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: harbor-service
+  namespace: oci-internal
+  labels:
+    app: harbor-proxy
+spec:
+  type: NodePort
+  selector:
+    app: harbor-proxy
+  ports:
+    - port: 32000
+      targetPort: 8080
+      nodePort: 32000
+      name: registry-http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: harbor-http-route
+  namespace: oci-internal
+  labels:
+    owner: emp-human-elise
+    part-of: harbor
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - registry.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: harbor-service
+          port: 32000
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-project-bootstrap
+  namespace: oci-internal
+  labels:
+    app: harbor-bootstrap
+    part-of: harbor
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: harbor-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: bootstrap
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "/bootstrap/bootstrap-projects.sh"]
+          env:
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: HARBOR_ADMIN_PASSWORD
+          volumeMounts:
+            - name: bootstrap-script
+              mountPath: /bootstrap
+      volumes:
+        - name: bootstrap-script
+          configMap:
+            name: harbor-config

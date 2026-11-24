@@ -6,20 +6,94 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
 
+const maxFirmwareDownloadBytes = 64 * 1024 * 1024
+
 var deliveredIncidentBFF sync.Map
 var deliveredIncidentPebble sync.Map
+
+func resolveFirmwareDownloadURL(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	internalBase := strings.TrimRight(os.Getenv("FORGEJO_INTERNAL_URL"), "/")
+	if internalBase == "" {
+		internalBase = "http://forgejo-service.oci-internal.svc.cluster.local:3000"
+	}
+	for _, externalPrefix := range []string{"https://forgejo.oci.local", "http://forgejo.oci.local"} {
+		if strings.HasPrefix(trimmed, externalPrefix+"/") || trimmed == externalPrefix {
+			return internalBase + strings.TrimPrefix(trimmed, externalPrefix)
+		}
+	}
+	return trimmed
+}
+
+func downloadAndVerifyFirmware(ctx context.Context, payload OTATriggeredPayload, logger *slog.Logger) error {
+	targetURL := resolveFirmwareDownloadURL(payload.FileURL)
+	parsed, err := url.Parse(targetURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("invalid firmware package URL %q", payload.FileURL)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil) // #nosec G107 -- URL scheme/host validated; payload verified by SHA-256 + Cosign
+	if err != nil {
+		return fmt.Errorf("build firmware download request: %w", err)
+	}
+	if tok := strings.TrimSpace(os.Getenv("FORGEJO_PACKAGE_TOKEN")); tok != "" {
+		req.Header.Set("Authorization", "token "+tok)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download firmware from package registry: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("firmware package registry returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFirmwareDownloadBytes+1))
+	if err != nil {
+		return fmt.Errorf("read firmware binary payload: %w", err)
+	}
+	if len(body) > maxFirmwareDownloadBytes {
+		return errors.New("firmware binary payload exceeds 64 MiB limit")
+	}
+
+	if err := cosignverify.VerifySHA256Hex(body, payload.Checksum); err != nil {
+		return err
+	}
+
+	pubKeyPEM, err := cosignverify.LoadPublicKeyFromEnvOrPath("")
+	if err != nil {
+		return err
+	}
+	if err := cosignverify.VerifyBlobSignature(pubKeyPEM, body, payload.CosignSignature); err != nil {
+		return err
+	}
+
+	logger.Info("verified firmware SHA-256 checksum and Cosign signature",
+		"job_id", payload.JobID,
+		"bytes", len(body),
+		"file_url", parsed.String(),
+	)
+	return nil
+}
 
 // HandleOTATriggered processes OTA firmware update triggers for edge habitat hardware and persists updates through Internal BLL.
 func HandleOTATriggered(ctx context.Context, logger *slog.Logger, internalBLL internalbllv1.InternalBLLServiceClient, msg *message.Message) ([]*message.Message, error) {
@@ -41,11 +115,26 @@ func HandleOTATriggered(ctx context.Context, logger *slog.Logger, internalBLL in
 		"asset_id", payload.AssetID,
 		"version", payload.Version,
 	)
-	logger.Info("downloading firmware image and verifying checksum",
+	logger.Info("downloading firmware image and verifying checksum & Cosign signature",
 		"file_url", payload.FileURL,
 		"checksum", payload.Checksum,
 	)
-	logger.Info("applying OTA update to edge device and rebooting", "asset_id", payload.AssetID)
+
+	if err := downloadAndVerifyFirmware(ctx, payload, logger); err != nil {
+		logger.Error("OTA firmware supply chain verification failed; marking job failed",
+			"job_id", payload.JobID,
+			"asset_id", payload.AssetID,
+			"error", err,
+		)
+		_, _ = internalBLL.UpdateOTAJobStatus(ctx, &facilitiesv1.UpdateOTAJobStatusRequest{
+			JobID:        payload.JobID,
+			Status:       "failed",
+			ErrorMessage: err.Error(),
+		})
+		return nil, fmt.Errorf("firmware supply chain verification failed: %w", err)
+	}
+
+	logger.Info("applying verified OTA update to edge device and rebooting", "asset_id", payload.AssetID)
 
 	_, err := internalBLL.UpdateOTAJobStatus(ctx, &facilitiesv1.UpdateOTAJobStatusRequest{
 		JobID:  payload.JobID,
@@ -81,13 +170,23 @@ func HandleOTATriggered(ctx context.Context, logger *slog.Logger, internalBLL in
 // HandleExecutiveReportTrigger consumes a report generation request and delegates generation to Internal BLL.
 func HandleExecutiveReportTrigger(ctx context.Context, logger *slog.Logger, internalBLL internalbllv1.InternalBLLServiceClient, ps PubSub, msg *message.Message) ([]*message.Message, error) {
 	logger.Info("Watermill consumer received executive report generation request", "uuid", msg.UUID)
-	var req struct {
+	type reportTriggerPayload struct {
 		Period      string `json:"period"`
 		GeneratedBy string `json:"generated_by"`
+		RequestedBy string `json:"requested_by"`
 	}
-	_ = json.Unmarshal(msg.Payload, &req)
+	var req reportTriggerPayload
+	var env EventEnvelope[reportTriggerPayload]
+	if err := json.Unmarshal(msg.Payload, &env); err == nil && (env.Payload.Period != "" || env.Payload.GeneratedBy != "" || env.Payload.RequestedBy != "") {
+		req = env.Payload
+	} else {
+		_ = json.Unmarshal(msg.Payload, &req)
+	}
 	if req.Period == "" {
 		req.Period = time.Now().UTC().Format("2006-01")
+	}
+	if req.GeneratedBy == "" {
+		req.GeneratedBy = req.RequestedBy
 	}
 	if req.GeneratedBy == "" {
 		req.GeneratedBy = "system-reporting-worker"

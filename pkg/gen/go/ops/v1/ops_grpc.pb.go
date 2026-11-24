@@ -69,6 +69,9 @@ func (c *opsServiceClient) AcknowledgeAlert(ctx context.Context, in *Acknowledge
 func (c *opsServiceClient) SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error) {
 	return invokeUnary[SendPushNotificationRequest, SendPushNotificationResponse](ctx, c.cc, "/oci.ops.v1.OpsService/SendPushNotification", in)
 }
+func (c *opsServiceClient) ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error) {
+	return invokeUnary[ScrubCustomerGDPRDataRequest, ScrubCustomerGDPRDataResponse](ctx, c.cc, "/oci.ops.v1.OpsService/ScrubCustomerGDPRData", in)
+}
 
 type UnimplementedOpsServiceServer struct{}
 
@@ -113,6 +116,9 @@ func (UnimplementedOpsServiceServer) AcknowledgeAlert(context.Context, *Acknowle
 }
 func (UnimplementedOpsServiceServer) SendPushNotification(context.Context, *SendPushNotificationRequest) (*SendPushNotificationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendPushNotification not implemented")
+}
+func (UnimplementedOpsServiceServer) ScrubCustomerGDPRData(context.Context, *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ScrubCustomerGDPRData not implemented")
 }
 
 func RegisterOpsServiceServer(s grpc.ServiceRegistrar, srv OpsServiceServer) {
@@ -186,6 +192,9 @@ var OpsService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "SendPushNotification", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/SendPushNotification", OpsServiceServer.SendPushNotification)
+		}},
+		{MethodName: "ScrubCustomerGDPRData", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/ScrubCustomerGDPRData", OpsServiceServer.ScrubCustomerGDPRData)
 		}},
 	},
 	Streams:  []grpc.StreamDesc{},

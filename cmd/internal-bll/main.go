@@ -26,9 +26,30 @@ import (
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
+
+func initWorkspaceClient(logger *slog.Logger) wfService.WorkspaceClient {
+	ncURL := os.Getenv("NEXTCLOUD_URL")
+	ncUser := os.Getenv("NEXTCLOUD_ADMIN_USER")
+	ncPass := os.Getenv("NEXTCLOUD_ADMIN_PASS")
+	if ncPass == "" {
+		ncPass = os.Getenv("NEXTCLOUD_ADMIN_PASSWORD")
+	}
+	if ncURL == "" || ncUser == "" {
+		return nil
+	}
+	if logger != nil {
+		logger.Info("initialized Nextcloud COTS workspace client", "url", ncURL, "admin_user", ncUser)
+	}
+	return wfService.WorkspaceClient(nextcloud.NewClient(nextcloud.Config{
+		BaseURL:       ncURL,
+		AdminUser:     ncUser,
+		AdminPassword: ncPass,
+	}))
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -38,7 +59,7 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		defer shutdownTelemetry()
+		defer func() { _ = shutdownTelemetry() }()
 	}
 	slog.SetDefault(logger)
 
@@ -56,13 +77,20 @@ func main() {
 
 	var serverTLS, clientTLS *tls.Config
 	if certFile != "" && keyFile != "" {
-		if sTLS, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA); err == nil {
-			serverTLS = sTLS
+		sTLS, err := mtls.NewServerTLSConfig(certFile, keyFile, clientCA)
+		if err != nil {
+			logger.Error("failed to configure server mTLS in Internal BLL", "error", err)
+			os.Exit(1)
 		}
+		serverTLS = sTLS
+		logger.Info("Internal BLL configured with dynamic server mTLS")
 		if clientCA != "" {
-			if cTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA); err == nil {
-				clientTLS = cTLS
+			cTLS, err := mtls.NewClientTLSConfig(certFile, keyFile, clientCA)
+			if err != nil {
+				logger.Error("failed to configure client mTLS in Internal BLL", "error", err)
+				os.Exit(1)
 			}
+			clientTLS = cTLS
 		}
 	}
 
@@ -133,12 +161,8 @@ func main() {
 			APISecret: os.Getenv("FRAPPE_API_SECRET"),
 		}))
 	}
-	if ncURL := os.Getenv("NEXTCLOUD_URL"); ncURL != "" && os.Getenv("NEXTCLOUD_ADMIN_USER") != "" {
-		cfg.WorkspaceClient = wfService.WorkspaceClient(nextcloud.NewClient(nextcloud.Config{
-			BaseURL:       ncURL,
-			AdminUser:     os.Getenv("NEXTCLOUD_ADMIN_USER"),
-			AdminPassword: os.Getenv("NEXTCLOUD_ADMIN_PASS"),
-		}))
+	if wsClient := initWorkspaceClient(logger); wsClient != nil {
+		cfg.WorkspaceClient = wsClient
 	}
 	if fgURL := os.Getenv("FORGEJO_URL"); fgURL != "" {
 		cfg.VCSClient = saga.NewForgejoVCSAdapter(forgejo.NewClient(forgejo.Config{
@@ -163,7 +187,13 @@ func main() {
 		cfg,
 	)
 
-	grpcSrv := grpcutil.NewServer(serverTLS)
+	var serverOpts []grpc.ServerOption
+	if serverTLS != nil {
+		serverOpts = append(serverOpts, grpcutil.WithAllowedPeerSPIFFEIDs(
+			grpcutil.AllowedInternalBLLCallers(grpcutil.ResolveNamespace())...,
+		)...)
+	}
+	grpcSrv := grpcutil.NewServer(serverTLS, serverOpts...)
 	internalbllv1.RegisterInternalBLLServiceServer(grpcSrv, bllSrv)
 
 	healthSrv := health.NewServer()

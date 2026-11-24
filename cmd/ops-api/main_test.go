@@ -50,4 +50,32 @@ func TestOpsAPI_GRPC(t *testing.T) {
 	res, err := client.ListTickets(t.Context(), &opsv1.ListTicketsRequest{})
 	require.NoError(t, err)
 	assert.NotNil(t, res)
+
+	// Create a customer ticket and verify CloseTicket treats resolution notes as ordinary data
+	created, err := client.CreateCustomerTicket(t.Context(), &opsv1.CreateCustomerTicketRequest{
+		CustomerID: "cust-gdpr-ops-test",
+		Category:   "billing",
+		Title:      "Billing question",
+		Body:       "Customer PII body",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.Ticket)
+
+	closed, err := client.CloseTicket(t.Context(), &opsv1.CloseTicketRequest{
+		TicketID:        created.Ticket.TicketID,
+		ResolutionNotes: "GDPR_ARTICLE_17_ERASURE",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "closed", closed.Ticket.State)
+	assert.Equal(t, "GDPR_ARTICLE_17_ERASURE", closed.Ticket.ResolutionNotes)
+	assert.Equal(t, "Customer PII body", closed.Ticket.Body)
+
+	// Verify explicit ScrubCustomerGDPRData RPC scrubs customer data
+	scrubRes, err := client.ScrubCustomerGDPRData(t.Context(), &opsv1.ScrubCustomerGDPRDataRequest{
+		CustomerID: "cust-gdpr-ops-test",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "cust-gdpr-ops-test", scrubRes.CustomerID)
+	assert.GreaterOrEqual(t, scrubRes.ScrubbedRecordsCount, int32(1))
+	assert.Equal(t, []string{"ops.it_tickets", "ops.ticket_comments"}, scrubRes.AnonymizedTables)
 }

@@ -379,23 +379,54 @@ func TestInitiateACHDeposit_PortfolioResolution(t *testing.T) {
 }
 
 func TestInitiateACHDeposit_BankAndFrequencyResolution(t *testing.T) {
-	t.Run("fetch bank account from bank client when account_id is empty and bank errors out gracefully", func(t *testing.T) {
+	t.Run("reject deposit when bank lookup fails during ownership check", func(t *testing.T) {
 		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
 		defer bankServer.Close()
 
+		pub := newMockRecordingPublisher()
 		s := NewServer(Config{
 			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
 		})
 
 		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
 			CustomerID: "cust-001",
 			AmountUSD:  100.0,
 		})
-		require.NoError(t, err)
-		assert.Equal(t, "pending_settlement", resp.Status)
-		assert.Equal(t, "one_time", resp.Frequency)
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.Unavailable, status.Code(err))
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
+	})
+
+	t.Run("reject unowned account_id with PermissionDenied", func(t *testing.T) {
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "cust-001", r.URL.Query().Get("owner_id"))
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accounts": []plaid.Account{
+					{AccountID: "acc_owned_001", Name: "Checking"},
+				},
+			})
+		}))
+		defer bankServer.Close()
+
+		pub := newMockRecordingPublisher()
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID: "cust-001",
+			AccountID:  "acc_other_customer_999",
+			AmountUSD:  100.0,
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
 	})
 
 	t.Run("fetch bank account from bank client when account_id is empty", func(t *testing.T) {
@@ -483,11 +514,94 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
 			CustomerID: "cust-100",
 			AmountUSD:  350.0,
+			Frequency:  "monthly",
 		})
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 		assert.Contains(t, err.Error(), "invalid deposit schedule parameters")
+	})
+
+	t.Run("one_time deposit skips CreateRecurringDeposit and uses resolved bank account ID", func(t *testing.T) {
+		ciCalled := false
+		ciMock := &mockCoreInvestClient{
+			createRecurringDepositFunc: func(ctx context.Context, in *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
+				ciCalled = true
+				return nil, errors.New("should not be called for one_time")
+			},
+		}
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accounts": []plaid.Account{
+					{
+						AccountID:        "acc_arthur_chase_chk",
+						Name:             "Chase Checking (****4821)",
+						AccountNumber:    "****4821",
+						AvailableBalance: 48250.00,
+					},
+				},
+			})
+		}))
+		defer bankServer.Close()
+
+		pub := newMockRecordingPublisher()
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
+		})
+		s.SetCoreInvestClient(ciMock)
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID:  "cust-longterm-arthur",
+			PortfolioID: "port-arthur",
+			BankAccount: "Chase Checking (****4821)",
+			AmountUSD:   500.0,
+			Frequency:   "one_time",
+		})
+		require.NoError(t, err)
+		assert.False(t, ciCalled, "CreateRecurringDeposit must not be called for one_time deposits")
+		assert.Equal(t, "one_time", resp.Frequency)
+
+		published := pub.publishedMessages[envelope.TopicACHTransferRequested]
+		require.Len(t, published, 1)
+		var env envelope.EventEnvelope[map[string]any]
+		require.NoError(t, json.Unmarshal(published[0].Payload, &env))
+		assert.Equal(t, "acc_arthur_chase_chk", env.Payload["bank_account"])
+	})
+
+	t.Run("over-balance deposit fails with NSF R01 InvalidArgument", func(t *testing.T) {
+		bankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accounts": []plaid.Account{
+					{
+						AccountID:        "acc_chloe_svcu_chk",
+						Name:             "High-Yield Tech Checking (****7732)",
+						AccountNumber:    "****7732",
+						AvailableBalance: 22400.00,
+					},
+				},
+			})
+		}))
+		defer bankServer.Close()
+
+		pub := newMockRecordingPublisher()
+		s := NewServer(Config{
+			BankClient: plaid.NewClient(plaid.Config{BaseURL: bankServer.URL}),
+			Publisher:  pub,
+		})
+
+		resp, err := s.InitiateACHDeposit(context.Background(), &customerbllv1.InitiateACHDepositRequest{
+			CustomerID:  "cust-active-chloe",
+			PortfolioID: "port-chloe",
+			BankAccount: "Wells Fargo Checking (****9912)",
+			AmountUSD:   50000.00,
+			Frequency:   "one_time",
+		})
+		require.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		assert.Contains(t, err.Error(), "R01")
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
 	})
 
 	t.Run("fallback createdDep when core-invest client is nil", func(t *testing.T) {

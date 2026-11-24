@@ -20,14 +20,16 @@ func (s *Server) GetEmployee(ctx context.Context, in *workforcev1.GetEmployeeReq
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.GetEmployee(ctx, in)
+	res, err := s.wfClient.GetEmployee(ctx, in)
+	return res, s.logDomainError("workforce-api", "GetEmployee", err)
 }
 
 func (s *Server) ListEmployees(ctx context.Context, in *workforcev1.ListEmployeesRequest) (*workforcev1.ListEmployeesResponse, error) {
 	if s.wfClient == nil {
 		return &workforcev1.ListEmployeesResponse{}, nil
 	}
-	return s.wfClient.ListEmployees(ctx, in)
+	res, err := s.wfClient.ListEmployees(ctx, in)
+	return res, s.logDomainError("workforce-api", "ListEmployees", err)
 }
 
 func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardEmployeeSagaRequest) (*internalbllv1.OnboardEmployeeSagaResponse, error) {
@@ -128,12 +130,7 @@ func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardE
 		if s.hwClient != nil {
 			if assets, hwErr := s.hwClient.AssignInitialHardware(ctx, created.EmployeeID, in.RoleTitle, in.Department); hwErr == nil {
 				for _, a := range assets {
-					hwAssets = append(hwAssets, internalbllv1.AssetAllocation{
-						AssetTag:    a.AssetTag,
-						Name:        a.Name,
-						Category:    a.Category,
-						StatusLabel: a.StatusLabel,
-					})
+					hwAssets = append(hwAssets, internalbllv1.AssetAllocation(a))
 				}
 			}
 		}

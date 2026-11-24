@@ -10,8 +10,9 @@ import (
 func RequireBankAuth(expectedClientID, expectedSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Bypass auth for health probes
-			if r.URL.Path == "/healthz" {
+			// Bypass auth for health probes and dev-only fault injection control plane
+			// (/sim/faults is only registered on the mux when ENABLE_FAULT_INJECTION=true).
+			if r.URL.Path == "/healthz" || r.URL.Path == "/sim/faults" {
 				next.ServeHTTP(w, r)
 				return
 			}

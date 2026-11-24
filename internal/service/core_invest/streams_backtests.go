@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/orange-cat-investments/oci/internal/repository/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 )
 
 func (s *coreInvestService) RegisterCameraStream(ctx context.Context, cameraAssetID, streamURL, protocol string) (*core_invest.CameraStream, error) {
@@ -73,10 +75,20 @@ func (s *coreInvestService) StartBacktestRun(ctx context.Context, strategyID str
 	}
 
 	if s.publisher != nil {
-		_ = s.publisher.Publish("events.investment.backtest_requested.v1", map[string]any{
-			"backtest_id": createdRun.BacktestID,
-			"strategy_id": createdRun.StrategyID,
-		})
+		eventID := uuid.NewString()
+		if idv7, idErr := uuid.NewV7(); idErr == nil {
+			eventID = idv7.String()
+		}
+		_ = s.publisher.Publish(envelope.TopicBacktestRun, envelope.NewEventEnvelope(
+			ctx,
+			eventID,
+			envelope.TopicBacktestRun,
+			"",
+			map[string]any{
+				"backtest_id": createdRun.BacktestID,
+				"strategy_id": createdRun.StrategyID,
+			},
+		))
 	}
 
 	return createdRun, nil

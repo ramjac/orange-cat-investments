@@ -115,6 +115,28 @@ func TestCustomerLifecycle_GDPRErasure(t *testing.T) {
 	assert.Contains(t, p.AccountName, "Anonymized Investor")
 }
 
+func TestCustomerLifecycle_GDPRErasureWithScopePersistsAggregatedCertificate(t *testing.T) {
+	repo := core_invest_repo.NewMockRepository()
+	svc := core_invest_svc.NewService(repo)
+
+	cert, err := svc.ExecuteGDPRErasureWithScope(
+		context.Background(),
+		"cust-active-chloe",
+		"chloe@oci.local",
+		[]string{"ops.it_tickets", "ops.ticket_comments"},
+		3,
+	)
+	require.NoError(t, err)
+	assert.Contains(t, cert.TablesScrubbed, "ops.it_tickets")
+	assert.Contains(t, cert.TablesScrubbed, "ops.ticket_comments")
+
+	persisted, err := svc.GetGDPRErasureCertificate(context.Background(), cert.CertificateID)
+	require.NoError(t, err)
+	assert.Equal(t, cert.TablesScrubbed, persisted.TablesScrubbed)
+	assert.Equal(t, cert.RecordsScrubbedCount, persisted.RecordsScrubbedCount)
+	assert.GreaterOrEqual(t, persisted.RecordsScrubbedCount, 3)
+}
+
 func TestCustomerLifecycle_StatementsAndTaxDocuments(t *testing.T) {
 	repo := core_invest_repo.NewMockRepository()
 	svc := core_invest_svc.NewService(repo)

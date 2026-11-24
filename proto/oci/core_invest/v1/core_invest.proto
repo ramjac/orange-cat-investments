@@ -181,6 +181,9 @@ message GDPRErasureCertificate {
 
 message ExecuteGDPRErasureRequest {
   string customer_id = 1;
+  string email = 2;
+  repeated string additional_anonymized_tables = 3;
+  int32 additional_records_scrubbed_count = 4;
 }
 
 message ExecuteGDPRErasureResponse {

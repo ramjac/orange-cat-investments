@@ -7,10 +7,9 @@ RUN go mod download || true
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/workforce-api ./cmd/workforce-api
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S oci && adduser -S oci -G oci
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 COPY --from=builder /app/bin/workforce-api /usr/local/bin/workforce-api
-USER oci
+USER nonroot:nonroot
 EXPOSE 50051
 ENTRYPOINT ["/usr/local/bin/workforce-api"]

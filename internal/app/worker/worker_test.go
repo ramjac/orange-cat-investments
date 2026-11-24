@@ -2,11 +2,20 @@ package worker_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +23,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
 	"github.com/orange-cat-investments/oci/internal/app/worker"
+	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -205,17 +215,59 @@ func TestConsumersOpsWorkforce(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	t.Run("HandleOTATriggered", func(t *testing.T) {
-		mockBLL := &mockInternalBLL{}
+		priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+		require.NoError(t, err)
+		pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+		require.NoError(t, err)
+		privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+		pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
+
+		pubKeyPath := filepath.Join(t.TempDir(), "cosign.pub")
+		require.NoError(t, os.WriteFile(pubKeyPath, pubPEM, 0o600))
+		t.Setenv(cosignverify.DefaultPublicKeyEnv, pubKeyPath)
+
+		firmwareBytes := []byte("OCI-SIGNED-EDGE-FIRMWARE-v1.2.0")
+		sum := sha256.Sum256(firmwareBytes)
+		checksum := hex.EncodeToString(sum[:])
+		sig, err := cosignverify.SignBlob(privPEM, firmwareBytes)
+		require.NoError(t, err)
+
+		pkgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/1.2.0.bin":
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(firmwareBytes)
+			case "/tampered.bin":
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("TAMPERED-FIRMWARE-BYTES"))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer pkgServer.Close()
+
+		var lastStatus string
+		mockBLL := &mockInternalBLL{
+			updateOTAFunc: func(ctx context.Context, in *facilitiesv1.UpdateOTAJobStatusRequest) (*facilitiesv1.UpdateOTAJobStatusResponse, error) {
+				lastStatus = in.Status
+				return &facilitiesv1.UpdateOTAJobStatusResponse{
+					Job: &facilitiesv1.DeviceOTAJob{JobID: in.JobID, Status: in.Status, ErrorMessage: in.ErrorMessage},
+				}, nil
+			},
+		}
 		otaReq := worker.EventEnvelope[worker.OTATriggeredPayload]{
 			EventID: "evt-ota-1",
 			Payload: worker.OTATriggeredPayload{
-				JobID:      "job-1",
-				AssetID:    "asset-1",
-				ReleaseID:  "rel-1",
-				DeviceType: "camera",
-				Version:    "1.2.0",
-				FileURL:    "http://firmware/1.2.0.bin",
-				Checksum:   "abc",
+				JobID:           "job-1",
+				AssetID:         "asset-1",
+				ReleaseID:       "rel-1",
+				DeviceType:      "edge_camera",
+				Version:         "1.2.0",
+				FileURL:         pkgServer.URL + "/1.2.0.bin",
+				Checksum:        checksum,
+				CosignSignature: sig,
 			},
 		}
 		data, _ := json.Marshal(otaReq)
@@ -224,12 +276,40 @@ func TestConsumersOpsWorkforce(t *testing.T) {
 		outMsgs, err := worker.HandleOTATriggered(context.Background(), logger, mockBLL, msg)
 		require.NoError(t, err)
 		require.Len(t, outMsgs, 1)
+		assert.Equal(t, "completed", lastStatus)
 
 		var comp worker.EventEnvelope[worker.OTACompletedPayload]
 		err = json.Unmarshal(outMsgs[0].Payload, &comp)
 		require.NoError(t, err)
 		assert.Equal(t, "job-1", comp.Payload.JobID)
 		assert.Equal(t, "completed", comp.Payload.Status)
+
+		// Reject tampered firmware payload -> marks job failed and errors for .dlq routing.
+		lastStatus = ""
+		tamperedReq := otaReq
+		tamperedReq.Payload.FileURL = pkgServer.URL + "/tampered.bin"
+		tamperedData, _ := json.Marshal(tamperedReq)
+		_, err = worker.HandleOTATriggered(context.Background(), logger, mockBLL, message.NewMessage("msg-ota-tamper", tamperedData))
+		assert.Error(t, err)
+		assert.Equal(t, "failed", lastStatus)
+
+		// Reject unsigned firmware payload -> marks job failed and errors for .dlq routing.
+		lastStatus = ""
+		unsignedReq := otaReq
+		unsignedReq.Payload.CosignSignature = ""
+		unsignedData, _ := json.Marshal(unsignedReq)
+		_, err = worker.HandleOTATriggered(context.Background(), logger, mockBLL, message.NewMessage("msg-ota-unsigned", unsignedData))
+		assert.Error(t, err)
+		assert.Equal(t, "failed", lastStatus)
+
+		// Reject forged/invalid Cosign signature -> marks job failed and errors for .dlq routing.
+		lastStatus = ""
+		badSigReq := otaReq
+		badSigReq.Payload.CosignSignature = "aW52YWxpZC1zaWduYXR1cmU="
+		badSigData, _ := json.Marshal(badSigReq)
+		_, err = worker.HandleOTATriggered(context.Background(), logger, mockBLL, message.NewMessage("msg-ota-badsig", badSigData))
+		assert.Error(t, err)
+		assert.Equal(t, "failed", lastStatus)
 	})
 
 	t.Run("HandleOTATriggered_NilClient", func(t *testing.T) {

@@ -65,13 +65,14 @@ type CatSpottedPayload struct {
 }
 
 type OTATriggeredPayload struct {
-	JobID      string `json:"job_id"`
-	AssetID    string `json:"asset_id"`
-	ReleaseID  string `json:"release_id"`
-	DeviceType string `json:"device_type"`
-	Version    string `json:"version"`
-	FileURL    string `json:"file_url"`
-	Checksum   string `json:"checksum"`
+	JobID           string `json:"job_id"`
+	AssetID         string `json:"asset_id"`
+	ReleaseID       string `json:"release_id"`
+	DeviceType      string `json:"device_type"`
+	Version         string `json:"version"`
+	FileURL         string `json:"file_url"`
+	Checksum        string `json:"checksum"`
+	CosignSignature string `json:"cosign_signature,omitempty"`
 }
 
 type OTACompletedPayload struct {

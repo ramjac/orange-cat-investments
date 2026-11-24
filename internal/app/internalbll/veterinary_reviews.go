@@ -4,6 +4,7 @@ import (
 	"context"
 
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -12,35 +13,46 @@ func (s *Server) GetCareSchedule(ctx context.Context, in *workforcev1.GetCareSch
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.GetCareSchedule(ctx, in)
+	res, err := s.wfClient.GetCareSchedule(ctx, in)
+	return res, s.logDomainError("workforce-api", "GetCareSchedule", err)
 }
 
 func (s *Server) UpdateCareSchedule(ctx context.Context, in *workforcev1.UpdateCareScheduleRequest) (*workforcev1.UpdateCareScheduleResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.UpdateCareSchedule(ctx, in)
+	res, err := s.wfClient.UpdateCareSchedule(ctx, in)
+	if err == nil {
+		telemetry.RecordCareScheduleUpdate(ctx)
+	}
+	return res, s.logDomainError("workforce-api", "UpdateCareSchedule", err)
 }
 
 func (s *Server) SetMedicalHold(ctx context.Context, in *workforcev1.SetMedicalHoldRequest) (*workforcev1.SetMedicalHoldResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.SetMedicalHold(ctx, in)
+	res, err := s.wfClient.SetMedicalHold(ctx, in)
+	if err == nil {
+		telemetry.RecordEmergencyHoldToggle(ctx)
+	}
+	return res, s.logDomainError("workforce-api", "SetMedicalHold", err)
 }
 
 func (s *Server) CreateVHRRecord(ctx context.Context, in *workforcev1.CreateVHRRecordRequest) (*workforcev1.CreateVHRRecordResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	return s.wfClient.CreateVHRRecord(ctx, in)
+	res, err := s.wfClient.CreateVHRRecord(ctx, in)
+	return res, s.logDomainError("workforce-api", "CreateVHRRecord", err)
 }
 
 func (s *Server) ListVHRRecords(ctx context.Context, in *workforcev1.ListVHRRecordsRequest) (*workforcev1.ListVHRRecordsResponse, error) {
 	if s.wfClient == nil {
 		return &workforcev1.ListVHRRecordsResponse{}, nil
 	}
-	return s.wfClient.ListVHRRecords(ctx, in)
+	res, err := s.wfClient.ListVHRRecords(ctx, in)
+	return res, s.logDomainError("workforce-api", "ListVHRRecords", err)
 }
 
 func (s *Server) SubmitLeaveRequest(ctx context.Context, in *workforcev1.SubmitLeaveRequestMessage) (*workforcev1.SubmitLeaveResponse, error) {

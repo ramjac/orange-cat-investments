@@ -409,3 +409,37 @@ func TestPebbleProxy_TicketsRoutes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), commList["total"])
 }
+
+func TestAlertCreatedAtCacheBoundingAndPruning(t *testing.T) {
+	handler := NewGatewayHandler(nil, nil)
+
+	// 1. Capacity cap enforcement
+	base := time.Now().UTC().Add(-10 * time.Minute)
+	for i := 0; i < maxAlertCreatedAtEntries+25; i++ {
+		handler.recordAlertCreatedAt(fmt.Sprintf("ticket-%d", i), base.Add(time.Duration(i)*time.Millisecond))
+	}
+	handler.alertCreatedAtMu.RLock()
+	assert.LessOrEqual(t, len(handler.alertCreatedAt), maxAlertCreatedAtEntries)
+	handler.alertCreatedAtMu.RUnlock()
+
+	// 2. Expired entries are evicted on pop
+	handler.alertCreatedAtMu.Lock()
+	handler.alertCreatedAt["expired-ticket"] = alertCreatedAtEntry{
+		createdAt: base,
+		expiresAt: time.Now().UTC().Add(-time.Minute),
+	}
+	handler.alertCreatedAtMu.Unlock()
+
+	_, ok := handler.popAlertCreatedAt("expired-ticket")
+	assert.False(t, ok)
+
+	// 3. pruneInactiveAlerts drops entries absent from upstream active set
+	handler.recordAlertCreatedAt("active-ticket", time.Now().UTC())
+	handler.pruneInactiveAlerts(map[string]struct{}{"active-ticket": {}})
+
+	handler.alertCreatedAtMu.RLock()
+	assert.Len(t, handler.alertCreatedAt, 1)
+	_, hasActive := handler.alertCreatedAt["active-ticket"]
+	assert.True(t, hasActive)
+	handler.alertCreatedAtMu.RUnlock()
+}

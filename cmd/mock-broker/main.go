@@ -27,7 +27,7 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		defer shutdownTelemetry()
+		defer func() { _ = shutdownTelemetry() }()
 	}
 
 	port := os.Getenv("PORT")

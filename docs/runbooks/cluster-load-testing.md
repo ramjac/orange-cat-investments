@@ -219,6 +219,41 @@ Check for unexpected container crashes or restarts across all platform workloads
 kubectl get pods -A --sort-by='.status.containerStatuses[0].restartCount'
 ```
 
+### 6.4 Prometheus TSDB Memory Sizing & WAL Recovery
+During sustained multi-worker load tests, high scrape churn expands Prometheus active head chunks and Write-Ahead Log (WAL) replay memory. `k8s/monitoring/prometheus.yaml` enforces:
+* `resources.requests.memory: 512Mi` and `resources.limits.memory: 2Gi`
+* `--storage.tsdb.retention.time=3d` and `--storage.tsdb.retention.size=2GB`
+
+If Prometheus enters `OOMKilled` / `CrashLoopBackOff` during WAL replay:
+```bash
+# 1. Confirm OOMKilled status and inspect WAL replay logs
+kubectl describe pod -n monitoring -l app=prometheus
+kubectl logs -n monitoring -l app=prometheus --previous --tail=50
+
+# 2. Recover cleanly (emptyDir storage resets WAL on pod replacement)
+kubectl rollout restart deployment/prometheus -n monitoring
+kubectl rollout status deployment/prometheus -n monitoring --timeout=120s
+
+# 3. Verify 1/1 Running with zero subsequent OOMKills
+kubectl get pods -n monitoring -l app=prometheus
+```
+If Prometheus is later migrated to a PersistentVolumeClaim and encounters a corrupted WAL segment, scale the deployment to `0`, mount the PVC in a temporary maintenance pod, remove the corrupted segment under `/prometheus/wal/` (or `rm -rf /prometheus/wal/*` to start a clean head block while preserving compacted TSDB blocks), and scale back to `1`.
+
+### 6.5 Staging Database Hygiene & Retention (`oci-dev`)
+Sustained load tests append tens of thousands of synthetic rows to `postgres-dev` (`ops.it_tickets`, `workforce.onboarding_checklists`, `facilities.hardware_assets`, `core_invest.brokerage_orders`).
+
+* **Automated Daily Retention:** `k8s/oci-dev/dev-db-retention-cronjob.yaml` runs daily at `03:30 UTC` inside `oci-dev`, retaining all baseline seed rows plus the latest `500` non-seed rows per high-churn table, re-applying baseline seed fixtures, and running `VACUUM ANALYZE`.
+* **Pre-/Post-Load-Test Manual Hygiene:** Run `scripts/prune-dev-db.sh` before or after a sustained load test campaign to bound table sizes and eliminate dead tuple bloat while preserving all seed personas from `scripts/seed-dev.sql`:
+```bash
+# Preview retention SQL and validate seed ID preservation offline
+./scripts/prune-dev-db.sh --dry-run
+
+# Prune postgres-dev (keeping baseline seeds + latest 500 rows per table) and VACUUM ANALYZE
+./scripts/prune-dev-db.sh --namespace oci-dev --keep-rows 500
+```
+> [!IMPORTANT]
+> `scripts/prune-dev-db.sh` and `dev-db-retention` are strictly restricted to `oci-dev`. Targeting `oci-core` or database `oci` is blocked by built-in safety guards.
+
 ---
 
 ## 7. Understanding Response Codes & Concurrency Behavior

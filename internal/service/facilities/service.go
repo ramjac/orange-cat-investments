@@ -104,9 +104,6 @@ func (s *facilitiesService) CreateFirmwareRelease(ctx context.Context, release *
 }
 
 func (s *facilitiesService) ListFirmwareReleases(ctx context.Context, deviceType string) ([]*facilities.FirmwareRelease, error) {
-	if deviceType == "" {
-		return nil, errors.New("device_type is required")
-	}
 	return s.repo.ListFirmwareReleases(ctx, deviceType)
 }
 

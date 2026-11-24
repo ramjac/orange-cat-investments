@@ -7,6 +7,9 @@ set -euo pipefail
 # Role: Platform Security & K8s Infrastructure Lead (emp-human-frank)
 # ==============================================================================
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 usage() {
     cat << EOF
 Usage: $(basename "$0") <command> [arguments]
@@ -69,26 +72,122 @@ case "${CMD}" in
         ;;
 
     enable-maintenance)
-        echo "Enabling maintenance banner on oci-internal ingress..."
-        if kubectl get ingress oci-internal-ingress -n oci-internal &>/dev/null; then
-            kubectl annotate ingress oci-internal-ingress -n oci-internal \
-                nginx.ingress.kubernetes.io/server-snippet="return 503 'OCI Systems Under Scheduled Maintenance. Back shortly.';" \
+        echo "Deploying 503 maintenance responder and switching oci-internal COTS HTTPRoutes..."
+        kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cots-maintenance-nginx-conf
+  namespace: oci-internal
+  labels:
+    app: cots-maintenance-responder
+data:
+  default.conf: |
+    server {
+      listen 8080;
+      location / {
+        default_type text/plain;
+        return 503 "OCI Systems Under Scheduled Maintenance. Back shortly.\n";
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cots-maintenance-responder
+  namespace: oci-internal
+  labels:
+    app: cots-maintenance-responder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cots-maintenance-responder
+  template:
+    metadata:
+      labels:
+        app: cots-maintenance-responder
+    spec:
+      containers:
+        - name: responder
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: conf
+          configMap:
+            name: cots-maintenance-nginx-conf
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cots-maintenance-responder
+  namespace: oci-internal
+  labels:
+    app: cots-maintenance-responder
+spec:
+  selector:
+    app: cots-maintenance-responder
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+EOF
+        kubectl rollout status deployment/cots-maintenance-responder -n oci-internal --timeout=60s
+
+        if kubectl get httproute -n oci-internal -l oci.local/cots-route=true &>/dev/null; then
+            while IFS= read -r route; do
+                [[ -n "${route}" ]] || continue
+                kubectl patch "${route}" -n oci-internal --type=json \
+                    -p='[{"op":"replace","path":"/spec/rules/0/backendRefs","value":[{"name":"cots-maintenance-responder","port":8080}]}]'
+            done < <(kubectl get httproute -n oci-internal -l oci.local/cots-route=true -o name)
+            kubectl annotate httproute -n oci-internal -l oci.local/cots-route=true \
+                oci.local/maintenance-banner="OCI Systems Under Scheduled Maintenance. Back shortly." \
                 --overwrite
-            echo "✅ Maintenance banner applied to oci-internal-ingress."
+            echo "✅ Maintenance 503 responder active on oci-internal COTS HTTPRoutes."
         else
-            echo "⚠️  oci-internal-ingress not found in oci-internal."
+            echo "⚠️  oci-internal COTS HTTPRoutes not found in oci-internal."
         fi
         ;;
 
     disable-maintenance)
-        echo "Removing maintenance banner from oci-internal ingress..."
-        if kubectl get ingress oci-internal-ingress -n oci-internal &>/dev/null; then
-            kubectl annotate ingress oci-internal-ingress -n oci-internal \
-                nginx.ingress.kubernetes.io/server-snippet- || true
-            echo "✅ Maintenance banner removed from oci-internal-ingress."
+        echo "Restoring oci-internal COTS HTTPRoutes and removing maintenance responder..."
+        kubectl apply -f "${REPO_ROOT}/k8s/oci-internal/http-routes.yaml"
+        if kubectl get httproute -n oci-internal -l oci.local/cots-route=true &>/dev/null; then
+            kubectl annotate httproute -n oci-internal -l oci.local/cots-route=true \
+                oci.local/maintenance-banner- || true
+            echo "✅ Original COTS HTTPRoutes restored."
         else
-            echo "⚠️  oci-internal-ingress not found in oci-internal."
+            echo "⚠️  oci-internal COTS HTTPRoutes not found in oci-internal."
         fi
+        kubectl delete deployment/cots-maintenance-responder service/cots-maintenance-responder configmap/cots-maintenance-nginx-conf \
+            -n oci-internal --ignore-not-found
         ;;
 
     verify)

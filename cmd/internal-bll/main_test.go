@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 
@@ -98,6 +101,21 @@ func (m *mockFacClient) CreateOTAJob(_ context.Context, in *facilitiesv1.CreateO
 		})
 	}
 	return &facilitiesv1.CreateOTAJobResponse{Jobs: jobs}, nil
+}
+
+func (m *mockFacClient) ListFirmwareReleases(_ context.Context, _ *facilitiesv1.ListFirmwareReleasesRequest) (*facilitiesv1.ListFirmwareReleasesResponse, error) {
+	return &facilitiesv1.ListFirmwareReleasesResponse{
+		Releases: []*facilitiesv1.FirmwareRelease{
+			{
+				ReleaseID:       "rel-v2.1",
+				DeviceType:      "edge_camera",
+				Version:         "2.1.0",
+				FileURL:         "http://forgejo-service.oci-internal.svc.cluster.local:3000/api/packages/oci/generic/edge-firmware/2.1.0/edge_camera.bin",
+				Checksum:        "abc123",
+				CosignSignature: "sig-test",
+			},
+		},
+	}, nil
 }
 
 type mockOpsClient struct {
@@ -197,4 +215,43 @@ func TestInternalBLLCreateIncidentAndOTA(t *testing.T) {
 	if topicCount != 4 {
 		t.Fatalf("expected 4 published events (1 incident + 2 OTA + 1 onboard), got %d", topicCount)
 	}
+}
+
+func TestInitWorkspaceClient(t *testing.T) {
+	t.Run("returns nil when env vars unset", func(t *testing.T) {
+		t.Setenv("NEXTCLOUD_URL", "")
+		t.Setenv("NEXTCLOUD_ADMIN_USER", "")
+		t.Setenv("NEXTCLOUD_ADMIN_PASS", "")
+		t.Setenv("NEXTCLOUD_ADMIN_PASSWORD", "")
+
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, nil))
+		ws := initWorkspaceClient(logger)
+		if ws != nil {
+			t.Fatalf("expected nil WorkspaceClient when env vars are unset, got %T", ws)
+		}
+		if buf.Len() != 0 {
+			t.Fatalf("expected no initialization log when unset, got: %s", buf.String())
+		}
+	})
+
+	t.Run("initializes WorkspaceClient and logs without leaking password", func(t *testing.T) {
+		t.Setenv("NEXTCLOUD_URL", "http://nextcloud-service.oci-internal.svc.cluster.local:80")
+		t.Setenv("NEXTCLOUD_ADMIN_USER", "admin")
+		t.Setenv("NEXTCLOUD_ADMIN_PASS", "super-secret-nextcloud-pass")
+
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewJSONHandler(&buf, nil))
+		ws := initWorkspaceClient(logger)
+		if ws == nil {
+			t.Fatal("expected non-nil WorkspaceClient when NEXTCLOUD_URL and NEXTCLOUD_ADMIN_USER are set")
+		}
+		logged := buf.String()
+		if !strings.Contains(logged, "initialized Nextcloud COTS workspace client") {
+			t.Fatalf("expected initialization log entry, got: %s", logged)
+		}
+		if strings.Contains(logged, "super-secret-nextcloud-pass") {
+			t.Fatalf("CWE-532 violation: password leaked in log output: %s", logged)
+		}
+	})
 }

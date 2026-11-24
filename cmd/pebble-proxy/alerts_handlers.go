@@ -10,6 +10,7 @@ import (
 
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/pebble"
+	"github.com/orange-cat-investments/oci/pkg/telemetry"
 )
 
 func (h *GatewayHandler) Healthz(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +37,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	alerts := res.Alerts
+	activeTicketIDs := make(map[string]struct{}, len(alerts))
 	payloads := make([]*pebble.PebbleAlertPayload, 0, len(alerts))
 	for _, a := range alerts {
 		priority := "HIGH"
@@ -52,6 +54,10 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 				createdAt = t
 			}
 		}
+		if a.TicketID != "" {
+			activeTicketIDs[a.TicketID] = struct{}{}
+		}
+		h.recordAlertCreatedAt(a.TicketID, createdAt)
 
 		dict := map[uint32]string{
 			pebble.PebbleKeyCmd:       "1",
@@ -73,6 +79,7 @@ func (h *GatewayHandler) GetAlerts(w http.ResponseWriter, r *http.Request) {
 			AppMessageDict: dict,
 		})
 	}
+	h.pruneInactiveAlerts(activeTicketIDs)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -109,6 +116,23 @@ func (h *GatewayHandler) SubmitAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	createdAt, hasCreatedAt := h.popAlertCreatedAt(req.TicketID)
+	if !hasCreatedAt {
+		if listRes, listErr := h.bllClient.ListAlerts(r.Context(), &opsv1.ListAlertsRequest{
+			UnacknowledgedOnly: true,
+		}); listErr == nil && listRes != nil {
+			for _, a := range listRes.Alerts {
+				if a.TicketID == req.TicketID && a.CreatedAt != "" {
+					if t, parseErr := time.Parse(time.RFC3339, a.CreatedAt); parseErr == nil {
+						createdAt = t
+						hasCreatedAt = true
+					}
+					break
+				}
+			}
+		}
+	}
+
 	res, err := h.bllClient.AcknowledgeAlert(r.Context(), &opsv1.AcknowledgeAlertRequest{
 		AlertID:        req.TicketID,
 		AcknowledgedBy: ackBy,
@@ -127,6 +151,14 @@ func (h *GatewayHandler) SubmitAck(w http.ResponseWriter, r *http.Request) {
 		if t, err := time.Parse(time.RFC3339, res.AcknowledgedAt); err == nil {
 			ackTime = t
 		}
+	}
+
+	if hasCreatedAt && !createdAt.IsZero() {
+		mttaSec := ackTime.Sub(createdAt).Seconds()
+		if mttaSec < 0 {
+			mttaSec = 0
+		}
+		telemetry.RecordPebbleMTTA(r.Context(), mttaSec)
 	}
 
 	resp := &pebble.PebbleAckResponse{
@@ -161,7 +193,7 @@ func (h *GatewayHandler) HandleIncidentBroadcast(w http.ResponseWriter, r *http.
 		ticketID = fmt.Sprintf("inc-%d", time.Now().UnixNano())
 	}
 
-	title := req.Title
+	var title string
 	if req.RoomZone != "" {
 		title = fmt.Sprintf("🚨 %s (%s)", req.Title, req.RoomZone)
 	} else {
@@ -190,6 +222,7 @@ func (h *GatewayHandler) HandleIncidentBroadcast(w http.ResponseWriter, r *http.
 		return
 	}
 
+	h.recordAlertCreatedAt(ticketID, time.Now().UTC())
 	_, _ = h.bllClient.CreateAlert(r.Context(), &opsv1.CreateAlertRequest{
 		TicketID: ticketID,
 		Title:    title,

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: oci-customer-portal
-          image: localhost:32000/oci-customer-portal:latest
+          image: localhost:32000/oci-customer-portal:prod-stable
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5174

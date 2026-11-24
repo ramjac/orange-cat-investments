@@ -1,4 +1,13 @@
 # Workforce Domain API (Port 50051)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workforce-api
+  namespace: oci-core
+  labels:
+    app: workforce-api
+    tier: domain-api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,21 +27,38 @@ spec:
         app: workforce-api
         tier: domain-api
     spec:
+      serviceAccountName: workforce-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: workforce-api
-          image: localhost:32000/workforce-api:latest
+          image: localhost:32000/workforce-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50051
               name: grpc-http
           env:
             - name: PORT
               value: "50051"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: oci-core-secrets
+                  name: workforce-db-secret
                   key: DATABASE_URL
+            - name: DATABASE_URL_FILE
+              value: "/etc/db-creds/DATABASE_URL"
             - name: ENABLE_FELINE_WORKFORCE
               value: "true"
             - name: TLS_CERT_FILE
@@ -49,6 +75,9 @@ spec:
               readOnly: true
             - name: ca-cert
               mountPath: /etc/tls/ca
+              readOnly: true
+            - name: db-creds
+              mountPath: /etc/db-creds
               readOnly: true
           resources:
             requests:
@@ -69,28 +98,21 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: workforce-api-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: workforce-api-tls
-  namespace: oci-core
-spec:
-  secretName: workforce-api-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: workforce-api-service.oci-core.svc.cluster.local
-  dnsNames:
-    - workforce-api-service
-    - workforce-api-service.oci-core.svc
-    - workforce-api-service.oci-core.svc.cluster.local
+        - name: db-creds
+          secret:
+            secretName: workforce-db-secret
+            items:
+              - key: DATABASE_URL
+                path: DATABASE_URL
 ---
 apiVersion: v1
 kind: Service
@@ -109,6 +131,15 @@ spec:
     app: workforce-api
 ---
 # Facilities Domain API (Port 50052)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: facilities-api
+  namespace: oci-core
+  labels:
+    app: facilities-api
+    tier: domain-api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -128,21 +159,38 @@ spec:
         app: facilities-api
         tier: domain-api
     spec:
+      serviceAccountName: facilities-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: facilities-api
-          image: localhost:32000/facilities-api:latest
+          image: localhost:32000/facilities-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50052
               name: grpc-http
           env:
             - name: PORT
               value: "50052"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: oci-core-secrets
+                  name: facilities-db-secret
                   key: DATABASE_URL
+            - name: DATABASE_URL_FILE
+              value: "/etc/db-creds/DATABASE_URL"
             - name: TLS_CERT_FILE
               value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE
@@ -157,6 +205,9 @@ spec:
               readOnly: true
             - name: ca-cert
               mountPath: /etc/tls/ca
+              readOnly: true
+            - name: db-creds
+              mountPath: /etc/db-creds
               readOnly: true
           resources:
             requests:
@@ -177,28 +228,21 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: facilities-api-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: facilities-api-tls
-  namespace: oci-core
-spec:
-  secretName: facilities-api-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: facilities-api-service.oci-core.svc.cluster.local
-  dnsNames:
-    - facilities-api-service
-    - facilities-api-service.oci-core.svc
-    - facilities-api-service.oci-core.svc.cluster.local
+        - name: db-creds
+          secret:
+            secretName: facilities-db-secret
+            items:
+              - key: DATABASE_URL
+                path: DATABASE_URL
 ---
 apiVersion: v1
 kind: Service
@@ -217,6 +261,15 @@ spec:
     app: facilities-api
 ---
 # Core Invest Domain API (Port 50053)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: core-invest-api
+  namespace: oci-core
+  labels:
+    app: core-invest-api
+    tier: domain-api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -236,21 +289,38 @@ spec:
         app: core-invest-api
         tier: domain-api
     spec:
+      serviceAccountName: core-invest-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: core-invest-api
-          image: localhost:32000/core-invest-api:latest
+          image: localhost:32000/core-invest-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50053
               name: grpc-http
           env:
             - name: PORT
               value: "50053"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: oci-core-secrets
+                  name: core-invest-db-secret
                   key: DATABASE_URL
+            - name: DATABASE_URL_FILE
+              value: "/etc/db-creds/DATABASE_URL"
             - name: ENABLE_CORE_INVEST
               value: "true"
             - name: TLS_CERT_FILE
@@ -267,6 +337,9 @@ spec:
               readOnly: true
             - name: ca-cert
               mountPath: /etc/tls/ca
+              readOnly: true
+            - name: db-creds
+              mountPath: /etc/db-creds
               readOnly: true
           resources:
             requests:
@@ -287,28 +360,21 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: core-invest-api-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: core-invest-api-tls
-  namespace: oci-core
-spec:
-  secretName: core-invest-api-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: core-invest-api-service.oci-core.svc.cluster.local
-  dnsNames:
-    - core-invest-api-service
-    - core-invest-api-service.oci-core.svc
-    - core-invest-api-service.oci-core.svc.cluster.local
+        - name: db-creds
+          secret:
+            secretName: core-invest-db-secret
+            items:
+              - key: DATABASE_URL
+                path: DATABASE_URL
 ---
 apiVersion: v1
 kind: Service
@@ -327,6 +393,15 @@ spec:
     app: core-invest-api
 ---
 # Ops Domain API (Port 50054)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops-api
+  namespace: oci-core
+  labels:
+    app: ops-api
+    tier: domain-api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -346,21 +421,38 @@ spec:
         app: ops-api
         tier: domain-api
     spec:
+      serviceAccountName: ops-api
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: ops-api
-          image: localhost:32000/ops-api:latest
+          image: localhost:32000/ops-api:prod-stable
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 50054
               name: grpc-http
           env:
             - name: PORT
               value: "50054"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: oci-core-secrets
+                  name: ops-db-secret
                   key: DATABASE_URL
+            - name: DATABASE_URL_FILE
+              value: "/etc/db-creds/DATABASE_URL"
             - name: TLS_CERT_FILE
               value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE
@@ -375,6 +467,9 @@ spec:
               readOnly: true
             - name: ca-cert
               mountPath: /etc/tls/ca
+              readOnly: true
+            - name: db-creds
+              mountPath: /etc/db-creds
               readOnly: true
           resources:
             requests:
@@ -395,28 +490,21 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: ops-api-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: ops-api-tls
-  namespace: oci-core
-spec:
-  secretName: ops-api-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: ops-api-service.oci-core.svc.cluster.local
-  dnsNames:
-    - ops-api-service
-    - ops-api-service.oci-core.svc
-    - ops-api-service.oci-core.svc.cluster.local
+        - name: db-creds
+          secret:
+            secretName: ops-db-secret
+            items:
+              - key: DATABASE_URL
+                path: DATABASE_URL
 ---
 apiVersion: v1
 kind: Service
@@ -433,30 +521,3 @@ spec:
       name: grpc-http
   selector:
     app: ops-api
----
-# NetworkPolicy: Restrict Ingress to Domain APIs strictly to BLL, batch jobs, and Worker pods
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: domain-apis-network-policy
-  namespace: oci-core
-spec:
-  podSelector:
-    matchLabels:
-      tier: domain-api
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              tier: bll
-      ports:
-        - protocol: TCP
-          port: 50051
-        - protocol: TCP
-          port: 50052
-        - protocol: TCP
-          port: 50053
-        - protocol: TCP
-          port: 50054

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+if [[ -z "${KUBECONFIG:-}" && -f "${REPO_ROOT}/thinker-kube.config" ]]; then
+    export KUBECONFIG="${REPO_ROOT}/thinker-kube.config"
+fi
+
 WAIT=false
 if [[ "${1:-}" == "--wait" ]]; then
     WAIT=true
@@ -17,7 +23,9 @@ if [[ -z "${FORGEJO_URL}" ]]; then
 fi
 
 PF_PID=""
+RUNS_TMP="$(mktemp /tmp/oci_ci_runs.XXXXXX.json)"
 cleanup() {
+    rm -f "${RUNS_TMP}"
     if [[ -n "${PF_PID}" ]]; then
         kill "${PF_PID}" 2>/dev/null || true
     fi
@@ -52,7 +60,77 @@ fi
 TARGET_ORG="oci"
 REPO_NAME="monorepo"
 
-RUNS_JSON=$(curl -s "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/actions/runs?page=1&limit=1")
+RUNS_HTTP_CODE=$(curl -s -o "${RUNS_TMP}" -w "%{http_code}" "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/actions/runs?page=1&limit=1")
+RUNS_JSON=$(cat "${RUNS_TMP}" 2>/dev/null || true)
+
+if [[ "$RUNS_HTTP_CODE" == "404" ]]; then
+    # Forgejo 7.x / Gitea 1.21 does not expose /actions/runs; use combined commit status API.
+    COMMIT_SHA=$(curl -s "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/branches/main" | python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    print(d.get('commit', {}).get('id', ''))
+except Exception:
+    pass
+")
+    if [[ -z "$COMMIT_SHA" ]]; then
+        COMMIT_SHA=$(git -C "${REPO_ROOT}" rev-parse HEAD 2>/dev/null || true)
+    fi
+    if [[ -z "$COMMIT_SHA" ]]; then
+        echo "ERROR: Could not determine commit SHA for ${TARGET_ORG}/${REPO_NAME}."
+        exit 1
+    fi
+
+    echo "Commit: ${COMMIT_SHA}"
+    fetch_commit_status() {
+        curl -s "${FORGEJO_URL}/api/v1/repos/${TARGET_ORG}/${REPO_NAME}/commits/${COMMIT_SHA}/status"
+    }
+    parse_commit_state() {
+        python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    state = d.get('state', '') or 'pending'
+    statuses = d.get('statuses') or []
+    print(state)
+    for s in statuses:
+        print(f\"  - [{s.get('status', '?')}] {s.get('context', '')}: {s.get('description', '')} ({s.get('target_url', '')})\")
+except Exception:
+    print('unknown')
+"
+    }
+
+    PARSED=$(fetch_commit_status | parse_commit_state)
+    RUN_STATUS=$(echo "$PARSED" | head -n1)
+    echo "Status: ${RUN_STATUS}"
+    echo "$PARSED" | tail -n +2
+
+    if [[ "$WAIT" == true ]]; then
+        LAST_SUMMARY="$PARSED"
+        while [[ "$RUN_STATUS" == "pending" || "$RUN_STATUS" == "" ]]; do
+            sleep 10
+            PARSED=$(fetch_commit_status | parse_commit_state)
+            RUN_STATUS=$(echo "$PARSED" | head -n1)
+            if [[ "$PARSED" != "$LAST_SUMMARY" ]]; then
+                echo "[$(date +%H:%M:%S)] Status: ${RUN_STATUS}"
+                echo "$PARSED" | tail -n +2
+                LAST_SUMMARY="$PARSED"
+            fi
+        done
+        echo "Final Status: ${RUN_STATUS}"
+    fi
+
+    if [[ "$RUN_STATUS" == "failure" || "$RUN_STATUS" == "error" || "$RUN_STATUS" == "unknown" ]]; then
+        exit 1
+    fi
+    if [[ "$WAIT" == true && "$RUN_STATUS" != "success" ]]; then
+        exit 1
+    fi
+    if [[ "$RUN_STATUS" != "success" && "$RUN_STATUS" != "pending" && "$RUN_STATUS" != "" ]]; then
+        exit 1
+    fi
+    exit 0
+fi
 
 if [[ -z "$RUNS_JSON" || "$RUNS_JSON" == "[]" ]]; then
     echo "No actions runs found for ${TARGET_ORG}/${REPO_NAME}."

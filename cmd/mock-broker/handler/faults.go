@@ -34,7 +34,7 @@ func (f *BrokerFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	case http.MethodPut:
 		var req BrokerFaultsResponse
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -48,7 +48,7 @@ func (f *BrokerFaults) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.HaltedSymbols = req.HaltedSymbols
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(req)
+		_ = json.NewEncoder(w).Encode(req)
 	case http.MethodDelete:
 		f.mu.Lock()
 		f.Outage = false
@@ -76,13 +76,13 @@ func (f *BrokerFaults) check(w http.ResponseWriter, action string, symbol string
 
 	if outage {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"message": "mock broker service outage injected"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "mock broker service outage injected"})
 		return true
 	}
 
 	if action == "order" && rejectOrders {
 		w.WriteHeader(http.StatusPreconditionFailed)
-		json.NewEncoder(w).Encode(map[string]string{"message": "order rejected by injected fault"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "order rejected by injected fault"})
 		return true
 	}
 
@@ -90,7 +90,7 @@ func (f *BrokerFaults) check(w http.ResponseWriter, action string, symbol string
 		for _, s := range haltedSymbols {
 			if s == symbol {
 				w.WriteHeader(http.StatusUnprocessableEntity)
-				json.NewEncoder(w).Encode(map[string]string{"message": "trading halted for symbol by injected fault"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"message": "trading halted for symbol by injected fault"})
 				return true
 			}
 		}

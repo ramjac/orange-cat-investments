@@ -77,6 +77,7 @@ type FirmwareRelease struct {
 	Version            string    `json:"version"`
 	FileURL            string    `json:"file_url"`
 	Checksum           string    `json:"checksum"`
+	CosignSignature    string    `json:"cosign_signature"`
 	MinHardwareVersion *string   `json:"min_hardware_version,omitempty"`
 	Status             string    `json:"status"`
 	CreatedAt          time.Time `json:"created_at"`

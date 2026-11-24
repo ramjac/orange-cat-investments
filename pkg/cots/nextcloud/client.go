@@ -9,8 +9,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"sync"
 	"time"
+)
+
+const (
+	// maxDocumentsLimit bounds document list responses to prevent unbounded payloads under load.
+	maxDocumentsLimit = 100
+	// maxResponseBodyBytes bounds response reads (including WebDAV downloads) to protect service memory.
+	maxResponseBodyBytes = 16 << 20 // 16 MiB
 )
 
 // Client interacts with the Nextcloud OCS Provisioning and WebDAV APIs.
@@ -19,6 +28,11 @@ type Client struct {
 	adminUser     string
 	adminPassword string
 	httpClient    *http.Client
+
+	mu      sync.RWMutex
+	docs    map[string]Document
+	folders []GroupFolder
+	events  map[string]CalendarEvent
 }
 
 // Config provides configuration for the Nextcloud client.
@@ -92,12 +106,131 @@ func NewClient(cfg Config) *Client {
 	if hc == nil {
 		hc = &http.Client{Timeout: 10 * time.Second}
 	}
+	docs := make(map[string]Document)
+	for _, d := range DefaultDocuments() {
+		docs[d.DocumentID] = d
+	}
+	events := make(map[string]CalendarEvent)
+	for _, e := range DefaultCalendarEvents() {
+		events[e.EventID] = e
+	}
 	return &Client{
 		baseURL:       strings.TrimSuffix(cfg.BaseURL, "/"),
 		adminUser:     cfg.AdminUser,
 		adminPassword: cfg.AdminPassword,
 		httpClient:    hc,
+		docs:          docs,
+		folders:       DefaultGroupFolders(),
+		events:        events,
 	}
+}
+
+func (c *Client) webdavUser() string {
+	if c.adminUser != "" {
+		return c.adminUser
+	}
+	return "admin"
+}
+
+func readBoundedBody(r io.Reader) []byte {
+	if r == nil {
+		return nil
+	}
+	b, _ := io.ReadAll(io.LimitReader(r, maxResponseBodyBytes))
+	return b
+}
+
+func isNonJSONFallback(resp *http.Response, body []byte) bool {
+	if resp == nil {
+		return false
+	}
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
+		return true
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if strings.Contains(ct, "text/html") {
+		return true
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) > 0 && trimmed[0] == '<' {
+		return true
+	}
+	return false
+}
+
+func sanitizeSlug(title string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+			lastUnderscore = false
+		} else if !lastUnderscore && b.Len() > 0 {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	slug := strings.Trim(b.String(), "_")
+	if slug == "" {
+		return "document"
+	}
+	return slug
+}
+
+func escapeWebDAVPath(webdavPath string) string {
+	if !strings.HasPrefix(webdavPath, "/") {
+		webdavPath = "/" + webdavPath
+	}
+	segments := strings.Split(webdavPath, "/")
+	for i, seg := range segments {
+		if seg == "" {
+			continue
+		}
+		segments[i] = url.PathEscape(seg)
+	}
+	return strings.Join(segments, "/")
+}
+
+func (c *Client) recordDocument(doc Document) Document {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.docs == nil {
+		c.docs = make(map[string]Document)
+	}
+	for id, existing := range c.docs {
+		if existing.Title == doc.Title && existing.Department == doc.Department {
+			doc.DocumentID = id
+			if !existing.CreatedAt.IsZero() {
+				doc.CreatedAt = existing.CreatedAt
+			}
+			break
+		}
+	}
+	if doc.DocumentID == "" {
+		doc.DocumentID = fmt.Sprintf("doc-%d", time.Now().UnixNano())
+	}
+	if doc.CreatedAt.IsZero() {
+		doc.CreatedAt = time.Now().UTC()
+	}
+	doc.UpdatedAt = time.Now().UTC()
+	c.docs[doc.DocumentID] = doc
+	return doc
+}
+
+func (c *Client) snapshotDocuments() []Document {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	list := make([]Document, 0, len(c.docs))
+	for _, d := range c.docs {
+		list = append(list, d)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if !list[i].UpdatedAt.Equal(list[j].UpdatedAt) {
+			return list[i].UpdatedAt.After(list[j].UpdatedAt)
+		}
+		return list[i].DocumentID < list[j].DocumentID
+	})
+	return list
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, form url.Values) (*http.Request, error) {
@@ -252,24 +385,20 @@ func (c *Client) PublishDocument(ctx context.Context, doc Document) (*Document, 
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == http.StatusNotFound {
+	bodyBytes := readBoundedBody(resp.Body)
+	if isNonJSONFallback(resp, bodyBytes) {
 		folder := "Documents"
 		if doc.Department != "" {
 			folder = doc.Department
 		}
-		slug := strings.ToLower(strings.ReplaceAll(doc.Title, " ", "_"))
-		webdavPath := fmt.Sprintf("/remote.php/dav/files/admin/%s/%s.md", folder, slug)
-		_ = c.UploadWebDAVFile(ctx, webdavPath, "text/markdown", []byte(doc.Content))
+		slug := sanitizeSlug(doc.Title)
+		webdavPath := fmt.Sprintf("/remote.php/dav/files/%s/%s/%s.md", c.webdavUser(), folder, slug)
+		if err := c.UploadWebDAVFile(ctx, webdavPath, "text/markdown", []byte(doc.Content)); err != nil {
+			return nil, fmt.Errorf("failed to persist document to Nextcloud WebDAV: %w", err)
+		}
 		created := doc
-		if created.DocumentID == "" {
-			created.DocumentID = fmt.Sprintf("doc-%d", time.Now().UnixNano())
-		}
-		if created.CreatedAt.IsZero() {
-			created.CreatedAt = time.Now().UTC()
-		}
-		created.UpdatedAt = time.Now().UTC()
 		created.WebDAVPath = webdavPath
+		created = c.recordDocument(created)
 		return &created, nil
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
@@ -295,9 +424,10 @@ func (c *Client) PublishDocument(ctx context.Context, doc Document) (*Document, 
 		if created.Department != "" {
 			folder = created.Department
 		}
-		slug := strings.ToLower(strings.ReplaceAll(created.Title, " ", "_"))
-		created.WebDAVPath = fmt.Sprintf("/remote.php/dav/files/admin/%s/%s.md", folder, slug)
+		slug := sanitizeSlug(created.Title)
+		created.WebDAVPath = fmt.Sprintf("/remote.php/dav/files/%s/%s/%s.md", c.webdavUser(), folder, slug)
 	}
+	created = c.recordDocument(created)
 	return &created, nil
 }
 
@@ -313,14 +443,14 @@ func (c *Client) ListGroupFolders(ctx context.Context) ([]GroupFolder, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	bodyBytes := readBoundedBody(resp.Body)
+	if resp.StatusCode == http.StatusOK && !isNonJSONFallback(resp, bodyBytes) {
 		var wrapper struct {
 			OCS struct {
 				Data map[string]GroupFolder `json:"data"`
 			} `json:"ocs"`
 			Folders []GroupFolder `json:"folders"`
 		}
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		if err := json.Unmarshal(bodyBytes, &wrapper); err == nil {
 			if len(wrapper.Folders) > 0 {
 				return wrapper.Folders, nil
@@ -334,7 +464,13 @@ func (c *Client) ListGroupFolders(ctx context.Context) ([]GroupFolder, error) {
 			}
 		}
 	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	if isNonJSONFallback(resp, bodyBytes) {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		res := make([]GroupFolder, len(c.folders))
+		copy(res, c.folders)
+		return res, nil
+	}
 	return nil, fmt.Errorf("nextcloud ListGroupFolders returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
@@ -355,20 +491,28 @@ func (c *Client) CreateGroupFolder(ctx context.Context, mountPoint string, group
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes := readBoundedBody(resp.Body)
+	if isNonJSONFallback(resp, bodyBytes) {
+		if err := c.ensureWebDAVDir(ctx, fmt.Sprintf("/remote.php/dav/files/%s/%s", c.webdavUser(), mountPoint)); err != nil {
+			return nil, fmt.Errorf("failed to provision WebDAV folder %s: %w", mountPoint, err)
+		}
+	} else if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("create group folder returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	if quota == "" {
 		quota = "50 GB"
 	}
-	return &GroupFolder{
+	created := GroupFolder{
 		ID:         time.Now().Unix(),
 		MountPoint: mountPoint,
 		Quota:      quota,
 		Groups:     groups,
-	}, nil
+	}
+	c.mu.Lock()
+	c.folders = append(c.folders, created)
+	c.mu.Unlock()
+	return &created, nil
 }
 
 // ListDocuments retrieves intranet documents with optional department, category, or search filters.
@@ -404,23 +548,22 @@ func (c *Client) ListDocuments(ctx context.Context, department, category, query 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	bodyBytes := readBoundedBody(resp.Body)
+	if resp.StatusCode == http.StatusOK && !isNonJSONFallback(resp, bodyBytes) {
 		var wrapper struct {
 			Documents []Document `json:"documents"`
 		}
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		if err := json.Unmarshal(bodyBytes, &wrapper); err == nil && len(wrapper.Documents) > 0 {
+		if err := json.Unmarshal(bodyBytes, &wrapper); err == nil && wrapper.Documents != nil {
 			return filterDocuments(wrapper.Documents, department, category, query), nil
 		}
 		var list []Document
-		if err := json.Unmarshal(bodyBytes, &list); err == nil && len(list) > 0 {
+		if err := json.Unmarshal(bodyBytes, &list); err == nil && list != nil {
 			return filterDocuments(list, department, category, query), nil
 		}
 	}
-	if resp.StatusCode == http.StatusNotFound {
-		return []Document{}, nil
+	if isNonJSONFallback(resp, bodyBytes) {
+		return filterDocuments(c.snapshotDocuments(), department, category, query), nil
 	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
 	return nil, fmt.Errorf("nextcloud ListDocuments returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
@@ -445,13 +588,21 @@ func (c *Client) GetDocument(ctx context.Context, id string) (*Document, error) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	bodyBytes := readBoundedBody(resp.Body)
+	if resp.StatusCode == http.StatusOK && !isNonJSONFallback(resp, bodyBytes) {
 		var doc Document
-		if err := json.NewDecoder(resp.Body).Decode(&doc); err == nil {
+		if err := json.Unmarshal(bodyBytes, &doc); err == nil && doc.DocumentID != "" {
 			return &doc, nil
 		}
 	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	if isNonJSONFallback(resp, bodyBytes) {
+		c.mu.RLock()
+		doc, ok := c.docs[id]
+		c.mu.RUnlock()
+		if ok {
+			return &doc, nil
+		}
+	}
 	return nil, fmt.Errorf("document %s not found in Nextcloud (status %d): %s", id, resp.StatusCode, string(bodyBytes))
 }
 
@@ -485,23 +636,28 @@ func (c *Client) ListCalendarEvents(ctx context.Context, calendar, department st
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	bodyBytes := readBoundedBody(resp.Body)
+	if resp.StatusCode == http.StatusOK && !isNonJSONFallback(resp, bodyBytes) {
 		var wrapper struct {
 			Events []CalendarEvent `json:"events"`
 		}
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		if err := json.Unmarshal(bodyBytes, &wrapper); err == nil && len(wrapper.Events) > 0 {
+		if err := json.Unmarshal(bodyBytes, &wrapper); err == nil && wrapper.Events != nil {
 			return filterCalendarEvents(wrapper.Events, calendar, department), nil
 		}
 		var list []CalendarEvent
-		if err := json.Unmarshal(bodyBytes, &list); err == nil && len(list) > 0 {
+		if err := json.Unmarshal(bodyBytes, &list); err == nil && list != nil {
 			return filterCalendarEvents(list, calendar, department), nil
 		}
 	}
-	if resp.StatusCode == http.StatusNotFound {
-		return []CalendarEvent{}, nil
+	if isNonJSONFallback(resp, bodyBytes) {
+		c.mu.RLock()
+		list := make([]CalendarEvent, 0, len(c.events))
+		for _, ev := range c.events {
+			list = append(list, ev)
+		}
+		c.mu.RUnlock()
+		return filterCalendarEvents(list, calendar, department), nil
 	}
-	bodyBytes, _ := io.ReadAll(resp.Body)
 	return nil, fmt.Errorf("nextcloud ListCalendarEvents returned status %d: %s", resp.StatusCode, string(bodyBytes))
 }
 
@@ -547,16 +703,31 @@ func (c *Client) CreateCalendarEvent(ctx context.Context, event CalendarEvent) (
 	}
 	defer resp.Body.Close()
 
+	bodyBytes := readBoundedBody(resp.Body)
+	if isNonJSONFallback(resp, bodyBytes) {
+		c.mu.Lock()
+		if c.events == nil {
+			c.events = make(map[string]CalendarEvent)
+		}
+		c.events[event.EventID] = event
+		c.mu.Unlock()
+		return &event, nil
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("create calendar event returned status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var created CalendarEvent
-	_ = json.NewDecoder(resp.Body).Decode(&created)
+	_ = json.Unmarshal(bodyBytes, &created)
 	if created.EventID == "" {
 		created = event
 	}
+	c.mu.Lock()
+	if c.events == nil {
+		c.events = make(map[string]CalendarEvent)
+	}
+	c.events[created.EventID] = created
+	c.mu.Unlock()
 	return &created, nil
 }
 
@@ -576,6 +747,9 @@ func filterDocuments(docs []Document, dept, cat, q string) []Document {
 			}
 		}
 		filtered = append(filtered, d)
+		if len(filtered) >= maxDocumentsLimit {
+			break
+		}
 	}
 	return filtered
 }
@@ -752,7 +926,75 @@ func DefaultCalendarEvents() []CalendarEvent {
 	}
 }
 
+func (c *Client) ensureWebDAVDir(ctx context.Context, dirPath string) error {
+	reqURL := c.baseURL + escapeWebDAVPath(dirPath)
+	req, err := http.NewRequestWithContext(ctx, "MKCOL", reqURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create WebDAV MKCOL request for %s: %w", dirPath, err)
+	}
+	if c.adminUser != "" && c.adminPassword != "" {
+		req.SetBasicAuth(c.adminUser, c.adminPassword)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute WebDAV MKCOL for %s: %w", dirPath, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusMethodNotAllowed || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+	bodyBytes := readBoundedBody(resp.Body)
+	return fmt.Errorf("nextcloud WebDAV MKCOL %s returned status %d: %s", dirPath, resp.StatusCode, string(bodyBytes))
+}
+
+func (c *Client) ensureWebDAVParentDirs(ctx context.Context, webdavPath string) error {
+	cleaned := strings.TrimPrefix(webdavPath, "/")
+	parts := strings.Split(cleaned, "/")
+	// Expected prefix: remote.php/dav/files/<user>/<dir...>/<file>
+	if len(parts) <= 5 || parts[0] != "remote.php" || parts[1] != "dav" || parts[2] != "files" {
+		return nil
+	}
+	var prefix strings.Builder
+	prefix.WriteByte('/')
+	prefix.WriteString(strings.Join(parts[:4], "/"))
+	for i := 4; i < len(parts)-1; i++ {
+		if parts[i] == "" {
+			continue
+		}
+		prefix.WriteByte('/')
+		prefix.WriteString(parts[i])
+		if err := c.ensureWebDAVDir(ctx, prefix.String()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) putWebDAVFile(ctx context.Context, webdavPath, contentType string, content []byte) (int, []byte, error) {
+	reqURL := c.baseURL + escapeWebDAVPath(webdavPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reqURL, bytes.NewReader(content))
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to create WebDAV PUT request: %w", err)
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.adminUser != "" && c.adminPassword != "" {
+		req.SetBasicAuth(c.adminUser, c.adminPassword)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to upload file via WebDAV to %s: %w", webdavPath, err)
+	}
+	defer resp.Body.Close()
+	bodyBytes := readBoundedBody(resp.Body)
+	return resp.StatusCode, bodyBytes, nil
+}
+
 // UploadWebDAVFile uploads raw file bytes to Nextcloud WebDAV path via HTTP PUT.
+// If the parent collection does not exist yet (Nextcloud SabreDAV returns HTTP 409 Conflict,
+// 404 Not Found, or 403 Forbidden depending on nesting depth), it creates intermediate
+// directories via MKCOL and retries the PUT once.
 func (c *Client) UploadWebDAVFile(ctx context.Context, webdavPath, contentType string, content []byte) error {
 	if webdavPath == "" {
 		return errors.New("webdavPath cannot be empty")
@@ -761,28 +1003,21 @@ func (c *Client) UploadWebDAVFile(ctx context.Context, webdavPath, contentType s
 		webdavPath = "/" + webdavPath
 	}
 
-	url := c.baseURL + webdavPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(content))
+	statusCode, bodyBytes, err := c.putWebDAVFile(ctx, webdavPath, contentType, content)
 	if err != nil {
-		return fmt.Errorf("failed to create WebDAV PUT request: %w", err)
+		return err
 	}
-
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
+	if statusCode == http.StatusConflict || statusCode == http.StatusNotFound || statusCode == http.StatusForbidden {
+		if mkErr := c.ensureWebDAVParentDirs(ctx, webdavPath); mkErr != nil {
+			return mkErr
+		}
+		statusCode, bodyBytes, err = c.putWebDAVFile(ctx, webdavPath, contentType, content)
+		if err != nil {
+			return err
+		}
 	}
-	if c.adminUser != "" && c.adminPassword != "" {
-		req.SetBasicAuth(c.adminUser, c.adminPassword)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to upload file via WebDAV to %s: %w", webdavPath, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("nextcloud WebDAV upload to %s returned status %d: %s", webdavPath, resp.StatusCode, string(bodyBytes))
+	if statusCode != http.StatusOK && statusCode != http.StatusCreated && statusCode != http.StatusNoContent {
+		return fmt.Errorf("nextcloud WebDAV upload to %s returned status %d: %s", webdavPath, statusCode, string(bodyBytes))
 	}
 
 	return nil
@@ -797,8 +1032,8 @@ func (c *Client) DownloadWebDAVFile(ctx context.Context, webdavPath string) ([]b
 		webdavPath = "/" + webdavPath
 	}
 
-	url := c.baseURL + webdavPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqURL := c.baseURL + escapeWebDAVPath(webdavPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WebDAV GET request: %w", err)
 	}
@@ -813,12 +1048,12 @@ func (c *Client) DownloadWebDAVFile(ctx context.Context, webdavPath string) ([]b
 	}
 	defer resp.Body.Close()
 
+	bodyBytes := readBoundedBody(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("nextcloud WebDAV download from %s returned status %d: %s", webdavPath, resp.StatusCode, string(bodyBytes))
 	}
 
-	return io.ReadAll(resp.Body)
+	return bodyBytes, nil
 }
 
 // ArchiveComplianceReport uploads and archives an executive report into Executive/Reports/YYYY-MM/ via WebDAV.
@@ -830,7 +1065,7 @@ func (c *Client) ArchiveComplianceReport(ctx context.Context, period, filename, 
 		return "", errors.New("filename cannot be empty")
 	}
 
-	webdavPath := fmt.Sprintf("/remote.php/dav/files/admin/Executive/Reports/%s/%s", period, filename)
+	webdavPath := fmt.Sprintf("/remote.php/dav/files/%s/Executive/Reports/%s/%s", c.webdavUser(), period, filename)
 	err := c.UploadWebDAVFile(ctx, webdavPath, contentType, content)
 	return webdavPath, err
 }

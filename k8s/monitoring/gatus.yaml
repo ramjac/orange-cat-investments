@@ -33,13 +33,13 @@ data:
       # OCI Customer & Public Planes
       - name: static-marketing-site
         group: customer-public
-        url: "https://oci.local"
+        url: "http://oci-marketing-service.oci-core.svc.cluster.local:80/healthz"
         interval: 30s
         conditions:
           - "[STATUS] == 200"
       - name: customer-portal-spa
         group: customer-public
-        url: "https://customer.oci.local"
+        url: "http://oci-customer-portal-service.oci-core.svc.cluster.local:5174/healthz"
         interval: 30s
         conditions:
           - "[STATUS] == 200"
@@ -51,10 +51,10 @@ data:
           - "[STATUS] == 200"
       - name: customer-bll-health
         group: customer-public
-        url: "http://customer-bll-service.oci-core.svc.cluster.local:8085/healthz"
+        url: "tcp://customer-bll-service.oci-core.svc.cluster.local:8085"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
       - name: mock-bank-service
         group: customer-public
         url: "http://mock-bank-service.external-sim.svc.cluster.local:8088/healthz"
@@ -71,7 +71,7 @@ data:
       # OCI Employee & Internal Planes
       - name: employee-portal-spa
         group: employee-internal
-        url: "https://employee.oci.local"
+        url: "http://oci-employee-portal-service.oci-core.svc.cluster.local:5173/healthz"
         interval: 30s
         conditions:
           - "[STATUS] == 200"
@@ -83,34 +83,34 @@ data:
           - "[STATUS] == 200"
       - name: internal-bll-health
         group: employee-internal
-        url: "http://internal-bll-service.oci-core.svc.cluster.local:8086/healthz"
+        url: "tcp://internal-bll-service.oci-core.svc.cluster.local:8086"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
       - name: workforce-api-health
         group: employee-internal
-        url: "http://workforce-api-service.oci-core.svc.cluster.local:8080/healthz"
+        url: "tcp://workforce-api-service.oci-core.svc.cluster.local:50051"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
       - name: facilities-api-health
         group: employee-internal
-        url: "http://facilities-api-service.oci-core.svc.cluster.local:8080/healthz"
+        url: "tcp://facilities-api-service.oci-core.svc.cluster.local:50052"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
       - name: core-invest-api-health
         group: employee-internal
-        url: "http://core-invest-api-service.oci-core.svc.cluster.local:8080/healthz"
+        url: "tcp://core-invest-api-service.oci-core.svc.cluster.local:50053"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
       - name: ops-api-health
         group: employee-internal
-        url: "http://ops-api-service.oci-core.svc.cluster.local:8080/healthz"
+        url: "tcp://ops-api-service.oci-core.svc.cluster.local:50054"
         interval: 15s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
 
       # COTS Enterprise Platforms
       - name: forgejo-code-review
@@ -133,10 +133,16 @@ data:
           - "[STATUS] == 200"
       - name: erpnext-frappe-hr
         group: cots-enterprise
-        url: "http://erpnext-service.oci-internal.svc.cluster.local:8000/api/method/ping"
+        url: "tcp://erpnext-service.oci-internal.svc.cluster.local:8000"
         interval: 30s
         conditions:
-          - "[STATUS] == 200"
+          - "[CONNECTED] == true"
+      - name: frappe-hr-service
+        group: cots-enterprise
+        url: "tcp://frappe-hr-service.oci-internal.svc.cluster.local:8000"
+        interval: 30s
+        conditions:
+          - "[CONNECTED] == true"
       - name: zitadel-customer-identity
         group: cots-enterprise
         url: "http://zitadel-service.oci-core.svc.cluster.local:8080/debug/healthz"
@@ -209,22 +215,27 @@ spec:
       port: 80
       targetPort: 8080
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: gatus-ingress
+  name: gatus-http-route
   namespace: monitoring
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
 spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - status.oci.local
   rules:
-    - host: status.oci.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: gatus-service
-                port:
-                  number: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: gatus-service
+          port: 80

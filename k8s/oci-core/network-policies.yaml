@@ -1,0 +1,711 @@
+# ==============================================================================
+# Zero-Trust NetworkPolicy Microsegmentation Matrix: oci-core (Phase 9 / 7.36)
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: oci-core
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Global Egress: Allow every pod in oci-core to query cluster DNS and export telemetry
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: global-dns-and-telemetry-egress
+  namespace: oci-core
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 9090
+---
+# Observability Ingress: Allow Prometheus & Gatus in monitoring to scrape/probe oci-core pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-scrape-ingress
+  namespace: oci-core
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - prometheus
+                  - gatus
+---
+# Edge Portals & Public Marketing Ingress/Egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: edge-portals-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - oci-customer-portal
+          - oci-employee-portal
+          - oci-marketing
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: cloudflare-tunnel
+      ports:
+        - protocol: TCP
+          port: 5173
+        - protocol: TCP
+          port: 5174
+        - protocol: TCP
+          port: 8080
+---
+# Cloudflare Tunnel (optional public customer ingress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflare-tunnel-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: cloudflare-tunnel
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: oci-customer-portal
+      ports:
+        - protocol: TCP
+          port: 5174
+    - to:
+        - podSelector:
+            matchLabels:
+              app: oci-customer-bff
+      ports:
+        - protocol: TCP
+          port: 8083
+    - to:
+        - podSelector:
+            matchLabels:
+              app: zitadel
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 7844
+        - protocol: UDP
+          port: 7844
+---
+# Tier 2: BFFs (customer-bff, employee-bff, pebble-proxy)
+# Invariant: Zero egress to postgres-core (:5432) or Domain APIs (:50051-50054)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bff-tier-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      tier: bff
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: cloudflare-tunnel
+        - podSelector:
+            matchLabels:
+              app: oci-worker
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8083
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: bll
+      ports:
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+    - to:
+        - podSelector:
+            matchLabels:
+              app: valkey
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - podSelector:
+            matchLabels:
+              app: meilisearch
+      ports:
+        - protocol: TCP
+          port: 7700
+    - to:
+        - podSelector:
+            matchLabels:
+              app: zitadel
+      ports:
+        - protocol: TCP
+          port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 8000
+---
+# Tier 3: BLLs (customer-bll, internal-bll)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bll-services-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      tier: bll
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bff
+        - podSelector:
+            matchLabels:
+              tier: batch
+        - podSelector:
+            matchLabels:
+              app: oci-worker
+        - podSelector:
+            matchLabels:
+              app: oci-pebble-proxy
+      ports:
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-sim
+          podSelector:
+            matchLabels:
+              app: mock-hardware
+      ports:
+        - protocol: TCP
+          port: 8086
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: domain-api
+      ports:
+        - protocol: TCP
+          port: 50051
+        - protocol: TCP
+          port: 50052
+        - protocol: TCP
+          port: 50053
+        - protocol: TCP
+          port: 50054
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - podSelector:
+            matchLabels:
+              app: meilisearch
+      ports:
+        - protocol: TCP
+          port: 7700
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-sim
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - mock-bank
+                  - mock-broker
+      ports:
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+---
+# Tier 4: Domain APIs (workforce-api, facilities-api, core-invest-api, ops-api)
+# Invariant: Strictly Ingress from BLLs; strictly Egress to postgres-core:5432; zero east-west paths
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: domain-apis-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      tier: domain-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bll
+      ports:
+        - protocol: TCP
+          port: 50051
+        - protocol: TCP
+          port: 50052
+        - protocol: TCP
+          port: 50053
+        - protocol: TCP
+          port: 50054
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Tier 5: Async Worker & Scheduled Batch Runners
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-and-batch-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchExpressions:
+      - key: tier
+        operator: In
+        values:
+          - worker
+          - batch
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: bll
+      ports:
+        - protocol: TCP
+          port: 8085
+        - protocol: TCP
+          port: 8086
+    - to:
+        - podSelector:
+            matchLabels:
+              tier: bff
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: forgejo
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# PostgreSQL Core Backup CronJob
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-core-backup-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-core-backup
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Stateful Data & Identity Services in oci-core
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-core-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-core
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: domain-api
+        - podSelector:
+            matchLabels:
+              app: zitadel
+        - podSelector:
+            matchLabels:
+              app: openbao
+        - podSelector:
+            matchLabels:
+              app: postgres-core-backup
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: valkey
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bff
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rabbitmq-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bll
+        - podSelector:
+            matchLabels:
+              tier: bff
+        - podSelector:
+            matchLabels:
+              tier: batch
+        - podSelector:
+            matchLabels:
+              app: oci-worker
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-sim
+          podSelector:
+            matchLabels:
+              app: mock-hardware
+      ports:
+        - protocol: TCP
+          port: 5672
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meilisearch-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: meilisearch
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bff
+        - podSelector:
+            matchLabels:
+              tier: bll
+      ports:
+        - protocol: TCP
+          port: 7700
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zitadel-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: zitadel
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              tier: bff
+        - podSelector:
+            matchLabels:
+              app: cloudflare-tunnel
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openbao-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: openbao
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - external-secrets
+                  - oci-core
+                  - oci-dev
+                  - oci-internal
+      ports:
+        - protocol: TCP
+          port: 8200
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-dev
+          podSelector:
+            matchLabels:
+              app: postgres-dev
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: postgres-internal
+      ports:
+        - protocol: TCP
+          port: 5432
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 16443
+---
+# coturn STUN/TURN WebRTC Media Relay (7.39)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coturn-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: coturn
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 3478
+        - protocol: UDP
+          port: 5349
+        - protocol: TCP
+          port: 5349
+        - protocol: UDP
+          port: 49152
+          endPort: 49200
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 3478
+        - protocol: UDP
+          port: 49152
+          endPort: 49200

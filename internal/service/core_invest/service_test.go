@@ -8,8 +8,10 @@ import (
 
 	repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	service "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type dummyPublisher struct {
@@ -132,10 +134,33 @@ func TestCoreInvestService(t *testing.T) {
 			assert.Equal(t, "strat-001", run.StrategyID)
 			assert.Equal(t, `{"lookback":30}`, run.Parameters)
 			assert.Equal(t, "events.investment.backtest_requested.v1", p.publishedTopic)
-			payloadMap, ok := p.publishedPayload.(map[string]any)
+			env, ok := p.publishedPayload.(envelope.EventEnvelope[map[string]any])
+			require.True(t, ok, "expected EventEnvelope[map[string]any], got %T", p.publishedPayload)
+			assert.NotEmpty(t, env.EventID)
+			assert.False(t, env.OccurredAt.IsZero())
+			assert.Equal(t, "events.investment.backtest_requested.v1", env.EventType)
+			assert.Equal(t, run.BacktestID, env.Payload["backtest_id"])
+			assert.Equal(t, "strat-001", env.Payload["strategy_id"])
+		})
+
+		t.Run("Extracts active OTel trace ID into CorrelationID", func(t *testing.T) {
+			p := &dummyPublisher{}
+			s := service.NewServiceWithPublisher(repository, p)
+			traceID, err := trace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+			require.NoError(t, err)
+			spanID, err := trace.SpanIDFromHex("00f067aa0ba902b7")
+			require.NoError(t, err)
+			tracedCtx := trace.ContextWithSpanContext(ctx, trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID: traceID,
+				SpanID:  spanID,
+			}))
+
+			run, err := s.StartBacktestRun(tracedCtx, "strat-otel", start, end, "{}")
+			require.NoError(t, err)
+			env, ok := p.publishedPayload.(envelope.EventEnvelope[map[string]any])
 			require.True(t, ok)
-			assert.Equal(t, run.BacktestID, payloadMap["backtest_id"])
-			assert.Equal(t, "strat-001", payloadMap["strategy_id"])
+			assert.Equal(t, traceID.String(), env.CorrelationID)
+			assert.Equal(t, run.BacktestID, env.Payload["backtest_id"])
 		})
 
 		t.Run("Success with empty parameters defaulting to json object", func(t *testing.T) {

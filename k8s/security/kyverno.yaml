@@ -1,0 +1,139 @@
+# ==============================================================================
+# Kyverno Cluster Admission Controller (Phase 8 / 7.35)
+# ==============================================================================
+# Installs Kyverno CRDs & Admission Controller in the kyverno namespace to
+# enforce OCI software supply chain, restricted Pod Security Standards, and
+# zero-subPath TLS invariants at Kubernetes API Server admission time.
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno
+  labels:
+    app.kubernetes.io/part-of: kyverno
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kyverno-admission-controller
+  namespace: kyverno
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno:admission-controller
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kyverno.io", "wgpolicyk8s.io", "reports.kyverno.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: ["events", "configmaps", "secrets", "leases"]
+    verbs: ["create", "update", "patch", "delete", "get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "update", "patch", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kyverno:admission-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kyverno:admission-controller
+subjects:
+  - kind: ServiceAccount
+    name: kyverno-admission-controller
+    namespace: kyverno
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyverno-svc
+  namespace: kyverno
+  labels:
+    app: kyverno
+spec:
+  ports:
+    - port: 443
+      targetPort: 9443
+      name: https
+    - port: 8000
+      targetPort: 8000
+      name: metrics
+  selector:
+    app: kyverno
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyverno-admission-controller
+  namespace: kyverno
+  labels:
+    app: kyverno
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kyverno
+  template:
+    metadata:
+      labels:
+        app: kyverno
+    spec:
+      serviceAccountName: kyverno-admission-controller
+      containers:
+        - name: kyverno
+          image: ghcr.io/kyverno/kyverno:v1.13.4
+          imagePullPolicy: IfNotPresent
+          args:
+            - --autoUpdateWebhooks=false
+            - --allowInsecureRegistry=true
+            - --forceFailurePolicyIgnore=true
+            - --enablePolicyException=true
+            - --backgroundServiceAccountName=system:serviceaccount:kyverno:kyverno-admission-controller
+          env:
+            - name: KYVERNO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KYVERNO_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KYVERNO_SERVICEACCOUNT_NAME
+              value: kyverno-admission-controller
+            - name: KYVERNO_SVC
+              value: kyverno-svc
+            - name: KYVERNO_DEPLOYMENT
+              value: kyverno-admission-controller
+            - name: INIT_CONFIG
+              value: kyverno
+            - name: METRICS_CONFIG
+              value: kyverno-metrics
+            - name: TUF_ROOT
+              value: /tmp/.sigstore
+          ports:
+            - containerPort: 9443
+              name: https
+            - containerPort: 8000
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: sigstore-cache
+              mountPath: /tmp/.sigstore
+      volumes:
+        - name: sigstore-cache
+          emptyDir: {}

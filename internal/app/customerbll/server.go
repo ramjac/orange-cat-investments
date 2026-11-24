@@ -29,6 +29,7 @@ type Config struct {
 	ClientTLS       *tls.Config
 	BrokerClient    *alpaca.Client
 	BankClient      *plaid.Client
+	UpstreamTimeout time.Duration
 }
 
 type Server struct {
@@ -39,6 +40,7 @@ type Server struct {
 	brokerClient    *alpaca.Client
 	bankClient      *plaid.Client
 	defaultFelineID string
+	upstreamTimeout time.Duration
 
 	wfClient  workforcev1.WorkforceServiceClient
 	ciClient  coreinvestv1.CoreInvestServiceClient
@@ -59,12 +61,24 @@ func NewServer(cfg Config) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	upstreamTimeout := cfg.UpstreamTimeout
+	if upstreamTimeout <= 0 {
+		if raw := os.Getenv("UPSTREAM_TIMEOUT"); raw != "" {
+			if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+				upstreamTimeout = parsed
+			}
+		}
+	}
+	if upstreamTimeout <= 0 {
+		upstreamTimeout = defaultUpstreamTimeout
+	}
 	s := &Server{
 		logger:          logger,
 		publisher:       cfg.Publisher,
 		brokerClient:    cfg.BrokerClient,
 		bankClient:      cfg.BankClient,
 		defaultFelineID: cfg.DefaultFelineID,
+		upstreamTimeout: upstreamTimeout,
 	}
 
 	if cfg.WorkforceTarget != "" {
@@ -100,11 +114,11 @@ func NewServer(cfg Config) *Server {
 		if brokerURL != "" {
 			apiKey := os.Getenv("APCA_API_KEY_ID")
 			if apiKey == "" {
-				apiKey = "CK_OCI_TEST_KEY_01"
+				apiKey = "CK_OCI_TEST_KEY_01" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			apiSecret := os.Getenv("APCA_API_SECRET_KEY")
 			if apiSecret == "" {
-				apiSecret = "SK_OCI_TEST_SECRET_01"
+				apiSecret = "SK_OCI_TEST_SECRET_01" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			s.brokerClient = alpaca.NewClient(alpaca.Config{
 				BaseURL:   brokerURL,
@@ -128,7 +142,7 @@ func NewServer(cfg Config) *Server {
 			}
 			secret := os.Getenv("PLAID_SECRET")
 			if secret == "" {
-				secret = "sec_oci_sim_test_8829"
+				secret = "sec_oci_sim_test_8829" // #nosec G101 -- test mock fallback overridden by K8s Secret
 			}
 			s.bankClient = plaid.NewClient(plaid.Config{
 				BaseURL:  bankURL,
@@ -174,6 +188,10 @@ func (s *Server) SetDefaultFelineID(id string) {
 
 func (s *Server) SetPublisher(p message.Publisher) {
 	s.publisher = p
+}
+
+func (s *Server) SetUpstreamTimeout(d time.Duration) {
+	s.upstreamTimeout = d
 }
 
 func (s *Server) log() *slog.Logger {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,11 +23,11 @@ func TestAllDefaultPersonasRegistrationAndStructure(t *testing.T) {
 		"emp-feline-garfield":  4,
 		"emp-feline-barneby":   3,
 		"emp-human-alice":      9,
-		"emp-human-bob":        6,
+		"emp-human-bob":        7,
 		"emp-human-carol":      2,
 		"emp-human-david":      3,
 		"emp-human-elena":      4,
-		"emp-human-frank":      4,
+		"emp-human-frank":      6,
 		"cust-longterm-arthur": 11,
 		"cust-active-chloe":    8,
 		"emp-human-rick":       5,
@@ -313,6 +314,67 @@ func TestAliceApproveTimesheetAction_Paths(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res2.Success)
 	assert.Contains(t, res2.Details, "Approved workforce timesheet ts-existing-101")
+}
+
+func TestBobPublishAndRolloutFirmwareAction(t *testing.T) {
+	r := NewRegistry()
+	bob, ok := r.Get("emp-human-bob")
+	require.True(t, ok)
+
+	var fwAction Action
+	for _, act := range bob.Actions {
+		if act.Name == "bob_publish_and_rollout_firmware" {
+			fwAction = act
+			break
+		}
+	}
+	require.NotNil(t, fwAction.Execute)
+
+	var uploadedPkg bool
+	var createdRel bool
+	var triggeredOTA bool
+
+	forgejoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/packages/oci/generic/edge-firmware/") {
+			uploadedPkg = true
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer forgejoSrv.Close()
+
+	bffSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/facilities/firmware/releases":
+			createdRel = true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"release_id":"rel-sim-001"}`))
+		case "/api/v1/facilities/ota/trigger":
+			triggeredOTA = true
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"status":"triggered","jobs":[{"job_id":"job-1"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer bffSrv.Close()
+
+	client := &Client{
+		bffURL:     bffSrv.URL,
+		forgejoURL: forgejoSrv.URL,
+		httpClient: bffSrv.Client(),
+		personaTokens: map[string]string{
+			"emp-human-bob": "test-pat",
+		},
+	}
+
+	res, err := fwAction.Execute(context.Background(), client)
+	require.NoError(t, err)
+	assert.True(t, res.Success)
+	assert.True(t, uploadedPkg)
+	assert.True(t, createdRel)
+	assert.True(t, triggeredOTA)
 }
 
 func TestAliceApproveTimesheetAction_Errors(t *testing.T) {
@@ -776,4 +838,52 @@ func TestAllPersonaActions_TransportErrorHandling(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestFrankGatewayAndWAFSecurityActions(t *testing.T) {
+	r := NewRegistry()
+	frank, ok := r.Get("emp-human-frank")
+	require.True(t, ok)
+
+	var gwAction, wafAction Action
+	for _, act := range frank.Actions {
+		switch act.Name {
+		case "frank_audit_gateway_routes":
+			gwAction = act
+		case "frank_waf_security_audit":
+			wafAction = act
+		}
+	}
+	require.NotNil(t, gwAction.Execute)
+	require.NotNil(t, wafAction.Execute)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawQuery := r.URL.RawQuery
+		if strings.Contains(rawQuery, "OR") || strings.Contains(rawQuery, "script") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":"request blocked by web application firewall","code":"WAF_RULE_VIOLATION"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	client := &Client{
+		bffURL:     srv.URL,
+		custBFFURL: srv.URL,
+		httpClient: srv.Client(),
+	}
+
+	gwRes, err := gwAction.Execute(context.Background(), client)
+	require.NoError(t, err)
+	assert.True(t, gwRes.Success)
+	assert.Equal(t, http.StatusOK, gwRes.StatusCode)
+
+	wafRes, err := wafAction.Execute(context.Background(), client)
+	require.NoError(t, err)
+	assert.True(t, wafRes.Success)
+	assert.Equal(t, http.StatusForbidden, wafRes.StatusCode)
 }

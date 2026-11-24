@@ -2312,6 +2312,23 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
 
+  /api/v1/customer/webrtc/ice-servers:
+    get:
+      summary: Discover WebRTC STUN/TURN ICE Servers and Ephemeral HMAC-SHA1 Credentials
+      description: Dynamically mints short-lived (1 hour) coturn TURN REST API HMAC-SHA1 credentials scoped to the authenticated customer session.
+      operationId: getCustomerWebRTCICEServers
+      tags:
+        - Customer Streams
+      responses:
+        '200':
+          description: Ephemeral ICE server list including STUN and TURN URIs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebRTCICEServersResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
   /api/v1/customer/portfolio/history:
     get:
       summary: Get Portfolio Historical Performance
@@ -2761,6 +2778,9 @@ components:
         min_hardware_version:
           type: string
           nullable: true
+        cosign_signature:
+          type: string
+          description: Base64-encoded ECDSA/Ed25519 Cosign blob signature over the firmware binary payload
         status:
           type: string
           enum: [draft, published, deprecated]
@@ -2790,6 +2810,9 @@ components:
           type: string
         min_hardware_version:
           type: string
+        cosign_signature:
+          type: string
+          description: Base64-encoded ECDSA/Ed25519 Cosign blob signature over the firmware binary payload
         status:
           type: string
           enum: [draft, published, deprecated]
@@ -4559,6 +4582,37 @@ components:
           type: string
         message:
           type: string
+
+    WebRTCICEServer:
+      type: object
+      required:
+        - urls
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+        username:
+          type: string
+        credential:
+          type: string
+
+    WebRTCICEServersResponse:
+      type: object
+      required:
+        - iceServers
+        - ttl_seconds
+        - expires_at
+      properties:
+        iceServers:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebRTCICEServer'
+        ttl_seconds:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
 
   responses:
     '400BadRequest':

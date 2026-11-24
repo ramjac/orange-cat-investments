@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,19 +202,60 @@ func ClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// RateLimitEnabled reports whether HTTP rate limiting is enabled based on
+// the RATE_LIMIT_ENABLED environment variable (defaults to true).
+func RateLimitEnabled() bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv("RATE_LIMIT_ENABLED")))
+	switch raw {
+	case "false", "0", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+// RateLimitMultiplier returns the integer multiplier applied to base rate limits
+// from the RATE_LIMIT_MULTIPLIER environment variable (defaults to 1).
+func RateLimitMultiplier() int {
+	raw := strings.TrimSpace(os.Getenv("RATE_LIMIT_MULTIPLIER"))
+	if raw == "" {
+		return 1
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		return 1
+	}
+	return v
+}
+
+// EffectiveRateLimit returns whether rate limiting is active and the effective
+// request limit after applying RATE_LIMIT_ENABLED and RATE_LIMIT_MULTIPLIER.
+func EffectiveRateLimit(baseLimit int) (bool, int) {
+	if !RateLimitEnabled() {
+		return false, 0
+	}
+	return true, baseLimit * RateLimitMultiplier()
+}
+
 // RateLimitMiddleware creates an HTTP middleware that throttles requests based on keyFunc.
 func RateLimitMiddleware(limiter *RateLimiter, keyFunc func(r *http.Request) string, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			enabled, effectiveLimit := EffectiveRateLimit(limit)
+			if limiter == nil || !enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			key := keyFunc(r)
-			allowed, remaining, retryAfter, err := limiter.Allow(r.Context(), key, limit, window)
+			allowed, remaining, retryAfter, err := limiter.Allow(r.Context(), key, effectiveLimit, window)
 			if err != nil {
 				// Fail open on rate limiter error to preserve service availability
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(effectiveLimit))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 
 			if !allowed {

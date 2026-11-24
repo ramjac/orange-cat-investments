@@ -1,3 +1,12 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oci-pebble-proxy
+  namespace: oci-core
+  labels:
+    app: oci-pebble-proxy
+    tier: bff
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,10 +26,21 @@ spec:
         app: oci-pebble-proxy
         tier: bff
     spec:
+      serviceAccountName: oci-pebble-proxy
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: oci-pebble-proxy
-          image: localhost:32000/oci-pebble-proxy:latest
+          image: localhost:32000/oci-pebble-proxy:prod-stable
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8082
               name: http
@@ -65,28 +85,15 @@ spec:
             periodSeconds: 10
       volumes:
         - name: tls-certs
-          secret:
-            secretName: oci-pebble-proxy-tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
         - name: ca-cert
           configMap:
             name: oci-ca-bundle
             optional: true
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: oci-pebble-proxy-tls
-  namespace: oci-core
-spec:
-  secretName: oci-pebble-proxy-tls-certs
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-  commonName: oci-pebble-proxy-service.oci-core.svc.cluster.local
-  dnsNames:
-    - oci-pebble-proxy-service
-    - oci-pebble-proxy-service.oci-core.svc
-    - oci-pebble-proxy-service.oci-core.svc.cluster.local
 ---
 apiVersion: v1
 kind: Service

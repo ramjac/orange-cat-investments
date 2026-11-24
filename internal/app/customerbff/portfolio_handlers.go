@@ -11,6 +11,8 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +56,11 @@ func (b *CustomerBFF) handleGetPortfolio(w http.ResponseWriter, r *http.Request)
 		PortfolioID: portfolioID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "portfolio not found")
+		if status.Code(err) == codes.NotFound {
+			httputil.WriteError(w, http.StatusNotFound, "portfolio not found")
+			return
+		}
+		b.handleGRPCError(w, "GetPortfolio", err, http.StatusBadGateway)
 		return
 	}
 
@@ -108,7 +114,7 @@ func (b *CustomerBFF) handleGetDeposits(w http.ResponseWriter, r *http.Request) 
 		CustomerID: custID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to list deposits")
+		b.handleGRPCError(w, "ListDeposits", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -151,11 +157,14 @@ func (b *CustomerBFF) handleCreateDeposit(w http.ResponseWriter, r *http.Request
 	resp, err := b.bllClient.InitiateACHDeposit(r.Context(), &customerbllv1.InitiateACHDepositRequest{
 		CustomerID:  session.CustomerID,
 		PortfolioID: req.PortfolioID,
+		BankAccount: req.BankAccount,
+		AccountID:   req.AccountID,
 		AmountUSD:   req.AmountUSD,
 		Frequency:   req.Frequency,
+		DayOfMonth:  int32(req.DayOfMonth),
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "InitiateACHDeposit", err, http.StatusBadGateway)
 		return
 	}
 
@@ -183,7 +192,7 @@ func (b *CustomerBFF) handleGetBankAccounts(w http.ResponseWriter, r *http.Reque
 		CustomerID: custID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to get bank accounts")
+		b.handleGRPCError(w, "ListBankAccounts", err, http.StatusBadGateway)
 		return
 	}
 
@@ -209,6 +218,7 @@ func (b *CustomerBFF) handleListStatements(w http.ResponseWriter, r *http.Reques
 		CustomerID: custID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListStatements", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []*coreinvestv1.CustomerStatement{})
 		return
 	}
@@ -257,7 +267,7 @@ func (b *CustomerBFF) handleGenerateStatement(w http.ResponseWriter, r *http.Req
 		Month:       int32(req.Month),
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
+		b.handleGRPCError(w, "GenerateStatement", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -291,7 +301,7 @@ func (b *CustomerBFF) handleDownloadStatement(w http.ResponseWriter, r *http.Req
 		StatementID: id,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to retrieve statement: %v", err))
+		b.handleGRPCError(w, "DownloadStatement", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -341,7 +351,7 @@ func (b *CustomerBFF) handleGetPortfolioHistory(w http.ResponseWriter, r *http.R
 		Period:      period,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to get portfolio history")
+		b.handleGRPCError(w, "GetPortfolioHistory", err, http.StatusInternalServerError)
 		return
 	}
 

@@ -14,6 +14,8 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/pebble"
 	"github.com/orange-cat-investments/oci/pkg/session"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type mockInternalBLLClient struct {
@@ -418,4 +420,40 @@ func TestOpsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusForbidden, recIdorList.Code)
 	})
+}
+
+func TestWriteOpsGRPCError_MapsInternalAndDataLossTo500(t *testing.T) {
+	cases := []struct {
+		name           string
+		grpcCode       codes.Code
+		fallbackStatus int
+		wantStatus     int
+	}{
+		{
+			name:           "Internal overrides 404 fallback",
+			grpcCode:       codes.Internal,
+			fallbackStatus: http.StatusNotFound,
+			wantStatus:     http.StatusInternalServerError,
+		},
+		{
+			name:           "Internal overrides 400 fallback",
+			grpcCode:       codes.Internal,
+			fallbackStatus: http.StatusBadRequest,
+			wantStatus:     http.StatusInternalServerError,
+		},
+		{
+			name:           "DataLoss overrides 404 fallback",
+			grpcCode:       codes.DataLoss,
+			fallbackStatus: http.StatusNotFound,
+			wantStatus:     http.StatusInternalServerError,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeOpsGRPCError(rec, "TestOp", status.Error(tc.grpcCode, "internal backend failure"), tc.fallbackStatus)
+			assert.Equal(t, tc.wantStatus, rec.Code)
+		})
+	}
 }

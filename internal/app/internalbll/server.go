@@ -17,6 +17,7 @@ import (
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
+	"google.golang.org/grpc/status"
 )
 
 // EventPublisher publishes domain event payloads to a topic.
@@ -150,4 +151,21 @@ func (s *Server) SetCoreInvestClient(c coreinvestv1.CoreInvestServiceClient) {
 // SetSearchClient sets the Meilisearch client on the server.
 func (s *Server) SetSearchClient(c *meilisearch.Client) {
 	s.meiliClient = c
+}
+
+func (s *Server) logDomainError(domainAPI, op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	logger := s.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Error("domain API gRPC call failed",
+		"domain_api", domainAPI,
+		"operation", op,
+		"grpc_code", status.Code(err).String(),
+		"error", err,
+	)
+	return err
 }

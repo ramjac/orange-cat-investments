@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oci-cosign-pub
+  namespace: oci-dev
+  labels:
+    app.kubernetes.io/part-of: oci-supply-chain
+data:
+  cosign.pub: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAESwQInsTZawJZ97DRZHZ3hXPpVGJV
+    cVEA1vAdWFySBBTnzBDrJ0eA2Oq2Am1/zUNRdob171FJO1b6nWnfB2ehKA==
+    -----END PUBLIC KEY-----

@@ -2,13 +2,19 @@ package simulation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 )
 
 // RandomAction selects a random action for the given persona based on its ActivityLevel.
@@ -813,6 +819,7 @@ func (r *Registry) createBobPersona() *Persona {
 			r.createBobLogDailyTimesheetAction(),
 			r.createBobViewPaystubsAction(),
 			r.createBobReviewCalendarAction(),
+			r.createBobPublishAndRolloutFirmwareAction(),
 		},
 	}
 }
@@ -908,6 +915,99 @@ func (r *Registry) createBobReviewCalendarAction() Action {
 				Success:     resp.StatusCode == http.StatusOK,
 				StatusCode:  resp.StatusCode,
 				Details:     fmt.Sprintf("Retrieved maintenance calendar events: %s", string(bytes)),
+				Timestamp:   time.Now().UTC(),
+			}, nil
+		},
+	}
+}
+
+func (r *Registry) createBobPublishAndRolloutFirmwareAction() Action {
+	return Action{
+		Name:        "bob_publish_and_rollout_firmware",
+		Description: "Builds, optionally signs, uploads an edge camera firmware bundle to Forgejo Package Registry, registers the release, and triggers an OTA rollout",
+		Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+			version := fmt.Sprintf("2.2.%d", time.Now().UTC().Unix()%100000)
+			fileName := fmt.Sprintf("edge-camera-%s.bin", version)
+			firmwarePayload := []byte(fmt.Sprintf("OCI-FW-V2\ndevice_type=edge_camera\nversion=%s\n", version))
+			sum := sha256.Sum256(firmwarePayload)
+			checksumHex := hex.EncodeToString(sum[:])
+
+			var cosignSig string
+			if privKeyPath := strings.TrimSpace(os.Getenv("COSIGN_KEY_FILE")); privKeyPath != "" {
+				if keyBytes, readErr := os.ReadFile(privKeyPath); readErr == nil {
+					cosignSig, _ = cosignverify.SignBlob(keyBytes, firmwarePayload)
+				}
+			}
+
+			binaryURL := fmt.Sprintf("http://forgejo-service.oci-internal.svc.cluster.local:3000/api/packages/oci/generic/edge-firmware/%s/%s", version, fileName)
+			if client.ForgejoURL() != "" {
+				uploadedURL, upResp, _, upErr := client.UploadForgejoGenericPackage(ctx, "emp-human-bob", "oci", "edge-firmware", version, fileName, firmwarePayload)
+				if upErr == nil && upResp != nil && (upResp.StatusCode == http.StatusCreated || upResp.StatusCode == http.StatusOK || upResp.StatusCode == http.StatusConflict) {
+					if parsed, parseErr := url.Parse(uploadedURL); parseErr == nil && parsed.Path != "" {
+						binaryURL = "http://forgejo-service.oci-internal.svc.cluster.local:3000" + parsed.Path
+					}
+				}
+			}
+
+			relPayload := map[string]any{
+				"target_hardware":  "edge_camera",
+				"version":          version,
+				"binary_url":       binaryURL,
+				"checksum_sha256":  checksumHex,
+				"cosign_signature": cosignSig,
+				"status":           "published",
+			}
+			relEndpoint := "/api/v1/facilities/firmware/releases"
+			relResp, relBytes, err := client.Do(ctx, http.MethodPost, relEndpoint, relPayload)
+			if err != nil {
+				return nil, err
+			}
+			if relResp.StatusCode != http.StatusCreated && relResp.StatusCode != http.StatusOK {
+				return &ActionResult{
+					PersonaID:   "emp-human-bob",
+					PersonaName: "Bob Builder",
+					ActionName:  "bob_publish_and_rollout_firmware",
+					Endpoint:    relEndpoint,
+					Success:     false,
+					StatusCode:  relResp.StatusCode,
+					Details:     fmt.Sprintf("Firmware release creation failed: %s", string(relBytes)),
+					Timestamp:   time.Now().UTC(),
+				}, nil
+			}
+
+			var createdRel struct {
+				ReleaseID string `json:"release_id"`
+			}
+			_ = json.Unmarshal(relBytes, &createdRel)
+			if createdRel.ReleaseID == "" {
+				return &ActionResult{
+					PersonaID:   "emp-human-bob",
+					PersonaName: "Bob Builder",
+					ActionName:  "bob_publish_and_rollout_firmware",
+					Endpoint:    relEndpoint,
+					Success:     true,
+					StatusCode:  relResp.StatusCode,
+					Details:     fmt.Sprintf("Published firmware release %s (%s)", version, checksumHex[:12]),
+					Timestamp:   time.Now().UTC(),
+				}, nil
+			}
+
+			otaEndpoint := "/api/v1/facilities/ota/trigger"
+			otaResp, otaBytes, err := client.Do(ctx, http.MethodPost, otaEndpoint, map[string]any{
+				"release_id": createdRel.ReleaseID,
+				"asset_ids":  []string{"018e0000-0000-7000-8000-000000000001"},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return &ActionResult{
+				PersonaID:   "emp-human-bob",
+				PersonaName: "Bob Builder",
+				ActionName:  "bob_publish_and_rollout_firmware",
+				Endpoint:    otaEndpoint,
+				Success:     otaResp.StatusCode == http.StatusAccepted || otaResp.StatusCode == http.StatusOK,
+				StatusCode:  otaResp.StatusCode,
+				Details:     fmt.Sprintf("Published firmware v%s (%s) and triggered OTA rollout: %s", version, binaryURL, string(otaBytes)),
 				Timestamp:   time.Now().UTC(),
 			}, nil
 		},
@@ -1305,6 +1405,73 @@ func (r *Registry) createFrankPersona() *Persona {
 						Success:     success,
 						StatusCode:  chatResp.StatusCode,
 						Details:     fmt.Sprintf("SECURITY DOC & CHAT SENT! Doc created: %d (%s) -> Nextcloud Chat: %d (%s)", docResp.StatusCode, string(docBytes), chatResp.StatusCode, string(chatBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "frank_audit_gateway_routes",
+				Description: "Audits Kubernetes Gateway API (oci-edge-gateway) HTTPRoute attachment and routing health across Employee and Customer BFF endpoints",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					empHealthResp, empHealthBytes, err := client.Do(ctx, http.MethodGet, "/healthz", nil)
+					if err != nil {
+						return nil, fmt.Errorf("gateway employee BFF health probe failed: %w", err)
+					}
+					opsResp, _, err := client.Do(ctx, http.MethodGet, "/ops/tickets", nil)
+					if err != nil {
+						return nil, fmt.Errorf("gateway employee HTTPRoute probe failed: %w", err)
+					}
+					custResp, custBytes, err := client.DoCustomer(ctx, http.MethodGet, "/api/v1/customer/csrf", nil)
+					if err != nil {
+						return nil, fmt.Errorf("gateway customer HTTPRoute probe failed: %w", err)
+					}
+
+					healthy := empHealthResp.StatusCode == http.StatusOK &&
+						opsResp.StatusCode == http.StatusOK &&
+						custResp.StatusCode == http.StatusOK
+
+					return &ActionResult{
+						PersonaID:   "emp-human-frank",
+						PersonaName: "Frank Operations",
+						ActionName:  "frank_audit_gateway_routes",
+						Endpoint:    "/healthz,/ops/tickets,/api/v1/customer/csrf",
+						Success:     healthy,
+						StatusCode:  custResp.StatusCode,
+						Details:     fmt.Sprintf("Gateway HTTPRoute attachment audit: emp-health=%d (%dB), ops-route=%d, cust-route=%d (%dB)", empHealthResp.StatusCode, len(empHealthBytes), opsResp.StatusCode, custResp.StatusCode, len(custBytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "frank_waf_security_audit",
+				Description: "Sends synthetic SQLi and XSS probes against BFF endpoints to verify Coraza OWASP CRS WAF blocks with HTTP 403 and zero stack traces",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					sqliEndpoint := "/ops/tickets?q=%27%20OR%201%3D1--"
+					sqliResp, sqliBytes, err := client.Do(ctx, http.MethodGet, sqliEndpoint, nil)
+					if err != nil {
+						return nil, fmt.Errorf("WAF SQLi probe request failed: %w", err)
+					}
+
+					xssEndpoint := "/api/v1/customer/search?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+					xssResp, xssBytes, err := client.DoCustomer(ctx, http.MethodGet, xssEndpoint, nil)
+					if err != nil {
+						return nil, fmt.Errorf("WAF XSS probe request failed: %w", err)
+					}
+
+					combined := string(sqliBytes) + string(xssBytes)
+					noStackTrace := !strings.Contains(combined, "goroutine") && !strings.Contains(combined, "runtime.")
+					blocked := sqliResp.StatusCode == http.StatusForbidden &&
+						xssResp.StatusCode == http.StatusForbidden &&
+						noStackTrace
+
+					return &ActionResult{
+						PersonaID:   "emp-human-frank",
+						PersonaName: "Frank Operations",
+						ActionName:  "frank_waf_security_audit",
+						Endpoint:    sqliEndpoint + " | " + xssEndpoint,
+						Success:     blocked,
+						StatusCode:  xssResp.StatusCode,
+						Details:     fmt.Sprintf("Coraza WAF security audit: sqli_status=%d, xss_status=%d, clean_error=%t", sqliResp.StatusCode, xssResp.StatusCode, noStackTrace),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

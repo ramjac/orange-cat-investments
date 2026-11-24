@@ -1230,7 +1230,15 @@ function recenterCamera() {
   showToast('Camera angle adjusted to Alpha Perch Zone 1');
 }
 
+let webrtcInitSeq = 0;
+let webrtcAbortController = null;
+
 function stopWebRTCStream() {
+  webrtcInitSeq += 1;
+  if (webrtcAbortController) {
+    webrtcAbortController.abort();
+    webrtcAbortController = null;
+  }
   if (peerConnection.value) {
     peerConnection.value.close();
     peerConnection.value = null;
@@ -1238,21 +1246,52 @@ function stopWebRTCStream() {
 }
 
 async function initWebRTCStream() {
-  streamStatus.value = 'connecting';
   stopWebRTCStream();
+  const currentSeq = webrtcInitSeq;
+  const abortController = new AbortController();
+  webrtcAbortController = abortController;
+  streamStatus.value = 'connecting';
+
+  let pc = null;
+  const isStale = () => currentSeq !== webrtcInitSeq || abortController.signal.aborted;
+  const cleanupPC = () => {
+    if (pc) {
+      pc.close();
+      if (peerConnection.value === pc) {
+        peerConnection.value = null;
+      }
+      pc = null;
+    }
+  };
 
   try {
-    const config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun.oci.local:3478' }
-      ]
-    };
+    let iceServers = [
+      { urls: 'stun:turn.oci.local:3478' }
+    ];
+    try {
+      const iceRes = await fetch('/api/v1/customer/webrtc/ice-servers', {
+        credentials: 'include',
+        signal: abortController.signal
+      });
+      if (iceRes.ok) {
+        const iceData = await iceRes.json();
+        if (Array.isArray(iceData.iceServers) && iceData.iceServers.length > 0) {
+          iceServers = iceData.iceServers;
+        }
+      }
+    } catch {
+      // Fallback to in-cluster STUN URI if discovery endpoint is unreachable
+    }
+    if (isStale()) {
+      return;
+    }
+    const config = { iceServers };
 
-    const pc = new RTCPeerConnection(config);
+    pc = new RTCPeerConnection(config);
     peerConnection.value = pc;
 
     pc.ontrack = (event) => {
+      if (isStale()) return;
       if (videoPlayer.value && event.streams && event.streams[0]) {
         videoPlayer.value.srcObject = event.streams[0];
         streamStatus.value = 'live';
@@ -1260,6 +1299,7 @@ async function initWebRTCStream() {
     };
 
     pc.onconnectionstatechange = () => {
+      if (isStale()) return;
       if (pc.connectionState === 'connected') {
         streamStatus.value = 'live';
       } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
@@ -1271,7 +1311,15 @@ async function initWebRTCStream() {
     pc.addTransceiver('audio', { direction: 'recvonly' });
 
     const offer = await pc.createOffer();
+    if (isStale()) {
+      cleanupPC();
+      return;
+    }
     await pc.setLocalDescription(offer);
+    if (isStale()) {
+      cleanupPC();
+      return;
+    }
 
     const streamUrl = selectedStream.value?.stream_url || '/api/v1/customer/webrtc/whep';
     const res = await fetch(streamUrl, {
@@ -1280,18 +1328,40 @@ async function initWebRTCStream() {
         'Content-Type': 'application/sdp',
         'X-CSRF-Token': csrfToken.value
       },
-      body: offer.sdp
+      body: offer.sdp,
+      signal: abortController.signal
     }).catch(() => null);
+
+    if (isStale()) {
+      cleanupPC();
+      return;
+    }
 
     if (res && res.ok) {
       const answerSdp = await res.text();
+      if (isStale()) {
+        cleanupPC();
+        return;
+      }
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+      if (isStale()) {
+        cleanupPC();
+        return;
+      }
       streamStatus.value = 'live';
     } else {
       setupMockVideoStream();
     }
   } catch (err) {
+    if (isStale()) {
+      cleanupPC();
+      return;
+    }
     setupMockVideoStream();
+  } finally {
+    if (webrtcAbortController === abortController) {
+      webrtcAbortController = null;
+    }
   }
 }
 

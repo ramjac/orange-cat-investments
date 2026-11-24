@@ -72,7 +72,7 @@ func (h *Handler) ListTickets(w http.ResponseWriter, r *http.Request) {
 		Offset: offset,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeOpsGRPCError(w, "ListTickets", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *Handler) GetTicket(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.bllClient.GetTicket(r.Context(), &opsv1.GetTicketRequest{TicketID: id})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		writeOpsGRPCError(w, "GetTicket", err, http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -147,7 +147,7 @@ func (h *Handler) CreateTicket(w http.ResponseWriter, r *http.Request) {
 		CustomerID:     req.CustomerID,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "CreateTicket", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -180,7 +180,7 @@ func (h *Handler) UpdateTicket(w http.ResponseWriter, r *http.Request) {
 		ResolutionNotes:  req.ResolutionNotes,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "UpdateTicket", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -206,7 +206,7 @@ func (h *Handler) ListTicketComments(w http.ResponseWriter, r *http.Request) {
 		TicketID: id,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeOpsGRPCError(w, "ListTickets", err, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -244,7 +244,7 @@ func (h *Handler) AddTicketComment(w http.ResponseWriter, r *http.Request) {
 		IsInternal:     req.IsInternal,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeOpsGRPCError(w, "AddTicketComment", err, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -271,7 +271,7 @@ func (h *Handler) SendPushNotification(w http.ResponseWriter, r *http.Request) {
 		Priority: req.Priority,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeOpsGRPCError(w, "SendPushNotification", err, http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

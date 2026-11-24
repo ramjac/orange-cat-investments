@@ -13,14 +13,19 @@ import (
 func (d *Driver) testFaultScenarios(ctx context.Context) error {
 	d.logger.Info("starting fault injection scenarios")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: d.client.transport,
+	}
 
 	bankURL := strings.TrimRight(d.cfg.BankURL, "/") + "/sim/faults"
 	brokerURL := strings.TrimRight(d.cfg.BrokerURL, "/") + "/sim/faults"
 
 	defer func() {
+		resetCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		for _, url := range []string{bankURL, brokerURL} {
-			req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+			req, err := http.NewRequestWithContext(resetCtx, http.MethodDelete, url, nil)
 			if err != nil {
 				d.logger.Error("fault reset failed", "url", url, "error", err)
 				continue
@@ -56,14 +61,6 @@ func (d *Driver) testFaultScenarios(ctx context.Context) error {
 		return nil
 	}
 
-	if err := injectFault(bankURL, `{"outage":true}`); err != nil {
-		return fmt.Errorf("inject bank outage failed: %w", err)
-	}
-	if err := injectFault(brokerURL, `{"outage":true}`); err != nil {
-		return fmt.Errorf("inject broker outage failed: %w", err)
-	}
-	d.logger.Info("bank and broker outage faults injected")
-
 	p, ok := d.registry.Get("cust-longterm-arthur")
 	if !ok {
 		for _, candidate := range d.registry.List() {
@@ -82,31 +79,59 @@ func (d *Driver) testFaultScenarios(ctx context.Context) error {
 		return fmt.Errorf("authenticate persona for fault scenario: %w", err)
 	}
 
-	// Probe a customer BFF endpoint that depends on the broker. During the
-	// outage it must answer with a structured JSON error (4xx/5xx), never a
-	// plain 2xx success built on stale data.
 	orderBody := map[string]any{
 		"symbol":     "NVDA",
 		"side":       "buy",
 		"quantity":   1,
 		"order_type": "market",
 	}
+
+	// Scenario 1: Broker & Bank outage -> BFF must return structured 5xx JSON error.
+	if err := injectFault(bankURL, `{"outage":true}`); err != nil {
+		return fmt.Errorf("inject bank outage failed: %w", err)
+	}
+	if err := injectFault(brokerURL, `{"outage":true}`); err != nil {
+		return fmt.Errorf("inject broker outage failed: %w", err)
+	}
+	d.logger.Info("bank and broker outage faults injected")
+
 	resp, body, err := d.client.DoCustomer(personaCtx, http.MethodPost, "/api/v1/customer/trading/orders", orderBody)
 	if err != nil {
 		return fmt.Errorf("BFF order request during outage failed at transport level: %w", err)
 	}
 	resp.Body.Close()
 
-	if resp.StatusCode < 400 {
-		return fmt.Errorf("BFF returned %d for an order during injected broker outage; fault did not propagate", resp.StatusCode)
+	if resp.StatusCode < 500 || resp.StatusCode >= 600 {
+		return fmt.Errorf("BFF returned %d for an order during injected broker outage; expected 5xx", resp.StatusCode)
 	}
-	var structured map[string]any
-	if err := json.Unmarshal(body, &structured); err != nil {
-		return fmt.Errorf("BFF error response during outage is not structured JSON: %s", string(body))
+	var outageErr map[string]any
+	if err := json.Unmarshal(body, &outageErr); err != nil || outageErr["error"] == nil {
+		return fmt.Errorf("BFF error response during outage is not structured JSON with error field: %s", string(body))
 	}
-	d.logger.Info("BFF returned structured error during injected outage", "status", resp.StatusCode)
+	d.logger.Info("BFF returned structured 5xx error during injected outage", "status", resp.StatusCode)
 
-	// Sweep the persona actions while the outage is active and record which
+	// Scenario 2: Halted symbol rejection -> BFF must return structured 422 JSON error.
+	if err := injectFault(brokerURL, `{"outage":false,"halted_symbols":["NVDA"]}`); err != nil {
+		return fmt.Errorf("inject broker halted_symbols failed: %w", err)
+	}
+	d.logger.Info("broker halted_symbols fault injected", "symbol", "NVDA")
+
+	haltResp, haltBody, err := d.client.DoCustomer(personaCtx, http.MethodPost, "/api/v1/customer/trading/orders", orderBody)
+	if err != nil {
+		return fmt.Errorf("BFF order request during symbol halt failed at transport level: %w", err)
+	}
+	haltResp.Body.Close()
+
+	if haltResp.StatusCode != http.StatusUnprocessableEntity {
+		return fmt.Errorf("BFF returned %d for halted symbol order; expected 422", haltResp.StatusCode)
+	}
+	var haltErr map[string]any
+	if err := json.Unmarshal(haltBody, &haltErr); err != nil || haltErr["error"] == nil {
+		return fmt.Errorf("BFF error response during symbol halt is not structured JSON with error field: %s", string(haltBody))
+	}
+	d.logger.Info("BFF returned structured 422 error during halted symbol fault", "status", haltResp.StatusCode)
+
+	// Sweep the persona actions while faults are active and record which
 	// of them degrade. Actions unrelated to the mocks may legitimately
 	// succeed, so only log them.
 	for _, act := range p.Actions {

@@ -1,3 +1,11 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mock-hardware
+  namespace: external-sim
+  labels:
+    app: mock-hardware
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,10 +24,21 @@ spec:
         app: mock-hardware
         environment: simulated-external
     spec:
+      serviceAccountName: mock-hardware
+      securityContext:
+        supplementalGroups: [65532]
       containers:
         - name: mock-hardware
           image: localhost:32000/mock-hardware:latest
           imagePullPolicy: Always
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
@@ -28,11 +47,13 @@ spec:
             - name: MOCK_CAMERA_SERIAL
               value: "QR-CAM-ORANGE-01"
             - name: TLS_CERT_FILE
-              value: "/certs/tls.crt"
+              value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE
-              value: "/certs/tls.key"
+              value: "/etc/tls/certs/tls.key"
             - name: CLIENT_CA_FILE
-              value: "/certs/ca.crt"
+              value: "/etc/tls/ca/ca.crt"
+            - name: COSIGN_PUB_KEY_FILE
+              value: "/etc/oci/cosign/cosign.pub"
           resources:
             requests:
               cpu: 50m
@@ -41,38 +62,27 @@ spec:
               cpu: 200m
               memory: 128Mi
           volumeMounts:
-            - name: certs
-              mountPath: "/certs"
+            - name: tls-certs
+              mountPath: /etc/tls/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/tls/ca
+              readOnly: true
+            - name: cosign-pub
+              mountPath: /etc/oci/cosign
               readOnly: true
       volumes:
-        - name: certs
-          secret:
-            secretName: mock-hardware-tls-certs
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: mock-hardware-tls
-  namespace: external-sim
-spec:
-  secretName: mock-hardware-tls-certs
-  duration: 8760h # 1 year
-  renewBefore: 720h # 30 days
-  subject:
-    organizations:
-      - Orange Cat Investments (External Simulation)
-  isCA: false
-  privateKey:
-    algorithm: ECDSA
-    size: 256
-  usages:
-    - client auth
-  dnsNames:
-    - mock-hardware
-    - mock-hardware.external-sim
-    - mock-hardware.external-sim.svc
-    - mock-hardware.external-sim.svc.cluster.local
-  issuerRef:
-    name: oci-lan-issuer
-    kind: ClusterIssuer
-    group: cert-manager.io
+        - name: tls-certs
+          csi:
+            driver: spiffe.csi.cert-manager.io
+            readOnly: true
+            volumeAttributes:
+              spiffe.csi.cert-manager.io/fs-group: "65532"
+        - name: ca-cert
+          configMap:
+            name: oci-ca-bundle
+            optional: true
+        - name: cosign-pub
+          configMap:
+            name: oci-cosign-pub
+            optional: true

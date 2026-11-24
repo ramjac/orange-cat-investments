@@ -31,6 +31,14 @@ spec:
         - name: mock-bank
           image: localhost:32000/mock-bank:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8088
               name: http
@@ -85,33 +93,3 @@ spec:
       name: http
   selector:
     app: mock-bank
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: mock-bank-ingress
-  namespace: external-sim
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
-spec:
-  rules:
-    - host: bank-api.sim.oci.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: mock-bank-service
-                port:
-                  number: 8088
-    - host: plaid-api.sim.oci.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: mock-bank-service
-                port:
-                  number: 8088

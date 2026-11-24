@@ -1,9 +1,16 @@
 package customerbff
 
 import (
+	"crypto/hmac"
+	"crypto/sha1" // #nosec G505 -- coturn use-auth-secret REST API specification mandates HMAC-SHA1
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
@@ -12,6 +19,8 @@ import (
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
 	"github.com/orange-cat-investments/oci/pkg/search/meilisearch"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +44,7 @@ func (b *CustomerBFF) handleGetESGTransparency(w http.ResponseWriter, r *http.Re
 
 	resp, err := b.bllClient.GetESGTransparency(r.Context(), &customerbllv1.GetESGTransparencyRequest{})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "failed to fetch ESG transparency metrics")
+		b.handleGRPCError(w, "GetESGTransparency", err, http.StatusInternalServerError)
 		return
 	}
 
@@ -74,11 +83,99 @@ func (b *CustomerBFF) handleGetStreams(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := b.bllClient.ListCameraStreams(r.Context(), &customerbllv1.ListCameraStreamsRequest{})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCameraStreams", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, []*coreinvestv1.CameraStream{})
 		return
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp.Streams)
+}
+
+const defaultTurnCredentialTTL = time.Hour
+
+// ICEServer describes a single WebRTC STUN or TURN server configuration entry.
+type ICEServer struct {
+	URLs       []string `json:"urls"`
+	Username   string   `json:"username,omitempty"`
+	Credential string   `json:"credential,omitempty"`
+}
+
+// ICEServersResponse is returned by GET /api/v1/customer/webrtc/ice-servers.
+type ICEServersResponse struct {
+	ICEServers []ICEServer `json:"iceServers"`
+	TTLSeconds int         `json:"ttl_seconds"`
+	ExpiresAt  string      `json:"expires_at"`
+}
+
+// GenerateTURNCredentials computes ephemeral coturn REST API HMAC-SHA1 credentials
+// (`<unix_expiry>:<customer_id>` username + base64(HMAC-SHA1(secret, username))).
+func GenerateTURNCredentials(secret, customerID string, now time.Time, ttl time.Duration) (username, credential string, expiresAt time.Time, err error) {
+	if secret == "" {
+		return "", "", time.Time{}, errors.New("turn auth secret is required")
+	}
+	if ttl <= 0 {
+		ttl = defaultTurnCredentialTTL
+	}
+	id := strings.TrimSpace(customerID)
+	if id == "" {
+		return "", "", time.Time{}, errors.New("customer identity is required")
+	}
+	expiresAt = now.UTC().Add(ttl)
+	username = fmt.Sprintf("%d:%s", expiresAt.Unix(), id)
+	mac := hmac.New(sha1.New, []byte(secret)) // #nosec G401 G505 -- coturn use-auth-secret REST API specification mandates HMAC-SHA1
+	mac.Write([]byte(username))
+	credential = base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	return username, credential, expiresAt, nil
+}
+
+func (b *CustomerBFF) handleGetWebRTCICEServers(w http.ResponseWriter, r *http.Request) {
+	sess := CustomerFromContext(r.Context())
+	if sess == nil || strings.TrimSpace(sess.CustomerID) == "" {
+		httputil.WriteError(w, http.StatusUnauthorized, "unauthorized: customer session required")
+		return
+	}
+
+	host := strings.TrimSpace(b.turnServerHost)
+	if host == "" {
+		host = strings.TrimSpace(os.Getenv("TURN_SERVER_HOST"))
+	}
+	if host == "" {
+		host = "turn.oci.local:3478"
+	}
+
+	secret := b.turnAuthSecret
+	if secret == "" {
+		secret = os.Getenv("TURN_AUTH_SECRET")
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(defaultTurnCredentialTTL)
+	servers := []ICEServer{
+		{
+			URLs: []string{"stun:" + host},
+		},
+	}
+
+	if secret != "" {
+		username, credential, exp, err := GenerateTURNCredentials(secret, sess.CustomerID, now, defaultTurnCredentialTTL)
+		if err == nil {
+			expiresAt = exp
+			servers = append(servers, ICEServer{
+				URLs: []string{
+					"turn:" + host + "?transport=udp",
+					"turn:" + host + "?transport=tcp",
+				},
+				Username:   username,
+				Credential: credential,
+			})
+		}
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, ICEServersResponse{
+		ICEServers: servers,
+		TTLSeconds: int(defaultTurnCredentialTTL.Seconds()),
+		ExpiresAt:  expiresAt.Format(time.RFC3339),
+	})
 }
 
 func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +201,8 @@ func (b *CustomerBFF) handleSearch(w http.ResponseWriter, r *http.Request) {
 		Limit:  25,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("search failed: %v", err))
+		b.log().Error("meilisearch customer catalog search failed", "downstream", "meilisearch", "operation", "Search", "error", err)
+		httputil.WriteError(w, http.StatusServiceUnavailable, "search service temporarily unavailable")
 		return
 	}
 
@@ -128,6 +226,7 @@ func (b *CustomerBFF) handleListCustomerTickets(w http.ResponseWriter, r *http.R
 		CustomerID: custID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCustomerTickets", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
 		return
 	}
@@ -161,7 +260,11 @@ func (b *CustomerBFF) handleGetCustomerTicket(w http.ResponseWriter, r *http.Req
 		TicketID: ticketID,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusNotFound, "ticket not found")
+		if status.Code(err) == codes.NotFound {
+			httputil.WriteError(w, http.StatusNotFound, "ticket not found")
+			return
+		}
+		b.handleGRPCError(w, "GetCustomerTicket", err, http.StatusNotFound)
 		return
 	}
 
@@ -218,7 +321,7 @@ func (b *CustomerBFF) handleCreateCustomerTicket(w http.ResponseWriter, r *http.
 		Severity:   req.Severity,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "CreateCustomerTicket", err, http.StatusBadRequest)
 		return
 	}
 
@@ -258,6 +361,7 @@ func (b *CustomerBFF) handleListCustomerTicketComments(w http.ResponseWriter, r 
 		TicketID: ticketID,
 	})
 	if err != nil {
+		b.log().Error("customer-bll gRPC call failed", "downstream", "customer-bll", "operation", "ListCustomerTicketComments", "grpc_code", status.Code(err).String(), "error", err)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0})
 		return
 	}
@@ -312,7 +416,7 @@ func (b *CustomerBFF) handleAddCustomerTicketComment(w http.ResponseWriter, r *h
 		Comment:        req.Comment,
 	})
 	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+		b.handleGRPCError(w, "AddCustomerTicketComment", err, http.StatusBadRequest)
 		return
 	}
 

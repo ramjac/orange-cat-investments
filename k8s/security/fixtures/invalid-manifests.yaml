@@ -1,0 +1,82 @@
+# Negative test fixtures used by scripts/verify-ci-contracts.sh and `kyverno apply`
+# to verify all 4 Kyverno admission policies actively reject non-compliant Pods.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: invalid-latest-tag-pod
+  namespace: oci-core
+  labels:
+    app: workforce-api
+spec:
+  containers:
+    - name: workforce-api
+      image: localhost:32000/workforce-api:latest
+      securityContext:
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: invalid-subpath-tls-pod
+  namespace: oci-core
+  labels:
+    app: workforce-api
+spec:
+  containers:
+    - name: workforce-api
+      image: localhost:32000/workforce-api:prod-stable
+      securityContext:
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+      volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/tls/certs/tls.crt
+          subPath: tls.crt
+  volumes:
+    - name: tls-certs
+      emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: invalid-unsigned-image-pod
+  namespace: oci-core
+  labels:
+    app: workforce-api
+spec:
+  containers:
+    - name: unsigned-app
+      image: localhost:32000/workforce-api:v1.0.0-unsigned
+      securityContext:
+        runAsNonRoot: true
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: invalid-root-pss-pod
+  namespace: oci-core
+  labels:
+    app: workforce-api
+spec:
+  containers:
+    - name: workforce-api
+      image: localhost:32000/workforce-api:prod-stable
+      securityContext:
+        runAsNonRoot: false
+        readOnlyRootFilesystem: false
+        allowPrivilegeEscalation: true

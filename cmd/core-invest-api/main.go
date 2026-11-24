@@ -10,13 +10,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	core_invest_repo "github.com/orange-cat-investments/oci/internal/repository/core_invest"
 	core_invest_svc "github.com/orange-cat-investments/oci/internal/service/core_invest"
+	"github.com/orange-cat-investments/oci/pkg/dbpool"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"github.com/orange-cat-investments/oci/pkg/mtls"
 	"github.com/orange-cat-investments/oci/pkg/telemetry"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -29,7 +30,7 @@ func main() {
 		logger.Warn("Failed to initialize OpenTelemetry", "error", err)
 	}
 	if shutdownTelemetry != nil {
-		defer shutdownTelemetry()
+		defer func() { _ = shutdownTelemetry() }()
 	}
 	logger.Info("starting OCI Core Invest Domain API microservice (pure gRPC)...")
 
@@ -42,12 +43,13 @@ func main() {
 	defer cancel()
 
 	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		logger.Error("DATABASE_URL environment variable is required for Core Invest Domain API")
+	dbURLFile := os.Getenv("DATABASE_URL_FILE")
+	if dbURL == "" && dbURLFile == "" {
+		logger.Error("DATABASE_URL or DATABASE_URL_FILE environment variable is required for Core Invest Domain API")
 		os.Exit(1)
 	}
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	pool, err := dbpool.NewDynamicPool(ctx, dbURL, dbURLFile)
 	if err != nil {
 		logger.Error("failed to connect to database pool", "error", err)
 		os.Exit(1)
@@ -72,7 +74,11 @@ func main() {
 		logger.Info("Core Invest Domain API configured with dynamic mTLS")
 	}
 
-	grpcServer := grpcutil.NewServer(tlsConfig)
+	var serverOpts []grpc.ServerOption
+	if tlsConfig != nil {
+		serverOpts = append(serverOpts, grpcutil.WithAllowedPeerSPIFFEIDs(grpcutil.AllowedDomainAPICallers(grpcutil.ResolveNamespace())...)...)
+	}
+	grpcServer := grpcutil.NewServer(tlsConfig, serverOpts...)
 	grpcSrv := NewCoreInvestGRPCServer(svc, repo)
 	coreinvestv1.RegisterCoreInvestServiceServer(grpcServer, grpcSrv)
 

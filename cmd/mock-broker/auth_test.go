@@ -20,11 +20,13 @@ func TestAuthMiddleware(t *testing.T) {
 
 	handler := AuthMiddleware(key, secret, okHandler)
 
-	// 1. Health bypass
-	reqHealth := httptest.NewRequest("GET", "/healthz", nil)
-	recHealth := httptest.NewRecorder()
-	handler.ServeHTTP(recHealth, reqHealth)
-	assert.Equal(t, http.StatusOK, recHealth.Code)
+	// 1. Health and /sim/faults bypass
+	for _, path := range []string{"/healthz", "/health", "/sim/faults"} {
+		reqBypass := httptest.NewRequest(http.MethodPut, path, nil)
+		recBypass := httptest.NewRecorder()
+		handler.ServeHTTP(recBypass, reqBypass)
+		assert.Equal(t, http.StatusOK, recBypass.Code, "path %s should bypass auth", path)
+	}
 
 	// 2. Missing credentials
 	reqNoAuth := httptest.NewRequest("GET", "/v1/accounts", nil)

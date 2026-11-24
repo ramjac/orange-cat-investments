@@ -51,6 +51,7 @@ type Repository interface {
 	CloseITTicket(ctx context.Context, ticketID string) (*ITTicket, error)
 	CreateTicketComment(ctx context.Context, comment *TicketComment) (*TicketComment, error)
 	ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*TicketComment, error)
+	ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error)
 }
 
 type DBExecutor interface {
@@ -383,4 +384,33 @@ func (r *pgxRepository) ListTicketComments(ctx context.Context, ticketID string,
 		comments = append(comments, &c)
 	}
 	return comments, rows.Err()
+}
+
+const scrubCustomerGDPRDataSQL = `
+	WITH scrubbed_tickets AS (
+		UPDATE ops.it_tickets
+		SET author_username = 'ANONYMIZED_GDPR_USER',
+			customer_id = NULL,
+			body = '[Content redacted pursuant to GDPR Article 17 erasure request]',
+			updated_at = CURRENT_TIMESTAMP
+		WHERE author_username = $1 OR customer_id = $1
+		RETURNING 1
+	), scrubbed_comments AS (
+		UPDATE ops.ticket_comments
+		SET author_username = 'ANONYMIZED_GDPR_USER',
+			comment = '[Content redacted pursuant to GDPR Article 17 erasure request]'
+		WHERE author_username = $1
+		RETURNING 1
+	)
+	SELECT (SELECT COUNT(*) FROM scrubbed_tickets) + (SELECT COUNT(*) FROM scrubbed_comments)`
+
+func (r *pgxRepository) ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error) {
+	if r.db == nil {
+		return 0, fmt.Errorf("database connection is nil")
+	}
+	var count int
+	if err := r.db.QueryRow(ctx, scrubCustomerGDPRDataSQL, customerID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to scrub customer gdpr data in ops schema: %w", err)
+	}
+	return count, nil
 }
