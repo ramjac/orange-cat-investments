@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 )
 
@@ -1905,6 +1906,44 @@ func (r *Registry) createChloePersona() *Persona {
 						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Executed momentum buy order on activity spike: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "chloe_idempotent_order_replay",
+				Description: "Verifies Valkey Idempotency-Key deduplication replays cached order response without duplicate execution",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/trading/orders"
+					idemKey := uuid.NewString()
+					headers := map[string]string{"Idempotency-Key": idemKey}
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"symbol":       "NVDA",
+						"side":         "buy",
+						"quantity":     2.0,
+						"price":        125.75,
+					}
+					resp1, bytes1, err := client.DoCustomerWithHeaders(ctx, "POST", endpoint, payload, headers)
+					if err != nil {
+						return nil, err
+					}
+					resp2, bytes2, err := client.DoCustomerWithHeaders(ctx, "POST", endpoint, payload, headers)
+					if err != nil {
+						return nil, err
+					}
+					replayed := resp2.Header.Get("X-Idempotent-Replayed") == "true"
+					sameBody := string(bytes1) == string(bytes2)
+					okStatus := resp1.StatusCode == resp2.StatusCode &&
+						(resp1.StatusCode == http.StatusOK || resp1.StatusCode == http.StatusCreated || resp1.StatusCode == http.StatusUnprocessableEntity || resp1.StatusCode == http.StatusBadRequest)
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_idempotent_order_replay",
+						Endpoint:    endpoint,
+						Success:     okStatus && replayed && sameBody,
+						StatusCode:  resp2.StatusCode,
+						Details:     fmt.Sprintf("Idempotent replay (key=%s): status1=%d status2=%d replayed=%v sameBody=%v", idemKey, resp1.StatusCode, resp2.StatusCode, replayed, sameBody),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

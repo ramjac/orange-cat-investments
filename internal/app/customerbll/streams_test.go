@@ -40,6 +40,8 @@ type mockCoreInvestClient struct {
 	streamPortfolioValuationFn   func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error)
 	streamPortfolioValuationFunc func(ctx context.Context, in *coreinvestv1.StreamPortfolioValuationRequest) (coreinvestv1.CoreInvestService_StreamPortfolioValuationClient, error)
 	revokeFunc                   func(ctx context.Context, in *coreinvestv1.RevokeAPIKeyRequest) (*coreinvestv1.RevokeAPIKeyResponse, error)
+	enqueueOutboxFunc            func(ctx context.Context, in *coreinvestv1.EnqueueOutboxEventRequest) (*coreinvestv1.EnqueueOutboxEventResponse, error)
+	enqueuedOutboxEvents         []*coreinvestv1.EnqueueOutboxEventRequest
 	lastRevokeReq                *coreinvestv1.RevokeAPIKeyRequest
 }
 
@@ -195,6 +197,14 @@ func (m *mockCoreInvestClient) RevokeAPIKey(ctx context.Context, in *coreinvestv
 		return m.revokeFunc(ctx, in)
 	}
 	return &coreinvestv1.RevokeAPIKeyResponse{Status: "revoked"}, nil
+}
+
+func (m *mockCoreInvestClient) EnqueueOutboxEvent(ctx context.Context, in *coreinvestv1.EnqueueOutboxEventRequest) (*coreinvestv1.EnqueueOutboxEventResponse, error) {
+	m.enqueuedOutboxEvents = append(m.enqueuedOutboxEvents, in)
+	if m.enqueueOutboxFunc != nil {
+		return m.enqueueOutboxFunc(ctx, in)
+	}
+	return &coreinvestv1.EnqueueOutboxEventResponse{EventID: in.EventID, Status: "pending"}, nil
 }
 
 func TestListCameraStreams(t *testing.T) {

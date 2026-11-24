@@ -160,6 +160,12 @@ func (c *customerBLLServiceClient) ListCustomerTicketComments(ctx context.Contex
 func (c *customerBLLServiceClient) AddCustomerTicketComment(ctx context.Context, in *AddCustomerTicketCommentRequest) (*AddCustomerTicketCommentResponse, error) {
 	return invokeUnary[AddCustomerTicketCommentRequest, AddCustomerTicketCommentResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/AddCustomerTicketComment", in)
 }
+func (c *customerBLLServiceClient) ClaimOutboxEvents(ctx context.Context, in *coreinvestv1.ClaimOutboxEventsRequest) (*coreinvestv1.ClaimOutboxEventsResponse, error) {
+	return invokeUnary[coreinvestv1.ClaimOutboxEventsRequest, coreinvestv1.ClaimOutboxEventsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/ClaimOutboxEvents", in)
+}
+func (c *customerBLLServiceClient) AckOutboxEvents(ctx context.Context, in *coreinvestv1.AckOutboxEventsRequest) (*coreinvestv1.AckOutboxEventsResponse, error) {
+	return invokeUnary[coreinvestv1.AckOutboxEventsRequest, coreinvestv1.AckOutboxEventsResponse](ctx, c.cc, "/oci.customer_bll.v1.CustomerBLLService/AckOutboxEvents", in)
+}
 
 type UnimplementedCustomerBLLServiceServer struct{}
 
@@ -270,6 +276,12 @@ func (UnimplementedCustomerBLLServiceServer) ListCustomerTicketComments(context.
 }
 func (UnimplementedCustomerBLLServiceServer) AddCustomerTicketComment(context.Context, *AddCustomerTicketCommentRequest) (*AddCustomerTicketCommentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddCustomerTicketComment not implemented")
+}
+func (UnimplementedCustomerBLLServiceServer) ClaimOutboxEvents(context.Context, *coreinvestv1.ClaimOutboxEventsRequest) (*coreinvestv1.ClaimOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedCustomerBLLServiceServer) AckOutboxEvents(context.Context, *coreinvestv1.AckOutboxEventsRequest) (*coreinvestv1.AckOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
 }
 
 func RegisterCustomerBLLServiceServer(s grpc.ServiceRegistrar, srv CustomerBLLServiceServer) {
@@ -422,6 +434,12 @@ var CustomerBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "AddCustomerTicketComment", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/AddCustomerTicketComment", CustomerBLLServiceServer.AddCustomerTicketComment)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/ClaimOutboxEvents", CustomerBLLServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.customer_bll.v1.CustomerBLLService/AckOutboxEvents", CustomerBLLServiceServer.AckOutboxEvents)
 		}},
 	},
 	Streams: []grpc.StreamDesc{

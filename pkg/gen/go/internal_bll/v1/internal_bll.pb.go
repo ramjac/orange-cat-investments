@@ -383,6 +383,46 @@ type ListDeviceConnectivityResponse struct {
 	Assets []*facilitiesv1.AssetConnectivity `json:"assets"`
 }
 
+type BLLOutboxEvent struct {
+	ID          int64  `json:"id"`
+	Schema      string `json:"schema"`
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+	Attempts    int32  `json:"attempts"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type BLLOutboxAckItem struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+}
+
+type BLLOutboxFailure struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+	Error  string `json:"error"`
+}
+
+type ClaimBLLOutboxEventsRequest struct {
+	Limit   int32 `json:"limit"`
+	LeaseMs int64 `json:"lease_ms"`
+}
+
+type ClaimBLLOutboxEventsResponse struct {
+	Events []*BLLOutboxEvent `json:"events"`
+}
+
+type AckBLLOutboxEventsRequest struct {
+	Published []*BLLOutboxAckItem `json:"published"`
+	Failures  []*BLLOutboxFailure `json:"failures"`
+}
+
+type AckBLLOutboxEventsResponse struct {
+	Acknowledged int32 `json:"acknowledged"`
+}
+
 type InternalBLLServiceClient interface {
 	// Workforce & Corporate Sagas
 	GetEmployee(ctx context.Context, in *workforcev1.GetEmployeeRequest) (*workforcev1.GetEmployeeResponse, error)
@@ -497,6 +537,8 @@ type InternalBLLServiceClient interface {
 	CreateAlert(ctx context.Context, in *opsv1.CreateAlertRequest) (*opsv1.CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *opsv1.AcknowledgeAlertRequest) (*opsv1.AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error)
 }
 
 type InternalBLLServiceServer interface {
@@ -613,4 +655,6 @@ type InternalBLLServiceServer interface {
 	CreateAlert(ctx context.Context, in *opsv1.CreateAlertRequest) (*opsv1.CreateAlertResponse, error)
 	AcknowledgeAlert(ctx context.Context, in *opsv1.AcknowledgeAlertRequest) (*opsv1.AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error)
 }

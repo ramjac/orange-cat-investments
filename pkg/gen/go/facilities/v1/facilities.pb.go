@@ -235,6 +235,41 @@ type CalibrateCameraLensResponse struct {
 	Status   string `json:"status"`
 }
 
+type OutboxEvent struct {
+	ID          int64  `json:"id"`
+	Schema      string `json:"schema"`
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+	Attempts    int32  `json:"attempts"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type OutboxFailure struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+	Error  string `json:"error"`
+}
+
+type ClaimOutboxEventsRequest struct {
+	Limit   int32 `json:"limit"`
+	LeaseMs int64 `json:"lease_ms"`
+}
+
+type ClaimOutboxEventsResponse struct {
+	Events []*OutboxEvent `json:"events"`
+}
+
+type AckOutboxEventsRequest struct {
+	PublishedIDs []int64          `json:"published_ids"`
+	Failures     []*OutboxFailure `json:"failures"`
+}
+
+type AckOutboxEventsResponse struct {
+	Acknowledged int32 `json:"acknowledged"`
+}
+
 type FacilitiesServiceClient interface {
 	GetAsset(ctx context.Context, in *GetAssetRequest) (*GetAssetResponse, error)
 	ListAssets(ctx context.Context, in *ListAssetsRequest) (*ListAssetsResponse, error)
@@ -253,6 +288,8 @@ type FacilitiesServiceClient interface {
 	StreamEnvironmentalTelemetry(ctx context.Context, in *StreamTelemetryRequest) (FacilitiesService_StreamEnvironmentalTelemetryClient, error)
 	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
 	CalibrateCameraLens(ctx context.Context, in *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type FacilitiesServiceServer interface {
@@ -273,6 +310,8 @@ type FacilitiesServiceServer interface {
 	StreamEnvironmentalTelemetry(*StreamTelemetryRequest, FacilitiesService_StreamEnvironmentalTelemetryServer) error
 	ControlPTZ(ctx context.Context, in *ControlPTZRequest) (*ControlPTZResponse, error)
 	CalibrateCameraLens(ctx context.Context, in *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type FacilitiesService_StreamEnvironmentalTelemetryClient interface {

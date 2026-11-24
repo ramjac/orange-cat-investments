@@ -218,6 +218,41 @@ type ScrubCustomerGDPRDataResponse struct {
 	AnonymizedTables     []string `json:"anonymized_tables"`
 }
 
+type OutboxEvent struct {
+	ID          int64  `json:"id"`
+	Schema      string `json:"schema"`
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+	Attempts    int32  `json:"attempts"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type OutboxFailure struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+	Error  string `json:"error"`
+}
+
+type ClaimOutboxEventsRequest struct {
+	Limit   int32 `json:"limit"`
+	LeaseMs int64 `json:"lease_ms"`
+}
+
+type ClaimOutboxEventsResponse struct {
+	Events []*OutboxEvent `json:"events"`
+}
+
+type AckOutboxEventsRequest struct {
+	PublishedIDs []int64          `json:"published_ids"`
+	Failures     []*OutboxFailure `json:"failures"`
+}
+
+type AckOutboxEventsResponse struct {
+	Acknowledged int32 `json:"acknowledged"`
+}
+
 type OpsServiceClient interface {
 	CreateTicket(ctx context.Context, in *CreateTicketRequest) (*CreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *GetTicketRequest) (*GetTicketResponse, error)
@@ -234,6 +269,8 @@ type OpsServiceClient interface {
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
 	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type OpsServiceServer interface {
@@ -252,4 +289,6 @@ type OpsServiceServer interface {
 	AcknowledgeAlert(ctx context.Context, in *AcknowledgeAlertRequest) (*AcknowledgeAlertResponse, error)
 	SendPushNotification(ctx context.Context, in *SendPushNotificationRequest) (*SendPushNotificationResponse, error)
 	ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }

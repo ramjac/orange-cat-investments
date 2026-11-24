@@ -382,6 +382,12 @@ func (c *internalBLLServiceClient) AcknowledgeAlert(ctx context.Context, in *ops
 func (c *internalBLLServiceClient) SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error) {
 	return invokeUnary[opsv1.SendPushNotificationRequest, opsv1.SendPushNotificationResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/SendPushNotification", in)
 }
+func (c *internalBLLServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error) {
+	return invokeUnary[ClaimBLLOutboxEventsRequest, ClaimBLLOutboxEventsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ClaimOutboxEvents", in)
+}
+func (c *internalBLLServiceClient) AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error) {
+	return invokeUnary[AckBLLOutboxEventsRequest, AckBLLOutboxEventsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/AckOutboxEvents", in)
+}
 
 type UnimplementedInternalBLLServiceServer struct{}
 
@@ -672,6 +678,12 @@ func (UnimplementedInternalBLLServiceServer) ListRecurringDeposits(context.Conte
 }
 func (UnimplementedInternalBLLServiceServer) CreateRecurringDeposit(context.Context, *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRecurringDeposit not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) ClaimOutboxEvents(context.Context, *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) AckOutboxEvents(context.Context, *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
 }
 
 func _InternalBLLService_StreamEnvironmentalTelemetry_Handler(srv any, stream grpc.ServerStream) error {
@@ -978,6 +990,12 @@ var InternalBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CreateRecurringDeposit", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/CreateRecurringDeposit", InternalBLLServiceServer.CreateRecurringDeposit)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ClaimOutboxEvents", InternalBLLServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/AckOutboxEvents", InternalBLLServiceServer.AckOutboxEvents)
 		}},
 	},
 	Streams: []grpc.StreamDesc{

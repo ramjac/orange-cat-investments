@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orange-cat-investments/oci/pkg/envelope"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"google.golang.org/grpc/codes"
@@ -172,23 +171,8 @@ func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardE
 		Message:        "Employee onboarding saga completed successfully",
 	}
 
-	if s.publisher != nil {
-		_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", envelope.NewEventEnvelope(ctx,
-			fmt.Sprintf("evt-onboard-%d", time.Now().UnixNano()),
-			"events.workforce.employee_onboarded.v1",
-			"",
-			envelope.EmployeeOnboardedPayload{
-				EmployeeID:   created.EmployeeID,
-				EmployeeType: empType,
-				FirstName:    in.FirstName,
-				LastName:     in.LastName,
-				Email:        in.Email,
-				RoleTitle:    in.RoleTitle,
-				Department:   in.Department,
-			},
-		))
-	}
-
+	// Employee onboarding event is committed atomically in workforce.outbox_events
+	// by workforce-api and relayed to RabbitMQ by oci-worker (Phase 10 / 7.40).
 	return &internalbllv1.OnboardEmployeeSagaResponse{
 		Employee:   created,
 		SagaResult: sagaRes,

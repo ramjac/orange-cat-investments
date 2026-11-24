@@ -179,6 +179,15 @@ func (c *coreInvestServiceClient) GenerateForm1099B(ctx context.Context, in *Gen
 func (c *coreInvestServiceClient) GetStatementDocument(ctx context.Context, in *GetStatementDocumentRequest) (*GetStatementDocumentResponse, error) {
 	return invokeUnary[GetStatementDocumentRequest, GetStatementDocumentResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/GetStatementDocument", in)
 }
+func (c *coreInvestServiceClient) EnqueueOutboxEvent(ctx context.Context, in *EnqueueOutboxEventRequest) (*EnqueueOutboxEventResponse, error) {
+	return invokeUnary[EnqueueOutboxEventRequest, EnqueueOutboxEventResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/EnqueueOutboxEvent", in)
+}
+func (c *coreInvestServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return invokeUnary[ClaimOutboxEventsRequest, ClaimOutboxEventsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/ClaimOutboxEvents", in)
+}
+func (c *coreInvestServiceClient) AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return invokeUnary[AckOutboxEventsRequest, AckOutboxEventsResponse](ctx, c.cc, "/oci.core_invest.v1.CoreInvestService/AckOutboxEvents", in)
+}
 
 func (c *coreInvestServiceClient) StreamPortfolioValuation(ctx context.Context, in *StreamPortfolioValuationRequest) (CoreInvestService_StreamPortfolioValuationClient, error) {
 	stream, err := c.cc.NewStream(ctx, &CoreInvestService_ServiceDesc.Streams[0], "/oci.core_invest.v1.CoreInvestService/StreamPortfolioValuation")
@@ -344,6 +353,15 @@ func (UnimplementedCoreInvestServiceServer) GetStatementDocument(context.Context
 func (UnimplementedCoreInvestServiceServer) StreamPortfolioValuation(*StreamPortfolioValuationRequest, CoreInvestService_StreamPortfolioValuationServer) error {
 	return status.Errorf(codes.Unimplemented, "method StreamPortfolioValuation not implemented")
 }
+func (UnimplementedCoreInvestServiceServer) EnqueueOutboxEvent(context.Context, *EnqueueOutboxEventRequest) (*EnqueueOutboxEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnqueueOutboxEvent not implemented")
+}
+func (UnimplementedCoreInvestServiceServer) ClaimOutboxEvents(context.Context, *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedCoreInvestServiceServer) AckOutboxEvents(context.Context, *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
+}
 
 func _CoreInvestService_StreamPortfolioValuation_Handler(srv any, stream grpc.ServerStream) error {
 	m := new(StreamPortfolioValuationRequest)
@@ -496,6 +514,15 @@ var CoreInvestService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "GetStatementDocument", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/GetStatementDocument", CoreInvestServiceServer.GetStatementDocument)
+		}},
+		{MethodName: "EnqueueOutboxEvent", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/EnqueueOutboxEvent", CoreInvestServiceServer.EnqueueOutboxEvent)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/ClaimOutboxEvents", CoreInvestServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.core_invest.v1.CoreInvestService/AckOutboxEvents", CoreInvestServiceServer.AckOutboxEvents)
 		}},
 	},
 	Streams: []grpc.StreamDesc{

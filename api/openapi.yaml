@@ -2368,6 +2368,138 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
 
+  /api/v1/customer/trading/orders:
+    post:
+      summary: Execute Customer Trade Order (Idempotent)
+      description: "Places a brokerage order for the authenticated customer. Requires a client-generated UUID Idempotency-Key header; retries with the same key replay the original cached response with X-Idempotent-Replayed: true."
+      operationId: createCustomerTradingOrder
+      tags:
+        - Customer Portfolio
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUIDv4/UUIDv7 idempotency token preventing duplicate order execution across retries.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - symbol
+                - side
+                - quantity
+              properties:
+                portfolio_id:
+                  type: string
+                symbol:
+                  type: string
+                side:
+                  type: string
+                  enum: [buy, sell]
+                quantity:
+                  type: number
+                order_type:
+                  type: string
+                  enum: [market, limit]
+                  default: market
+                limit_price:
+                  type: number
+      responses:
+        '200':
+          description: Order executed or replayed from idempotency cache
+          headers:
+            X-Idempotent-Replayed:
+              description: Set to `true` when the response is replayed from Valkey idempotency cache
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Concurrent duplicate request with identical Idempotency-Key is currently in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/v1/customer/deposits:
+    post:
+      summary: Initiate Customer ACH Deposit (Idempotent)
+      description: Initiates a one-time or recurring ACH deposit for the authenticated customer. Requires a client-generated UUID `Idempotency-Key` header.
+      operationId: createCustomerDeposit
+      tags:
+        - Customer Portfolio
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUIDv4/UUIDv7 idempotency token preventing duplicate ACH debits across retries.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount_usd
+              properties:
+                portfolio_id:
+                  type: string
+                amount_usd:
+                  type: number
+                frequency:
+                  type: string
+                  enum: [one_time, weekly, biweekly, monthly]
+                bank_account:
+                  type: string
+                account_id:
+                  type: string
+                day_of_month:
+                  type: integer
+      responses:
+        '201':
+          description: Deposit initiated or replayed from idempotency cache
+          headers:
+            X-Idempotent-Replayed:
+              description: Set to `true` when the response is replayed from Valkey idempotency cache
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Concurrent duplicate request with identical Idempotency-Key is currently in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
   /api/v1/customer/webhooks:
     get:
       summary: List Registered Webhooks

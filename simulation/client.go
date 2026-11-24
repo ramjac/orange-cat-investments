@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Client wraps HTTP communication with the OCI stack (Employee BFF, Customer BFF, Forgejo, Bank, and Broker).
@@ -525,9 +527,32 @@ func (c *Client) Do(ctx context.Context, method, path string, body any) (*http.R
 }
 
 // DoCustomer executes an HTTP request against the Customer BFF target URL.
+// For financial mutation endpoints requiring idempotency, it transparently attaches
+// a fresh UUID Idempotency-Key header unless the caller supplies one via DoCustomerWithHeaders.
 func (c *Client) DoCustomer(ctx context.Context, method, path string, body any) (*http.Response, []byte, error) {
+	return c.DoCustomerWithHeaders(ctx, method, path, body, nil)
+}
+
+// DoCustomerWithHeaders executes an HTTP request against the Customer BFF with custom headers.
+func (c *Client) DoCustomerWithHeaders(ctx context.Context, method, path string, body any, headers map[string]string) (*http.Response, []byte, error) {
 	baseURL := c.custBFFURL
-	return c.doRequest(ctx, baseURL+path, method, body, nil)
+	reqHeaders := make(map[string]string, len(headers)+1)
+	for k, v := range headers {
+		reqHeaders[k] = v
+	}
+	if method == http.MethodPost && (path == "/api/v1/customer/trading/orders" || path == "/api/v1/customer/deposits") {
+		hasKey := false
+		for k := range reqHeaders {
+			if strings.EqualFold(k, "Idempotency-Key") {
+				hasKey = true
+				break
+			}
+		}
+		if !hasKey {
+			reqHeaders["Idempotency-Key"] = uuid.NewString()
+		}
+	}
+	return c.doRequest(ctx, baseURL+path, method, body, reqHeaders)
 }
 
 // DoBroker executes an HTTP request directly against the Mock Broker API.

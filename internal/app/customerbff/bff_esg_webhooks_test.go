@@ -91,6 +91,7 @@ func TestCustomerBFF_StateMutations_RequireCSRF(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/customer/deposits", body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", csrfVal)
+	req.Header.Set("Idempotency-Key", "66666666-6666-4666-8666-666666666666")
 	req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
 	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
 	rec = httptest.NewRecorder()

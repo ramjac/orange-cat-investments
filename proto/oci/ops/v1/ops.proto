@@ -22,6 +22,9 @@ service OpsService {
   rpc AcknowledgeAlert (AcknowledgeAlertRequest) returns (AcknowledgeAlertResponse);
   rpc SendPushNotification (SendPushNotificationRequest) returns (SendPushNotificationResponse);
   rpc ScrubCustomerGDPRData (ScrubCustomerGDPRDataRequest) returns (ScrubCustomerGDPRDataResponse);
+
+  rpc ClaimOutboxEvents (ClaimOutboxEventsRequest) returns (ClaimOutboxEventsResponse);
+  rpc AckOutboxEvents (AckOutboxEventsRequest) returns (AckOutboxEventsResponse);
 }
 
 message ITTicket {
@@ -233,4 +236,39 @@ message ScrubCustomerGDPRDataResponse {
   string customer_id = 1;
   int32 scrubbed_records_count = 2;
   repeated string anonymized_tables = 3;
+}
+
+message OutboxEvent {
+  int64 id = 1;
+  string schema = 2;
+  string event_id = 3;
+  string topic = 4;
+  string aggregate_id = 5;
+  bytes payload = 6;
+  int32 attempts = 7;
+  string created_at = 8;
+}
+
+message OutboxFailure {
+  int64 id = 1;
+  string schema = 2;
+  string error = 3;
+}
+
+message ClaimOutboxEventsRequest {
+  int32 limit = 1;
+  int64 lease_ms = 2;
+}
+
+message ClaimOutboxEventsResponse {
+  repeated OutboxEvent events = 1;
+}
+
+message AckOutboxEventsRequest {
+  repeated int64 published_ids = 1;
+  repeated OutboxFailure failures = 2;
+}
+
+message AckOutboxEventsResponse {
+  int32 acknowledged = 1;
 }

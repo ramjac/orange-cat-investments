@@ -43,6 +43,9 @@ service WorkforceService {
   rpc GetExecutiveReportByPeriod (GetExecutiveReportByPeriodRequest) returns (GetExecutiveReportByPeriodResponse);
   rpc ListExecutiveReports (ListExecutiveReportsRequest) returns (ListExecutiveReportsResponse);
   rpc UpdateExecutiveReportStatus (UpdateExecutiveReportStatusRequest) returns (UpdateExecutiveReportStatusResponse);
+
+  rpc ClaimOutboxEvents (ClaimOutboxEventsRequest) returns (ClaimOutboxEventsResponse);
+  rpc AckOutboxEvents (AckOutboxEventsRequest) returns (AckOutboxEventsResponse);
 }
 
 message Employee {
@@ -516,4 +519,39 @@ message UpdateExecutiveReportStatusRequest {
 
 message UpdateExecutiveReportStatusResponse {
   ExecutiveReport report = 1;
+}
+
+message OutboxEvent {
+  int64 id = 1;
+  string schema = 2;
+  string event_id = 3;
+  string topic = 4;
+  string aggregate_id = 5;
+  bytes payload = 6;
+  int32 attempts = 7;
+  string created_at = 8;
+}
+
+message OutboxFailure {
+  int64 id = 1;
+  string schema = 2;
+  string error = 3;
+}
+
+message ClaimOutboxEventsRequest {
+  int32 limit = 1;
+  int64 lease_ms = 2;
+}
+
+message ClaimOutboxEventsResponse {
+  repeated OutboxEvent events = 1;
+}
+
+message AckOutboxEventsRequest {
+  repeated int64 published_ids = 1;
+  repeated OutboxFailure failures = 2;
+}
+
+message AckOutboxEventsResponse {
+  int32 acknowledged = 1;
 }

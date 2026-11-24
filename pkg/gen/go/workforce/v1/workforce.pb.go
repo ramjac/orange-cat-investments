@@ -496,6 +496,41 @@ type UpdateExecutiveReportStatusResponse struct {
 	Report *ExecutiveReport `json:"report"`
 }
 
+type OutboxEvent struct {
+	ID          int64  `json:"id"`
+	Schema      string `json:"schema"`
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+	Attempts    int32  `json:"attempts"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type OutboxFailure struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+	Error  string `json:"error"`
+}
+
+type ClaimOutboxEventsRequest struct {
+	Limit   int32 `json:"limit"`
+	LeaseMs int64 `json:"lease_ms"`
+}
+
+type ClaimOutboxEventsResponse struct {
+	Events []*OutboxEvent `json:"events"`
+}
+
+type AckOutboxEventsRequest struct {
+	PublishedIDs []int64          `json:"published_ids"`
+	Failures     []*OutboxFailure `json:"failures"`
+}
+
+type AckOutboxEventsResponse struct {
+	Acknowledged int32 `json:"acknowledged"`
+}
+
 type WorkforceServiceClient interface {
 	GetEmployee(ctx context.Context, in *GetEmployeeRequest) (*GetEmployeeResponse, error)
 	ListEmployees(ctx context.Context, in *ListEmployeesRequest) (*ListEmployeesResponse, error)
@@ -529,6 +564,8 @@ type WorkforceServiceClient interface {
 	GetExecutiveReportByPeriod(ctx context.Context, in *GetExecutiveReportByPeriodRequest) (*GetExecutiveReportByPeriodResponse, error)
 	ListExecutiveReports(ctx context.Context, in *ListExecutiveReportsRequest) (*ListExecutiveReportsResponse, error)
 	UpdateExecutiveReportStatus(ctx context.Context, in *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type WorkforceServiceServer interface {
@@ -564,4 +601,6 @@ type WorkforceServiceServer interface {
 	GetExecutiveReportByPeriod(ctx context.Context, in *GetExecutiveReportByPeriodRequest) (*GetExecutiveReportByPeriodResponse, error)
 	ListExecutiveReports(ctx context.Context, in *ListExecutiveReportsRequest) (*ListExecutiveReportsResponse, error)
 	UpdateExecutiveReportStatus(ctx context.Context, in *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }

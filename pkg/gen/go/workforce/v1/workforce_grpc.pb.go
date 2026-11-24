@@ -143,6 +143,12 @@ func (c *workforceServiceClient) ListExecutiveReports(ctx context.Context, in *L
 func (c *workforceServiceClient) UpdateExecutiveReportStatus(ctx context.Context, in *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error) {
 	return invokeUnary[UpdateExecutiveReportStatusRequest, UpdateExecutiveReportStatusResponse](ctx, c.cc, "/oci.workforce.v1.WorkforceService/UpdateExecutiveReportStatus", in)
 }
+func (c *workforceServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return invokeUnary[ClaimOutboxEventsRequest, ClaimOutboxEventsResponse](ctx, c.cc, "/oci.workforce.v1.WorkforceService/ClaimOutboxEvents", in)
+}
+func (c *workforceServiceClient) AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return invokeUnary[AckOutboxEventsRequest, AckOutboxEventsResponse](ctx, c.cc, "/oci.workforce.v1.WorkforceService/AckOutboxEvents", in)
+}
 
 type UnimplementedWorkforceServiceServer struct{}
 
@@ -241,6 +247,12 @@ func (UnimplementedWorkforceServiceServer) ListExecutiveReports(context.Context,
 }
 func (UnimplementedWorkforceServiceServer) UpdateExecutiveReportStatus(context.Context, *UpdateExecutiveReportStatusRequest) (*UpdateExecutiveReportStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateExecutiveReportStatus not implemented")
+}
+func (UnimplementedWorkforceServiceServer) ClaimOutboxEvents(context.Context, *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedWorkforceServiceServer) AckOutboxEvents(context.Context, *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
 }
 
 var WorkforceService_ServiceDesc = grpc.ServiceDesc{
@@ -342,6 +354,12 @@ var WorkforceService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "UpdateExecutiveReportStatus", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.workforce.v1.WorkforceService/UpdateExecutiveReportStatus", WorkforceServiceServer.UpdateExecutiveReportStatus)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.workforce.v1.WorkforceService/ClaimOutboxEvents", WorkforceServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.workforce.v1.WorkforceService/AckOutboxEvents", WorkforceServiceServer.AckOutboxEvents)
 		}},
 	},
 	Streams:  []grpc.StreamDesc{},

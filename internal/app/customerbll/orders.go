@@ -154,7 +154,8 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		ExecutedAt:  nowStr,
 	}
 
-	// 3. Persist order through core-invest-api via gRPC
+	// 3. Persist order through core-invest-api via gRPC (atomically writes core_invest.outbox_events in same pgx.Tx)
+	persistedViaOutbox := false
 	if s.ciClient != nil {
 		_, err := s.ciClient.CreateOrder(ctx, &coreinvestv1.CreateOrderRequest{
 			PortfolioID: in.PortfolioID,
@@ -166,14 +167,16 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		})
 		if err != nil {
 			s.log().Warn("failed to persist order to core-invest-api via gRPC", "error", err)
+		} else {
+			persistedViaOutbox = true
 		}
 	}
 
-	// 4. Emit asynchronous event
-	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicOrderPlaced, orderID, result)
-	eventBytes, _ := json.Marshal(event)
-	if s.publisher != nil {
+	// 4. Fallback direct event publish only when core-invest-api outbox persistence was unavailable
+	if !persistedViaOutbox && s.publisher != nil {
+		eventID := watermill.NewUUID()
+		event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicOrderPlaced, orderID, result)
+		eventBytes, _ := json.Marshal(event)
 		_ = s.publisher.Publish(envelope.TopicOrderPlaced, message.NewMessage(event.EventID, eventBytes))
 	}
 

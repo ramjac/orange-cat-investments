@@ -5,19 +5,24 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type mockRepository struct {
-	mu       sync.RWMutex
-	tickets  map[string]*ITTicket
-	comments map[string][]*TicketComment
+	mu          sync.RWMutex
+	tickets     map[string]*ITTicket
+	comments    map[string][]*TicketComment
+	outboxStore *outbox.MemoryStore
 }
 
 // NewMockRepository returns an in-memory mock implementation of ops.Repository for testing and local development.
 func NewMockRepository() Repository {
 	repo := &mockRepository{
-		tickets:  make(map[string]*ITTicket),
-		comments: make(map[string][]*TicketComment),
+		tickets:     make(map[string]*ITTicket),
+		comments:    make(map[string][]*TicketComment),
+		outboxStore: outbox.NewMemoryStore(outbox.SchemaOps),
 	}
 	repo.seedDefaults()
 	return repo
@@ -197,6 +202,11 @@ func (r *mockRepository) CreateITTicket(ctx context.Context, ticket *ITTicket) (
 	ticket.UpdatedAt = now
 	r.tickets[ticket.TicketID] = ticket
 	cp := *ticket
+	if ticket.IsUrgent && r.outboxStore != nil {
+		if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicIncidentAlerted, cp.TicketID, cp); err == nil {
+			r.outboxStore.Enqueue(evID, envelope.TopicIncidentAlerted, cp.TicketID, raw)
+		}
+	}
 	return &cp, nil
 }
 
@@ -320,4 +330,22 @@ func (r *mockRepository) ScrubCustomerGDPRData(ctx context.Context, customerID s
 		}
 	}
 	return count, nil
+}
+
+func (r *mockRepository) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	if r.outboxStore == nil {
+		return []*outbox.Record{}, nil
+	}
+	return r.outboxStore.ClaimPending(limit, lease), nil
+}
+
+func (r *mockRepository) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	if r.outboxStore == nil {
+		return 0, nil
+	}
+	r.outboxStore.MarkPublished(publishedIDs)
+	for _, f := range failures {
+		r.outboxStore.MarkFailed(f.ID, f.Error, 0)
+	}
+	return len(publishedIDs) + len(failures), nil
 }

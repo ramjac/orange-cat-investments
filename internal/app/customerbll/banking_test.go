@@ -488,17 +488,9 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 		assert.Equal(t, 350.0, resp.Deposit.AmountUSD)
 		assert.Equal(t, "monthly", resp.Deposit.Frequency)
 
-		// Verify event publishing
-		published := pub.publishedMessages[envelope.TopicACHTransferRequested]
-		require.Len(t, published, 1)
-		var env envelope.EventEnvelope[map[string]interface{}]
-		err = json.Unmarshal(published[0].Payload, &env)
-		require.NoError(t, err)
-		assert.Equal(t, envelope.TopicACHTransferRequested, env.EventType)
-		assert.Equal(t, "cust-100", env.Payload["customer_id"])
-		assert.Equal(t, "port-100", env.Payload["portfolio_id"])
-		assert.Equal(t, 350.0, env.Payload["amount_usd"])
-		assert.Equal(t, "deposit", env.Payload["transfer_type"])
+		// Recurring deposits persist their ACH event atomically in core_invest.outbox_events
+		// via CreateRecurringDeposit (no duplicate direct broker publish).
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
 	})
 
 	t.Run("core-invest error returns InvalidArgument status error", func(t *testing.T) {
@@ -562,11 +554,12 @@ func TestInitiateACHDeposit_CoreInvestIntegration(t *testing.T) {
 		assert.False(t, ciCalled, "CreateRecurringDeposit must not be called for one_time deposits")
 		assert.Equal(t, "one_time", resp.Frequency)
 
-		published := pub.publishedMessages[envelope.TopicACHTransferRequested]
-		require.Len(t, published, 1)
+		require.Len(t, ciMock.enqueuedOutboxEvents, 1)
+		assert.Equal(t, envelope.TopicACHTransferRequested, ciMock.enqueuedOutboxEvents[0].Topic)
 		var env envelope.EventEnvelope[map[string]any]
-		require.NoError(t, json.Unmarshal(published[0].Payload, &env))
+		require.NoError(t, json.Unmarshal(ciMock.enqueuedOutboxEvents[0].Payload, &env))
 		assert.Equal(t, "acc_arthur_chase_chk", env.Payload["bank_account"])
+		assert.Empty(t, pub.publishedMessages[envelope.TopicACHTransferRequested])
 	})
 
 	t.Run("over-balance deposit fails with NSF R01 InvalidArgument", func(t *testing.T) {

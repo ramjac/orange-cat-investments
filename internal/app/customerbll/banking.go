@@ -154,7 +154,23 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 	eventID := watermill.NewUUID()
 	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicACHTransferRequested, transferID, achPayload)
 	eventBytes, _ := json.Marshal(event)
-	if s.publisher != nil {
+
+	// Recurring deposits already committed their ACH event atomically in core_invest.outbox_events;
+	// for one-time deposits, persist into core_invest.outbox_events via core-invest-api when available.
+	outboxEnqueued := s.ciClient != nil && freq != "one_time"
+	if !outboxEnqueued && s.ciClient != nil {
+		if _, err := s.ciClient.EnqueueOutboxEvent(ctx, &coreinvestv1.EnqueueOutboxEventRequest{
+			EventID:     eventID,
+			Topic:       envelope.TopicACHTransferRequested,
+			AggregateID: transferID,
+			Payload:     eventBytes,
+		}); err == nil {
+			outboxEnqueued = true
+		} else {
+			s.log().Warn("core-invest-api outbox enqueue unavailable; falling back to direct publish", "error", err)
+		}
+	}
+	if !outboxEnqueued && s.publisher != nil {
 		if err := s.publisher.Publish(envelope.TopicACHTransferRequested, message.NewMessage(event.EventID, eventBytes)); err != nil {
 			s.log().Error("failed to publish ACH transfer requested event", "error", err)
 			return nil, status.Error(codes.Internal, "failed to publish ACH transfer event to message broker")

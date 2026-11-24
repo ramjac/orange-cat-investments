@@ -11,6 +11,7 @@ import (
 
 	"github.com/orange-cat-investments/oci/internal/repository/ops"
 	"github.com/orange-cat-investments/oci/pkg/cots/forgejo"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,14 @@ func (m *mockOpsRepo) ListTicketComments(ctx context.Context, ticketID string, i
 		return comments, nil
 	}
 	return []*ops.TicketComment{comments[1]}, nil
+}
+
+func (m *mockOpsRepo) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	return []*outbox.Record{}, nil
+}
+
+func (m *mockOpsRepo) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	return len(publishedIDs) + len(failures), nil
 }
 
 func TestOpsService(t *testing.T) {

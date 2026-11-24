@@ -134,6 +134,7 @@ func TestCustomerBFF_DynamicCustomerRemediation(t *testing.T) {
 	orderReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", orderBody)
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderReq.Header.Set("X-CSRF-Token", csrfVal)
+	orderReq.Header.Set("Idempotency-Key", "77777777-7777-4777-8777-777777777777")
 	orderReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sessToken})
 	orderReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
 	orderRec := httptest.NewRecorder()

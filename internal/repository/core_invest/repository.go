@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 var ErrCameraStreamNotFound = errors.New("camera stream not found")
@@ -232,11 +233,18 @@ type StatementGDPRRepository interface {
 	ExecuteGDPRErasure(ctx context.Context, customerID string) (*GDPRErasureStats, error)
 }
 
+type OutboxRepository interface {
+	EnqueueOutboxEvent(ctx context.Context, eventID, topic, aggregateID string, payload []byte) (string, error)
+	ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error)
+	AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error)
+}
+
 type Repository interface {
 	StreamBacktestRepository
 	OrderDepositRepository
 	PortfolioDeveloperRepository
 	StatementGDPRRepository
+	OutboxRepository
 }
 
 type pgxRepository struct {

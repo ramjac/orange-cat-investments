@@ -79,7 +79,7 @@ func main() {
 		serverOpts = append(serverOpts, grpcutil.WithAllowedPeerSPIFFEIDs(grpcutil.AllowedDomainAPICallers(grpcutil.ResolveNamespace())...)...)
 	}
 	grpcServer := grpcutil.NewServer(tlsConfig, serverOpts...)
-	grpcSrv := NewOpsGRPCServer(svc)
+	grpcSrv := NewOpsGRPCServerWithRepo(svc, repo)
 	opsv1.RegisterOpsServiceServer(grpcServer, grpcSrv)
 
 	healthSrv := health.NewServer()

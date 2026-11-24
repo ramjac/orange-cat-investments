@@ -185,6 +185,7 @@ func main() {
 
 	worker.StartCARotationWorker(ctx, router, pubSub, caManager, logger)
 	worker.StartExecutiveReportingWorker(ctx, router, pubSub, internalBLL, logger)
+	worker.StartOutboxForwarder(ctx, pubSub, customerBLL, internalBLL, logger)
 
 	if worker.IsFeatureEnabled("ENABLE_CORE_INVEST") {
 		worker.StartRecurringACHProcessor(ctx, router, pubSub, customerBLL, logger)

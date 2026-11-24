@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/orange-cat-investments/oci/internal/repository/facilities"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -101,6 +102,14 @@ func (m *mockRepo) GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID s
 			RecordedAt:          time.Now().UTC(),
 		},
 	}, nil
+}
+
+func (m *mockRepo) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	return []*outbox.Record{}, nil
+}
+
+func (m *mockRepo) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	return len(publishedIDs) + len(failures), nil
 }
 
 func TestFacilitiesService(t *testing.T) {
