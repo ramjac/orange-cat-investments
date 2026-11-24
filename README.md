@@ -2,6 +2,13 @@
 
 An end-to-end architecture specification, domain-driven design blueprint, and production-grade implementation for a self-hosted small-to-medium business (SMB) platform.
 
+> [!TIP]
+> **New Employee or Auditor?** Start at the [Documentation Hub (`docs/README.md`)](docs/README.md), or jump directly to:
+> * [System Architecture Reference](docs/architecture/system-architecture.md)
+> * [Data Flow & Storage Lifecycle](docs/architecture/data-flow-and-storage.md)
+> * [Security, Compliance & Audit Reference](docs/architecture/security-and-compliance.md)
+> * [Observability & Day-2 Operations](docs/operations/observability-and-day2-operations.md)
+
 ---
 
 ## 1. Business & Application Domains (Domain-Driven Design)
@@ -80,7 +87,7 @@ The cluster workload topology is structured into dedicated namespaces for isolat
 
 ## 4. Employee & Customer Personas (Workflow Simulation)
 
-To exercise and simulate the entire software stack using autonomous drivers and AI agents, OCI defines 12 distinct personas across corporate staff, feline executives, and retail investors:
+To exercise and simulate the entire software stack using autonomous drivers and AI agents, OCI defines 13 distinct personas across corporate staff, feline executives, and retail investors:
 
 ### Corporate Staff & Feline Executives
 1. **Garfield (`emp-feline-garfield`)** — Chief Observation Officer (COO)
@@ -93,10 +100,11 @@ To exercise and simulate the entire software stack using autonomous drivers and 
 8. **Frank Operations (`emp-human-frank`)** — Platform Security & K8s Infrastructure Lead
 9. **Rick Newhire (`emp-human-rick`)** — Junior Operations Associate (exercising new hire and onboarding workflows)
 10. **Elise Dev (`emp-human-elise`)** — Software Developer (exercising software dev, CI/CD pipelines, and Forgejo workflows)
+11. **Marcus Lead (`emp-human-marcus`)** — Principal Systems Architect & Senior Developer (exercising ADR authoring, PR code review, and production release merges)
 
 ### Retail Investor Customers
-11. **Arthur Pendelton (`cust-longterm-arthur`)** — Long-Term Value Investor (passive regular fund deposits, quarterly performance reviews)
-12. **Chloe Spark (`cust-active-chloe`)** — Short-Term Momentum Alpha Trader (active tactical buy/sell orders on feline zoomies activity spikes)
+12. **Arthur Pendelton (`cust-longterm-arthur`)** — Long-Term Value Investor (passive regular fund deposits, quarterly performance reviews)
+13. **Chloe Spark (`cust-active-chloe`)** — Short-Term Momentum Alpha Trader (active tactical buy/sell orders on feline zoomies activity spikes)
 
 Detailed profile specifications are located in the `personas/` directory.
 
@@ -599,16 +607,16 @@ Orange Cat Investments is designed to run natively on **MicroK8s on Ubuntu Serve
    kubectl get nodes -o wide
    ```
 
-#### Step 2: Storage, Registry & Ingress Conventions
+#### Step 2: Storage, Registry & Gateway API Conventions
 
 1. **Storage Provisioner (`microk8s-hostpath`):**
    MicroK8s defaults to the `microk8s-hostpath` StorageClass. On hosts with attached secondary drives (e.g. SATA/NVMe SSD mounted at `/mnt/data`), persistent volumes can be directed to the dedicated storage partition.
 
 2. **In-Cluster Container Registry (`localhost:32000`):**
-   MicroK8s provides a built-in container registry (`microk8s enable registry`) serving on port `:32000` / `localhost:32000`, matching all OCI container deployment manifests. Alternatively, the manifest in `k8s/registry/registry.yaml` can be applied.
+   Images are hosted via Harbor Enterprise Container Registry (`k8s/registry/harbor.yaml`) on NodePort `:32000` / `registry.oci.local` (with Forgejo OIDC, pull-through proxy caches, and Trivy scanning), or the MicroK8s registry addon when active (`microk8s enable registry`).
 
-3. **Ingress & Routing (NGINX Ingress Standard):**
-   MicroK8s includes the official NGINX Ingress controller (`microk8s enable ingress`) listening on host ports `80` and `443`. All OCI Ingress manifests utilize standard Ingress rules adopted by the controller.
+3. **Edge Routing (Kubernetes Gateway API v1 & Envoy Gateway):**
+   All HTTP and gRPC edge routing uses Kubernetes Gateway API (`GatewayClass/oci-gateway-class` and `Gateway/oci-edge-gateway` in `k8s/ha/lan/tls/gateway.yaml`) with namespace-scoped `HTTPRoute` / `GRPCRoute` manifests (`k8s/*/http-routes.yaml`). Legacy `networking.k8s.io/v1` `Ingress` resources are prohibited.
 
 #### Step 3: Deploy Platform Workloads
 
@@ -780,9 +788,9 @@ chmod +x scripts/cleanup-k8s.sh
 ```
 
 This automated cleanup routine:
-* Safely deletes all OCI domain applications, databases, logging, monitoring, and namespaces (`oci-core`, `oci-internal`, `external-sim`, `postgres`, `monitoring`, `logging`).
+* Safely deletes all OCI domain applications, databases, logging, monitoring, and namespaces (`oci-core`, `oci-dev`, `oci-internal`, `external-sim`, `monitoring`, `logging`).
 * Deletes and releases OCI persistent volume claims (`postgres-data-pvc`).
-* **Preserves System Infrastructure:** Keeps all cluster system services, storage classes, ingress controllers (e.g. MicroK8s NGINX ingress), container registries, and `kubectl` control plane connectivity intact.
+* **Preserves System Infrastructure:** Keeps all cluster system services, storage classes, ingress/gateway controllers, container registries, and `kubectl` control plane connectivity intact.
 
 To also stop and remove standalone Docker containers from Section 6.3:
 ```bash

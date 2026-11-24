@@ -96,7 +96,7 @@ Copy the example inventory template and update IP addresses:
 ```bash
 cp ansible/inventory/ha-cluster.ini.example ansible/inventory/ha-cluster.ini
 ```
-Verify the contents in [`ansible/inventory/ha-cluster.ini`](ansible/inventory/ha-cluster.ini):
+Verify the contents in `ansible/inventory/ha-cluster.ini` (copied from [`ha-cluster.ini.example`](../ansible/inventory/ha-cluster.ini.example)):
 * Ensure `node1`, `node2`, and `node3` match your physical machine IPs.
 * Ensure `cluster_vip=192.168.1.250` is an unused IP on your local subnet.
 
@@ -164,23 +164,26 @@ Ensure `longhorn` is marked `(default)`.
 Configure your router (pfSense/UniFi) or Pi-hole to resolve `*.oci.local` to `192.168.1.250`.
 Follow instructions in [`k8s/ha/lan/dns/dns-setup-guide.md`](file:///home/ramjac/orange-cat-investments/k8s/ha/lan/dns/dns-setup-guide.md).
 
-### Step 6.2: Issue Intranet TLS Certificates
+### Step 6.2: Issue Intranet TLS Certificates & Edge Gateway Routes
 1. Generate the local Root CA:
    ```bash
    ./k8s/ha/lan/tls/generate-lan-root-ca.sh
    ```
-2. Apply the cert-manager `ClusterIssuer`:
+2. Apply the cert-manager `ClusterIssuer` and `trust-manager` CA bundle:
    ```bash
    kubectl apply -f k8s/ha/lan/tls/intranet-cluster-issuer.yaml
+   kubectl apply -f k8s/ha/lan/tls/oci-ca-bundle.yaml
    ```
-3. Apply the HA Intranet Ingress:
+3. Deploy Envoy Gateway & `Gateway/oci-edge-gateway` plus namespace `HTTPRoute` manifests:
    ```bash
-   kubectl apply -f k8s/ha/lan/tls/intranet-ingress-ha.yaml
+   kubectl apply -f k8s/ha/lan/tls/gateway.yaml
+   kubectl apply -f k8s/oci-core/http-routes.yaml
+   kubectl apply -f k8s/oci-internal/http-routes.yaml
    ```
-4. Verify certificates are issued:
+4. Verify Gateway, Routes, and certificates are accepted/issued:
    ```bash
+   kubectl get gateway,httproute -A
    kubectl -n oci-core get certificate
-   kubectl -n oci-internal get certificate
    ```
 5. Install `oci-lan-root-ca.crt` on employee laptops and devices following [`client-ca-trust-installation.md`](file:///home/ramjac/orange-cat-investments/k8s/ha/lan/tls/client-ca-trust-installation.md).
 
