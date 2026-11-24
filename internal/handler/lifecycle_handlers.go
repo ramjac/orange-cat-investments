@@ -126,13 +126,13 @@ func (h *WorkforceHandler) handleOffboardEmployee(w http.ResponseWriter, r *http
 		return
 	}
 
-	resp, err := h.bllClient.OffboardEmployee(r.Context(), &internalbllv1.OffboardEmployeeSagaRequest{
+	resp, err := h.bllClient.OffboardEmployee(outgoingActorCtx(r), &internalbllv1.OffboardEmployeeSagaRequest{
 		EmployeeID:   req.EmployeeID,
 		Reason:       req.Reason,
 		TargetStatus: req.TargetStatus,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeGRPCError(w, "OffboardEmployee", err, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.SagaResult)

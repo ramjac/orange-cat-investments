@@ -75,6 +75,15 @@ func (w *auditWFStub) SetMedicalHold(_ context.Context, in *workforcev1.SetMedic
 	}, nil
 }
 
+func (w *auditWFStub) GetLeaveRequest(_ context.Context, in *workforcev1.GetLeaveRequestRequest) (*workforcev1.GetLeaveRequestResponse, error) {
+	return &workforcev1.GetLeaveRequestResponse{
+		LeaveRequest: &workforcev1.LeaveRequest{
+			LeaveID:    in.LeaveID,
+			EmployeeID: "emp-human-rick",
+		},
+	}, nil
+}
+
 func (w *auditWFStub) UpdateLeaveStatus(_ context.Context, in *workforcev1.UpdateLeaveStatusRequest) (*workforcev1.UpdateLeaveStatusResponse, error) {
 	return &workforcev1.UpdateLeaveStatusResponse{
 		LeaveRequest: &workforcev1.LeaveRequest{

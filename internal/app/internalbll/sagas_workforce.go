@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -186,6 +188,11 @@ func (s *Server) OffboardEmployee(ctx context.Context, in *internalbllv1.Offboar
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
+	if err := s.authorizeWorkforce(ctx, "offboard_employee", policy.WorkforceResource{
+		EmployeeID: in.EmployeeID,
+	}); err != nil {
+		return nil, err
+	}
 	empResp, err := s.wfClient.GetEmployee(ctx, &workforcev1.GetEmployeeRequest{EmployeeID: in.EmployeeID})
 	if err != nil || empResp.Employee == nil {
 		return nil, fmt.Errorf("offboarding engine failed to fetch employee: %w", err)
@@ -341,7 +348,11 @@ func (s *Server) HandleHRWebhook(ctx context.Context, in *internalbllv1.HandleHR
 	}
 
 	if event == "employee_separated" || st == "separated" || st == "retired" {
-		res, err := s.OffboardEmployee(ctx, &internalbllv1.OffboardEmployeeSagaRequest{
+		hrWebhookCtx := grpcutil.WithIncomingActor(ctx, grpcutil.ActorContext{
+			ActorID: "system-frappe-hr-webhook",
+			Role:    "hr",
+		})
+		res, err := s.OffboardEmployee(hrWebhookCtx, &internalbllv1.OffboardEmployeeSagaRequest{
 			EmployeeID:   in.EmployeeID,
 			Reason:       "Frappe HR webhook trigger",
 			TargetStatus: st,

@@ -3,6 +3,7 @@ package internalbll
 import (
 	"context"
 
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,11 @@ func (s *Server) UpdateCareSchedule(ctx context.Context, in *workforcev1.UpdateC
 func (s *Server) SetMedicalHold(ctx context.Context, in *workforcev1.SetMedicalHoldRequest) (*workforcev1.SetMedicalHoldResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
+	}
+	if err := s.authorizeWorkforce(ctx, "toggle_medical_hold", policy.WorkforceResource{
+		FelineID: in.FelineID,
+	}); err != nil {
+		return nil, err
 	}
 	res, err := s.wfClient.SetMedicalHold(ctx, in)
 	if err == nil {
@@ -84,6 +90,16 @@ func (s *Server) UpdateLeaveStatus(ctx context.Context, in *workforcev1.UpdateLe
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
+	ownerEmpID := ""
+	if lrResp, lrErr := s.wfClient.GetLeaveRequest(ctx, &workforcev1.GetLeaveRequestRequest{LeaveID: in.LeaveID}); lrErr == nil && lrResp != nil && lrResp.LeaveRequest != nil {
+		ownerEmpID = lrResp.LeaveRequest.EmployeeID
+	}
+	if err := s.authorizeWorkforce(ctx, "approve_leave", policy.WorkforceResource{
+		EmployeeID: ownerEmpID,
+		ResourceID: in.LeaveID,
+	}); err != nil {
+		return nil, err
+	}
 	res, err := s.wfClient.UpdateLeaveStatus(ctx, in)
 	if err == nil {
 		s.recordAudit(ctx, "workforce.leave_request.status_updated", "leave_request", in.LeaveID, map[string]any{
@@ -97,6 +113,11 @@ func (s *Server) UpdateLeaveStatus(ctx context.Context, in *workforcev1.UpdateLe
 func (s *Server) CreateReviewCycle(ctx context.Context, in *workforcev1.CreateReviewCycleRequest) (*workforcev1.CreateReviewCycleResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
+	}
+	if err := s.authorizeWorkforce(ctx, "manage_review_cycle", policy.WorkforceResource{
+		EmployeeID: in.EmployeeID,
+	}); err != nil {
+		return nil, err
 	}
 	return s.wfClient.CreateReviewCycle(ctx, in)
 }
@@ -119,6 +140,11 @@ func (s *Server) UpdateReviewCycle(ctx context.Context, in *workforcev1.UpdateRe
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
+	if err := s.authorizeWorkforce(ctx, "manage_review_cycle", policy.WorkforceResource{
+		ResourceID: in.ReviewID,
+	}); err != nil {
+		return nil, err
+	}
 	return s.wfClient.UpdateReviewCycle(ctx, in)
 }
 
@@ -140,12 +166,27 @@ func (s *Server) SubmitManagerAssessment(ctx context.Context, in *workforcev1.Su
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
+	ownerEmpID := ""
+	if rcResp, rcErr := s.wfClient.GetReviewCycle(ctx, &workforcev1.GetReviewCycleRequest{ReviewID: in.ReviewID}); rcErr == nil && rcResp != nil && rcResp.ReviewCycle != nil {
+		ownerEmpID = rcResp.ReviewCycle.EmployeeID
+	}
+	if err := s.authorizeWorkforce(ctx, "submit_manager_assessment", policy.WorkforceResource{
+		EmployeeID: ownerEmpID,
+		ResourceID: in.ReviewID,
+	}); err != nil {
+		return nil, err
+	}
 	return s.wfClient.SubmitManagerAssessment(ctx, in)
 }
 
 func (s *Server) SubmitVeterinaryAudit(ctx context.Context, in *workforcev1.SubmitVeterinaryAuditRequest) (*workforcev1.SubmitVeterinaryAuditResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
+	}
+	if err := s.authorizeWorkforce(ctx, "submit_vet_audit", policy.WorkforceResource{
+		ResourceID: in.ReviewID,
+	}); err != nil {
+		return nil, err
 	}
 	return s.wfClient.SubmitVeterinaryAudit(ctx, in)
 }

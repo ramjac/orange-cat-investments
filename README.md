@@ -321,6 +321,11 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **Edge Web Application Firewall — Coraza OWASP CRS Middleware (`7.38`):** Implemented `pkg/waf/coraza.go` (`waf.Middleware`) with OWASP CRS SQLi, XSS, path-traversal, RCE, and scanner rules tuned for JSON REST and SSE endpoints, wired `RecordWAFBlockedRequest` (`oci.waf.blocked.requests.total`) into `pkg/telemetry/metrics.go`, attached the middleware to `customer-bff` and `employee-bff`, and added simulator WAF attack probe verification (`HTTP 403 Forbidden`) for `Frank Operations` (enforced by Check #27 in `scripts/verify-ci-contracts.sh`).
 * **In-Cluster STUN/TURN Media Relay (`coturn`) & WebRTC ICE Discovery (`7.39`):** Deployed `coturn` (`k8s/oci-core/coturn.yaml`, `k8s/oci-dev/coturn.yaml`) with ephemeral HMAC-SHA1 TURN REST API credentials (`--use-auth-secret`) and exposed `GET /api/v1/customer/webrtc/ice-servers` on `customer-bff` (documented in `api/openapi.yaml` and wired into `web/customer-portal/src/App.vue`) returning 1-hour time-bound `stun:`/`turn:` ICE server configurations (enforced by Check #28 in `scripts/verify-ci-contracts.sh`).
 
+### 5.31 Financial & Transactional Integrity, Auditability & Policy-as-Code
+* **Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware (`7.40`):** Added schema-scoped `outbox_events` tables (`workforce.outbox_events`, `facilities.outbox_events`, `core_invest.outbox_events`, `ops.outbox_events`) across `scripts/init.sql`, both Postgres ConfigMaps, and `scripts/migrations/003-transactional-outbox.sql`. Domain API repositories atomically persist `envelope.EventEnvelope[T]` records inside the same `pgx.Tx` transaction as domain mutations, and `oci-worker` runs a gRPC-bridged SQL Outbox Forwarder (`pkg/outbox`, `internal/app/worker/outbox_relay.go`) polling via `customer-bll`/`internal-bll` using `FOR UPDATE SKIP LOCKED` while preserving Phase 9 Zero-Trust `NetworkPolicy` isolation. Added `pkg/cache/valkey/idempotency.go` (`IdempotencyMiddleware`) enforcing client-generated UUID `Idempotency-Key` headers on `POST /api/v1/customer/trading/orders` and `POST /api/v1/customer/deposits` (`X-Idempotent-Replayed: true` on cached replay, `409 Conflict` on concurrent in-flight duplicates), wired into `web/customer-portal/src/App.vue`, `api/openapi.yaml`, and the `chloe_idempotent_order_replay` simulator action (enforced by Check #29 in `scripts/verify-ci-contracts.sh`).
+* **Tamper-Evident Cryptographic Hash-Chain Audit Log (`7.41`):** Added append-only `ops.audit_logs` with SHA-256 hash chaining (`ops.compute_audit_log_hash()` under advisory transaction lock) and `BEFORE UPDATE OR DELETE` / `BEFORE TRUNCATE` immutability triggers (`ops.prevent_audit_log_mutation()`) across `scripts/init.sql`, both Postgres ConfigMaps, and `scripts/migrations/004-tamper-evident-audit-log.sql`. Exposed `AppendAuditLog`, `VerifyAuditChain`, and `ListAuditLogs` across `ops-api` and `internal-bll`, wired high-sensitivity mutations (medical holds, employee offboarding, leave status approvals, quant orders, API key revocation, and GDPR erasure with hashed non-PII subjects) to emit audit entries, exposed `GET /api/v1/ops/audit-logs/verify` & `GET /ops/audit-logs/verify` on `employee-bff`, and added the `frank_verify_audit_chain` simulator action (enforced by Check #30 in `scripts/verify-ci-contracts.sh`).
+* **Policy-as-Code Authorization Engine — Embedded OPA / Rego Go SDK (`7.42`):** Created `pkg/authz/policy` embedding `github.com/open-policy-agent/opa/v1/rego` with compiled embedded Rego v1 policies (`policies/workforce.rego`, `policies/trading.rego`), propagated authenticated employee actor metadata across BFF $\rightarrow$ BLL gRPC calls (`pkg/grpcutil/actor.go`), wired fail-closed policy enforcement into `internal-bll` and `customer-bll` logging every policy denial (`authz.policy.denied`) to `ops.audit_logs`, and added the negative authorization simulator check `rick_unauthorized_medical_hold_denied` (`HTTP 403 Forbidden`) (enforced by Check #31 in `scripts/verify-ci-contracts.sh`).
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -803,58 +808,12 @@ Completed roadmap work (`Phase 1`–`Phase 9`: steps `7.1`–`7.39`) has been pr
 
 ### Execution Phases
 
-1. **Phase 10 — Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`):** Transactional SQL Outbox pattern + Valkey `Idempotency-Key` locks, tamper-evident SHA-256 hash-chain audit ledger (`ops.audit_logs`), and Embedded OPA (Rego Go SDK) policy evaluation in the BLL tier.
-   - [ ] **7.40** Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware
-   - [ ] **7.41** Tamper-Evident Cryptographic Hash-Chain Audit Log (`ops.audit_logs`)
-   - [ ] **7.42** Policy-as-Code Authorization Engine (Embedded OPA / Rego Go SDK in BLL Tier)
-2. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
+1. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
    - [ ] **7.43** S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
    - [ ] **7.44** Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
    - [ ] **7.45** In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
    - [ ] **7.46** Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
    - [ ] **7.47** Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
-
----
-
-### Phase 10: Financial & Transactional Integrity, Auditability & Policy-as-Code (`7.40`–`7.42`)
-
-Eliminates dual-write race conditions, duplicate financial executions, and ad-hoc authorization checks while adding cryptographic SOC 2 / SEC 17a-4 audit trails.
-
-#### 7.40 Transactional SQL Outbox Pattern & Valkey `Idempotency-Key` Middleware
-* **Depends On:** None.
-* **Current Codebase State:** BLL services commit state changes via gRPC to Domain APIs and then separately publish `envelope.EventEnvelope[T]` events to RabbitMQ (dual-write risk if RabbitMQ or the pod crashes mid-flight). Financial POST endpoints (`POST /api/v1/customer/orders`, `POST /api/v1/customer/deposits`) lack idempotency key deduplication on network retries.
-* **PR Scope:**
-  1. Add schema-scoped `outbox_events` tables (`workforce.outbox_events`, `facilities.outbox_events`, `core_invest.outbox_events`, `ops.outbox_events`) across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/003-transactional-outbox.sql`.
-  2. Update Domain API repositories to insert outgoing `envelope.EventEnvelope[T]` records into `<schema>.outbox_events` inside the **same `pgx.Tx` transaction** as the domain mutation, and run a Watermill SQL Outbox Forwarder in `cmd/worker` (or Domain API background relay) that streams committed outbox rows to RabbitMQ with `FOR UPDATE SKIP LOCKED`.
-  3. Implement `IdempotencyMiddleware` in `pkg/cache/valkey/idempotency.go` using atomic Valkey `SET idempotency:{customer_id}:{key} <state> NX EX 86400` locks: require `Idempotency-Key` UUID headers on `POST /api/v1/customer/orders` and `POST /api/v1/customer/deposits` in `customer-bff`, replaying the cached status/response body on duplicate retries and returning `409 Conflict` if an identical key is currently in-flight.
-* **Verification Gate:**
-  * [offline] Unit tests verify that (a) a simulated RabbitMQ outage during order placement persists the event in `core_invest.outbox_events` and publishes it once RabbitMQ recovers, and (b) replaying `POST /api/v1/customer/orders` with the same `Idempotency-Key` executes the trade exactly once and returns the cached response.
-  * [cluster] Chaos test killing RabbitMQ mid-transaction verifies zero lost events once RabbitMQ restarts, and simulator verifies idempotent order replay.
-
-#### 7.41 Tamper-Evident Cryptographic Hash-Chain Audit Log (`ops.audit_logs`)
-* **Depends On:** `7.40`.
-* **Current Codebase State:** Sensitive operations (Dr. Elena toggling an Emergency Medical Trading Hold, Carol executing a risk override, Alice offboarding an employee, or Arthur/Chloe revoking an API key) do not write to an immutable, cryptographically verifiable audit ledger.
-* **PR Scope:**
-  1. Add table `ops.audit_logs` (`seq_id BIGSERIAL PRIMARY KEY`, `event_id UUID NOT NULL`, `occurred_at TIMESTAMPTZ NOT NULL`, `actor_id VARCHAR(128) NOT NULL`, `action VARCHAR(128) NOT NULL`, `resource_type VARCHAR(64) NOT NULL`, `resource_id VARCHAR(128) NOT NULL`, `metadata_json JSONB`, `prev_hash CHAR(64) NOT NULL`, `row_hash CHAR(64) NOT NULL`) across `scripts/init.sql`, both Postgres configmaps, and `scripts/migrations/004-tamper-evident-audit-log.sql`.
-  2. Add PostgreSQL triggers on `ops.audit_logs` that:
-     * Reject any `UPDATE`, `DELETE`, or `TRUNCATE` statement with `RAISE EXCEPTION 'ops.audit_logs is append-only and immutable'`.
-     * Automatically compute `prev_hash` (from `seq_id - 1`, or 64 zeros for genesis) and `row_hash = encode(sha256((prev_hash || occurred_at || actor_id || action || resource_id || metadata_json)::bytea), 'hex')` under advisory lock.
-  3. Expose `AppendAuditLog` and `VerifyAuditChain` RPCs on `ops-api` (`ops.proto`) and `internal-bll`, wire all high-sensitivity mutations (medical hold toggle, employee offboarding, API key revocation, GDPR erasure) to emit audit records, and expose `GET /ops/audit-logs/verify` on `employee-bff` for `Frank Operations`.
-* **Verification Gate:**
-  * [offline] Unit and SQL tests verify hash-chain calculation, trigger rejection of `UPDATE`/`DELETE`, and detection of synthetic bit-flips by `VerifyAuditChain`.
-  * [cluster] `Frank Operations` simulator action calls `GET /ops/audit-logs/verify` after a full persona cycle and receives `{"valid": true, "verified_records": N}`.
-
-#### 7.42 Policy-as-Code Authorization Engine (Embedded OPA / Rego Go SDK in BLL Tier)
-* **Depends On:** `7.41`.
-* **Current Codebase State:** Authorization rules (such as verifying that an active feline Emergency Medical Trading Hold blocks algorithmic order execution, or that only `hr` / a direct manager can approve a leave request or trigger offboarding) are scattered across procedural `if` statements in handlers and services.
-* **PR Scope:**
-  1. Create `pkg/authz/policy` embedding the Open Policy Agent (`github.com/open-policy-agent/opa/v1/rego`) Go SDK with versioned Rego policies in `pkg/authz/policy/policies/*.rego`:
-     * `workforce.rego`: RBAC + relationship rules for leave approval, review cycles, medical hold toggling (`vet` role required), and offboarding (`hr` role required).
-     * `trading.rego`: Pre-trade authorization policies verifying customer account status, active feline medical hold status, and margin/risk thresholds.
-  2. Wire policy evaluation into `customer-bll` and `internal-bll` before domain mutations, logging every policy denial to `ops.audit_logs` (`7.41`).
-* **Verification Gate:**
-  * [offline] Table-driven Rego policy unit tests (`go test -race ./pkg/authz/policy/...`) cover 100% of persona roles and allow/deny edge cases (e.g., non-vet attempting to toggle medical hold returns `PermissionDenied`).
-  * [cluster] Full live simulation (including negative authorization checks) passes against `oci-dev`.
 
 ---
 

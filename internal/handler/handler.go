@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,9 +10,23 @@ import (
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
+	"github.com/orange-cat-investments/oci/pkg/session"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func outgoingActorCtx(r *http.Request) context.Context {
+	ctx := r.Context()
+	if sess := session.EmployeeFromContext(ctx); sess != nil {
+		return grpcutil.WithOutgoingActor(ctx, grpcutil.ActorContext{
+			ActorID:    sess.EmployeeID,
+			Role:       sess.Role,
+			Department: sess.Department,
+		})
+	}
+	return ctx
+}
 
 type WorkforceHandler struct {
 	bllClient             internalbllv1.InternalBLLServiceClient
@@ -49,24 +64,24 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux, protect func(http.
 	mux.HandleFunc("GET /api/v1/workforce/employees", h.listEmployees)
 	mux.HandleFunc("GET /api/v1/workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /api/v1/workforce/leave-requests", h.createLeaveRequest)
-	mux.HandleFunc("PUT /api/v1/workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
+	mux.Handle("PUT /api/v1/workforce/leave-requests/{id}/status", protect(http.HandlerFunc(h.updateLeaveRequestStatus)))
 	mux.HandleFunc("GET /api/v1/workforce/review-cycles", h.listReviewCycles)
-	mux.HandleFunc("POST /api/v1/workforce/review-cycles", h.createReviewCycle)
+	mux.Handle("POST /api/v1/workforce/review-cycles", protect(http.HandlerFunc(h.createReviewCycle)))
 	mux.HandleFunc("GET /api/v1/workforce/review-cycles/{id}", h.getReviewCycle)
-	mux.HandleFunc("PUT /api/v1/workforce/review-cycles/{id}", h.updateReviewCycle)
+	mux.Handle("PUT /api/v1/workforce/review-cycles/{id}", protect(http.HandlerFunc(h.updateReviewCycle)))
 	mux.HandleFunc("POST /api/v1/workforce/review-cycles/{id}/self-appraisal", h.handleReviewSelfAppraisal)
 	mux.HandleFunc("POST /api/v1/workforce/review-cycles/{id}/peer-feedback", h.handleReviewPeerFeedback)
-	mux.HandleFunc("POST /api/v1/workforce/review-cycles/{id}/manager-assessment", h.handleReviewManagerAssessment)
-	mux.HandleFunc("POST /api/v1/workforce/review-cycles/{id}/vet-audit", h.handleReviewVeterinaryAudit)
+	mux.Handle("POST /api/v1/workforce/review-cycles/{id}/manager-assessment", protect(http.HandlerFunc(h.handleReviewManagerAssessment)))
+	mux.Handle("POST /api/v1/workforce/review-cycles/{id}/vet-audit", protect(http.HandlerFunc(h.handleReviewVeterinaryAudit)))
 
 	mux.HandleFunc("GET /api/v1/employee/review-cycles", h.listReviewCycles)
-	mux.HandleFunc("POST /api/v1/employee/review-cycles", h.createReviewCycle)
+	mux.Handle("POST /api/v1/employee/review-cycles", protect(http.HandlerFunc(h.createReviewCycle)))
 	mux.HandleFunc("GET /api/v1/employee/review-cycles/{id}", h.getReviewCycle)
-	mux.HandleFunc("PUT /api/v1/employee/review-cycles/{id}", h.updateReviewCycle)
+	mux.Handle("PUT /api/v1/employee/review-cycles/{id}", protect(http.HandlerFunc(h.updateReviewCycle)))
 	mux.HandleFunc("POST /api/v1/employee/review-cycles/{id}/self-appraisal", h.handleReviewSelfAppraisal)
 	mux.HandleFunc("POST /api/v1/employee/review-cycles/{id}/peer-feedback", h.handleReviewPeerFeedback)
-	mux.HandleFunc("POST /api/v1/employee/review-cycles/{id}/manager-assessment", h.handleReviewManagerAssessment)
-	mux.HandleFunc("POST /api/v1/employee/review-cycles/{id}/vet-audit", h.handleReviewVeterinaryAudit)
+	mux.Handle("POST /api/v1/employee/review-cycles/{id}/manager-assessment", protect(http.HandlerFunc(h.handleReviewManagerAssessment)))
+	mux.Handle("POST /api/v1/employee/review-cycles/{id}/vet-audit", protect(http.HandlerFunc(h.handleReviewVeterinaryAudit)))
 	mux.HandleFunc("POST /api/v1/workforce/incidents", h.createIncident)
 	mux.HandleFunc("GET /api/v1/workforce/incidents", h.listIncidents)
 	mux.HandleFunc("PUT /api/v1/workforce/incidents/{id}/status", h.updateIncidentStatus)
@@ -80,10 +95,10 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux, protect func(http.
 	mux.Handle("GET /api/v1/employee/payroll/slips", protect(http.HandlerFunc(h.listSalarySlips)))
 	mux.Handle("GET /api/v1/employee/payroll/slips/{id}", protect(http.HandlerFunc(h.getSalarySlip)))
 	mux.HandleFunc("POST /api/v1/workforce/employees/onboard", h.handleOnboardEmployee)
-	mux.HandleFunc("POST /api/v1/workforce/employees/{id}/offboard", h.handleOffboardEmployee)
+	mux.Handle("POST /api/v1/workforce/employees/{id}/offboard", protect(http.HandlerFunc(h.handleOffboardEmployee)))
 	mux.HandleFunc("GET /api/v1/workforce/employees/{id}/lifecycle", h.handleGetEmployeeLifecycle)
 	mux.HandleFunc("POST /api/v1/employee/lifecycle/onboard", h.handleOnboardEmployee)
-	mux.HandleFunc("POST /api/v1/employee/lifecycle/{id}/offboard", h.handleOffboardEmployee)
+	mux.Handle("POST /api/v1/employee/lifecycle/{id}/offboard", protect(http.HandlerFunc(h.handleOffboardEmployee)))
 	mux.HandleFunc("GET /api/v1/employee/lifecycle/{id}", h.handleGetEmployeeLifecycle)
 	mux.HandleFunc("POST /api/v1/webhooks/frappe-hr", h.handleFrappeHRWebhook)
 
@@ -132,19 +147,19 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux, protect func(http.
 
 	mux.HandleFunc("GET /workforce/employees", h.listEmployees)
 	mux.HandleFunc("POST /workforce/employees/onboard", h.handleOnboardEmployee)
-	mux.HandleFunc("POST /workforce/employees/{id}/offboard", h.handleOffboardEmployee)
+	mux.Handle("POST /workforce/employees/{id}/offboard", protect(http.HandlerFunc(h.handleOffboardEmployee)))
 	mux.HandleFunc("GET /workforce/employees/{id}/lifecycle", h.handleGetEmployeeLifecycle)
 	mux.HandleFunc("GET /workforce/leave-requests", h.listLeaveRequests)
 	mux.HandleFunc("POST /workforce/leave-requests", h.createLeaveRequest)
-	mux.HandleFunc("PUT /workforce/leave-requests/{id}/status", h.updateLeaveRequestStatus)
+	mux.Handle("PUT /workforce/leave-requests/{id}/status", protect(http.HandlerFunc(h.updateLeaveRequestStatus)))
 	mux.HandleFunc("GET /workforce/review-cycles", h.listReviewCycles)
-	mux.HandleFunc("POST /workforce/review-cycles", h.createReviewCycle)
+	mux.Handle("POST /workforce/review-cycles", protect(http.HandlerFunc(h.createReviewCycle)))
 	mux.HandleFunc("GET /workforce/review-cycles/{id}", h.getReviewCycle)
-	mux.HandleFunc("PUT /workforce/review-cycles/{id}", h.updateReviewCycle)
+	mux.Handle("PUT /workforce/review-cycles/{id}", protect(http.HandlerFunc(h.updateReviewCycle)))
 	mux.HandleFunc("POST /workforce/review-cycles/{id}/self-appraisal", h.handleReviewSelfAppraisal)
 	mux.HandleFunc("POST /workforce/review-cycles/{id}/peer-feedback", h.handleReviewPeerFeedback)
-	mux.HandleFunc("POST /workforce/review-cycles/{id}/manager-assessment", h.handleReviewManagerAssessment)
-	mux.HandleFunc("POST /workforce/review-cycles/{id}/vet-audit", h.handleReviewVeterinaryAudit)
+	mux.Handle("POST /workforce/review-cycles/{id}/manager-assessment", protect(http.HandlerFunc(h.handleReviewManagerAssessment)))
+	mux.Handle("POST /workforce/review-cycles/{id}/vet-audit", protect(http.HandlerFunc(h.handleReviewVeterinaryAudit)))
 	mux.HandleFunc("POST /workforce/incidents", h.createIncident)
 	mux.HandleFunc("GET /workforce/incidents", h.listIncidents)
 	mux.HandleFunc("PUT /workforce/incidents/{id}/status", h.updateIncidentStatus)
@@ -179,13 +194,13 @@ func (h *WorkforceHandler) RegisterRoutes(mux *http.ServeMux, protect func(http.
 	if h.EnableFelineWorkforce {
 		mux.HandleFunc("GET /api/v1/workforce/care-schedules/{felineId}", h.getCareSchedule)
 		mux.HandleFunc("PUT /api/v1/workforce/care-schedules/{felineId}", h.updateCareSchedule)
-		mux.HandleFunc("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+		mux.Handle("POST /api/v1/workforce/care-schedules/{felineId}/medical-hold", protect(http.HandlerFunc(h.toggleEmergencyMedicalHold)))
 		mux.HandleFunc("POST /api/v1/workforce/vhr", h.createVHRRecord)
 		mux.HandleFunc("GET /api/v1/workforce/vhr", h.listVHRRecords)
 
 		mux.HandleFunc("GET /workforce/care-schedules/{felineId}", h.getCareSchedule)
 		mux.HandleFunc("PUT /workforce/care-schedules/{felineId}", h.updateCareSchedule)
-		mux.HandleFunc("POST /workforce/care-schedules/{felineId}/medical-hold", h.toggleEmergencyMedicalHold)
+		mux.Handle("POST /workforce/care-schedules/{felineId}/medical-hold", protect(http.HandlerFunc(h.toggleEmergencyMedicalHold)))
 		mux.HandleFunc("POST /workforce/vhr", h.createVHRRecord)
 		mux.HandleFunc("GET /workforce/vhr", h.listVHRRecords)
 	}

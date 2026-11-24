@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -74,6 +75,7 @@ type Server struct {
 	publisher       EventPublisher
 	logger          *slog.Logger
 	meiliClient     *meilisearch.Client
+	policyEngine    *policy.Engine
 }
 
 // Config configures optional COTS and saga dependencies for the Internal BLL server.
@@ -85,6 +87,7 @@ type Config struct {
 	WorkforceSvc     wfService.Service
 	CoreInvestClient coreinvestv1.CoreInvestServiceClient
 	SearchClient     *meilisearch.Client
+	PolicyEngine     *policy.Engine
 }
 
 // NewServer creates a new Internal BLL gRPC server backed by Domain API gRPC clients.
@@ -128,6 +131,15 @@ func NewServer(
 		meiliClient = meilisearch.NewClient(meiliURL, meiliKey)
 	}
 
+	policyEngine := cfg.PolicyEngine
+	if policyEngine == nil {
+		if eng, err := policy.NewEngine(context.Background()); err == nil {
+			policyEngine = eng
+		} else {
+			logger.Error("failed to compile embedded OPA policy engine", "error", err)
+		}
+	}
+
 	return &Server{
 		wfClient:        wfClient,
 		facClient:       facClient,
@@ -140,6 +152,7 @@ func NewServer(
 		publisher:       publisher,
 		logger:          logger,
 		meiliClient:     meiliClient,
+		policyEngine:    policyEngine,
 	}
 }
 

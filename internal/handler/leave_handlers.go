@@ -85,12 +85,12 @@ func (h *WorkforceHandler) updateLeaveRequestStatus(w http.ResponseWriter, r *ht
 	}
 
 	if h.bllClient != nil {
-		resp, err := h.bllClient.UpdateLeaveStatus(r.Context(), &workforcev1.UpdateLeaveStatusRequest{
+		resp, err := h.bllClient.UpdateLeaveStatus(outgoingActorCtx(r), &workforcev1.UpdateLeaveStatusRequest{
 			LeaveID: id,
 			Status:  req.Status,
 		})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeGRPCError(w, "UpdateLeaveStatus", err, http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, http.StatusOK, resp.LeaveRequest)

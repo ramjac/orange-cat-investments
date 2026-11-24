@@ -130,7 +130,7 @@ func (h *WorkforceHandler) handleReviewManagerAssessment(w http.ResponseWriter, 
 		return
 	}
 
-	resp, err := h.bllClient.SubmitManagerAssessment(r.Context(), &workforcev1.SubmitManagerAssessmentRequest{
+	resp, err := h.bllClient.SubmitManagerAssessment(outgoingActorCtx(r), &workforcev1.SubmitManagerAssessmentRequest{
 		ReviewID:   id,
 		ManagerID:  req.ManagerID,
 		Assessment: req.ManagerAssessment,
@@ -138,7 +138,7 @@ func (h *WorkforceHandler) handleReviewManagerAssessment(w http.ResponseWriter, 
 		KPIRatings: kpis,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, "SubmitManagerAssessment", err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.ReviewCycle)
@@ -184,7 +184,7 @@ func (h *WorkforceHandler) handleReviewVeterinaryAudit(w http.ResponseWriter, r 
 		return
 	}
 
-	resp, err := h.bllClient.SubmitVeterinaryAudit(r.Context(), &workforcev1.SubmitVeterinaryAuditRequest{
+	resp, err := h.bllClient.SubmitVeterinaryAudit(outgoingActorCtx(r), &workforcev1.SubmitVeterinaryAuditRequest{
 		ReviewID:        id,
 		AuditorID:       auditor,
 		WellnessScore:   wellnessScore,
@@ -192,7 +192,7 @@ func (h *WorkforceHandler) handleReviewVeterinaryAudit(w http.ResponseWriter, r 
 		VHRRecordID:     vhrID,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, "SubmitVeterinaryAudit", err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.ReviewCycle)

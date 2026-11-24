@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
@@ -30,6 +31,7 @@ type Config struct {
 	BrokerClient    *alpaca.Client
 	BankClient      *plaid.Client
 	UpstreamTimeout time.Duration
+	PolicyEngine    *policy.Engine
 }
 
 type Server struct {
@@ -41,6 +43,7 @@ type Server struct {
 	bankClient      *plaid.Client
 	defaultFelineID string
 	upstreamTimeout time.Duration
+	policyEngine    *policy.Engine
 
 	wfClient  workforcev1.WorkforceServiceClient
 	ciClient  coreinvestv1.CoreInvestServiceClient
@@ -72,6 +75,14 @@ func NewServer(cfg Config) *Server {
 	if upstreamTimeout <= 0 {
 		upstreamTimeout = defaultUpstreamTimeout
 	}
+	policyEngine := cfg.PolicyEngine
+	if policyEngine == nil {
+		if eng, err := policy.NewEngine(context.Background()); err == nil {
+			policyEngine = eng
+		} else {
+			logger.Error("failed to compile embedded OPA policy engine", "error", err)
+		}
+	}
 	s := &Server{
 		logger:          logger,
 		publisher:       cfg.Publisher,
@@ -79,6 +90,7 @@ func NewServer(cfg Config) *Server {
 		bankClient:      cfg.BankClient,
 		defaultFelineID: cfg.DefaultFelineID,
 		upstreamTimeout: upstreamTimeout,
+		policyEngine:    policyEngine,
 	}
 
 	if cfg.WorkforceTarget != "" {

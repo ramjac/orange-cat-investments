@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
@@ -59,9 +60,70 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		s.log().Error("feline medical hold verification failed; failing closed", "error", err, "feline_id", targetFeline)
 		return nil, status.Error(codes.Unavailable, "feline medical hold safety check unavailable; failing closed")
 	}
-	if medicalHoldActive {
-		s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
-		return nil, status.Errorf(codes.FailedPrecondition, "algorithmic trading halted: emergency medical hold active for feline executive %s", targetFeline)
+
+	// 1.5 Embedded OPA Policy-as-Code Pre-Trade Authorization (Phase 10 / 7.42)
+	accountStatus := "active"
+	buyingPower := 0.0
+	if s.ciClient != nil {
+		if portResp, pErr := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{PortfolioID: in.PortfolioID}); pErr == nil && portResp != nil && portResp.Portfolio != nil {
+			if portResp.Portfolio.Status != "" {
+				accountStatus = portResp.Portfolio.Status
+			}
+		}
+	}
+	estimatedNotional := 0.0
+	if in.LimitPrice > 0 {
+		estimatedNotional = in.Quantity * in.LimitPrice
+	}
+	if s.policyEngine == nil {
+		return nil, status.Error(codes.PermissionDenied, "trading policy engine not initialized")
+	}
+	tradeDec, policyErr := s.policyEngine.EvaluateTrading(ctx, policy.TradingInput{
+		Actor: policy.Actor{
+			ID:   in.CustomerID,
+			Role: "customer",
+		},
+		Account: policy.AccountState{
+			Status:         accountStatus,
+			BuyingPowerUSD: buyingPower,
+		},
+		Feline: policy.FelineState{
+			FelineID:             targetFeline,
+			EmergencyMedicalHold: medicalHoldActive,
+		},
+		Order: policy.OrderRequest{
+			Symbol:               in.Symbol,
+			Side:                 in.Side,
+			Quantity:             in.Quantity,
+			OrderType:            orderType,
+			EstimatedNotionalUSD: estimatedNotional,
+		},
+	})
+	if policyErr != nil || !tradeDec.Allow {
+		reason := tradeDec.ReasonSummary()
+		if policyErr != nil && reason == "" {
+			reason = policyErr.Error()
+		}
+		s.log().Warn("OPA trading policy denied order",
+			"customer_id", in.CustomerID,
+			"portfolio_id", in.PortfolioID,
+			"feline_id", targetFeline,
+			"medical_hold", medicalHoldActive,
+			"reason", reason,
+		)
+		s.recordAudit(ctx, in.CustomerID, "customer", "authz.policy.denied", "trading_order", in.PortfolioID, map[string]any{
+			"policy":               tradeDec.Policy,
+			"symbol":               in.Symbol,
+			"side":                 in.Side,
+			"quantity":             in.Quantity,
+			"account_status":       accountStatus,
+			"emergency_medical_hold": medicalHoldActive,
+			"reasons":              tradeDec.Reasons,
+		})
+		if medicalHoldActive {
+			return nil, status.Error(codes.FailedPrecondition, reason)
+		}
+		return nil, status.Error(codes.PermissionDenied, reason)
 	}
 
 	// 2. Execute order with broker

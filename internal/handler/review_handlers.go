@@ -138,7 +138,7 @@ func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Requ
 		vhrID = *req.VHRRecordID
 	}
 
-	resp, err := h.bllClient.CreateReviewCycle(r.Context(), &workforcev1.CreateReviewCycleRequest{
+	resp, err := h.bllClient.CreateReviewCycle(outgoingActorCtx(r), &workforcev1.CreateReviewCycleRequest{
 		EmployeeID:             req.EmployeeID,
 		ReviewType:             req.ReviewType,
 		ReviewPeriod:           req.ReviewPeriod,
@@ -161,7 +161,7 @@ func (h *WorkforceHandler) createReviewCycle(w http.ResponseWriter, r *http.Requ
 		VHRRecordID:            vhrID,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, "CreateReviewCycle", err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusCreated, resp.ReviewCycle)
@@ -299,9 +299,9 @@ func (h *WorkforceHandler) updateReviewCycle(w http.ResponseWriter, r *http.Requ
 		pbReq.VHRRecordID = *req.VHRRecordID
 	}
 
-	resp, err := h.bllClient.UpdateReviewCycle(r.Context(), pbReq)
+	resp, err := h.bllClient.UpdateReviewCycle(outgoingActorCtx(r), pbReq)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeGRPCError(w, "UpdateReviewCycle", err, http.StatusBadRequest)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp.ReviewCycle)

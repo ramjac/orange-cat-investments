@@ -30,7 +30,7 @@ func TestAllDefaultPersonasRegistrationAndStructure(t *testing.T) {
 		"emp-human-frank":      7,
 		"cust-longterm-arthur": 11,
 		"cust-active-chloe":    9,
-		"emp-human-rick":       5,
+		"emp-human-rick":       6,
 		"emp-human-elise":      10,
 		"emp-human-marcus":     4,
 	}

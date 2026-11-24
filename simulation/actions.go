@@ -2308,6 +2308,30 @@ func (r *Registry) createRickPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "rick_unauthorized_medical_hold_denied",
+				Description: "Negative OPA Policy-as-Code authorization check: staff persona attempting to toggle feline emergency medical hold must receive HTTP 403 Forbidden",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
+					payload := map[string]any{
+						"emergency_medical_hold": true,
+					}
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_unauthorized_medical_hold_denied",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusForbidden,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("OPA negative authz check (expected 403): status=%d body=%s", resp.StatusCode, string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }

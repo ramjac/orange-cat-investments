@@ -913,6 +913,66 @@ if ! grep -q "/api/v1/customer/webrtc/ice-servers" internal/app/customerbff/rout
   failed=1
 fi
 
+# 29. Verify Phase 10 (7.40) Transactional SQL Outbox & Valkey Idempotency Middleware
+echo "Verifying Phase 10 (7.40) transactional SQL outbox and Valkey idempotency..."
+for sql_file in scripts/init.sql k8s/oci-core/postgres-core-configmap.yaml k8s/oci-dev/postgres-dev-configmap.yaml scripts/migrations/003-transactional-outbox.sql; do
+  for schema_tbl in workforce.outbox_events facilities.outbox_events core_invest.outbox_events ops.outbox_events; do
+    if [ ! -f "$sql_file" ] || ! grep -q "$schema_tbl" "$sql_file"; then
+      echo "ERROR: $sql_file missing Phase 10 (7.40) outbox table: $schema_tbl"
+      failed=1
+    fi
+  done
+done
+for pat_file in \
+  "pkg/outbox/outbox.go:FOR UPDATE SKIP LOCKED" \
+  "pkg/cache/valkey/idempotency.go:IdempotencyMiddleware" \
+  "internal/app/customerbff/router.go:IdempotencyMiddleware" \
+  "cmd/worker/main.go:StartOutboxForwarder"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 10 (7.40) symbol: $fpat"
+    failed=1
+  fi
+done
+
+# 30. Verify Phase 10 (7.41) Tamper-Evident Hash-Chain Audit Log
+echo "Verifying Phase 10 (7.41) tamper-evident hash-chain audit log (ops.audit_logs)..."
+for sql_file in scripts/init.sql k8s/oci-core/postgres-core-configmap.yaml k8s/oci-dev/postgres-dev-configmap.yaml scripts/migrations/004-tamper-evident-audit-log.sql; do
+  if [ ! -f "$sql_file" ] || ! grep -q "ops.audit_logs" "$sql_file" || ! grep -q "prevent_audit_log_mutation" "$sql_file" || ! grep -q "compute_audit_log_hash" "$sql_file"; then
+    echo "ERROR: $sql_file missing Phase 10 (7.41) ops.audit_logs table or immutability/hash triggers"
+    failed=1
+  fi
+done
+for pat_file in \
+  "internal/repository/ops/audit.go:VerifyAuditChain" \
+  "internal/handler/ops/audit.go:VerifyAuditChain" \
+  "internal/app/employeebff/ops_routes.go:/api/v1/ops/audit-logs/verify" \
+  "api/openapi.yaml:/ops/audit-logs/verify"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 10 (7.41) symbol: $fpat"
+    failed=1
+  fi
+done
+
+# 31. Verify Phase 10 (7.42) Embedded OPA Policy-as-Code Engine in BLL Tier
+echo "Verifying Phase 10 (7.42) embedded OPA Rego policy engine..."
+for pat_file in \
+  "pkg/authz/policy/engine.go://go:embed policies/\*.rego" \
+  "pkg/authz/policy/policies/workforce.rego:package oci.authz.workforce" \
+  "pkg/authz/policy/policies/trading.rego:package oci.authz.trading" \
+  "internal/app/internalbll/authz.go:EvaluateWorkforce" \
+  "internal/app/customerbll/orders.go:EvaluateTrading"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 10 (7.42) symbol: $fpat"
+    failed=1
+  fi
+done
+
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."
     exit 1
