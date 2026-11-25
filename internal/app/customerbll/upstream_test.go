@@ -32,6 +32,32 @@ func (s *stubWorkforceForOrders) GetCareSchedule(_ context.Context, _ *workforce
 	}, nil
 }
 
+// stubCIPortfolioClient serves an active portfolio with the configured cash
+// balance so pre-trade account-state verification passes and the tests can
+// exercise downstream broker faults.
+type stubCIPortfolioClient struct {
+	coreinvestv1.CoreInvestServiceClient
+	cashBalanceUSD float64
+}
+
+func (c *stubCIPortfolioClient) GetPortfolio(_ context.Context, in *coreinvestv1.GetPortfolioRequest) (*coreinvestv1.GetPortfolioResponse, error) {
+	return &coreinvestv1.GetPortfolioResponse{
+		Portfolio: &coreinvestv1.Portfolio{
+			PortfolioID:    in.PortfolioID,
+			Status:         "active",
+			CashBalanceUSD: c.cashBalanceUSD,
+		},
+	}, nil
+}
+
+// serveQuote answers trusted market-quote requests with a fixed NVDA quote so
+// market-order notional estimation succeeds while other routes keep the
+// subtest's fault behavior.
+func serveQuote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"symbol":"NVDA","quote":{"bp":99.5,"bs":100,"ap":100.0,"as":100}}`))
+}
+
 func assertNoVendorNames(t *testing.T, msg string) {
 	t.Helper()
 	lower := strings.ToLower(msg)
@@ -42,6 +68,10 @@ func assertNoVendorNames(t *testing.T, msg string) {
 func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 	t.Run("broker 503 outage maps to Unavailable without vendor name", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+				serveQuote(w, r)
+				return
+			}
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "mock broker service outage injected"})
 		}))
@@ -52,6 +82,7 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 			BrokerClient:    alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
 		})
 		srv.SetWorkforceClient(&stubWorkforceForOrders{})
+		srv.SetCoreInvestClient(&stubCIPortfolioClient{cashBalanceUSD: 1_000_000_000})
 
 		_, err := srv.ValidateAndExecuteOrder(context.Background(), &customerbllv1.ValidateAndExecuteOrderRequest{
 			PortfolioID: "port-1",
@@ -67,6 +98,10 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 
 	t.Run("broker 412 reject_orders maps to FailedPrecondition without vendor name", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+				serveQuote(w, r)
+				return
+			}
 			w.WriteHeader(http.StatusPreconditionFailed)
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "order rejected by injected fault"})
 		}))
@@ -77,6 +112,7 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 			BrokerClient:    alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
 		})
 		srv.SetWorkforceClient(&stubWorkforceForOrders{})
+		srv.SetCoreInvestClient(&stubCIPortfolioClient{cashBalanceUSD: 1_000_000_000})
 
 		_, err := srv.ValidateAndExecuteOrder(context.Background(), &customerbllv1.ValidateAndExecuteOrderRequest{
 			PortfolioID: "port-1",
@@ -93,6 +129,10 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 
 	t.Run("broker 422 halted symbol maps to FailedPrecondition without vendor name", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+				serveQuote(w, r)
+				return
+			}
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "trading halted for symbol by injected fault"})
 		}))
@@ -103,6 +143,7 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 			BrokerClient:    alpaca.NewClient(alpaca.Config{BaseURL: ts.URL}),
 		})
 		srv.SetWorkforceClient(&stubWorkforceForOrders{})
+		srv.SetCoreInvestClient(&stubCIPortfolioClient{cashBalanceUSD: 1_000_000_000})
 
 		_, err := srv.ValidateAndExecuteOrder(context.Background(), &customerbllv1.ValidateAndExecuteOrderRequest{
 			PortfolioID: "port-1",
@@ -119,6 +160,11 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 
 	t.Run("broker latency exceeding bounded deadline maps to DeadlineExceeded", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+				// Quotes stay fast so the flow reaches the slow order route.
+				serveQuote(w, r)
+				return
+			}
 			select {
 			case <-time.After(500 * time.Millisecond):
 				w.WriteHeader(http.StatusOK)
@@ -133,6 +179,7 @@ func TestValidateAndExecuteOrder_UpstreamFaultMapping(t *testing.T) {
 			UpstreamTimeout: 50 * time.Millisecond,
 		})
 		srv.SetWorkforceClient(&stubWorkforceForOrders{})
+		srv.SetCoreInvestClient(&stubCIPortfolioClient{cashBalanceUSD: 1_000_000_000})
 
 		start := time.Now()
 		_, err := srv.ValidateAndExecuteOrder(context.Background(), &customerbllv1.ValidateAndExecuteOrderRequest{

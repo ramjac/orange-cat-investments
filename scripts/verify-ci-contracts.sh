@@ -943,6 +943,14 @@ for sql_file in scripts/init.sql k8s/oci-core/postgres-core-configmap.yaml k8s/o
     echo "ERROR: $sql_file missing Phase 10 (7.41) ops.audit_logs table or immutability/hash triggers"
     failed=1
   fi
+  # Chain-lock fix: the audit id must be drawn from an explicit sequence
+  # inside the hash trigger AFTER the advisory lock (never via a column
+  # default), or concurrent appends can build a chain that ascending-id
+  # verification rejects.
+  if [ -f "$sql_file" ] && { ! grep -q "ops.audit_logs_id_seq" "$sql_file" || ! grep -q "nextval('ops.audit_logs_id_seq')" "$sql_file"; }; then
+    echo "ERROR: $sql_file missing serialized audit id allocation (ops.audit_logs_id_seq + in-trigger nextval)"
+    failed=1
+  fi
 done
 for pat_file in \
   "internal/repository/ops/audit.go:VerifyAuditChain" \

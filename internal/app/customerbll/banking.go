@@ -139,7 +139,15 @@ func (s *Server) InitiateACHDeposit(ctx context.Context, in *customerbllv1.Initi
 		}
 	}
 
+	// Recurring deposits commit their ACH event atomically inside
+	// core-invest-api under the stable identifier "ach-"+deposit_id
+	// (see repository/core_invest/streams_orders_pgx.go). Return that same
+	// identifier so clients can correlate the accepted deposit with its
+	// settlement; only one-time transfers use a freshly generated ID.
 	transferID := "ach-" + watermill.NewUUID()[:8]
+	if freq != "one_time" && createdDep != nil && createdDep.DepositID != "" {
+		transferID = "ach-" + createdDep.DepositID
+	}
 	nowStr := time.Now().UTC().Format(time.RFC3339)
 
 	achPayload := map[string]interface{}{
@@ -251,6 +259,36 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 		return nil, status.Error(codes.InvalidArgument, "transfer_id is required")
 	}
 
+	// Durable settlement deduplication: outbox redelivery is at-least-once
+	// (a publish can succeed and the ack fail, re-emitting the event after
+	// the lease expires), so a given transfer ID must settle exactly once.
+	// The claim is held in shared Valkey and fails closed when that store
+	// is unavailable; if any settlement step below fails the claim is
+	// released so a later retry can complete the transfer.
+	dedupKey := "ach:settled:" + in.TransferID
+	releaseClaim := func() {
+		if s.settlementDedup != nil {
+			s.settlementDedup.Release(ctx, dedupKey)
+		}
+	}
+	if s.settlementDedup != nil {
+		acquired, err := s.settlementDedup.Claim(ctx, dedupKey)
+		if err != nil {
+			s.log().Error("settlement deduplication store unavailable; failing closed", "transfer_id", in.TransferID, "error", err)
+			return nil, status.Error(codes.Unavailable, "settlement deduplication store unavailable; failing closed")
+		}
+		if !acquired {
+			s.log().Info("ACH settlement already claimed; returning idempotent result", "transfer_id", in.TransferID)
+			return &customerbllv1.SettleACHTransferResponse{
+				TransferID:  in.TransferID,
+				CustomerID:  in.CustomerID,
+				PortfolioID: in.PortfolioID,
+				AmountUSD:   in.AmountUSD,
+				Status:      "already_settled",
+			}, nil
+		}
+	}
+
 	// 1. External bank clearing call if configured
 	if s.bankClient != nil {
 		direction := "debit"
@@ -263,9 +301,14 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 			Amount:      in.AmountUSD,
 			Direction:   direction,
 			Description: fmt.Sprintf("OCI Investment Capital ACH %s (%s)", in.TransferType, in.TransferID),
+			// Stable client reference: the bank rejects (or returns the
+			// existing) transfer on duplicate references, making the
+			// request idempotent across redeliveries.
+			Reference: in.TransferID,
 		})
 		bankCancel()
 		if err != nil {
+			releaseClaim()
 			s.log().Error("bank clearing failed", "transfer_id", in.TransferID, "error", sanitizeVendorNames(err.Error()))
 			return nil, mapUpstreamError("bank", err)
 		}
@@ -284,6 +327,7 @@ func (s *Server) SettleACHTransfer(ctx context.Context, in *customerbllv1.Settle
 			Reason:      fmt.Sprintf("ACH settlement for transfer %s", in.TransferID),
 		})
 		if err != nil {
+			releaseClaim()
 			return nil, status.Errorf(codes.Internal, "core-invest balance update failed for transfer %s: %v", in.TransferID, err)
 		}
 	}

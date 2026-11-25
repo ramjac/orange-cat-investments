@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -264,9 +265,19 @@ func TestCustomerBLL_OrderExecution_NormalAndMedicalHold(t *testing.T) {
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
 	wfStub := &stubWorkforceServer{medicalHold: false}
-	ciStub := &stubCoreInvestServer{}
+	ciStub := &stubCoreInvestServer{portfolios: map[string]*coreinvestv1.Portfolio{
+		"port-001": {PortfolioID: "port-001", Status: "active", CashBalanceUSD: 250_000},
+	}}
 
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+			// Trusted quote route used for market-order notional estimation.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"symbol": "AAPL",
+				"quote":  map[string]any{"bp": 182.40, "bs": 10, "ap": 182.60, "as": 10},
+			})
+			return
+		}
 		price := 182.50
 		_ = json.NewEncoder(w).Encode(alpaca.Order{
 			ID:             "ord-alpaca-999",
@@ -339,7 +350,17 @@ func TestCustomerBLL_DefaultFeline_FromConfiguration(t *testing.T) {
 	pubSub := gochannel.NewGoChannel(gochannel.Config{OutputChannelBuffer: 100}, watermillLogger)
 
 	wfStub := &stubWorkforceServer{medicalHold: false}
+	ciStub := &stubCoreInvestServer{portfolios: map[string]*coreinvestv1.Portfolio{
+		"port-001": {PortfolioID: "port-001", Status: "active", CashBalanceUSD: 250_000},
+	}}
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"symbol": "MSFT",
+				"quote":  map[string]any{"bp": 418.10, "bs": 20, "ap": 418.40, "as": 20},
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(alpaca.Order{ID: "ord-1", Status: "submitted"})
 	}))
 	defer mockBrokerServer.Close()
@@ -350,6 +371,7 @@ func TestCustomerBLL_DefaultFeline_FromConfiguration(t *testing.T) {
 		DefaultFelineID: "emp-configured-cat-42",
 	})
 	bll.SetWorkforceClient(wfStub)
+	bll.SetCoreInvestClient(ciStub)
 
 	client := startCustomerBLLTestServer(t, bll)
 
@@ -376,7 +398,17 @@ func TestCustomerBLL_DefaultFeline_FromWorkforceDatabase(t *testing.T) {
 		},
 	}
 
+	ciStub := &stubCoreInvestServer{portfolios: map[string]*coreinvestv1.Portfolio{
+		"port-002": {PortfolioID: "port-002", Status: "active", CashBalanceUSD: 250_000},
+	}}
 	mockBrokerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v2/stocks/") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"symbol": "GOOGL",
+				"quote":  map[string]any{"bp": 152.30, "bs": 40, "ap": 152.55, "as": 40},
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(alpaca.Order{ID: "ord-2", Status: "submitted"})
 	}))
 	defer mockBrokerServer.Close()
@@ -386,6 +418,7 @@ func TestCustomerBLL_DefaultFeline_FromWorkforceDatabase(t *testing.T) {
 		BrokerClient: alpaca.NewClient(alpaca.Config{BaseURL: mockBrokerServer.URL}),
 	})
 	bll.SetWorkforceClient(wfStub)
+	bll.SetCoreInvestClient(ciStub)
 
 	client := startCustomerBLLTestServer(t, bll)
 

@@ -23,6 +23,7 @@ func outgoingActorCtx(r *http.Request) context.Context {
 			ActorID:    sess.EmployeeID,
 			Role:       sess.Role,
 			Department: sess.Department,
+			Email:      sess.Email,
 		})
 	}
 	return ctx

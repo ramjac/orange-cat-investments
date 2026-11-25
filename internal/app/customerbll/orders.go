@@ -62,18 +62,40 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	// 1.5 Embedded OPA Policy-as-Code Pre-Trade Authorization (Phase 10 / 7.42)
-	accountStatus := "active"
-	buyingPower := 0.0
-	if s.ciClient != nil {
-		if portResp, pErr := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{PortfolioID: in.PortfolioID}); pErr == nil && portResp != nil && portResp.Portfolio != nil {
-			if portResp.Portfolio.Status != "" {
-				accountStatus = portResp.Portfolio.Status
-			}
-		}
+	// Account state must come from a successful, nonempty core-invest lookup;
+	// failing open would let blocked accounts trade when the domain is down.
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest-api is not configured; account state unavailable for pre-trade authorization")
 	}
-	estimatedNotional := 0.0
-	if in.LimitPrice > 0 {
+	portResp, pErr := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{PortfolioID: in.PortfolioID})
+	if pErr != nil || portResp == nil || portResp.Portfolio == nil || portResp.Portfolio.Status == "" {
+		s.log().Error("pre-trade portfolio lookup failed; failing closed", "error", pErr, "portfolio_id", in.PortfolioID)
+		return nil, status.Error(codes.Unavailable, "account state unavailable for pre-trade authorization; failing closed")
+	}
+	accountStatus := portResp.Portfolio.Status
+	buyingPower := portResp.Portfolio.CashBalanceUSD
+	if buyingPower < 0 {
+		buyingPower = 0
+	}
+
+	// Estimate the order notional without trusting caller-supplied prices.
+	// The broker ignores LimitPrice for market orders, so market orders must
+	// be sized from a trusted live broker quote (fail closed when it is
+	// unavailable); limit orders use the validated limit price.
+	var referencePrice float64
+	var estimatedNotional float64
+	switch orderType {
+	case "limit":
+		referencePrice = in.LimitPrice
 		estimatedNotional = in.Quantity * in.LimitPrice
+	case "market":
+		quote, qErr := s.trustedMarketQuote(ctx, in.Symbol, in.Side)
+		if qErr != nil || quote <= 0 {
+			s.log().Error("trusted market quote unavailable; failing closed", "error", qErr, "symbol", in.Symbol)
+			return nil, status.Error(codes.Unavailable, "trusted market quote unavailable; market order notional cannot be estimated")
+		}
+		referencePrice = quote
+		estimatedNotional = in.Quantity * quote
 	}
 	if s.policyEngine == nil {
 		return nil, status.Error(codes.PermissionDenied, "trading policy engine not initialized")
@@ -112,13 +134,13 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 			"reason", reason,
 		)
 		s.recordAudit(ctx, in.CustomerID, "customer", "authz.policy.denied", "trading_order", in.PortfolioID, map[string]any{
-			"policy":               tradeDec.Policy,
-			"symbol":               in.Symbol,
-			"side":                 in.Side,
-			"quantity":             in.Quantity,
-			"account_status":       accountStatus,
+			"policy":                 tradeDec.Policy,
+			"symbol":                 in.Symbol,
+			"side":                   in.Side,
+			"quantity":               in.Quantity,
+			"account_status":         accountStatus,
 			"emergency_medical_hold": medicalHoldActive,
-			"reasons":              tradeDec.Reasons,
+			"reasons":                tradeDec.Reasons,
 		})
 		if medicalHoldActive {
 			return nil, status.Error(codes.FailedPrecondition, reason)
@@ -130,16 +152,12 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	execStart := time.Now()
 	if s.brokerClient == nil {
 		if s.ciClient != nil {
-			price := in.LimitPrice
-			if price <= 0 {
-				price = 224.30
-			}
 			res, err := s.ciClient.CreateOrder(ctx, &coreinvestv1.CreateOrderRequest{
 				PortfolioID: in.PortfolioID,
 				Symbol:      in.Symbol,
 				Side:        in.Side,
 				Quantity:    in.Quantity,
-				Price:       price,
+				Price:       referencePrice,
 				OrderType:   orderType,
 			})
 			if err == nil && res != nil && res.Order != nil {
@@ -243,6 +261,29 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 	}
 
 	return result, nil
+}
+
+// trustedMarketQuote returns a conservative per-share reference price used to
+// estimate market-order notionals: the live ask for buys and bid for sells,
+// sourced from the broker (the execution counterparty) rather than the
+// caller. It fails closed when no trusted market data source is configured.
+func (s *Server) trustedMarketQuote(ctx context.Context, symbol, side string) (float64, error) {
+	if s.brokerClient == nil {
+		return 0, errors.New("no trusted market data source configured for market order estimation")
+	}
+	qCtx, cancel := s.withUpstreamTimeout(ctx)
+	defer cancel()
+	quote, err := s.brokerClient.GetLatestQuote(qCtx, symbol)
+	if err != nil {
+		return 0, err
+	}
+	if quote == nil {
+		return 0, errors.New("empty quote response from broker")
+	}
+	if side == "buy" {
+		return quote.AskPrice, nil
+	}
+	return quote.BidPrice, nil
 }
 
 func (s *Server) checkFelineMedicalHold(ctx context.Context, felineID string) (bool, error) {

@@ -40,7 +40,7 @@ deny_reasons contains msg if {
 
 deny_reasons contains msg if {
 	input.order.side == "buy"
-	input.account.buying_power_usd > 0
+	input.order.estimated_notional_usd > 0
 	input.order.estimated_notional_usd > input.account.buying_power_usd
 	msg := sprintf("insufficient buying power: estimated order notional $%.2f exceeds available $%.2f", [input.order.estimated_notional_usd, input.account.buying_power_usd])
 }

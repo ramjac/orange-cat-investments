@@ -2,8 +2,10 @@
 -- Append-only ledger in ops.audit_logs with SHA-256 hash chaining and
 -- PostgreSQL BEFORE UPDATE/DELETE/TRUNCATE immutability triggers.
 
+CREATE SEQUENCE IF NOT EXISTS ops.audit_logs_id_seq;
+
 CREATE TABLE IF NOT EXISTS ops.audit_logs (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     actor_id VARCHAR(128) NOT NULL,
     actor_role VARCHAR(64) NOT NULL DEFAULT '',
     action VARCHAR(128) NOT NULL,
@@ -20,6 +22,14 @@ CREATE INDEX IF NOT EXISTS idx_ops_audit_logs_actor_created
 
 CREATE INDEX IF NOT EXISTS idx_ops_audit_logs_action_created
     ON ops.audit_logs (action, created_at DESC);
+
+
+-- Phase 10 (7.41) chain-lock fix: drop any pre-existing BIGSERIAL column
+-- default so the id is drawn inside ops.compute_audit_log_hash() AFTER the
+-- advisory chain lock is held. A plain default would draw the sequence
+-- before the lock, letting concurrent inserts acquire the lock in reverse
+-- id order and build a chain that ascending-id verification rejects.
+ALTER TABLE ops.audit_logs ALTER COLUMN id DROP DEFAULT;
 
 CREATE OR REPLACE FUNCTION ops.prevent_audit_log_mutation()
 RETURNS TRIGGER AS $$
@@ -47,6 +57,13 @@ DECLARE
     payload TEXT;
 BEGIN
     PERFORM pg_advisory_xact_lock(741001);
+
+    -- Serialize ID allocation with the hash calculation: the id is drawn
+    -- from the chain sequence only while the lock is held, so ascending id
+    -- order always matches hash-chain order under concurrent appends.
+    IF NEW.id IS NULL THEN
+        NEW.id := nextval('ops.audit_logs_id_seq');
+    END IF;
 
     IF NEW.created_at IS NULL THEN
         NEW.created_at := CURRENT_TIMESTAMP;

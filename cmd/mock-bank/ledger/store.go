@@ -8,12 +8,12 @@ import (
 )
 
 var (
-	ErrAccountNotFound    = errors.New("bank account not found")
-	ErrInsufficientFunds  = errors.New("insufficient funds (R01)")
-	ErrInvalidAmount      = errors.New("transfer amount must be greater than zero")
-	ErrTransferNotFound   = errors.New("transfer not found")
-	ErrInvalidToken       = errors.New("invalid or expired token")
-	ErrCustodyNotFound    = errors.New("custody account not found")
+	ErrAccountNotFound   = errors.New("bank account not found")
+	ErrInsufficientFunds = errors.New("insufficient funds (R01)")
+	ErrInvalidAmount     = errors.New("transfer amount must be greater than zero")
+	ErrTransferNotFound  = errors.New("transfer not found")
+	ErrInvalidToken      = errors.New("invalid or expired token")
+	ErrCustodyNotFound   = errors.New("custody account not found")
 )
 
 const (
@@ -150,21 +150,44 @@ func (s *LedgerStore) ExchangePublicToken(publicToken, clientUserID string) (*Ac
 
 // CreateTransfer initiates an ACH transfer (debit pull into OCI or credit push to bank account).
 func (s *LedgerStore) CreateTransfer(accountID string, amount float64, direction, description string) (*ACHTransfer, error) {
+	return s.CreateTransferWithReference(accountID, amount, direction, description, "")
+}
+
+// CreateTransferWithReference initiates an ACH transfer idempotently: when a
+// non-empty reference is presented and a transfer with the same reference
+// already exists, the existing transfer is returned unchanged instead of
+// creating a duplicate. This makes redelivered settlement requests safe.
+func (s *LedgerStore) CreateTransferWithReference(accountID string, amount float64, direction, description, reference string) (*ACHTransfer, error) {
+	transfer, _, err := s.CreateTransferIdempotent(accountID, amount, direction, description, reference)
+	return transfer, err
+}
+
+// CreateTransferIdempotent behaves like CreateTransferWithReference and
+// additionally reports whether the returned transfer was an idempotent
+// replay of an earlier accepted request rather than a newly created one.
+func (s *LedgerStore) CreateTransferIdempotent(accountID string, amount float64, direction, description, reference string) (*ACHTransfer, bool, error) {
 	if amount <= 0 {
-		return nil, ErrInvalidAmount
+		return nil, false, ErrInvalidAmount
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if reference != "" {
+		if existing := s.findByReferenceLocked(reference); existing != nil {
+			cp := *existing
+			return &cp, true, nil
+		}
+	}
+
 	acc, exists := s.accounts[accountID]
 	if !exists {
-		return nil, ErrAccountNotFound
+		return nil, false, ErrAccountNotFound
 	}
 
 	custody, cExists := s.accounts[s.custodyAccountID]
 	if !cExists {
-		return nil, ErrCustodyNotFound
+		return nil, false, ErrCustodyNotFound
 	}
 
 	now := time.Now().UTC()
@@ -173,6 +196,8 @@ func (s *LedgerStore) CreateTransfer(accountID string, amount float64, direction
 	if direction == "debit" {
 		// Pulling funds from customer bank into OCI
 		if acc.AvailableBalance < amount {
+			// Failed (rejected) transfers do not consume the reference: a
+			// later retry with the same reference may still settle.
 			failedTransfer := &ACHTransfer{
 				TransferID:       transferID,
 				AccountID:        accountID,
@@ -186,7 +211,7 @@ func (s *LedgerStore) CreateTransfer(accountID string, amount float64, direction
 				CustodyAccountID: custody.AccountID,
 			}
 			s.transfers[transferID] = failedTransfer
-			return failedTransfer, ErrInsufficientFunds
+			return failedTransfer, false, ErrInsufficientFunds
 		}
 
 		// Hold funds from available balance immediately
@@ -201,13 +226,25 @@ func (s *LedgerStore) CreateTransfer(accountID string, amount float64, direction
 		Type:             "ach",
 		Status:           TransferStatusPending,
 		Description:      description,
+		Reference:        reference,
 		CreatedAt:        now,
 		CustodyAccountID: custody.AccountID,
 	}
 	s.transfers[transferID] = transfer
 
 	cp := *transfer
-	return &cp, nil
+	return &cp, false, nil
+}
+
+// findByReferenceLocked returns the first accepted (non-failed) transfer that
+// was created with the given reference. Callers must hold s.mu.
+func (s *LedgerStore) findByReferenceLocked(reference string) *ACHTransfer {
+	for _, t := range s.transfers {
+		if t.Reference == reference && t.Status != TransferStatusFailed {
+			return t
+		}
+	}
+	return nil
 }
 
 // GetTransfer retrieves a transfer by its unique ID.

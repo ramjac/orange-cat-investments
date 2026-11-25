@@ -160,7 +160,7 @@ func (h *Handler) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"accounts":   accounts,
+		"accounts":    accounts,
 		"total_count": len(accounts),
 	})
 }
@@ -198,8 +198,8 @@ func (h *Handler) handleGetBalances(w http.ResponseWriter, r *http.Request) {
 		AccountID string `json:"account_id"`
 		Name      string `json:"name"`
 		Balances  struct {
-			Available        float64 `json:"available"`
-			Current          float64 `json:"current"`
+			Available       float64 `json:"available"`
+			Current         float64 `json:"current"`
 			IsoCurrencyCode string  `json:"iso_currency_code"`
 		} `json:"balances"`
 		Mask string `json:"mask"`
@@ -291,6 +291,7 @@ func (h *Handler) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		Amount      ledger.FlexibleFloat64 `json:"amount"`
 		Direction   string                 `json:"direction"` // debit or credit
 		Description string                 `json:"description"`
+		Reference   string                 `json:"reference"` // caller idempotency reference
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -305,7 +306,7 @@ func (h *Handler) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		req.Description = "OCI Investment Capital ACH"
 	}
 
-	transfer, err := h.store.CreateTransfer(req.AccountID, req.Amount.Float64(), req.Direction, req.Description)
+	transfer, replayed, err := h.store.CreateTransferIdempotent(req.AccountID, req.Amount.Float64(), req.Direction, req.Description, req.Reference)
 	if err != nil {
 		if err == ledger.ErrInsufficientFunds {
 			w.WriteHeader(http.StatusBadRequest)
@@ -319,6 +320,17 @@ func (h *Handler) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Idempotent replay: the reference already mapped to an accepted
+	// transfer, so return it with 200 and a marker instead of 201.
+	if replayed {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"transfer":   transfer,
+			"idempotent": true,
+		})
 		return
 	}
 

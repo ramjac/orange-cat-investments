@@ -8,9 +8,10 @@ import (
 )
 
 const (
-	MetadataActorIDKey   = "x-oci-actor-id"
-	MetadataActorRoleKey = "x-oci-actor-role"
-	MetadataActorDeptKey = "x-oci-actor-dept"
+	MetadataActorIDKey    = "x-oci-actor-id"
+	MetadataActorEmailKey = "x-oci-actor-email"
+	MetadataActorRoleKey  = "x-oci-actor-role"
+	MetadataActorDeptKey  = "x-oci-actor-dept"
 )
 
 // ActorContext represents the authenticated caller propagated across BFF -> BLL gRPC metadata.
@@ -18,6 +19,10 @@ type ActorContext struct {
 	ActorID    string
 	Role       string
 	Department string
+	// Email is the authenticated identity's email address. Downstream
+	// authorization layers correlate it to canonical domain identities
+	// (e.g. workforce employee IDs) for owner-based policy rules.
+	Email string
 }
 
 // WithOutgoingActor attaches authenticated actor identity metadata to an outgoing gRPC context.
@@ -31,6 +36,9 @@ func WithOutgoingActor(ctx context.Context, actor ActorContext) context.Context 
 	}
 	if dept := strings.TrimSpace(actor.Department); dept != "" {
 		pairs = append(pairs, MetadataActorDeptKey, dept)
+	}
+	if email := strings.TrimSpace(actor.Email); email != "" {
+		pairs = append(pairs, MetadataActorEmailKey, email)
 	}
 	if len(pairs) == 0 {
 		return ctx
@@ -56,6 +64,9 @@ func WithIncomingActor(ctx context.Context, actor ActorContext) context.Context 
 	if dept := strings.TrimSpace(actor.Department); dept != "" {
 		md.Set(MetadataActorDeptKey, dept)
 	}
+	if email := strings.TrimSpace(actor.Email); email != "" {
+		md.Set(MetadataActorEmailKey, email)
+	}
 	return metadata.NewIncomingContext(ctx, md)
 }
 
@@ -78,6 +89,9 @@ func ActorFromIncomingContext(ctx context.Context) (ActorContext, bool) {
 	}
 	if vals := md.Get(MetadataActorDeptKey); len(vals) > 0 {
 		actor.Department = strings.TrimSpace(vals[0])
+	}
+	if vals := md.Get(MetadataActorEmailKey); len(vals) > 0 {
+		actor.Email = strings.TrimSpace(vals[0])
 	}
 	if actor.ActorID == "" && actor.Role == "" {
 		return ActorContext{}, false

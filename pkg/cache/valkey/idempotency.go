@@ -62,7 +62,12 @@ func NewIdempotencyStore(client *redis.Client, logger *slog.Logger) *Idempotency
 	}
 }
 
-// NewIdempotencyStoreWithAddr connects to Valkey at addr, falling back to in-memory when unreachable.
+// NewIdempotencyStoreWithAddr connects to Valkey at addr. An empty addr
+// selects local (in-memory) mode for development and tests. When an address
+// is configured the store stays in shared mode even if the initial ping
+// fails: the redis client reconnects lazily and Acquire fails closed until
+// Valkey is reachable, so financial reservations can never silently degrade
+// to process-local state.
 func NewIdempotencyStoreWithAddr(addr, password string, db int, logger *slog.Logger) *IdempotencyStore {
 	if logger == nil {
 		logger = slog.Default()
@@ -78,9 +83,7 @@ func NewIdempotencyStoreWithAddr(addr, password string, db int, logger *slog.Log
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
-		logger.Warn("failed to ping Valkey for idempotency store at "+addr+", falling back to in-memory", "error", err)
-		_ = client.Close()
-		return NewIdempotencyStore(nil, logger)
+		logger.Warn("failed to ping Valkey for idempotency store at "+addr+", store will fail closed until reachable", "error", err)
 	}
 	return NewIdempotencyStore(client, logger)
 }
@@ -114,6 +117,13 @@ func (s *IdempotencyStore) Acquire(ctx context.Context, redisKey string) (bool, 
 					if err2 == nil && ok2 {
 						return true, nil, nil
 					}
+					if err2 != nil {
+						// Fail closed: with a shared store configured we must
+						// never fall back to process-local reservations, which
+						// would let two instances execute the same key.
+						s.logger.Error("valkey idempotency retry SetNX failed; failing closed", "error", err2)
+						return false, nil, err2
+					}
 				}
 				return false, &inFlight, nil
 			}
@@ -123,7 +133,11 @@ func (s *IdempotencyStore) Acquire(ctx context.Context, redisKey string) (bool, 
 			}
 			return false, &existing, nil
 		}
-		s.logger.Warn("valkey idempotency SetNX failed, falling back to in-memory store", "error", err)
+		// Fail closed: a shared reservation that cannot be obtained must not
+		// silently degrade to in-memory state (which is not shared across
+		// instances and would allow the same financial key to execute twice).
+		s.logger.Error("valkey idempotency SetNX failed; failing closed", "error", err)
+		return false, nil, err
 	}
 
 	s.mu.Lock()
@@ -154,11 +168,22 @@ func (s *IdempotencyStore) Complete(ctx context.Context, redisKey string, status
 		if err != nil {
 			return err
 		}
-		if err := s.client.Set(ctx, redisKey, raw, s.ttl).Err(); err == nil {
-			return nil
-		} else {
-			s.logger.Warn("valkey idempotency Complete failed, storing in memory", "error", err)
+		setErr := s.client.Set(ctx, redisKey, raw, s.ttl).Err()
+		// Keep a local copy for diagnostics, but report the shared-store
+		// failure: a completion that only this instance can replay is not a
+		// shared success, so the caller must not treat the key as durably
+		// recorded (it may release the reservation for a clean retry).
+		s.mu.Lock()
+		s.memRecords[redisKey] = memIdempotencyEntry{
+			rec:       rec,
+			expiresAt: time.Now().Add(s.ttl),
 		}
+		s.mu.Unlock()
+		if setErr != nil {
+			s.logger.Error("valkey idempotency Complete failed; shared replay state not recorded", "error", setErr)
+			return setErr
+		}
+		return nil
 	}
 
 	s.mu.Lock()
@@ -235,8 +260,13 @@ func IdempotencyMiddleware(store *IdempotencyStore, customerIDFunc func(r *http.
 			redisKey := IdempotencyKey(customerID, parsedUUID.String())
 			acquired, existing, err := store.Acquire(r.Context(), redisKey)
 			if err != nil {
-				store.logger.Warn("idempotency acquire error; failing open", "error", err)
-				next.ServeHTTP(w, r)
+				// Fail closed: executing a state-changing financial request
+				// without a shared reservation could run the same key twice
+				// across instances.
+				store.logger.Error("idempotency acquire error; failing closed", "error", err)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"error":"idempotency service unavailable; retry with the same Idempotency-Key"}`))
 				return
 			}
 
@@ -283,7 +313,15 @@ func IdempotencyMiddleware(store *IdempotencyStore, customerIDFunc func(r *http.
 				return
 			}
 
-			_ = store.Complete(r.Context(), redisKey, capture.statusCode, capture.Header().Get("Content-Type"), capture.body.Bytes())
+			if completeErr := store.Complete(r.Context(), redisKey, capture.statusCode, capture.Header().Get("Content-Type"), capture.body.Bytes()); completeErr != nil {
+				// The shared replay state was not recorded. Release the
+				// reservation so the client's retry re-reserves cleanly
+				// instead of being pinned to a 409 conflict for the TTL.
+				store.logger.Error("idempotency completion failed; releasing reservation for retry", "error", completeErr)
+				store.Release(r.Context(), redisKey)
+				completed = true
+				return
+			}
 			completed = true
 		})
 	}

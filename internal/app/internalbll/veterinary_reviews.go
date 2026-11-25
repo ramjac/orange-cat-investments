@@ -90,12 +90,19 @@ func (s *Server) UpdateLeaveStatus(ctx context.Context, in *workforcev1.UpdateLe
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	ownerEmpID := ""
-	if lrResp, lrErr := s.wfClient.GetLeaveRequest(ctx, &workforcev1.GetLeaveRequestRequest{LeaveID: in.LeaveID}); lrErr == nil && lrResp != nil && lrResp.LeaveRequest != nil {
-		ownerEmpID = lrResp.LeaveRequest.EmployeeID
+	// Owner-dependent authorization: the self-approval restriction depends on
+	// the leave owner's canonical ID. If ownership cannot be established
+	// (lookup failure or missing owner), fail closed instead of evaluating
+	// with an empty owner, which would silently disable that restriction.
+	lrResp, lrErr := s.wfClient.GetLeaveRequest(ctx, &workforcev1.GetLeaveRequestRequest{LeaveID: in.LeaveID})
+	if lrErr != nil {
+		return nil, status.Errorf(codes.Unavailable, "unable to verify leave request ownership: %v", lrErr)
+	}
+	if lrResp == nil || lrResp.LeaveRequest == nil || lrResp.LeaveRequest.EmployeeID == "" {
+		return nil, status.Error(codes.Unavailable, "leave request owner unavailable; refusing to authorize status change")
 	}
 	if err := s.authorizeWorkforce(ctx, "approve_leave", policy.WorkforceResource{
-		EmployeeID: ownerEmpID,
+		EmployeeID: lrResp.LeaveRequest.EmployeeID,
 		ResourceID: in.LeaveID,
 	}); err != nil {
 		return nil, err
@@ -113,6 +120,9 @@ func (s *Server) UpdateLeaveStatus(ctx context.Context, in *workforcev1.UpdateLe
 func (s *Server) CreateReviewCycle(ctx context.Context, in *workforcev1.CreateReviewCycleRequest) (*workforcev1.CreateReviewCycleResponse, error) {
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
+	}
+	if protected := protectedSubmissionFields(in.SelfAppraisal, in.HasSelfScore, in.PeerFeedback, in.HasPeerScore, in.PeerReviewerID, in.ManagerAssessment, in.HasManagerScore, in.KPIRatings, in.WellnessAuditScore, in.HasWellnessScore, in.HabitatRecommendations, in.ClinicalAuditorID, in.VHRRecordID); protected {
+		return nil, status.Error(codes.InvalidArgument, "review submission fields are managed exclusively by their dedicated submission RPCs (SubmitSelfAppraisal, SubmitPeerFeedback, SubmitManagerAssessment, SubmitVeterinaryAudit)")
 	}
 	if err := s.authorizeWorkforce(ctx, "manage_review_cycle", policy.WorkforceResource{
 		EmployeeID: in.EmployeeID,
@@ -140,6 +150,13 @@ func (s *Server) UpdateReviewCycle(ctx context.Context, in *workforcev1.UpdateRe
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
+	// The general review-cycle RPC must not carry submission payloads:
+	// self-appraisals, peer feedback, manager assessments, and veterinary
+	// audits are written only through their dedicated RPCs so the
+	// field-specific policies (including self-approval restrictions) apply.
+	if protected := protectedSubmissionFields(in.SelfAppraisal, in.HasSelfScore, in.PeerFeedback, in.HasPeerScore, in.PeerReviewerID, in.ManagerAssessment, in.HasManagerScore, in.KPIRatings, in.WellnessAuditScore, in.HasWellnessScore, in.HabitatRecommendations, in.ClinicalAuditorID, in.VHRRecordID); protected {
+		return nil, status.Error(codes.InvalidArgument, "review submission fields are managed exclusively by their dedicated submission RPCs (SubmitSelfAppraisal, SubmitPeerFeedback, SubmitManagerAssessment, SubmitVeterinaryAudit)")
+	}
 	if err := s.authorizeWorkforce(ctx, "manage_review_cycle", policy.WorkforceResource{
 		ResourceID: in.ReviewID,
 	}); err != nil {
@@ -166,12 +183,20 @@ func (s *Server) SubmitManagerAssessment(ctx context.Context, in *workforcev1.Su
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
 	}
-	ownerEmpID := ""
-	if rcResp, rcErr := s.wfClient.GetReviewCycle(ctx, &workforcev1.GetReviewCycleRequest{ReviewID: in.ReviewID}); rcErr == nil && rcResp != nil && rcResp.ReviewCycle != nil {
-		ownerEmpID = rcResp.ReviewCycle.EmployeeID
+	// Owner-dependent authorization: the self-assessment restriction depends
+	// on the reviewed employee's canonical ID. If ownership cannot be
+	// established (lookup failure or missing owner), fail closed instead of
+	// evaluating with an empty owner, which would silently disable the
+	// self-approval restriction.
+	rcResp, rcErr := s.wfClient.GetReviewCycle(ctx, &workforcev1.GetReviewCycleRequest{ReviewID: in.ReviewID})
+	if rcErr != nil {
+		return nil, status.Errorf(codes.Unavailable, "unable to verify review cycle ownership: %v", rcErr)
+	}
+	if rcResp == nil || rcResp.ReviewCycle == nil || rcResp.ReviewCycle.EmployeeID == "" {
+		return nil, status.Error(codes.Unavailable, "review cycle owner unavailable; refusing to authorize manager assessment")
 	}
 	if err := s.authorizeWorkforce(ctx, "submit_manager_assessment", policy.WorkforceResource{
-		EmployeeID: ownerEmpID,
+		EmployeeID: rcResp.ReviewCycle.EmployeeID,
 		ResourceID: in.ReviewID,
 	}); err != nil {
 		return nil, err
@@ -189,4 +214,18 @@ func (s *Server) SubmitVeterinaryAudit(ctx context.Context, in *workforcev1.Subm
 		return nil, err
 	}
 	return s.wfClient.SubmitVeterinaryAudit(ctx, in)
+}
+
+// protectedSubmissionFields reports whether a review-cycle create/update
+// request carries any payload that belongs to the dedicated submission flows
+// (self-appraisal, peer feedback, manager assessment, veterinary audit).
+// Those fields are accepted only by their own RPCs so the field-specific
+// authorization policies cannot be bypassed through the general
+// manage_review_cycle route.
+func protectedSubmissionFields(selfAppraisal string, hasSelfScore bool, peerFeedback string, hasPeerScore bool, peerReviewerID string, managerAssessment string, hasManagerScore bool, kpiRatings string, wellnessAuditScore float64, hasWellnessScore bool, habitatRecommendations string, clinicalAuditorID string, vhrRecordID string) bool {
+	return selfAppraisal != "" || hasSelfScore ||
+		peerFeedback != "" || hasPeerScore || peerReviewerID != "" ||
+		managerAssessment != "" || hasManagerScore || kpiRatings != "" ||
+		wellnessAuditScore != 0 || hasWellnessScore ||
+		habitatRecommendations != "" || clinicalAuditorID != "" || vhrRecordID != ""
 }

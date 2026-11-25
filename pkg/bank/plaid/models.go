@@ -55,6 +55,10 @@ type CreateTransferRequest struct {
 	Amount      float64 `json:"amount"`
 	Direction   string  `json:"direction,omitempty"` // default: debit
 	Description string  `json:"description,omitempty"`
+	// Reference is a caller-generated stable idempotency reference. Banks
+	// must return the existing transfer instead of creating a duplicate when
+	// the same reference is presented again.
+	Reference string `json:"reference,omitempty"`
 }
 
 // DecisionRationale details why an ACH authorization was declined.
