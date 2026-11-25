@@ -95,6 +95,20 @@ func (s *Server) ExecuteBrokerageOrder(ctx context.Context, in *coreinvestv1.Cre
 		(strings.EqualFold(res.Order.Status, "filled") || strings.EqualFold(res.Order.Status, "executed")) {
 		telemetry.RecordBracketOrderFill(ctx)
 	}
+	if res != nil && res.Order != nil {
+		orderType := ""
+		if in != nil {
+			orderType = in.OrderType
+		}
+		s.recordAudit(ctx, "quant.brokerage_order.executed", "brokerage_order", res.Order.OrderID, map[string]any{
+			"portfolio_id": res.Order.PortfolioID,
+			"symbol":       res.Order.Symbol,
+			"side":         res.Order.Side,
+			"quantity":     res.Order.Quantity,
+			"order_type":   orderType,
+			"status":       res.Order.Status,
+		})
+	}
 	return res, nil
 }
 

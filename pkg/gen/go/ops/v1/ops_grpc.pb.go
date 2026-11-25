@@ -72,6 +72,21 @@ func (c *opsServiceClient) SendPushNotification(ctx context.Context, in *SendPus
 func (c *opsServiceClient) ScrubCustomerGDPRData(ctx context.Context, in *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error) {
 	return invokeUnary[ScrubCustomerGDPRDataRequest, ScrubCustomerGDPRDataResponse](ctx, c.cc, "/oci.ops.v1.OpsService/ScrubCustomerGDPRData", in)
 }
+func (c *opsServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return invokeUnary[ClaimOutboxEventsRequest, ClaimOutboxEventsResponse](ctx, c.cc, "/oci.ops.v1.OpsService/ClaimOutboxEvents", in)
+}
+func (c *opsServiceClient) AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return invokeUnary[AckOutboxEventsRequest, AckOutboxEventsResponse](ctx, c.cc, "/oci.ops.v1.OpsService/AckOutboxEvents", in)
+}
+func (c *opsServiceClient) AppendAuditLog(ctx context.Context, in *AppendAuditLogRequest) (*AppendAuditLogResponse, error) {
+	return invokeUnary[AppendAuditLogRequest, AppendAuditLogResponse](ctx, c.cc, "/oci.ops.v1.OpsService/AppendAuditLog", in)
+}
+func (c *opsServiceClient) VerifyAuditChain(ctx context.Context, in *VerifyAuditChainRequest) (*VerifyAuditChainResponse, error) {
+	return invokeUnary[VerifyAuditChainRequest, VerifyAuditChainResponse](ctx, c.cc, "/oci.ops.v1.OpsService/VerifyAuditChain", in)
+}
+func (c *opsServiceClient) ListAuditLogs(ctx context.Context, in *ListAuditLogsRequest) (*ListAuditLogsResponse, error) {
+	return invokeUnary[ListAuditLogsRequest, ListAuditLogsResponse](ctx, c.cc, "/oci.ops.v1.OpsService/ListAuditLogs", in)
+}
 
 type UnimplementedOpsServiceServer struct{}
 
@@ -119,6 +134,21 @@ func (UnimplementedOpsServiceServer) SendPushNotification(context.Context, *Send
 }
 func (UnimplementedOpsServiceServer) ScrubCustomerGDPRData(context.Context, *ScrubCustomerGDPRDataRequest) (*ScrubCustomerGDPRDataResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ScrubCustomerGDPRData not implemented")
+}
+func (UnimplementedOpsServiceServer) ClaimOutboxEvents(context.Context, *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedOpsServiceServer) AckOutboxEvents(context.Context, *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
+}
+func (UnimplementedOpsServiceServer) AppendAuditLog(context.Context, *AppendAuditLogRequest) (*AppendAuditLogResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendAuditLog not implemented")
+}
+func (UnimplementedOpsServiceServer) VerifyAuditChain(context.Context, *VerifyAuditChainRequest) (*VerifyAuditChainResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyAuditChain not implemented")
+}
+func (UnimplementedOpsServiceServer) ListAuditLogs(context.Context, *ListAuditLogsRequest) (*ListAuditLogsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAuditLogs not implemented")
 }
 
 func RegisterOpsServiceServer(s grpc.ServiceRegistrar, srv OpsServiceServer) {
@@ -195,6 +225,21 @@ var OpsService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "ScrubCustomerGDPRData", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/ScrubCustomerGDPRData", OpsServiceServer.ScrubCustomerGDPRData)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/ClaimOutboxEvents", OpsServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/AckOutboxEvents", OpsServiceServer.AckOutboxEvents)
+		}},
+		{MethodName: "AppendAuditLog", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/AppendAuditLog", OpsServiceServer.AppendAuditLog)
+		}},
+		{MethodName: "VerifyAuditChain", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/VerifyAuditChain", OpsServiceServer.VerifyAuditChain)
+		}},
+		{MethodName: "ListAuditLogs", Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+			return dispatchUnary(srv, ctx, dec, interceptor, "/oci.ops.v1.OpsService/ListAuditLogs", OpsServiceServer.ListAuditLogs)
 		}},
 	},
 	Streams:  []grpc.StreamDesc{},

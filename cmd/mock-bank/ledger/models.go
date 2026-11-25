@@ -38,18 +38,18 @@ func (f FlexibleFloat64) Float64() float64 {
 
 // BankAccount represents an external customer checking or savings account.
 type BankAccount struct {
-	AccountID       string  `json:"account_id"`
-	InstitutionID   string  `json:"institution_id"`
-	InstitutionName string  `json:"institution_name"`
-	RoutingNumber   string  `json:"routing_number"`
-	AccountNumber   string  `json:"account_number"` // Masked: ****4821
-	AccountType     string  `json:"account_type"`   // checking, savings
-	AccountSubtype  string  `json:"account_subtype"` // e.g. checking, savings
-	CurrentBalance  float64 `json:"current_balance"`
+	AccountID        string  `json:"account_id"`
+	InstitutionID    string  `json:"institution_id"`
+	InstitutionName  string  `json:"institution_name"`
+	RoutingNumber    string  `json:"routing_number"`
+	AccountNumber    string  `json:"account_number"`  // Masked: ****4821
+	AccountType      string  `json:"account_type"`    // checking, savings
+	AccountSubtype   string  `json:"account_subtype"` // e.g. checking, savings
+	CurrentBalance   float64 `json:"current_balance"`
 	AvailableBalance float64 `json:"available_balance"`
-	Currency        string  `json:"currency"`       // USD
-	OwnerID         string  `json:"owner_id"`        // Persona customer_id (e.g. cust-longterm-arthur)
-	Name            string  `json:"name"`            // Friendly name: "Chase Premier Checking"
+	Currency         string  `json:"currency"` // USD
+	OwnerID          string  `json:"owner_id"` // Persona customer_id (e.g. cust-longterm-arthur)
+	Name             string  `json:"name"`     // Friendly name: "Chase Premier Checking"
 }
 
 // ACHTransferStatus defines the clearing status of an ACH transfer.
@@ -66,17 +66,18 @@ const (
 
 // ACHTransfer represents an automated clearing house transaction between a bank account and OCI custody.
 type ACHTransfer struct {
-	TransferID        string            `json:"transfer_id"`
-	AccountID         string            `json:"account_id"`
-	Amount            float64           `json:"amount"`
-	Direction         string            `json:"direction"`          // debit (pull funds to OCI), credit (push funds to bank)
-	Type              string            `json:"type"`               // ach
-	Status            ACHTransferStatus `json:"status"`             // pending, posted, settled, returned, failed
-	ReturnCode        string            `json:"return_code,omitempty"` // NACHA return code, e.g. R01 (Insufficient Funds)
-	Description       string            `json:"description"`
-	CreatedAt         time.Time         `json:"created_at"`
-	SettledAt         *time.Time        `json:"settled_at,omitempty"`
-	CustodyAccountID  string            `json:"custody_account_id"`
+	TransferID       string            `json:"transfer_id"`
+	AccountID        string            `json:"account_id"`
+	Amount           float64           `json:"amount"`
+	Direction        string            `json:"direction"`             // debit (pull funds to OCI), credit (push funds to bank)
+	Type             string            `json:"type"`                  // ach
+	Status           ACHTransferStatus `json:"status"`                // pending, posted, settled, returned, failed
+	ReturnCode       string            `json:"return_code,omitempty"` // NACHA return code, e.g. R01 (Insufficient Funds)
+	Description      string            `json:"description"`
+	Reference        string            `json:"reference,omitempty"` // caller idempotency reference
+	CreatedAt        time.Time         `json:"created_at"`
+	SettledAt        *time.Time        `json:"settled_at,omitempty"`
+	CustodyAccountID string            `json:"custody_account_id"`
 }
 
 // LinkToken represents a Plaid-style short-lived token to initialize account linking.

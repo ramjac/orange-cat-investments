@@ -52,6 +52,9 @@ service CustomerBLLService {
   rpc GetCustomerTicket(GetCustomerTicketRequest) returns (GetCustomerTicketResponse);
   rpc ListCustomerTicketComments(ListCustomerTicketCommentsRequest) returns (ListCustomerTicketCommentsResponse);
   rpc AddCustomerTicketComment(AddCustomerTicketCommentRequest) returns (AddCustomerTicketCommentResponse);
+
+  rpc ClaimOutboxEvents(oci.core_invest.v1.ClaimOutboxEventsRequest) returns (oci.core_invest.v1.ClaimOutboxEventsResponse);
+  rpc AckOutboxEvents(oci.core_invest.v1.AckOutboxEventsRequest) returns (oci.core_invest.v1.AckOutboxEventsResponse);
 }
 
 message ValuationPoint {

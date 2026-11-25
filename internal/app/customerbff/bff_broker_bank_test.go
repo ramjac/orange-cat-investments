@@ -92,6 +92,7 @@ func TestCustomerBFF_BankAccountsAndDeposits(t *testing.T) {
 	depReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/deposits", depBody)
 	depReq.Header.Set("Content-Type", "application/json")
 	depReq.Header.Set("X-CSRF-Token", csrfVal)
+	depReq.Header.Set("Idempotency-Key", "33333333-3333-4333-8333-333333333333")
 	depReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
 	depReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
 	depRec := httptest.NewRecorder()
@@ -106,6 +107,7 @@ func TestCustomerBFF_BankAccountsAndDeposits(t *testing.T) {
 	badReq := httptest.NewRequest(http.MethodPost, "/api/v1/customer/deposits", badBody)
 	badReq.Header.Set("Content-Type", "application/json")
 	badReq.Header.Set("X-CSRF-Token", csrfVal)
+	badReq.Header.Set("Idempotency-Key", "44444444-4444-4444-8444-444444444444")
 	badReq.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
 	badReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
 	badRec := httptest.NewRecorder()
@@ -179,6 +181,7 @@ func TestCustomerBFF_OrderAndTickerFaultStatusMapping(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/customer/trading/orders", body)
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-CSRF-Token", csrfVal)
+			req.Header.Set("Idempotency-Key", "55555555-5555-4555-8555-555555555555")
 			req.AddCookie(&http.Cookie{Name: "customer_session", Value: "sess-arthur-token"})
 			req.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfVal})
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/orange-cat-investments/oci/pkg/cosignverify"
 )
 
@@ -1476,6 +1477,36 @@ func (r *Registry) createFrankPersona() *Persona {
 					}, nil
 				},
 			},
+			{
+				Name:        "frank_verify_audit_chain",
+				Description: "Verifies cryptographic SHA-256 hash-chain integrity across ops.audit_logs",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/ops/audit-logs/verify"
+					resp, respBytes, err := client.Do(ctx, http.MethodGet, endpoint, nil)
+					if err != nil {
+						return nil, fmt.Errorf("audit chain verification request failed: %w", err)
+					}
+					var verifyResp struct {
+						Valid           bool   `json:"valid"`
+						VerifiedRecords int64  `json:"verified_records"`
+						LatestHash      string `json:"latest_hash"`
+						BrokenAtID      int64  `json:"broken_at_id"`
+						Reason          string `json:"reason"`
+					}
+					_ = json.Unmarshal(respBytes, &verifyResp)
+					ok := resp.StatusCode == http.StatusOK && verifyResp.Valid
+					return &ActionResult{
+						PersonaID:   "emp-human-frank",
+						PersonaName: "Frank Operations",
+						ActionName:  "frank_verify_audit_chain",
+						Endpoint:    endpoint,
+						Success:     ok,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("Audit chain verification: valid=%v verified_records=%d latest_hash=%s broken_at_id=%d", verifyResp.Valid, verifyResp.VerifiedRecords, verifyResp.LatestHash, verifyResp.BrokenAtID),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
 		},
 	}
 }
@@ -1910,6 +1941,44 @@ func (r *Registry) createChloePersona() *Persona {
 				},
 			},
 			{
+				Name:        "chloe_idempotent_order_replay",
+				Description: "Verifies Valkey Idempotency-Key deduplication replays cached order response without duplicate execution",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/customer/trading/orders"
+					idemKey := uuid.NewString()
+					headers := map[string]string{"Idempotency-Key": idemKey}
+					payload := map[string]any{
+						"portfolio_id": "018f3a9a-2222-7000-8000-000000000002",
+						"symbol":       "NVDA",
+						"side":         "buy",
+						"quantity":     2.0,
+						"price":        125.75,
+					}
+					resp1, bytes1, err := client.DoCustomerWithHeaders(ctx, "POST", endpoint, payload, headers)
+					if err != nil {
+						return nil, err
+					}
+					resp2, bytes2, err := client.DoCustomerWithHeaders(ctx, "POST", endpoint, payload, headers)
+					if err != nil {
+						return nil, err
+					}
+					replayed := resp2.Header.Get("X-Idempotent-Replayed") == "true"
+					sameBody := string(bytes1) == string(bytes2)
+					okStatus := resp1.StatusCode == resp2.StatusCode &&
+						(resp1.StatusCode == http.StatusOK || resp1.StatusCode == http.StatusCreated || resp1.StatusCode == http.StatusUnprocessableEntity || resp1.StatusCode == http.StatusBadRequest)
+					return &ActionResult{
+						PersonaID:   "cust-active-chloe",
+						PersonaName: "Chloe Spark",
+						ActionName:  "chloe_idempotent_order_replay",
+						Endpoint:    endpoint,
+						Success:     okStatus && replayed && sameBody,
+						StatusCode:  resp2.StatusCode,
+						Details:     fmt.Sprintf("Idempotent replay (key=%s): status1=%d status2=%d replayed=%v sameBody=%v", idemKey, resp1.StatusCode, resp2.StatusCode, replayed, sameBody),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
 				Name:        "chloe_take_profit_sell_order",
 				Description: "Executes tactical take-profit sell order as cat activity returns to baseline",
 				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
@@ -2235,6 +2304,30 @@ func (r *Registry) createRickPersona() *Persona {
 						Success:     resp.StatusCode == http.StatusOK,
 						StatusCode:  resp.StatusCode,
 						Details:     fmt.Sprintf("Self onboarding saga webhook response: %s", string(bytes)),
+						Timestamp:   time.Now().UTC(),
+					}, nil
+				},
+			},
+			{
+				Name:        "rick_unauthorized_medical_hold_denied",
+				Description: "Negative OPA Policy-as-Code authorization check: staff persona attempting to toggle feline emergency medical hold must receive HTTP 403 Forbidden",
+				Execute: func(ctx context.Context, client *Client) (*ActionResult, error) {
+					endpoint := "/api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold"
+					payload := map[string]any{
+						"emergency_medical_hold": true,
+					}
+					resp, bytes, err := client.Do(ctx, "POST", endpoint, payload)
+					if err != nil {
+						return nil, err
+					}
+					return &ActionResult{
+						PersonaID:   "emp-human-rick",
+						PersonaName: "Rick Newhire",
+						ActionName:  "rick_unauthorized_medical_hold_denied",
+						Endpoint:    endpoint,
+						Success:     resp.StatusCode == http.StatusForbidden,
+						StatusCode:  resp.StatusCode,
+						Details:     fmt.Sprintf("OPA negative authz check (expected 403): status=%d body=%s", resp.StatusCode, string(bytes)),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

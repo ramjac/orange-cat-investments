@@ -14,11 +14,16 @@ import (
 
 type OpsGRPCServer struct {
 	opsv1.UnimplementedOpsServiceServer
-	svc ops_svc.Service
+	svc  ops_svc.Service
+	repo ops.Repository
 }
 
 func NewOpsGRPCServer(svc ops_svc.Service) *OpsGRPCServer {
 	return &OpsGRPCServer{svc: svc}
+}
+
+func NewOpsGRPCServerWithRepo(svc ops_svc.Service, repo ops.Repository) *OpsGRPCServer {
+	return &OpsGRPCServer{svc: svc, repo: repo}
 }
 
 func strVal(p *string) string {

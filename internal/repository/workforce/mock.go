@@ -6,6 +6,9 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type mockRepository struct {
@@ -18,6 +21,7 @@ type mockRepository struct {
 	vhrRecords       map[string]*VHRRecord
 	incidents        map[string]*WorkplaceIncident
 	executiveReports map[string]*ExecutiveReport
+	outboxStore      *outbox.MemoryStore
 }
 
 // NewMockRepository returns an in-memory mock implementation of workforce.Repository pre-seeded with test personas.
@@ -31,6 +35,7 @@ func NewMockRepository() Repository {
 		vhrRecords:       make(map[string]*VHRRecord),
 		incidents:        make(map[string]*WorkplaceIncident),
 		executiveReports: make(map[string]*ExecutiveReport),
+		outboxStore:      outbox.NewMemoryStore(outbox.SchemaWorkforce),
 	}
 	repo.seedDefaults()
 	return repo
@@ -80,6 +85,23 @@ func (r *mockRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Em
 	}
 
 	r.employees[emp.EmployeeID] = emp
+	lastName := ""
+	if emp.LastName != nil {
+		lastName = *emp.LastName
+	}
+	email := ""
+	if emp.Email != nil {
+		email = *emp.Email
+	}
+	r.enqueueOutbox(ctx, "events.workforce.employee_onboarded.v1", emp.EmployeeID, envelope.EmployeeOnboardedPayload{
+		EmployeeID:   emp.EmployeeID,
+		EmployeeType: emp.EmployeeType,
+		FirstName:    emp.FirstName,
+		LastName:     lastName,
+		Email:        email,
+		RoleTitle:    emp.RoleTitle,
+		Department:   emp.Department,
+	})
 	return emp, nil
 }
 
@@ -193,11 +215,19 @@ func (r *mockRepository) SetEmergencyMedicalHold(ctx context.Context, felineID s
 			UpdatedAt:            now,
 		}
 		r.careSchedules[felineID] = cs
+		r.enqueueOutbox(ctx, envelope.TopicCareScheduleUpdated, cs.FelineID, map[string]any{
+			"feline_id":              cs.FelineID,
+			"emergency_medical_hold": cs.EmergencyMedicalHold,
+		})
 		return cs, nil
 	}
 
 	cs.EmergencyMedicalHold = hold
 	cs.UpdatedAt = time.Now().UTC()
+	r.enqueueOutbox(ctx, envelope.TopicCareScheduleUpdated, cs.FelineID, map[string]any{
+		"feline_id":              cs.FelineID,
+		"emergency_medical_hold": cs.EmergencyMedicalHold,
+	})
 	return cs, nil
 }
 
@@ -266,4 +296,31 @@ func (r *mockRepository) UpdateLeaveRequestStatus(ctx context.Context, id, statu
 	req.Status = status
 	req.UpdatedAt = time.Now().UTC()
 	return req, nil
+}
+
+func (r *mockRepository) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	if r.outboxStore == nil {
+		return []*outbox.Record{}, nil
+	}
+	return r.outboxStore.ClaimPending(limit, lease), nil
+}
+
+func (r *mockRepository) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	if r.outboxStore == nil {
+		return 0, nil
+	}
+	r.outboxStore.MarkPublished(publishedIDs)
+	for _, f := range failures {
+		r.outboxStore.MarkFailed(f.ID, f.Error, 0)
+	}
+	return len(publishedIDs) + len(failures), nil
+}
+
+func (r *mockRepository) enqueueOutbox(ctx context.Context, topic, aggregateID string, payload any) {
+	if r.outboxStore == nil {
+		return
+	}
+	if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", topic, aggregateID, payload); err == nil {
+		r.outboxStore.Enqueue(evID, topic, aggregateID, raw)
+	}
 }

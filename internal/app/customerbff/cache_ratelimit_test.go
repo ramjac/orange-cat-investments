@@ -74,6 +74,7 @@ func TestCustomerBFF_PortfolioCachingAndConditionalETag(t *testing.T) {
 	orderReq.AddCookie(&http.Cookie{Name: "customer_session", Value: sess.SessionID})
 	orderReq.AddCookie(&http.Cookie{Name: "csrf_token", Value: csrfToken})
 	orderReq.Header.Set("X-CSRF-Token", csrfToken)
+	orderReq.Header.Set("Idempotency-Key", "88888888-8888-4888-8888-888888888888")
 	orderReq.Header.Set("Content-Type", "application/json")
 	orderRec := httptest.NewRecorder()
 	mux.ServeHTTP(orderRec, orderReq)

@@ -27,10 +27,10 @@ func TestAllDefaultPersonasRegistrationAndStructure(t *testing.T) {
 		"emp-human-carol":      2,
 		"emp-human-david":      3,
 		"emp-human-elena":      4,
-		"emp-human-frank":      6,
+		"emp-human-frank":      7,
 		"cust-longterm-arthur": 11,
-		"cust-active-chloe":    8,
-		"emp-human-rick":       5,
+		"cust-active-chloe":    9,
+		"emp-human-rick":       6,
 		"emp-human-elise":      10,
 		"emp-human-marcus":     4,
 	}

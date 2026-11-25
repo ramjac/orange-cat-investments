@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type ITTicket struct {
@@ -52,6 +54,11 @@ type Repository interface {
 	CreateTicketComment(ctx context.Context, comment *TicketComment) (*TicketComment, error)
 	ListTicketComments(ctx context.Context, ticketID string, includeInternal bool) ([]*TicketComment, error)
 	ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error)
+	ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error)
+	AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error)
+	AppendAuditLog(ctx context.Context, entry *AuditLog) (*AuditLog, error)
+	VerifyAuditChain(ctx context.Context) (*AuditChainVerification, error)
+	ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*AuditLog, error)
 }
 
 type DBExecutor interface {
@@ -270,6 +277,35 @@ func (r *pgxRepository) CreateITTicket(ctx context.Context, ticket *ITTicket) (*
 		} else {
 			ticket.ForgejoRepo = "oci-internal/helpdesk"
 		}
+	}
+
+	if beginner, ok := r.db.(txBeginner); ok && ticket.IsUrgent {
+		tx, err := beginner.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin urgent ticket tx: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		row := tx.QueryRow(ctx, createITTicketSQL,
+			ticket.ForgejoIssueID, ticket.ForgejoRepo, ticket.Title, ticket.Body,
+			ticket.Severity, ticket.Category, ticket.Source, ticket.CustomerID,
+			ticket.AssigneeUsername, ticket.AuthorUsername, ticket.ResolutionNotes, ticket.IsUrgent,
+		)
+		t, err := scanITTicket(row)
+		if err != nil {
+			return nil, err
+		}
+		evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicIncidentAlerted, t.TicketID, t)
+		if err != nil {
+			return nil, err
+		}
+		if err := outbox.InsertTx(ctx, tx, outbox.SchemaOps, evID, envelope.TopicIncidentAlerted, t.TicketID, envBytes); err != nil {
+			return nil, fmt.Errorf("insert ops ticket outbox event: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit urgent ticket tx: %w", err)
+		}
+		return t, nil
 	}
 
 	row := r.db.QueryRow(ctx, createITTicketSQL,

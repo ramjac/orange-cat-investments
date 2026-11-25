@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/orange-cat-investments/oci/internal/saga"
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
+	"github.com/orange-cat-investments/oci/pkg/auditintent"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -74,6 +77,12 @@ type Server struct {
 	publisher       EventPublisher
 	logger          *slog.Logger
 	meiliClient     *meilisearch.Client
+	policyEngine    *policy.Engine
+
+	// auditRecorder durably spools audit intents whose synchronous ledger
+	// append failed; auditRelay re-delivers them until ops-api accepts them.
+	auditRecorder *auditintent.Recorder
+	auditRelay    *auditintent.Relay
 }
 
 // Config configures optional COTS and saga dependencies for the Internal BLL server.
@@ -85,6 +94,10 @@ type Config struct {
 	WorkforceSvc     wfService.Service
 	CoreInvestClient coreinvestv1.CoreInvestServiceClient
 	SearchClient     *meilisearch.Client
+	PolicyEngine     *policy.Engine
+	// AuditSpoolDir overrides the durable audit-intent spool location
+	// (default: $OCI_AUDIT_INTENT_DIR, else ~/.oci/audit-intents/internal-bll).
+	AuditSpoolDir string
 }
 
 // NewServer creates a new Internal BLL gRPC server backed by Domain API gRPC clients.
@@ -128,7 +141,27 @@ func NewServer(
 		meiliClient = meilisearch.NewClient(meiliURL, meiliKey)
 	}
 
-	return &Server{
+	policyEngine := cfg.PolicyEngine
+	if policyEngine == nil {
+		if eng, err := policy.NewEngine(context.Background()); err == nil {
+			policyEngine = eng
+		} else {
+			logger.Error("failed to compile embedded OPA policy engine", "error", err)
+		}
+	}
+
+	var auditRecorder *auditintent.Recorder
+	if opsClient != nil {
+		spool, spoolErr := auditintent.NewFileSpool(resolveAuditSpoolDir(cfg.AuditSpoolDir, "internal-bll"), logger)
+		if spoolErr != nil {
+			logger.Error("failed to initialize durable audit-intent spool; audit fallback disabled", "error", spoolErr)
+		} else {
+			auditRecorder = auditintent.NewRecorder(spool, logger)
+			logger.Info("durable audit-intent spool active", "spool_dir", resolveAuditSpoolDir(cfg.AuditSpoolDir, "internal-bll"))
+		}
+	}
+
+	s := &Server{
 		wfClient:        wfClient,
 		facClient:       facClient,
 		opsClient:       opsClient,
@@ -140,6 +173,38 @@ func NewServer(
 		publisher:       publisher,
 		logger:          logger,
 		meiliClient:     meiliClient,
+		policyEngine:    policyEngine,
+		auditRecorder:   auditRecorder,
+	}
+
+	// The relay delivers spooled intents through the server's own ops-api
+	// client so a single wiring point serves both paths.
+	if auditRecorder != nil {
+		s.auditRelay = auditintent.NewRelay(auditRecorder.Spool(), s.deliverAuditIntent, auditintent.RelayConfig{Logger: logger})
+		s.auditRelay.Start()
+	}
+
+	return s
+}
+
+// resolveAuditSpoolDir determines the durable audit-intent spool directory.
+func resolveAuditSpoolDir(override, service string) string {
+	if override != "" {
+		return override
+	}
+	if dir := os.Getenv("OCI_AUDIT_INTENT_DIR"); dir != "" {
+		return dir
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".oci", "audit-intents", service)
+	}
+	return filepath.Join(os.TempDir(), "oci-audit-intents", service)
+}
+
+// Close stops the audit-intent relay and releases the spool.
+func (s *Server) Close() {
+	if s.auditRelay != nil {
+		s.auditRelay.Stop()
 	}
 }
 

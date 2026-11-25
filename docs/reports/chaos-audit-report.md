@@ -7,6 +7,9 @@
 **Alert Dwell:** `75s` per `oci-dev` & `external-sim` mock scenario; `100s` per `oci-internal` COTS scenario  
 **Safety Verification:** Zero restarts or mutations in `oci-core`, `forgejo-runner`, or unsuffixed `external-sim` mocks. Post-run clean simulator pass: **73 / 73** actions succeeded (`0` failures).
 
+> [!NOTE]
+> **Post-Audit Remediation Status:** This historical audit report captures the baseline executed on `2026-11-19`. Every gap identified below (`Gap 1`–`Gap 8`: Promtail Kubernetes CRI pod logging, Prometheus `oci-dev`/availability/error/upstream alerts, 19/19 green Gatus probes, BFF/BLL error sanitization & timeout cascade fixes, `/sim/faults` auth/transport fixes, ACH DLQ/SQLSTATE fixes, and live Nextcloud WebDAV credentials) was remediated in **Phase 7 (`7.25`–`7.29`)** (see [`README.md`](../../README.md) §5.27) and is continuously enforced by [`scripts/verify-ci-contracts.sh`](../../scripts/verify-ci-contracts.sh) (Checks #12–#16).
+
 ---
 
 ## 1. Executive Summary

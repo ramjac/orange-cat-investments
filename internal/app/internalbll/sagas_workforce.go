@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
+	"github.com/orange-cat-investments/oci/pkg/grpcutil"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -172,23 +173,8 @@ func (s *Server) OnboardEmployee(ctx context.Context, in *internalbllv1.OnboardE
 		Message:        "Employee onboarding saga completed successfully",
 	}
 
-	if s.publisher != nil {
-		_ = s.publisher.Publish("events.workforce.employee_onboarded.v1", envelope.NewEventEnvelope(ctx,
-			fmt.Sprintf("evt-onboard-%d", time.Now().UnixNano()),
-			"events.workforce.employee_onboarded.v1",
-			"",
-			envelope.EmployeeOnboardedPayload{
-				EmployeeID:   created.EmployeeID,
-				EmployeeType: empType,
-				FirstName:    in.FirstName,
-				LastName:     in.LastName,
-				Email:        in.Email,
-				RoleTitle:    in.RoleTitle,
-				Department:   in.Department,
-			},
-		))
-	}
-
+	// Employee onboarding event is committed atomically in workforce.outbox_events
+	// by workforce-api and relayed to RabbitMQ by oci-worker (Phase 10 / 7.40).
 	return &internalbllv1.OnboardEmployeeSagaResponse{
 		Employee:   created,
 		SagaResult: sagaRes,
@@ -201,6 +187,11 @@ func (s *Server) OffboardEmployee(ctx context.Context, in *internalbllv1.Offboar
 	}
 	if s.wfClient == nil {
 		return nil, status.Error(codes.Unavailable, "workforce client not configured")
+	}
+	if err := s.authorizeWorkforce(ctx, "offboard_employee", policy.WorkforceResource{
+		EmployeeID: in.EmployeeID,
+	}); err != nil {
+		return nil, err
 	}
 	empResp, err := s.wfClient.GetEmployee(ctx, &workforcev1.GetEmployeeRequest{EmployeeID: in.EmployeeID})
 	if err != nil || empResp.Employee == nil {
@@ -275,6 +266,12 @@ func (s *Server) OffboardEmployee(ctx context.Context, in *internalbllv1.Offboar
 		CareTransition:   careTransition,
 		Message:          fmt.Sprintf("Employee offboarded successfully with status %s", updated.Status),
 	}
+	s.recordAudit(ctx, "workforce.employee.offboarded", "employee", updated.EmployeeID, map[string]any{
+		"employee_id":        updated.EmployeeID,
+		"target_status":      updated.Status,
+		"trading_hold_state": tradingHold,
+		"reason":             in.Reason,
+	})
 	return &internalbllv1.OffboardEmployeeSagaResponse{SagaResult: res}, nil
 }
 
@@ -351,7 +348,11 @@ func (s *Server) HandleHRWebhook(ctx context.Context, in *internalbllv1.HandleHR
 	}
 
 	if event == "employee_separated" || st == "separated" || st == "retired" {
-		res, err := s.OffboardEmployee(ctx, &internalbllv1.OffboardEmployeeSagaRequest{
+		hrWebhookCtx := grpcutil.WithIncomingActor(ctx, grpcutil.ActorContext{
+			ActorID: "system-frappe-hr-webhook",
+			Role:    "hr",
+		})
+		res, err := s.OffboardEmployee(hrWebhookCtx, &internalbllv1.OffboardEmployeeSagaRequest{
 			EmployeeID:   in.EmployeeID,
 			Reason:       "Frappe HR webhook trigger",
 			TargetStatus: st,

@@ -13,7 +13,7 @@ Orange Cat Investments enforces strict domain isolation: proprietary Go microser
 1. **Never Skip Major Versions:** Applications like Nextcloud and Frappe strictly require sequential hops (e.g., 28 → 29 → 30). Skipping versions corrupts database schemas.
 2. **Pre-Upgrade Snapshot Invariant:** No deployment manifest or image tag may be updated in production without a verified, successful database snapshot.
 3. **Staging Gate in `oci-dev`:** Upstream container patches must first be applied and validated in `oci-dev` before modifying production manifests.
-4. **Zero Unencrypted Secrets in Manifests:** Database credentials, `APP_KEY`, and `ZITADEL_MASTERKEY` reside strictly in Kubernetes Secrets (`app-secrets` and `oci-core-secrets`). Never hardcode or overwrite encryption keys.
+4. **Dynamic Secret Management via OpenBao & ESO:** Database credentials, `SNIPEIT_APP_KEY`, `NEXTCLOUD_ADMIN_PASSWORD`, and `ZITADEL_MASTERKEY` are stored in **OpenBao KV-v2** (`secret/oci-internal/config`, `secret/oci-core/config`) and synced by External Secrets Operator (`ExternalSecret` `app-secrets` and `oci-core-secrets` — see [`scripts/init-openbao.sh`](../../scripts/init-openbao.sh)). Never commit raw `kind: Secret` manifests or overwrite encryption keys.
 
 ---
 
@@ -28,12 +28,11 @@ Orange Cat Investments enforces strict domain isolation: proprietary Go microser
    Impact: Temporary read-only or 503 maintenance banner on internal endpoints.
    ```
 
-2. *(Optional)* Apply Ingress Maintenance Banner:
-   To route external and staff traffic to a graceful maintenance notice, apply the maintenance configuration snippet:
+2. *(Optional)* Enable Gateway API Maintenance Notice:
+   OCI uses Envoy Gateway (`HTTPRoute` manifests in [`k8s/oci-internal/http-routes.yaml`](../../k8s/oci-internal/http-routes.yaml)). To return a `503` maintenance notice for a specific route during patching, temporarily patch the target `HTTPRoute` backend or apply a maintenance `cots-maintenance-responder` rule (and restore `k8s/oci-internal/http-routes.yaml` once finished):
    ```bash
-   kubectl annotate ingress oci-internal-ingress -n oci-internal \
-     nginx.ingress.kubernetes.io/server-snippet="return 503 'OCI Systems Under Scheduled Maintenance. Back shortly.';" \
-     --overwrite
+   # Inspect active internal HTTPRoutes before patching:
+   kubectl get httproute -n oci-internal
    ```
 
 ### 2.2 Trigger Automated Pre-Upgrade Database Snapshots
@@ -258,10 +257,9 @@ Once all target components are updated, execute the platform verification pipeli
    go run ./simulation/cmd/simulator -mode live -iterations 1 -delay 50
    ```
 
-4. **Disable Ingress Maintenance Banner:**
+4. **Restore Standard `HTTPRoute` Routing:**
    ```bash
-   kubectl annotate ingress oci-internal-ingress -n oci-internal \
-     nginx.ingress.kubernetes.io/server-snippet-
+   kubectl apply -f k8s/oci-internal/http-routes.yaml
    ```
 
 ---

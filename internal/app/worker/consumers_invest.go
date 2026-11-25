@@ -49,6 +49,14 @@ func HandleACHTransferRequested(ctx context.Context, logger *slog.Logger, custom
 		logger.Error("Customer BLL ACH settlement error", "transfer_id", req.TransferID, "error", err)
 		return nil, fmt.Errorf("customer BLL ACH settlement failed for transfer %s: %w", req.TransferID, err)
 	}
+	if res != nil && res.Status == "already_settled" {
+		// Outbox redelivery: this transfer was already settled by an
+		// earlier delivery. Return the existing result without emitting a
+		// duplicate ach_settled event or repeating the side effects.
+		logger.Info("ACH transfer already settled; suppressing duplicate settlement event",
+			"transfer_id", req.TransferID)
+		return nil, nil
+	}
 	if res != nil && res.SettledAt != "" {
 		if t, parseErr := time.Parse(time.RFC3339, res.SettledAt); parseErr == nil {
 			settledAt = t

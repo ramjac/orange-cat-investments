@@ -382,6 +382,21 @@ func (c *internalBLLServiceClient) AcknowledgeAlert(ctx context.Context, in *ops
 func (c *internalBLLServiceClient) SendPushNotification(ctx context.Context, in *opsv1.SendPushNotificationRequest) (*opsv1.SendPushNotificationResponse, error) {
 	return invokeUnary[opsv1.SendPushNotificationRequest, opsv1.SendPushNotificationResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/SendPushNotification", in)
 }
+func (c *internalBLLServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error) {
+	return invokeUnary[ClaimBLLOutboxEventsRequest, ClaimBLLOutboxEventsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ClaimOutboxEvents", in)
+}
+func (c *internalBLLServiceClient) AckOutboxEvents(ctx context.Context, in *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error) {
+	return invokeUnary[AckBLLOutboxEventsRequest, AckBLLOutboxEventsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/AckOutboxEvents", in)
+}
+func (c *internalBLLServiceClient) AppendAuditLog(ctx context.Context, in *opsv1.AppendAuditLogRequest) (*opsv1.AppendAuditLogResponse, error) {
+	return invokeUnary[opsv1.AppendAuditLogRequest, opsv1.AppendAuditLogResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/AppendAuditLog", in)
+}
+func (c *internalBLLServiceClient) VerifyAuditChain(ctx context.Context, in *opsv1.VerifyAuditChainRequest) (*opsv1.VerifyAuditChainResponse, error) {
+	return invokeUnary[opsv1.VerifyAuditChainRequest, opsv1.VerifyAuditChainResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/VerifyAuditChain", in)
+}
+func (c *internalBLLServiceClient) ListAuditLogs(ctx context.Context, in *opsv1.ListAuditLogsRequest) (*opsv1.ListAuditLogsResponse, error) {
+	return invokeUnary[opsv1.ListAuditLogsRequest, opsv1.ListAuditLogsResponse](ctx, c.cc, "/oci.internal_bll.v1.InternalBLLService/ListAuditLogs", in)
+}
 
 type UnimplementedInternalBLLServiceServer struct{}
 
@@ -672,6 +687,21 @@ func (UnimplementedInternalBLLServiceServer) ListRecurringDeposits(context.Conte
 }
 func (UnimplementedInternalBLLServiceServer) CreateRecurringDeposit(context.Context, *coreinvestv1.CreateRecurringDepositRequest) (*coreinvestv1.CreateRecurringDepositResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateRecurringDeposit not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) ClaimOutboxEvents(context.Context, *ClaimBLLOutboxEventsRequest) (*ClaimBLLOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) AckOutboxEvents(context.Context, *AckBLLOutboxEventsRequest) (*AckBLLOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) AppendAuditLog(context.Context, *opsv1.AppendAuditLogRequest) (*opsv1.AppendAuditLogResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendAuditLog not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) VerifyAuditChain(context.Context, *opsv1.VerifyAuditChainRequest) (*opsv1.VerifyAuditChainResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyAuditChain not implemented")
+}
+func (UnimplementedInternalBLLServiceServer) ListAuditLogs(context.Context, *opsv1.ListAuditLogsRequest) (*opsv1.ListAuditLogsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAuditLogs not implemented")
 }
 
 func _InternalBLLService_StreamEnvironmentalTelemetry_Handler(srv any, stream grpc.ServerStream) error {
@@ -978,6 +1008,21 @@ var InternalBLLService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CreateRecurringDeposit", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/CreateRecurringDeposit", InternalBLLServiceServer.CreateRecurringDeposit)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ClaimOutboxEvents", InternalBLLServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/AckOutboxEvents", InternalBLLServiceServer.AckOutboxEvents)
+		}},
+		{MethodName: "AppendAuditLog", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/AppendAuditLog", InternalBLLServiceServer.AppendAuditLog)
+		}},
+		{MethodName: "VerifyAuditChain", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/VerifyAuditChain", InternalBLLServiceServer.VerifyAuditChain)
+		}},
+		{MethodName: "ListAuditLogs", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.internal_bll.v1.InternalBLLService/ListAuditLogs", InternalBLLServiceServer.ListAuditLogs)
 		}},
 	},
 	Streams: []grpc.StreamDesc{

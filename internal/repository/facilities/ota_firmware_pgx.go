@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 func (r *pgxRepository) CreateFirmwareRelease(ctx context.Context, release *FirmwareRelease) (*FirmwareRelease, error) {
@@ -60,11 +62,41 @@ func (r *pgxRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*D
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create ota job tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	query := `INSERT INTO facilities.device_ota_jobs (asset_id, release_id, status) VALUES ($1, $2, 'pending') RETURNING job_id, status, error_message, scheduled_at, completed_at, created_at, updated_at`
-	err := r.db.QueryRow(ctx, query, job.AssetID, job.ReleaseID).Scan(&job.JobID, &job.Status, &job.ErrorMessage, &job.ScheduledAt, &job.CompletedAt, &job.CreatedAt, &job.UpdatedAt)
+	err = tx.QueryRow(ctx, query, job.AssetID, job.ReleaseID).Scan(&job.JobID, &job.Status, &job.ErrorMessage, &job.ScheduledAt, &job.CompletedAt, &job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+
+	otaPayload := envelope.OTATriggeredPayload{
+		JobID:     job.JobID,
+		AssetID:   job.AssetID,
+		ReleaseID: job.ReleaseID,
+	}
+	var devType, ver, fileURL, checksum, sig string
+	if relErr := tx.QueryRow(ctx, `SELECT device_type, version, file_url, checksum, cosign_signature FROM facilities.firmware_releases WHERE release_id = $1`, job.ReleaseID).
+		Scan(&devType, &ver, &fileURL, &checksum, &sig); relErr == nil {
+		otaPayload.DeviceType = devType
+		otaPayload.Version = ver
+		otaPayload.FileURL = fileURL
+		otaPayload.Checksum = checksum
+		otaPayload.CosignSignature = sig
+	}
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOTATriggered, job.JobID, otaPayload)
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaFacilities, evID, envelope.TopicOTATriggered, job.JobID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert ota outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create ota job tx: %w", err)
 	}
 	return job, nil
 }
@@ -76,6 +108,11 @@ func (r *pgxRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOT
 	if len(jobs) == 0 {
 		return []*DeviceOTAJob{}, nil
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin batch create ota jobs tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	batch := &pgx.Batch{}
 	query := `INSERT INTO facilities.device_ota_jobs (asset_id, release_id, status) VALUES ($1, $2, 'pending') RETURNING job_id, asset_id, release_id, status, error_message, scheduled_at, completed_at, created_at, updated_at`
@@ -83,17 +120,52 @@ func (r *pgxRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceOT
 		batch.Queue(query, job.AssetID, job.ReleaseID)
 	}
 
-	br := r.db.SendBatch(ctx, batch)
-	defer br.Close()
-
+	br := tx.SendBatch(ctx, batch)
 	result := make([]*DeviceOTAJob, 0, len(jobs))
 	for i := 0; i < len(jobs); i++ {
 		var j DeviceOTAJob
 		err := br.QueryRow().Scan(&j.JobID, &j.AssetID, &j.ReleaseID, &j.Status, &j.ErrorMessage, &j.ScheduledAt, &j.CompletedAt, &j.CreatedAt, &j.UpdatedAt)
 		if err != nil {
+			_ = br.Close()
 			return nil, err
 		}
 		result = append(result, &j)
+	}
+	if err := br.Close(); err != nil {
+		return nil, err
+	}
+
+	var devType, ver, fileURL, checksum, sig string
+	relLoaded := false
+	if len(result) > 0 {
+		if relErr := tx.QueryRow(ctx, `SELECT device_type, version, file_url, checksum, cosign_signature FROM facilities.firmware_releases WHERE release_id = $1`, result[0].ReleaseID).
+			Scan(&devType, &ver, &fileURL, &checksum, &sig); relErr == nil {
+			relLoaded = true
+		}
+	}
+	for _, j := range result {
+		otaPayload := envelope.OTATriggeredPayload{
+			JobID:     j.JobID,
+			AssetID:   j.AssetID,
+			ReleaseID: j.ReleaseID,
+		}
+		if relLoaded {
+			otaPayload.DeviceType = devType
+			otaPayload.Version = ver
+			otaPayload.FileURL = fileURL
+			otaPayload.Checksum = checksum
+			otaPayload.CosignSignature = sig
+		}
+		evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOTATriggered, j.JobID, otaPayload)
+		if err != nil {
+			return nil, err
+		}
+		if err := outbox.InsertTx(ctx, tx, outbox.SchemaFacilities, evID, envelope.TopicOTATriggered, j.JobID, envBytes); err != nil {
+			return nil, fmt.Errorf("insert batch ota outbox event: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit batch create ota jobs tx: %w", err)
 	}
 	return result, nil
 }

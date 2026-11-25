@@ -9,6 +9,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	"github.com/orange-cat-investments/oci/pkg/envelope"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
@@ -59,25 +60,104 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		s.log().Error("feline medical hold verification failed; failing closed", "error", err, "feline_id", targetFeline)
 		return nil, status.Error(codes.Unavailable, "feline medical hold safety check unavailable; failing closed")
 	}
-	if medicalHoldActive {
-		s.log().Warn("trade order rejected: emergency medical hold active", "feline_id", targetFeline)
-		return nil, status.Errorf(codes.FailedPrecondition, "algorithmic trading halted: emergency medical hold active for feline executive %s", targetFeline)
+
+	// 1.5 Embedded OPA Policy-as-Code Pre-Trade Authorization (Phase 10 / 7.42)
+	// Account state must come from a successful, nonempty core-invest lookup;
+	// failing open would let blocked accounts trade when the domain is down.
+	if s.ciClient == nil {
+		return nil, status.Error(codes.Unavailable, "core-invest-api is not configured; account state unavailable for pre-trade authorization")
+	}
+	portResp, pErr := s.ciClient.GetPortfolio(ctx, &coreinvestv1.GetPortfolioRequest{PortfolioID: in.PortfolioID})
+	if pErr != nil || portResp == nil || portResp.Portfolio == nil || portResp.Portfolio.Status == "" {
+		s.log().Error("pre-trade portfolio lookup failed; failing closed", "error", pErr, "portfolio_id", in.PortfolioID)
+		return nil, status.Error(codes.Unavailable, "account state unavailable for pre-trade authorization; failing closed")
+	}
+	accountStatus := portResp.Portfolio.Status
+	buyingPower := portResp.Portfolio.CashBalanceUSD
+	if buyingPower < 0 {
+		buyingPower = 0
+	}
+
+	// Estimate the order notional without trusting caller-supplied prices.
+	// The broker ignores LimitPrice for market orders, so market orders must
+	// be sized from a trusted live broker quote (fail closed when it is
+	// unavailable); limit orders use the validated limit price.
+	var referencePrice float64
+	var estimatedNotional float64
+	switch orderType {
+	case "limit":
+		referencePrice = in.LimitPrice
+		estimatedNotional = in.Quantity * in.LimitPrice
+	case "market":
+		quote, qErr := s.trustedMarketQuote(ctx, in.Symbol, in.Side)
+		if qErr != nil || quote <= 0 {
+			s.log().Error("trusted market quote unavailable; failing closed", "error", qErr, "symbol", in.Symbol)
+			return nil, status.Error(codes.Unavailable, "trusted market quote unavailable; market order notional cannot be estimated")
+		}
+		referencePrice = quote
+		estimatedNotional = in.Quantity * quote
+	}
+	if s.policyEngine == nil {
+		return nil, status.Error(codes.PermissionDenied, "trading policy engine not initialized")
+	}
+	tradeDec, policyErr := s.policyEngine.EvaluateTrading(ctx, policy.TradingInput{
+		Actor: policy.Actor{
+			ID:   in.CustomerID,
+			Role: "customer",
+		},
+		Account: policy.AccountState{
+			Status:         accountStatus,
+			BuyingPowerUSD: buyingPower,
+		},
+		Feline: policy.FelineState{
+			FelineID:             targetFeline,
+			EmergencyMedicalHold: medicalHoldActive,
+		},
+		Order: policy.OrderRequest{
+			Symbol:               in.Symbol,
+			Side:                 in.Side,
+			Quantity:             in.Quantity,
+			OrderType:            orderType,
+			EstimatedNotionalUSD: estimatedNotional,
+		},
+	})
+	if policyErr != nil || !tradeDec.Allow {
+		reason := tradeDec.ReasonSummary()
+		if policyErr != nil && reason == "" {
+			reason = policyErr.Error()
+		}
+		s.log().Warn("OPA trading policy denied order",
+			"customer_id", in.CustomerID,
+			"portfolio_id", in.PortfolioID,
+			"feline_id", targetFeline,
+			"medical_hold", medicalHoldActive,
+			"reason", reason,
+		)
+		s.recordAudit(ctx, in.CustomerID, "customer", "authz.policy.denied", "trading_order", in.PortfolioID, map[string]any{
+			"policy":                 tradeDec.Policy,
+			"symbol":                 in.Symbol,
+			"side":                   in.Side,
+			"quantity":               in.Quantity,
+			"account_status":         accountStatus,
+			"emergency_medical_hold": medicalHoldActive,
+			"reasons":                tradeDec.Reasons,
+		})
+		if medicalHoldActive {
+			return nil, status.Error(codes.FailedPrecondition, reason)
+		}
+		return nil, status.Error(codes.PermissionDenied, reason)
 	}
 
 	// 2. Execute order with broker
 	execStart := time.Now()
 	if s.brokerClient == nil {
 		if s.ciClient != nil {
-			price := in.LimitPrice
-			if price <= 0 {
-				price = 224.30
-			}
 			res, err := s.ciClient.CreateOrder(ctx, &coreinvestv1.CreateOrderRequest{
 				PortfolioID: in.PortfolioID,
 				Symbol:      in.Symbol,
 				Side:        in.Side,
 				Quantity:    in.Quantity,
-				Price:       price,
+				Price:       referencePrice,
 				OrderType:   orderType,
 			})
 			if err == nil && res != nil && res.Order != nil {
@@ -154,7 +234,8 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		ExecutedAt:  nowStr,
 	}
 
-	// 3. Persist order through core-invest-api via gRPC
+	// 3. Persist order through core-invest-api via gRPC (atomically writes core_invest.outbox_events in same pgx.Tx)
+	persistedViaOutbox := false
 	if s.ciClient != nil {
 		_, err := s.ciClient.CreateOrder(ctx, &coreinvestv1.CreateOrderRequest{
 			PortfolioID: in.PortfolioID,
@@ -166,18 +247,43 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		})
 		if err != nil {
 			s.log().Warn("failed to persist order to core-invest-api via gRPC", "error", err)
+		} else {
+			persistedViaOutbox = true
 		}
 	}
 
-	// 4. Emit asynchronous event
-	eventID := watermill.NewUUID()
-	event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicOrderPlaced, orderID, result)
-	eventBytes, _ := json.Marshal(event)
-	if s.publisher != nil {
+	// 4. Fallback direct event publish only when core-invest-api outbox persistence was unavailable
+	if !persistedViaOutbox && s.publisher != nil {
+		eventID := watermill.NewUUID()
+		event := envelope.NewEventEnvelope(ctx, eventID, envelope.TopicOrderPlaced, orderID, result)
+		eventBytes, _ := json.Marshal(event)
 		_ = s.publisher.Publish(envelope.TopicOrderPlaced, message.NewMessage(event.EventID, eventBytes))
 	}
 
 	return result, nil
+}
+
+// trustedMarketQuote returns a conservative per-share reference price used to
+// estimate market-order notionals: the live ask for buys and bid for sells,
+// sourced from the broker (the execution counterparty) rather than the
+// caller. It fails closed when no trusted market data source is configured.
+func (s *Server) trustedMarketQuote(ctx context.Context, symbol, side string) (float64, error) {
+	if s.brokerClient == nil {
+		return 0, errors.New("no trusted market data source configured for market order estimation")
+	}
+	qCtx, cancel := s.withUpstreamTimeout(ctx)
+	defer cancel()
+	quote, err := s.brokerClient.GetLatestQuote(qCtx, symbol)
+	if err != nil {
+		return 0, err
+	}
+	if quote == nil {
+		return 0, errors.New("empty quote response from broker")
+	}
+	if side == "buy" {
+		return quote.AskPrice, nil
+	}
+	return quote.BidPrice, nil
 }
 
 func (s *Server) checkFelineMedicalHold(ctx context.Context, felineID string) (bool, error) {

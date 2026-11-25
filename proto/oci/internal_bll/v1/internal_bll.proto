@@ -123,6 +123,15 @@ service InternalBLLService {
   rpc CreateAlert(oci.ops.v1.CreateAlertRequest) returns (oci.ops.v1.CreateAlertResponse);
   rpc AcknowledgeAlert(oci.ops.v1.AcknowledgeAlertRequest) returns (oci.ops.v1.AcknowledgeAlertResponse);
   rpc SendPushNotification(oci.ops.v1.SendPushNotificationRequest) returns (oci.ops.v1.SendPushNotificationResponse);
+
+  // Transactional SQL Outbox Relay (Phase 10 / 7.40)
+  rpc ClaimOutboxEvents(ClaimBLLOutboxEventsRequest) returns (ClaimBLLOutboxEventsResponse);
+  rpc AckOutboxEvents(AckBLLOutboxEventsRequest) returns (AckBLLOutboxEventsResponse);
+
+  // Tamper-Evident Cryptographic Audit Log (Phase 10 / 7.41)
+  rpc AppendAuditLog(oci.ops.v1.AppendAuditLogRequest) returns (oci.ops.v1.AppendAuditLogResponse);
+  rpc VerifyAuditChain(oci.ops.v1.VerifyAuditChainRequest) returns (oci.ops.v1.VerifyAuditChainResponse);
+  rpc ListAuditLogs(oci.ops.v1.ListAuditLogsRequest) returns (oci.ops.v1.ListAuditLogsResponse);
 }
 
 message OnboardEmployeeSagaRequest {
@@ -428,4 +437,44 @@ message ListDeviceConnectivityRequest {
 
 message ListDeviceConnectivityResponse {
   repeated oci.facilities.v1.AssetConnectivity assets = 1;
+}
+
+message BLLOutboxEvent {
+  int64 id = 1;
+  string schema = 2;
+  string event_id = 3;
+  string topic = 4;
+  string aggregate_id = 5;
+  bytes payload = 6;
+  int32 attempts = 7;
+  string created_at = 8;
+}
+
+message BLLOutboxAckItem {
+  int64 id = 1;
+  string schema = 2;
+}
+
+message BLLOutboxFailure {
+  int64 id = 1;
+  string schema = 2;
+  string error = 3;
+}
+
+message ClaimBLLOutboxEventsRequest {
+  int32 limit = 1;
+  int64 lease_ms = 2;
+}
+
+message ClaimBLLOutboxEventsResponse {
+  repeated BLLOutboxEvent events = 1;
+}
+
+message AckBLLOutboxEventsRequest {
+  repeated BLLOutboxAckItem published = 1;
+  repeated BLLOutboxFailure failures = 2;
+}
+
+message AckBLLOutboxEventsResponse {
+  int32 acknowledged = 1;
 }

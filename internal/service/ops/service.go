@@ -70,6 +70,9 @@ type Service interface {
 	CreateCustomerTicket(ctx context.Context, req *CreateCustomerTicketRequest) (*ops.ITTicket, error)
 	SendPushNotification(ctx context.Context, req *PushNotificationRequest) (*PushNotificationResponse, error)
 	ScrubCustomerGDPRData(ctx context.Context, customerID string) (int, error)
+	AppendAuditLog(ctx context.Context, entry *ops.AuditLog) (*ops.AuditLog, error)
+	VerifyAuditChain(ctx context.Context) (*ops.AuditChainVerification, error)
+	ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*ops.AuditLog, error)
 }
 
 type opsService struct {
@@ -324,4 +327,19 @@ func (s *opsService) ScrubCustomerGDPRData(ctx context.Context, customerID strin
 		return 0, errors.New("customer_id cannot be empty")
 	}
 	return s.repo.ScrubCustomerGDPRData(ctx, customerID)
+}
+
+func (s *opsService) AppendAuditLog(ctx context.Context, entry *ops.AuditLog) (*ops.AuditLog, error) {
+	if entry == nil || strings.TrimSpace(entry.ActorID) == "" || strings.TrimSpace(entry.Action) == "" {
+		return nil, errors.New("actor_id and action are required")
+	}
+	return s.repo.AppendAuditLog(ctx, entry)
+}
+
+func (s *opsService) VerifyAuditChain(ctx context.Context) (*ops.AuditChainVerification, error) {
+	return s.repo.VerifyAuditChain(ctx)
+}
+
+func (s *opsService) ListAuditLogs(ctx context.Context, actorID, action string, limit, offset int32) ([]*ops.AuditLog, error) {
+	return s.repo.ListAuditLogs(ctx, actorID, action, limit, offset)
 }

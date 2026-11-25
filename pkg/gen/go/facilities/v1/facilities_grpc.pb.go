@@ -95,6 +95,12 @@ func (c *facilitiesServiceClient) ControlPTZ(ctx context.Context, in *ControlPTZ
 func (c *facilitiesServiceClient) CalibrateCameraLens(ctx context.Context, in *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error) {
 	return invokeUnary[CalibrateCameraLensRequest, CalibrateCameraLensResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/CalibrateCameraLens", in)
 }
+func (c *facilitiesServiceClient) ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return invokeUnary[ClaimOutboxEventsRequest, ClaimOutboxEventsResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/ClaimOutboxEvents", in)
+}
+func (c *facilitiesServiceClient) AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return invokeUnary[AckOutboxEventsRequest, AckOutboxEventsResponse](ctx, c.cc, "/oci.facilities.v1.FacilitiesService/AckOutboxEvents", in)
+}
 
 func (c *facilitiesServiceClient) StreamEnvironmentalTelemetry(ctx context.Context, in *StreamTelemetryRequest) (FacilitiesService_StreamEnvironmentalTelemetryClient, error) {
 	stream, err := c.cc.NewStream(ctx, &FacilitiesService_ServiceDesc.Streams[0], "/oci.facilities.v1.FacilitiesService/StreamEnvironmentalTelemetry")
@@ -176,6 +182,12 @@ func (UnimplementedFacilitiesServiceServer) ControlPTZ(context.Context, *Control
 func (UnimplementedFacilitiesServiceServer) CalibrateCameraLens(context.Context, *CalibrateCameraLensRequest) (*CalibrateCameraLensResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CalibrateCameraLens not implemented")
 }
+func (UnimplementedFacilitiesServiceServer) ClaimOutboxEvents(context.Context, *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimOutboxEvents not implemented")
+}
+func (UnimplementedFacilitiesServiceServer) AckOutboxEvents(context.Context, *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckOutboxEvents not implemented")
+}
 
 func _FacilitiesService_StreamEnvironmentalTelemetry_Handler(srv any, stream grpc.ServerStream) error {
 	m := new(StreamTelemetryRequest)
@@ -244,6 +256,12 @@ var FacilitiesService_ServiceDesc = grpc.ServiceDesc{
 		}},
 		{MethodName: "CalibrateCameraLens", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
 			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/CalibrateCameraLens", FacilitiesServiceServer.CalibrateCameraLens)
+		}},
+		{MethodName: "ClaimOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/ClaimOutboxEvents", FacilitiesServiceServer.ClaimOutboxEvents)
+		}},
+		{MethodName: "AckOutboxEvents", Handler: func(srv any, ctx context.Context, dec func(any) error, i grpc.UnaryServerInterceptor) (any, error) {
+			return dispatchUnary(srv, ctx, dec, i, "/oci.facilities.v1.FacilitiesService/AckOutboxEvents", FacilitiesServiceServer.AckOutboxEvents)
 		}},
 	},
 	Streams: []grpc.StreamDesc{

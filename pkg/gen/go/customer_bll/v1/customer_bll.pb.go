@@ -524,6 +524,9 @@ type CustomerBLLServiceClient interface {
 	GetCustomerTicket(ctx context.Context, in *GetCustomerTicketRequest) (*GetCustomerTicketResponse, error)
 	ListCustomerTicketComments(ctx context.Context, in *ListCustomerTicketCommentsRequest) (*ListCustomerTicketCommentsResponse, error)
 	AddCustomerTicketComment(ctx context.Context, in *AddCustomerTicketCommentRequest) (*AddCustomerTicketCommentResponse, error)
+
+	ClaimOutboxEvents(ctx context.Context, in *coreinvestv1.ClaimOutboxEventsRequest) (*coreinvestv1.ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *coreinvestv1.AckOutboxEventsRequest) (*coreinvestv1.AckOutboxEventsResponse, error)
 }
 
 type CustomerBLLServiceServer interface {
@@ -570,4 +573,7 @@ type CustomerBLLServiceServer interface {
 	GetCustomerTicket(ctx context.Context, in *GetCustomerTicketRequest) (*GetCustomerTicketResponse, error)
 	ListCustomerTicketComments(ctx context.Context, in *ListCustomerTicketCommentsRequest) (*ListCustomerTicketCommentsResponse, error)
 	AddCustomerTicketComment(ctx context.Context, in *AddCustomerTicketCommentRequest) (*AddCustomerTicketCommentResponse, error)
+
+	ClaimOutboxEvents(ctx context.Context, in *coreinvestv1.ClaimOutboxEventsRequest) (*coreinvestv1.ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *coreinvestv1.AckOutboxEventsRequest) (*coreinvestv1.AckOutboxEventsResponse, error)
 }

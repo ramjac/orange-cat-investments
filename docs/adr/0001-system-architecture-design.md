@@ -1,9 +1,15 @@
 # ADR 0001: System Architecture Design for Orange Cat Investments (OCI) Platform
 
-* **Status:** Accepted
+* **Status:** Accepted *(Security, networking, and event delivery evolved by [ADR 0004](0004-zero-trust-workload-identity-and-dynamic-secrets.md), [ADR 0006](0006-zero-trust-networking-gateway-api-and-edge-waf.md), and [ADR 0007](0007-transactional-outbox-idempotency-audit-chain-and-opa-authz.md))*
 * **Date:** 2025-02-23
 * **Author:** Principal Enterprise Architect
 * **Context:** Architectural specification for the Orange Cat Investments (OCI) self-hosted small-to-medium business platform.
+
+> [!NOTE]
+> **Evolution Notice:** The foundational DDD, dual-IdP, and 5-tier decisions below remain active. Subsequent ADRs evolved specific implementation mechanisms:
+> * **TLS & Secrets (§5.3, §7):** Evolved from 7-day Kubernetes `Secret` certs and static DB secrets to **1-hour `tmpfs` SPIFFE X.509-SVIDs** (`cert-manager-csi-driver-spiffe`), gRPC SPIFFE URI SAN caller allowlists, and **OpenBao + ESO 24h dynamic per-schema DB roles** ([ADR 0004](0004-zero-trust-workload-identity-and-dynamic-secrets.md)).
+> * **Event Reliability & Auditability (§4):** Evolved to use the **Transactional SQL Outbox (`<schema>.outbox_events`)** relayed by `oci-worker`, **tamper-evident `ops.audit_logs` hash chaining**, and **embedded OPA/Rego policy enforcement** ([ADR 0007](0007-transactional-outbox-idempotency-audit-chain-and-opa-authz.md)).
+> * **Networking & Edge (§6):** Evolved to default-deny `NetworkPolicy` microsegmentation, **Kubernetes Gateway API v1**, and **Coraza OWASP CRS WAF** ([ADR 0006](0006-zero-trust-networking-gateway-api-and-edge-waf.md)).
 
 ---
 

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type mockRepository struct {
@@ -21,6 +24,7 @@ type mockRepository struct {
 	holdings     map[string][]*PortfolioHolding
 	taxLots      map[string][]*TaxLotSale
 	snapshots    []*PortfolioSnapshot
+	outboxStore  *outbox.MemoryStore
 }
 
 func NewMockRepository() Repository {
@@ -38,6 +42,7 @@ func NewMockRepository() Repository {
 		holdings:     make(map[string][]*PortfolioHolding),
 		taxLots:      make(map[string][]*TaxLotSale),
 		snapshots:    make([]*PortfolioSnapshot, 0),
+		outboxStore:  outbox.NewMemoryStore(outbox.SchemaCoreInvest),
 	}
 
 	repo.seedPortfoliosAndHoldings(now)
@@ -236,6 +241,11 @@ func (m *mockRepository) CreateBrokerageOrder(ctx context.Context, order *Broker
 	order.CreatedAt = now
 	order.UpdatedAt = now
 	m.orders[order.OrderID] = order
+	if m.outboxStore != nil {
+		if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOrderPlaced, order.OrderID, order); err == nil {
+			m.outboxStore.Enqueue(evID, envelope.TopicOrderPlaced, order.OrderID, raw)
+		}
+	}
 	return order, nil
 }
 
@@ -308,6 +318,11 @@ func (m *mockRepository) CreateBacktestRun(ctx context.Context, run *BacktestRun
 	run.CreatedAt = now
 	run.UpdatedAt = now
 	m.runs[run.BacktestID] = run
+	if m.outboxStore != nil {
+		if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicBacktestRun, run.BacktestID, run); err == nil {
+			m.outboxStore.Enqueue(evID, envelope.TopicBacktestRun, run.BacktestID, raw)
+		}
+	}
 	return run, nil
 }
 
@@ -335,6 +350,18 @@ func (m *mockRepository) CreateRecurringDeposit(ctx context.Context, dep *Recurr
 	dep.DepositID = "deposit-mock-001"
 	dep.CreatedAt = now
 	m.deposits[dep.DepositID] = dep
+	if m.outboxStore != nil {
+		if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicACHTransferRequested, dep.DepositID, envelope.ACHTransferRequestedPayload{
+			TransferID:   "ach-" + dep.DepositID,
+			CustomerID:   dep.CustomerID,
+			PortfolioID:  dep.PortfolioID,
+			BankAccount:  dep.BankAccount,
+			AmountUSD:    dep.AmountUSD,
+			TransferType: "deposit",
+		}); err == nil {
+			m.outboxStore.Enqueue(evID, envelope.TopicACHTransferRequested, dep.DepositID, raw)
+		}
+	}
 	return dep, nil
 }
 
@@ -365,4 +392,30 @@ func (m *mockRepository) AdvanceRecurringDepositSchedule(ctx context.Context, id
 	}
 	d.NextChargeAt = nextChargeAt
 	return nil
+}
+
+func (m *mockRepository) EnqueueOutboxEvent(ctx context.Context, eventID, topic, aggregateID string, payload []byte) (string, error) {
+	if m.outboxStore == nil {
+		m.outboxStore = outbox.NewMemoryStore(outbox.SchemaCoreInvest)
+	}
+	rec := m.outboxStore.Enqueue(eventID, topic, aggregateID, payload)
+	return rec.EventID, nil
+}
+
+func (m *mockRepository) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	if m.outboxStore == nil {
+		return []*outbox.Record{}, nil
+	}
+	return m.outboxStore.ClaimPending(limit, lease), nil
+}
+
+func (m *mockRepository) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	if m.outboxStore == nil {
+		return 0, nil
+	}
+	m.outboxStore.MarkPublished(publishedIDs)
+	for _, f := range failures {
+		m.outboxStore.MarkFailed(f.ID, f.Error, 0)
+	}
+	return len(publishedIDs) + len(failures), nil
 }

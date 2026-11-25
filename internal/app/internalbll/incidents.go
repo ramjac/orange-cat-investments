@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/orange-cat-investments/oci/pkg/envelope"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
@@ -64,25 +62,8 @@ func (s *Server) CreateIncident(ctx context.Context, in *workforcev1.CreateIncid
 				},
 			})
 		}
-		if s.publisher != nil {
-			env := envelope.NewEventEnvelope(ctx,
-				fmt.Sprintf("evt-inc-%d", time.Now().UnixNano()),
-				"events.workforce.incident_created.v1",
-				"",
-				envelope.IncidentCreatedPayload{
-					IncidentID:       protoInc.IncidentID,
-					Title:            protoInc.Title,
-					Category:         protoInc.Category,
-					InvolvedFelineID: protoInc.InvolvedFelineID,
-					InvolvedHumanID:  protoInc.InvolvedHumanID,
-					Severity:         protoInc.Severity,
-					Status:           protoInc.Status,
-					Description:      protoInc.Description,
-					ReportedAt:       time.Now().UTC(),
-				},
-			)
-			_ = s.publisher.Publish("events.workforce.incident_created.v1", env)
-		}
+		// Incident event is committed atomically in workforce.outbox_events by workforce-api
+		// and relayed to RabbitMQ by oci-worker (Phase 10 / 7.40).
 	}
 
 	return resp, nil

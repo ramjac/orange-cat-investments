@@ -7,12 +7,12 @@ This runbook documents the procedures, execution guidelines, and host system tun
 ## 1. Architectural Principles & Rules
 
 1. **Strictly External Execution:**
-   * In accordance with [AGENTS.md](AGENTS.md) Section 3, the simulation driver ([`simulation/cmd/simulator`](simulation/cmd/simulator)) must **NEVER be run directly on the test server host** (`thinker`).
+   * In accordance with [AGENTS.md](../../AGENTS.md) Section 3, the simulation driver ([`simulation/cmd/simulator`](../../simulation/cmd/simulator)) must **NEVER be run directly on the test server host** (`thinker`).
    * Running the load generator on the target server consumes host CPU, RAM, and scheduler capacity, invalidating cluster telemetry.
    * Tests must be dispatched from an external client workstation across the local network, generating authentic ingress network traffic into the cluster.
 
 2. **Zero-Configuration Dynamic Ingress Dialing (`OCI_INGRESS_IP`):**
-   * The Go simulation client implements a custom `net.Dialer` in [`simulation/client.go`](simulation/client.go) that intercepts requests to `*.oci.local` and routes them directly to `OCI_INGRESS_IP:80` (NGINX / MicroK8s Ingress).
+   * The Go simulation client implements a custom `net.Dialer` in [`simulation/client.go`](../../simulation/client.go) that intercepts requests to `*.oci.local` and routes them directly to `OCI_INGRESS_IP:80` (NGINX / MicroK8s Ingress).
    * **Do not edit `/etc/hosts` or configure local DNS resolvers.** Passing `OCI_INGRESS_IP` automatically handles ingress routing.
 
 3. **External Mock Service Resolution:**

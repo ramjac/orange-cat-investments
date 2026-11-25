@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 )
 
 func (r *mockRepository) seedReviewCycles(now time.Time) {
@@ -268,6 +270,25 @@ func (r *mockRepository) CreateWorkplaceIncident(ctx context.Context, inc *Workp
 	}
 	inc.ReportedAt = now
 	r.incidents[inc.IncidentID] = inc
+	felineID := ""
+	if inc.InvolvedFelineID != nil {
+		felineID = *inc.InvolvedFelineID
+	}
+	humanID := ""
+	if inc.InvolvedHumanID != nil {
+		humanID = *inc.InvolvedHumanID
+	}
+	r.enqueueOutbox(ctx, envelope.TopicIncidentCreated, inc.IncidentID, envelope.IncidentCreatedPayload{
+		IncidentID:       inc.IncidentID,
+		Title:            inc.Title,
+		Category:         inc.Category,
+		InvolvedFelineID: felineID,
+		InvolvedHumanID:  humanID,
+		Severity:         inc.Severity,
+		Status:           inc.Status,
+		Description:      inc.Description,
+		ReportedAt:       inc.ReportedAt,
+	})
 	return inc, nil
 }
 

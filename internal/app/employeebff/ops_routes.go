@@ -60,6 +60,10 @@ func RegisterProtectedOpsRoutes(mux *http.ServeMux, opsH *opshandler.Handler, se
 	handleProtected("POST", "/api/v1/ops/notifications/push", sessionAuth(csrfProtect(adminOpsRole(http.HandlerFunc(opsH.SendPushNotification)))))
 	handleProtected("POST", "/api/v1/ops/notifications", sessionAuth(csrfProtect(adminOpsRole(http.HandlerFunc(opsH.SendPushNotification)))))
 
+	// 3.5 Tamper-Evident Audit Ledger (Phase 10 / 7.41)
+	handleProtected("GET", "/api/v1/ops/audit-logs/verify", sessionAuth(adminOpsRole(http.HandlerFunc(opsH.VerifyAuditChain))))
+	handleProtected("GET", "/api/v1/ops/audit-logs", sessionAuth(adminOpsRole(http.HandlerFunc(opsH.ListAuditLogs))))
+
 	// 4. Customer Support Tickets (Internal Helpdesk Staff Intake)
 	handleProtected("GET", "/api/v1/customer/support/tickets", sessionAuth(anyEmployeeRole(http.HandlerFunc(opsH.ListCustomerTickets))))
 	handleProtected("POST", "/api/v1/customer/support/tickets", sessionAuth(csrfProtect(anyEmployeeRole(http.HandlerFunc(opsH.CreateCustomerTicket)))))

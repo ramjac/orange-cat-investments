@@ -1577,6 +1577,17 @@ async function togglePersona() {
   }
 }
 
+function generateIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 async function executeQuickTrade() {
   showToast('⚡ Executing 1-Click Zoomie Pounce Order for 25 NVDA shares...');
   try {
@@ -1584,7 +1595,8 @@ async function executeQuickTrade() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken.value
+        'X-CSRF-Token': csrfToken.value,
+        'Idempotency-Key': generateIdempotencyKey()
       },
       body: JSON.stringify({
         portfolio_id: portfolio.value?.portfolio_id,
@@ -1614,7 +1626,8 @@ async function submitOrder() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken.value
+        'X-CSRF-Token': csrfToken.value,
+        'Idempotency-Key': generateIdempotencyKey()
       },
       body: JSON.stringify({
         portfolio_id: portfolio.value?.portfolio_id,
@@ -1646,7 +1659,8 @@ async function submitDeposit() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken.value
+        'X-CSRF-Token': csrfToken.value,
+        'Idempotency-Key': generateIdempotencyKey()
       },
       body: JSON.stringify({
         amount_usd: parseFloat(depositForm.value.amount_usd),

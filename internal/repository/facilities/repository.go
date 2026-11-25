@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 // DefaultHeartbeatStaleSeconds is 3x the 60s heartbeat interval (180s).
@@ -123,6 +124,8 @@ type Repository interface {
 	ListOTAJobsByAsset(ctx context.Context, assetID string) ([]*DeviceOTAJob, error)
 	RecordEnvironmentalTelemetry(ctx context.Context, t *EnvironmentalTelemetry) (*EnvironmentalTelemetry, error)
 	GetLatestEnvironmentalTelemetry(ctx context.Context, zoneID string, limit int) ([]*EnvironmentalTelemetry, error)
+	ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error)
+	AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error)
 }
 
 type pgxRepository struct {

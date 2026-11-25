@@ -1791,6 +1791,101 @@ paths:
         '400':
           $ref: '#/components/responses/400BadRequest'
 
+  /ops/audit-logs/verify:
+    get:
+      summary: Verify Tamper-Evident Audit Log Hash Chain
+      description: Walks ops.audit_logs sequentially and recalculates every SHA-256 hash link from GENESIS to verify ledger immutability.
+      operationId: verifyAuditChain
+      tags:
+        - IT Operations
+      responses:
+        '200':
+          description: Audit log cryptographic hash chain is intact
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  verified_records:
+                    type: integer
+                    format: int64
+                  latest_hash:
+                    type: string
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Caller lacks ops/admin/engineering audit verification privileges
+        '409':
+          description: Tampering or hash chain break detected in ops.audit_logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  verified_records:
+                    type: integer
+                    format: int64
+                  broken_at_id:
+                    type: integer
+                    format: int64
+                  expected_hash:
+                    type: string
+                  actual_hash:
+                    type: string
+                  reason:
+                    type: string
+
+  /ops/audit-logs:
+    get:
+      summary: List Tamper-Evident Audit Logs
+      description: Returns paginated entries from ops.audit_logs filtered optionally by actor_id or action.
+      operationId: listAuditLogs
+      tags:
+        - IT Operations
+      parameters:
+        - name: actor_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Paginated audit log records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  records:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+
   /ops/tickets:
     get:
       summary: List IT Helpdesk Tickets
@@ -2367,6 +2462,138 @@ paths:
           $ref: '#/components/responses/400BadRequest'
         '401':
           $ref: '#/components/responses/401Unauthorized'
+
+  /api/v1/customer/trading/orders:
+    post:
+      summary: Execute Customer Trade Order (Idempotent)
+      description: "Places a brokerage order for the authenticated customer. Requires a client-generated UUID Idempotency-Key header; retries with the same key replay the original cached response with X-Idempotent-Replayed: true."
+      operationId: createCustomerTradingOrder
+      tags:
+        - Customer Portfolio
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUIDv4/UUIDv7 idempotency token preventing duplicate order execution across retries.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - symbol
+                - side
+                - quantity
+              properties:
+                portfolio_id:
+                  type: string
+                symbol:
+                  type: string
+                side:
+                  type: string
+                  enum: [buy, sell]
+                quantity:
+                  type: number
+                order_type:
+                  type: string
+                  enum: [market, limit]
+                  default: market
+                limit_price:
+                  type: number
+      responses:
+        '200':
+          description: Order executed or replayed from idempotency cache
+          headers:
+            X-Idempotent-Replayed:
+              description: Set to `true` when the response is replayed from Valkey idempotency cache
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Concurrent duplicate request with identical Idempotency-Key is currently in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/v1/customer/deposits:
+    post:
+      summary: Initiate Customer ACH Deposit (Idempotent)
+      description: Initiates a one-time or recurring ACH deposit for the authenticated customer. Requires a client-generated UUID `Idempotency-Key` header.
+      operationId: createCustomerDeposit
+      tags:
+        - Customer Portfolio
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Client-generated UUIDv4/UUIDv7 idempotency token preventing duplicate ACH debits across retries.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - amount_usd
+              properties:
+                portfolio_id:
+                  type: string
+                amount_usd:
+                  type: number
+                frequency:
+                  type: string
+                  enum: [one_time, weekly, biweekly, monthly]
+                bank_account:
+                  type: string
+                account_id:
+                  type: string
+                day_of_month:
+                  type: integer
+      responses:
+        '201':
+          description: Deposit initiated or replayed from idempotency cache
+          headers:
+            X-Idempotent-Replayed:
+              description: Set to `true` when the response is replayed from Valkey idempotency cache
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Concurrent duplicate request with identical Idempotency-Key is currently in progress
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
 
   /api/v1/customer/webhooks:
     get:

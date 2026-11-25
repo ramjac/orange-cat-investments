@@ -132,6 +132,7 @@ func TestCustomerBFF_ErrorLoggingSanitizationAndStatusMapping(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "customer_session", Value: sess.SessionID})
 		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "test-csrf"})
 		req.Header.Set("X-CSRF-Token", "test-csrf")
+		req.Header.Set("Idempotency-Key", "99999999-9999-4999-8999-999999999999")
 		rec := httptest.NewRecorder()
 
 		router.ServeHTTP(rec, req)

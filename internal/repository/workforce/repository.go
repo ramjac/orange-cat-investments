@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type Employee struct {
@@ -184,12 +185,18 @@ type ExecutiveReportRepository interface {
 	UpdateExecutiveReportStatus(ctx context.Context, id, status string, webdavPDF, webdavCSV *string) (*ExecutiveReport, error)
 }
 
+type OutboxRepository interface {
+	ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error)
+	AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error)
+}
+
 type Repository interface {
 	EmployeeRepository
 	CareVHRRepository
 	LeaveIncidentRepository
 	ReviewRepository
 	ExecutiveReportRepository
+	OutboxRepository
 }
 
 type pgxRepository struct {

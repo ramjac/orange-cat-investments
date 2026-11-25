@@ -66,24 +66,30 @@ The simulator uses the 13 official OCI personas defined in `personas/` to execut
 ### 7. Dr. Elena Rostova (`emp-human-elena`) — Chief Veterinary Officer & Habitat Care Specialist
 * **`elena_update_garfield_care_schedule`**: Dynamically updates feline dietary plans and feeding times (`PUT /api/v1/workforce/care-schedules/emp-feline-garfield`).
 * **`elena_toggle_medical_hold`**: Verifies emergency medical trading holds (`POST /api/v1/workforce/care-schedules/emp-feline-garfield/medical-hold`) to pause automated trading when rest is required.
-* **`elena_review_health_assessments`**: Audits scheduled feline health assessments and records clinical observation metrics (`GET /api/v1/workforce/review-cycles?review_type=feline_health_assessment`).
+* **`elena_review_health_assessments`**: Audits scheduled feline health assessments (`GET /api/v1/workforce/review-cycles?review_type=feline_health_assessment`).
+* **`elena_conduct_wellness_audit`**: Submits clinical wellness audits via Employee BFF.
 
 ### 8. Frank Operations (`emp-human-frank`) — Platform Security & K8s Infrastructure Lead
 * **`frank_monitor_it_tickets`**: Monitors IT helpdesk tickets (`/ops/tickets`) originating from Forgejo issues or automated cluster alerts.
 * **`frank_query_pebble_alerts`**: Queries wearable watch alert payloads (`/ops/pebble/alerts`) formatted for Pebble AppMessage protocol.
 * **`frank_create_it_ticket`**: Submits infrastructure support tickets (`POST /ops/tickets`) for intermediate CA key rotations and dynamic SPIFFE ID mTLS reloads.
 * **`frank_publish_security_doc`**: Writes zero-trust security architecture document in Nextcloud (`POST /nextcloud/api/v1/documents`) and alerts developers via Nextcloud Chat (`POST /nextcloud/api/v1/chat/messages`).
+* **`frank_audit_gateway_routes`**: Audits Gateway API `HTTPRoute` responses (`dev.employee-bff.oci.local`, `dev.customer-bff.oci.local`, `dev.api.oci.local`).
+* **`frank_waf_security_audit`**: Sends OWASP CRS SQLi/XSS/LFI attack probes to BFF endpoints and asserts `HTTP 403 Forbidden` (`WAF_RULE_VIOLATION`).
+* **`frank_verify_audit_chain`**: Queries `GET /api/v1/ops/audit-logs/verify` and asserts cryptographic hash-chain integrity (`valid == true`).
 
 ### 9. Arthur Pendelton (`cust-longterm-arthur`) — Long-Term Value Investor (Customer)
-* **`arthur_review_performance_reports`**: Audits historical quantitative backtest performance and strategy returns (`GET /core-invest/backtesting/runs`).
-* **`arthur_deposit_investment_capital`**: Executes steady capital deposit orders into the OCI Alpha Growth Fund (`POST /core-invest/brokerage/orders`).
-* **`arthur_monitor_feline_stream`**: Passively checks optical camera streams (`GET /core-invest/streams`) to verify feline habitat comfort and wellbeing.
+* **`arthur_review_performance_reports`**: Audits historical quantitative backtest performance and strategy returns.
+* **`arthur_deposit_investment_capital`**: Executes steady capital deposit orders into the OCI Alpha Growth Fund (`POST /api/v1/customer/trading/orders` with `Idempotency-Key`).
+* **`arthur_monitor_feline_stream`**: Checks optical camera streams (`GET /api/v1/customer/streams`) and `coturn` ICE server discovery (`GET /api/v1/customer/webrtc/ice-servers`).
+* **`arthur_schedule_recurring_ach_deposit`**, **`arthur_audit_linked_bank_accounts`**, **`arthur_verify_portfolio_holdings`**, **`arthur_link_new_bank_account`**, **`arthur_submit_customer_support_ticket`**, **`arthur_self_register_onboarding`**, **`arthur_generate_monthly_investment_statement`**, **`arthur_generate_tax_form_1099b`**: Exercise recurring ACH deposits, bank account linking, portfolio history/holdings, customer support, self-registration, monthly PDF statements, and Form 1099-B generation via `/api/v1/customer/*`.
 
 ### 10. Chloe Spark (`cust-active-chloe`) — Momentum Alpha Trader (Customer)
-* **`chloe_scan_activity_streams`**: Scans real-time camera streams (`GET /core-invest/streams`) for high-activity feline behavioral signals.
-* **`chloe_momentum_buy_order`**: Executes aggressive momentum buy orders (`POST /core-invest/brokerage/orders`) on feline zoomies activity spikes.
-* **`chloe_take_profit_sell_order`**: Executes tactical take-profit sell orders (`POST /core-invest/brokerage/orders`) as cat activity returns to baseline.
-* **`chloe_audit_execution_log`**: Audits real-time trade order execution logs and settlement status (`GET /core-invest/brokerage/orders`).
+* **`chloe_scan_activity_streams`**: Scans real-time camera streams (`GET /api/v1/customer/streams`) and Zoomie Index (`GET /api/v1/customer/zoomie-index`).
+* **`chloe_momentum_buy_order`**: Executes aggressive momentum buy orders (`POST /api/v1/customer/trading/orders` with `Idempotency-Key`).
+* **`chloe_idempotent_order_replay`**: Submits an order twice with the same UUID `Idempotency-Key` and verifies `X-Idempotent-Replayed: true` with identical response body.
+* **`chloe_take_profit_sell_order`**: Executes tactical take-profit sell orders (`POST /api/v1/customer/trading/orders`).
+* **`chloe_audit_execution_log`**, **`chloe_query_live_market_quotes`**, **`chloe_margin_deposit_nsf_check`**, **`chloe_close_account_and_liquidate`**, **`chloe_request_gdpr_data_erasure`**: Verify trade execution logs, market quotes, NSF R01 validation, account liquidation, and GDPR Article 17 erasure + Valkey session purge.
 
 ### 11. Rick Newhire (`emp-human-rick`) — Junior Operations Associate
 * **`rick_onboarding_checklist`**: Verifies workforce directory status during new hire onboarding (`GET /api/v1/workforce/employees`).
@@ -91,6 +97,7 @@ The simulator uses the 13 official OCI personas defined in `personas/` to execut
 * **`rick_send_nextcloud_chat_ack`**: Sends Nextcloud Chat message acknowledging receipt of assigned laptop and onboarding documents (`POST /nextcloud/api/v1/chat/messages`).
 * **`rick_check_onboarding_status`**: Queries employee onboarding status (`GET /api/v1/workforce/employees?status=onboarding`) to track provisioning progress.
 * **`rick_trigger_self_onboarding_webhook`**: Simulates Frappe HR onboarding saga webhooks (`POST /api/v1/webhooks/frappe-hr`) to exercise new hire lifecycle workflows.
+* **`rick_unauthorized_medical_hold_denied`**: Negative OPA authorization check asserting a non-veterinary role receives `HTTP 403 Forbidden` when attempting to toggle a feline medical hold.
 
 ### 12. Elise Dev (`emp-human-elise`) — Software Developer
 * **`elise_claim_kanban_card`**: Claims and assigns Card #42 on the engineering backlog kanban board to herself (`PATCH /api/v1/repos/oci/monorepo/issues/42`).
@@ -159,15 +166,31 @@ go run ./simulation/cmd/simulator \
 |---|---|---|
 | `-mode` | `live` | Execution mode: `live`, `step`, or `continuous` |
 | `-persona` | `all` | Target persona ID (`emp-feline-garfield`, `emp-human-marcus`, etc.) or `all` |
-| `-bff-url` | `""` | Target URL for OCI Employee BFF |
-| `-cust-bff-url`| `""` | Target URL for OCI Customer BFF |
-| `-forgejo-url` | `""` | Target URL for Forgejo Git repository host |
-| `-broker-url`  | `""` | Target URL for Mock Broker API |
-| `-bank-url`    | `""` | Target URL for Mock Bank API |
+| `-bff-url` | `""` (→ `http://localhost:8081`) | Target URL for OCI Employee BFF |
+| `-cust-bff-url`| `""` (→ `http://localhost:8083`) | Target URL for OCI Customer BFF |
+| `-forgejo-url` | `""` (→ `http://localhost:3000`) | Target URL for Forgejo Git repository host |
+| `-broker-url`  | `""` (→ `http://localhost:8089`) | Target URL for Mock Broker API |
+| `-bank-url`    | `""` (→ `http://localhost:8088`) | Target URL for Mock Bank API |
+| `-meili-url`   | `""` (→ `MEILISEARCH_URL` / `http://localhost:7700`) | Meilisearch base URL used when `-seed-search` is set |
+| `-seed-search` | `false` | Seed Meilisearch development fixtures before running simulation |
+| `-tokens-file` | `""` | Path to saved tokens and session state JSON file |
+| `-forgejo-token` | `""` | General Forgejo REST API token override |
+| `-forgejo-elise-token` | `""` | Forgejo REST API token override for Elise Dev |
+| `-forgejo-marcus-token` | `""` | Forgejo REST API token override for Marcus Lead |
 | `-iterations` | `1` | Number of daily action loops to perform |
 | `-delay` | `100` | Delay between persona action executions in milliseconds |
 | `-verbose` | `true` | Enable detailed logging of request/response outputs |
 | `-list-personas`| `false` | Print registered personas and exit |
+| `-fault-scenarios` | `false` | Inject faults into `-dev` mocks (`/sim/faults`), assert BFF `503`/`504`/`422` handling, and reset |
+| `-validate-flags` | `false` | Validate CLI flags and exit immediately (used by CI contract checks) |
+
+### 6. Environment Variables
+| Variable | Purpose |
+|---|---|
+| `OCI_INGRESS_IP` | Routes `*.oci.local` requests directly to the target cluster ingress IP without editing `/etc/hosts` |
+| `FORGEJO_ELISE_TOKEN` | Personal Access Token (`--scopes all`) for `emp-human-elise` |
+| `FORGEJO_MARCUS_TOKEN` | Personal Access Token (`--scopes all`) for `emp-human-marcus` |
+| `MEILISEARCH_URL` / `MEILI_MASTER_KEY` | Meilisearch coordinates when running with `-seed-search` |
 
 ---
 

@@ -1,9 +1,15 @@
 # ADR 0003: Self-Hosted GitOps, Multi-Stage Containerization & Gated Promotion Pipeline
 
-* **Status:** Accepted
+* **Status:** Accepted *(Container runtime, registry, signing, and admission gates evolved by [ADR 0005](0005-software-supply-chain-security-and-admission-control.md))*
 * **Date:** 2026-10-15
 * **Author:** Marcus Lead (`emp-human-marcus`), Principal Systems Architect & Senior Developer
 * **Context:** Architectural specification for implementing Future Work 7.6: Self-hosted software development lifecycle, secure multi-stage container packaging, continuous integration via Forgejo Actions runners, staging validation in `oci-dev`, and strict gated promotion to production `oci-core`.
+
+> [!NOTE]
+> **Evolution Notice ([ADR 0005](0005-software-supply-chain-security-and-admission-control.md)):** Phase 8 (`7.30`–`7.35`) hardened this pipeline beyond the initial Alpine/7-image baseline:
+> * **Runtime Images (§3.1):** All 13 Go services and `web/marketing` now run on `gcr.io/distroless/static-debian12:nonroot` (`UID 65532`, `readOnlyRootFilesystem: true`) with Restricted PSS.
+> * **Build Matrix & Registry (§3.4):** CI builds all **16** custom & mock images, gates on Semgrep/Gosec/Govulncheck/Gitleaks/Trivy (`CRITICAL,HIGH`), generates Syft CycloneDX SBOMs, pushes to **Harbor** (`:32000` / `registry.oci.local`), and signs/attests with **Cosign**.
+> * **Promotion & Admission (§3.5):** Promotion deploys exact immutable `:sha-<COMMIT>` tags verified by `scripts/verify-deployed-images.sh` and enforced at admission time by **Kyverno** `ClusterPolicy` rules (`disallow-latest-tag`, `verify-oci-image-signatures`, `enforce-restricted-pss`, `forbid-tls-subpath-mounts`).
 
 ---
 

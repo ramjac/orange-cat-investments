@@ -196,12 +196,12 @@ func (h *WorkforceHandler) toggleEmergencyMedicalHold(w http.ResponseWriter, r *
 		return
 	}
 
-	resp, err := h.bllClient.SetMedicalHold(r.Context(), &workforcev1.SetMedicalHoldRequest{
+	resp, err := h.bllClient.SetMedicalHold(outgoingActorCtx(r), &workforcev1.SetMedicalHoldRequest{
 		FelineID:             canonicalID,
 		EmergencyMedicalHold: req.EmergencyMedicalHold,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeGRPCError(w, "SetMedicalHold", err, http.StatusInternalServerError)
 		return
 	}
 	updated := resp.CareSchedule

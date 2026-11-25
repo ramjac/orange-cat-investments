@@ -46,6 +46,12 @@ func (b *CustomerBFF) Routes() http.Handler {
 
 	authMiddleware := session.CustomerSessionAuthMiddleware(b.sessions)
 	csrfMiddleware := session.CSRFProtectMiddleware("csrf_token")
+	idempotencyMiddleware := cachevalkey.IdempotencyMiddleware(b.idempotencyStore, func(req *http.Request) string {
+		if sess := CustomerFromContext(req.Context()); sess != nil && sess.CustomerID != "" {
+			return sess.CustomerID
+		}
+		return cachevalkey.ClientIP(req)
+	})
 
 	// Public routes
 	r.Get("/healthz", b.handleHealthCheck)
@@ -86,8 +92,8 @@ func (b *CustomerBFF) Routes() http.Handler {
 		pw.Use(authMiddleware)
 		pw.Use(csrfMiddleware)
 
-		pw.With(orderLimiter).Post("/api/v1/customer/trading/orders", b.handleCreateOrder)
-		pw.With(depositLimiter).Post("/api/v1/customer/deposits", b.handleCreateDeposit)
+		pw.With(orderLimiter, idempotencyMiddleware).Post("/api/v1/customer/trading/orders", b.handleCreateOrder)
+		pw.With(depositLimiter, idempotencyMiddleware).Post("/api/v1/customer/deposits", b.handleCreateDeposit)
 		pw.Post("/api/v1/customer/api-keys", b.handleCreateAPIKey)
 		pw.Delete("/api/v1/customer/api-keys/{id}", b.handleRevokeAPIKey)
 		pw.Post("/api/v1/customer/webhooks", b.handleCreateWebhook)

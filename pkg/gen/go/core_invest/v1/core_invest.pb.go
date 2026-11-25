@@ -631,6 +631,53 @@ type ListPortfolioSnapshotsResponse struct {
 	Snapshots []*PortfolioSnapshot `json:"snapshots"`
 }
 
+type OutboxEvent struct {
+	ID          int64  `json:"id"`
+	Schema      string `json:"schema"`
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+	Attempts    int32  `json:"attempts"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type OutboxFailure struct {
+	ID     int64  `json:"id"`
+	Schema string `json:"schema"`
+	Error  string `json:"error"`
+}
+
+type EnqueueOutboxEventRequest struct {
+	EventID     string `json:"event_id"`
+	Topic       string `json:"topic"`
+	AggregateID string `json:"aggregate_id"`
+	Payload     []byte `json:"payload"`
+}
+
+type EnqueueOutboxEventResponse struct {
+	EventID string `json:"event_id"`
+	Status  string `json:"status"`
+}
+
+type ClaimOutboxEventsRequest struct {
+	Limit   int32 `json:"limit"`
+	LeaseMs int64 `json:"lease_ms"`
+}
+
+type ClaimOutboxEventsResponse struct {
+	Events []*OutboxEvent `json:"events"`
+}
+
+type AckOutboxEventsRequest struct {
+	PublishedIDs []int64          `json:"published_ids"`
+	Failures     []*OutboxFailure `json:"failures"`
+}
+
+type AckOutboxEventsResponse struct {
+	Acknowledged int32 `json:"acknowledged"`
+}
+
 type CoreInvestServiceClient interface {
 	GetPortfolio(ctx context.Context, in *GetPortfolioRequest) (*GetPortfolioResponse, error)
 	ListPortfolios(ctx context.Context, in *ListPortfoliosRequest) (*ListPortfoliosResponse, error)
@@ -677,6 +724,9 @@ type CoreInvestServiceClient interface {
 	GenerateForm1099B(ctx context.Context, in *GenerateForm1099BRequest) (*GenerateForm1099BResponse, error)
 	GetStatementDocument(ctx context.Context, in *GetStatementDocumentRequest) (*GetStatementDocumentResponse, error)
 	StreamPortfolioValuation(ctx context.Context, in *StreamPortfolioValuationRequest) (CoreInvestService_StreamPortfolioValuationClient, error)
+	EnqueueOutboxEvent(ctx context.Context, in *EnqueueOutboxEventRequest) (*EnqueueOutboxEventResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type CoreInvestServiceServer interface {
@@ -725,6 +775,9 @@ type CoreInvestServiceServer interface {
 	GenerateForm1099B(ctx context.Context, in *GenerateForm1099BRequest) (*GenerateForm1099BResponse, error)
 	GetStatementDocument(ctx context.Context, in *GetStatementDocumentRequest) (*GetStatementDocumentResponse, error)
 	StreamPortfolioValuation(*StreamPortfolioValuationRequest, CoreInvestService_StreamPortfolioValuationServer) error
+	EnqueueOutboxEvent(ctx context.Context, in *EnqueueOutboxEventRequest) (*EnqueueOutboxEventResponse, error)
+	ClaimOutboxEvents(ctx context.Context, in *ClaimOutboxEventsRequest) (*ClaimOutboxEventsResponse, error)
+	AckOutboxEvents(ctx context.Context, in *AckOutboxEventsRequest) (*AckOutboxEventsResponse, error)
 }
 
 type CoreInvestService_StreamPortfolioValuationClient interface {

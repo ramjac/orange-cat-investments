@@ -109,6 +109,20 @@ func (s *Server) ExecuteGDPRErasure(ctx context.Context, in *customerbllv1.Execu
 		if res == nil {
 			return nil, status.Errorf(codes.Internal, "gdpr erasure failed: received nil response")
 		}
+		if res.Certificate != nil {
+			custHash := res.Certificate.CustomerIDHash
+			if custHash == "" {
+				h := sha256.Sum256([]byte(in.CustomerID))
+				custHash = hex.EncodeToString(h[:])
+			}
+			// Record only cryptographic hashes & certificate ID (never raw erased PII)
+			s.recordAudit(ctx, custHash, "customer", "customer.gdpr.erased", "gdpr_certificate", res.Certificate.CertificateID, map[string]any{
+				"certificate_id":         res.Certificate.CertificateID,
+				"customer_id_hash":       custHash,
+				"records_scrubbed_count": res.Certificate.RecordsScrubbedCount,
+				"status":                 res.Certificate.Status,
+			})
+		}
 		return &customerbllv1.ExecuteGDPRErasureResponse{Certificate: res.Certificate}, nil
 	}
 

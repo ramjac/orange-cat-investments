@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 func (r *pgxRepository) GetEmployeeByID(ctx context.Context, id string) (*Employee, error) {
@@ -87,6 +90,12 @@ func (r *pgxRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Emp
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create employee tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO workforce.employees (
 		employee_id, employee_type, first_name, last_name, email, role_title, department, status, hired_at
 	) VALUES (
@@ -105,7 +114,7 @@ func (r *pgxRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Emp
 		updated_at = CURRENT_TIMESTAMP
 	RETURNING employee_id::text, employee_type, first_name, last_name, email, role_title, department, status, hired_at, created_at, updated_at`
 	var res Employee
-	err := r.db.QueryRow(ctx, query,
+	err = tx.QueryRow(ctx, query,
 		emp.EmployeeID, emp.EmployeeType, emp.FirstName, emp.LastName, emp.Email,
 		emp.RoleTitle, emp.Department, emp.Status, emp.HiredAt,
 	).Scan(
@@ -114,6 +123,32 @@ func (r *pgxRepository) CreateEmployee(ctx context.Context, emp *Employee) (*Emp
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	var lastName, email string
+	if res.LastName != nil {
+		lastName = *res.LastName
+	}
+	if res.Email != nil {
+		email = *res.Email
+	}
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", "events.workforce.employee_onboarded.v1", res.EmployeeID, envelope.EmployeeOnboardedPayload{
+		EmployeeID:   res.EmployeeID,
+		EmployeeType: res.EmployeeType,
+		FirstName:    res.FirstName,
+		LastName:     lastName,
+		Email:        email,
+		RoleTitle:    res.RoleTitle,
+		Department:   res.Department,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaWorkforce, evID, "events.workforce.employee_onboarded.v1", res.EmployeeID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert employee onboarded outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create employee tx: %w", err)
 	}
 	return &res, nil
 }
@@ -283,6 +318,12 @@ func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID st
 		felineUUID = emp.EmployeeID
 	}
 
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin medical hold tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO workforce.care_schedules (
 		schedule_id, feline_id, dietary_plan, feeding_times, emergency_medical_hold
 	) VALUES (
@@ -293,13 +334,27 @@ func (r *pgxRepository) SetEmergencyMedicalHold(ctx context.Context, felineID st
 	RETURNING schedule_id::text, feline_id::text, dietary_plan, feeding_times, special_medical_needs, preferred_perch_zone, emergency_medical_hold, caretaker_id::text, created_at, updated_at`
 	var res CareSchedule
 	var caretakerID *string
-	err := r.db.QueryRow(ctx, query, felineUUID, hold).Scan(
+	err = tx.QueryRow(ctx, query, felineUUID, hold).Scan(
 		&res.ScheduleID, &res.FelineID, &res.DietaryPlan, &res.FeedingTimes, &res.SpecialMedicalNeeds, &res.PreferredPerchZone, &res.EmergencyMedicalHold, &caretakerID, &res.CreatedAt, &res.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	res.CaretakerID = caretakerID
+
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicCareScheduleUpdated, res.FelineID, map[string]any{
+		"feline_id":              res.FelineID,
+		"emergency_medical_hold": res.EmergencyMedicalHold,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaWorkforce, evID, envelope.TopicCareScheduleUpdated, res.FelineID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert care schedule outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit medical hold tx: %w", err)
+	}
 	return &res, nil
 }
 

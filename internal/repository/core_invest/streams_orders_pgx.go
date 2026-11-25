@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 func (r *pgxRepository) GetCameraStreamByID(ctx context.Context, id string) (*CameraStream, error) {
@@ -124,15 +126,32 @@ func (r *pgxRepository) CreateBrokerageOrder(ctx context.Context, order *Brokera
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin brokerage order tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO core_invest.brokerage_orders (
                   portfolio_id, strategy_id, event_id, broker_name, symbol, side, quantity, price, status
               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
               RETURNING order_id, portfolio_id, strategy_id, event_id, broker_name, symbol, side, quantity, price, status, executed_at, created_at, updated_at`
 	var o BrokerageOrder
-	err := r.db.QueryRow(ctx, query, order.PortfolioID, order.StrategyID, order.EventID, order.BrokerName, order.Symbol, order.Side, order.Quantity, order.Price, order.Status).
+	err = tx.QueryRow(ctx, query, order.PortfolioID, order.StrategyID, order.EventID, order.BrokerName, order.Symbol, order.Side, order.Quantity, order.Price, order.Status).
 		Scan(&o.OrderID, &o.PortfolioID, &o.StrategyID, &o.EventID, &o.BrokerName, &o.Symbol, &o.Side, &o.Quantity, &o.Price, &o.Status, &o.ExecutedAt, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOrderPlaced, o.OrderID, o)
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaCoreInvest, evID, envelope.TopicOrderPlaced, o.OrderID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert order outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit brokerage order tx: %w", err)
 	}
 	return &o, nil
 }
@@ -195,15 +214,32 @@ func (r *pgxRepository) CreateBacktestRun(ctx context.Context, run *BacktestRun)
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin backtest run tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO core_invest.backtest_runs (
                   strategy_id, start_date, end_date, parameters, status
               ) VALUES ($1, $2, $3, $4, 'pending')
               RETURNING backtest_id, strategy_id, start_date, end_date, parameters, results, status, created_at, updated_at`
 	var b BacktestRun
-	err := r.db.QueryRow(ctx, query, run.StrategyID, run.StartDate, run.EndDate, run.Parameters).
+	err = tx.QueryRow(ctx, query, run.StrategyID, run.StartDate, run.EndDate, run.Parameters).
 		Scan(&b.BacktestID, &b.StrategyID, &b.StartDate, &b.EndDate, &b.Parameters, &b.Results, &b.Status, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, err
+	}
+
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicBacktestRun, b.BacktestID, b)
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaCoreInvest, evID, envelope.TopicBacktestRun, b.BacktestID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert backtest outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit backtest run tx: %w", err)
 	}
 	return &b, nil
 }
@@ -229,14 +265,38 @@ func (r *pgxRepository) CreateRecurringDeposit(ctx context.Context, dep *Recurri
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin recurring deposit tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO core_invest.recurring_deposits (customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at)
               VALUES ($1, $2, $3, $4, $5, $6, $7)
               RETURNING deposit_id, customer_id, portfolio_id, amount_usd, frequency, bank_account, status, next_charge_at, created_at`
 	var created RecurringDeposit
-	err := r.db.QueryRow(ctx, query, dep.CustomerID, dep.PortfolioID, dep.AmountUSD, dep.Frequency, dep.BankAccount, dep.Status, dep.NextChargeAt).
+	err = tx.QueryRow(ctx, query, dep.CustomerID, dep.PortfolioID, dep.AmountUSD, dep.Frequency, dep.BankAccount, dep.Status, dep.NextChargeAt).
 		Scan(&created.DepositID, &created.CustomerID, &created.PortfolioID, &created.AmountUSD, &created.Frequency, &created.BankAccount, &created.Status, &created.NextChargeAt, &created.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create recurring deposit: %w", err)
+	}
+
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicACHTransferRequested, created.DepositID, envelope.ACHTransferRequestedPayload{
+		TransferID:   "ach-" + created.DepositID,
+		CustomerID:   created.CustomerID,
+		PortfolioID:  created.PortfolioID,
+		BankAccount:  created.BankAccount,
+		AmountUSD:    created.AmountUSD,
+		TransferType: "deposit",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaCoreInvest, evID, envelope.TopicACHTransferRequested, created.DepositID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert deposit outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit recurring deposit tx: %w", err)
 	}
 	return &created, nil
 }

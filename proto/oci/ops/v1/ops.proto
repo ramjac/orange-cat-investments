@@ -22,6 +22,13 @@ service OpsService {
   rpc AcknowledgeAlert (AcknowledgeAlertRequest) returns (AcknowledgeAlertResponse);
   rpc SendPushNotification (SendPushNotificationRequest) returns (SendPushNotificationResponse);
   rpc ScrubCustomerGDPRData (ScrubCustomerGDPRDataRequest) returns (ScrubCustomerGDPRDataResponse);
+
+  rpc ClaimOutboxEvents (ClaimOutboxEventsRequest) returns (ClaimOutboxEventsResponse);
+  rpc AckOutboxEvents (AckOutboxEventsRequest) returns (AckOutboxEventsResponse);
+
+  rpc AppendAuditLog (AppendAuditLogRequest) returns (AppendAuditLogResponse);
+  rpc VerifyAuditChain (VerifyAuditChainRequest) returns (VerifyAuditChainResponse);
+  rpc ListAuditLogs (ListAuditLogsRequest) returns (ListAuditLogsResponse);
 }
 
 message ITTicket {
@@ -233,4 +240,88 @@ message ScrubCustomerGDPRDataResponse {
   string customer_id = 1;
   int32 scrubbed_records_count = 2;
   repeated string anonymized_tables = 3;
+}
+
+message OutboxEvent {
+  int64 id = 1;
+  string schema = 2;
+  string event_id = 3;
+  string topic = 4;
+  string aggregate_id = 5;
+  bytes payload = 6;
+  int32 attempts = 7;
+  string created_at = 8;
+}
+
+message OutboxFailure {
+  int64 id = 1;
+  string schema = 2;
+  string error = 3;
+}
+
+message ClaimOutboxEventsRequest {
+  int32 limit = 1;
+  int64 lease_ms = 2;
+}
+
+message ClaimOutboxEventsResponse {
+  repeated OutboxEvent events = 1;
+}
+
+message AckOutboxEventsRequest {
+  repeated int64 published_ids = 1;
+  repeated OutboxFailure failures = 2;
+}
+
+message AckOutboxEventsResponse {
+  int32 acknowledged = 1;
+}
+
+message AuditLogRecord {
+  int64 id = 1;
+  string actor_id = 2;
+  string actor_role = 3;
+  string action = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string metadata_json = 7;
+  string created_at = 8;
+  string previous_hash = 9;
+  string record_hash = 10;
+}
+
+message AppendAuditLogRequest {
+  string actor_id = 1;
+  string actor_role = 2;
+  string action = 3;
+  string resource_type = 4;
+  string resource_id = 5;
+  string metadata_json = 6;
+}
+
+message AppendAuditLogResponse {
+  AuditLogRecord record = 1;
+}
+
+message VerifyAuditChainRequest {}
+
+message VerifyAuditChainResponse {
+  bool valid = 1;
+  int64 verified_records = 2;
+  int64 broken_at_id = 3;
+  string expected_hash = 4;
+  string actual_hash = 5;
+  string latest_hash = 6;
+  string reason = 7;
+}
+
+message ListAuditLogsRequest {
+  string actor_id = 1;
+  string action = 2;
+  int32 limit = 3;
+  int32 offset = 4;
+}
+
+message ListAuditLogsResponse {
+  repeated AuditLogRecord records = 1;
 }

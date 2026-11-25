@@ -3,6 +3,9 @@ package workforce
 import (
 	"context"
 	"fmt"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 func (r *pgxRepository) CreateLeaveRequest(ctx context.Context, req *LeaveRequest) (*LeaveRequest, error) {
@@ -259,6 +262,12 @@ func (r *pgxRepository) CreateWorkplaceIncident(ctx context.Context, inc *Workpl
 	if r.db == nil {
 		return nil, fmt.Errorf("database connection is nil")
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create incident tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	query := `INSERT INTO workforce.incidents (
 		incident_id, title, category, involved_feline_id, involved_human_id, severity, status, description, resolution_notes
 	) VALUES (
@@ -266,7 +275,7 @@ func (r *pgxRepository) CreateWorkplaceIncident(ctx context.Context, inc *Workpl
 	) RETURNING incident_id::text, title, category, involved_feline_id::text, involved_human_id::text, severity, status, description, resolution_notes, reported_at, resolved_at`
 	var res WorkplaceIncident
 	var fID, hID *string
-	err := r.db.QueryRow(ctx, query, inc.IncidentID, inc.Title, inc.Category, inc.InvolvedFelineID, inc.InvolvedHumanID, inc.Severity, inc.Status, inc.Description, inc.ResolutionNotes).Scan(
+	err = tx.QueryRow(ctx, query, inc.IncidentID, inc.Title, inc.Category, inc.InvolvedFelineID, inc.InvolvedHumanID, inc.Severity, inc.Status, inc.Description, inc.ResolutionNotes).Scan(
 		&res.IncidentID, &res.Title, &res.Category, &fID, &hID, &res.Severity, &res.Status, &res.Description, &res.ResolutionNotes, &res.ReportedAt, &res.ResolvedAt,
 	)
 	if err != nil {
@@ -274,6 +283,34 @@ func (r *pgxRepository) CreateWorkplaceIncident(ctx context.Context, inc *Workpl
 	}
 	res.InvolvedFelineID = fID
 	res.InvolvedHumanID = hID
+
+	var involvedFeline, involvedHuman string
+	if res.InvolvedFelineID != nil {
+		involvedFeline = *res.InvolvedFelineID
+	}
+	if res.InvolvedHumanID != nil {
+		involvedHuman = *res.InvolvedHumanID
+	}
+	evID, envBytes, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicIncidentCreated, res.IncidentID, envelope.IncidentCreatedPayload{
+		IncidentID:       res.IncidentID,
+		Title:            res.Title,
+		Category:         res.Category,
+		InvolvedFelineID: involvedFeline,
+		InvolvedHumanID:  involvedHuman,
+		Severity:         res.Severity,
+		Status:           res.Status,
+		Description:      res.Description,
+		ReportedAt:       res.ReportedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.InsertTx(ctx, tx, outbox.SchemaWorkforce, evID, envelope.TopicIncidentCreated, res.IncidentID, envBytes); err != nil {
+		return nil, fmt.Errorf("insert incident outbox event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit create incident tx: %w", err)
+	}
 	return &res, nil
 }
 

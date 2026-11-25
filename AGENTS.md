@@ -51,16 +51,29 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 .
 ├── api/                   # OpenAPI 3.1 YAML specifications (`openapi.yaml`)
 ├── config/                # Platform branding & white-label design token manifest (`branding.yaml`)
-├── docs/                  # Architecture Decision Records (`adr/`) and specifications
-├── personas/              # Profile specifications for all 12 corporate & customer personas
+├── docs/                  # Architecture & security manuals, ADRs (`adr/`), reports & runbooks (`runbooks/`)
+├── personas/              # Profile specifications for all 13 corporate & customer personas
 ├── proto/                 # Protobuf definitions (`oci/workforce/`, `oci/facilities/`, etc.)
-├── pkg/                   # Shared Go packages (`branding`, `envelope`, `mtls`, `cache`, `session`, `gen/go`)
+├── pkg/                   # Shared Go packages (`authz`, `branding`, `cache`, `cosignverify`, `cots`, `dbpool`, `envelope`, `grpcutil`, `httputil`, `mtls`, `outbox`, `reporting`, `search`, `session`, `telemetry`, `waf`, `gen/go`)
+│   ├── authz/policy/      # Embedded OPA/Rego v1 authorization engine (`workforce.rego`, `trading.rego`)
+│   ├── bank/plaid/        # Encapsulated bank adapter driver
 │   ├── branding/          # Design token & white-label configuration loader
-│   ├── cache/             # Valkey distributed cache, conditional ETags, and sliding rate limiter
-│   ├── envelope/          # Standard EventEnvelope[T] message wrapper
-│   ├── mtls/              # Dynamic mTLS certificate and CA pool reloaders
-│   └── session/           # Valkey distributed session stores with memory fallback
-├── scripts/               # SQL scripts (`init.sql`, modular schemas) & bootstrapping
+│   ├── broker/alpaca/     # Encapsulated broker adapter driver
+│   ├── cache/valkey/      # Distributed cache, ETags, sliding rate limiter, idempotency, AMQP invalidation
+│   ├── cosignverify/      # SHA-256 & Cosign ECDSA/Ed25519 firmware verification
+│   ├── cots/              # REST/WebDAV clients for Forgejo, Frappe HR, Nextcloud, Snipe-IT
+│   ├── dbpool/            # File-reloaded dynamic PostgreSQL pgxpool credential manager
+│   ├── envelope/          # Standard EventEnvelope[T] message wrapper & W3C TraceContext propagator
+│   ├── grpcutil/          # Dynamic mTLS builders, SPIFFE URI SAN interceptors & actor metadata
+│   ├── httputil/          # Shared HTTP helpers and router utilities
+│   ├── mtls/              # Dynamic mTLS certificate (`tmpfs`) and CA pool reloaders
+│   ├── outbox/            # Transactional SQL outbox (`InsertTx`, `ClaimPending`, `Forwarder`)
+│   ├── reporting/         # PDF/CSV executive reports, statements, 1099-B & GDPR certificates
+│   ├── search/meilisearch/# Typo-tolerant Meilisearch client
+│   ├── session/valkey/    # Valkey distributed session stores with Lua bulk revocation & CSRF
+│   ├── telemetry/         # OpenTelemetry tracer/meter setup & custom business/WAF/upstream metrics
+│   └── waf/               # Embedded Coraza OWASP CRS HTTP middleware
+├── scripts/               # SQL scripts (`init.sql`, `migrations/`, modular schemas), CI contracts & deploy scripts
 ├── cmd/                   # Go application entrypoints
 │   ├── customer-bff/      # Customer portal backend-for-frontend (:8083)
 │   ├── employee-bff/      # Employee portal backend-for-frontend (:8081)
@@ -71,11 +84,12 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 │   ├── core-invest-api/   # Core Invest Domain gRPC API (:50053)
 │   ├── ops-api/           # Ops Domain gRPC API (:50054)
 │   ├── pebble-proxy/      # Pebble wearable companion app gateway proxy (:8082)
-│   ├── portal-server/     # Static SPA file server container with /healthz
-│   ├── worker/            # Background worker (Watermill, OTA, CA rotation, ACH queue)
-│   ├── mock-bank/         # Isolated mock Plaid/bank API (external-sim)
-│   └── mock-broker/       # Isolated mock Alpaca/broker API (external-sim)
-├── simulation/            # Full platform simulation driver & persona action suites
+│   ├── portal-server/     # Static SPA/marketing file server container with /healthz
+│   ├── worker/            # Background worker (Outbox Forwarder, Watermill, OTA, CA rotation, ACH/NAV batch)
+│   ├── mock-bank/         # Isolated mock bank API (external-sim)
+│   ├── mock-broker/       # Isolated mock broker API (external-sim)
+│   └── mock-hardware/     # Isolated mock habitat camera/telemetry/OTA client (external-sim)
+├── simulation/            # Full platform simulation driver & 13-persona action suites
 │   └── cmd/simulator/     # Standalone simulation CLI (`-mode live|step|continuous`)
 ├── web/                   # Frontend applications
 │   ├── customer-portal/   # Vue 3 SPA for retail investors and customers (:5174)
@@ -87,15 +101,20 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
 │   └── pebble/            # Pebble watch companion app (Pebble Alloy / JS / C)
 ├── k8s/                   # Kubernetes deployment manifests
 │   ├── namespaces/        # Core namespace definitions
-│   ├── oci-core/          # Custom OCI apps, Zitadel IdP, core infra (Valkey, RabbitMQ, Meilisearch, postgres-core)
-│   ├── oci-internal/      # Off-the-shelf internal business apps (Nextcloud, Forgejo, ERPNext, Snipe-IT, postgres-internal)
-│   ├── external-sim/      # External simulation microservices (Mock Broker, Mock Bank)
-│   ├── monitoring/        # Prometheus & Grafana stack
-│   └── logging/           # Loki & Promtail aggregation stack
+│   ├── oci-core/          # Production custom OCI apps, ZITADEL, OpenBao, coturn, Valkey, RabbitMQ, Meilisearch, postgres-core
+│   ├── oci-dev/           # Staging mirror of custom OCI workloads + daily retention CronJob
+│   ├── oci-internal/      # Off-the-shelf internal COTS apps (Nextcloud, Forgejo, Runner, ERPNext, Snipe-IT, postgres-internal)
+│   ├── external-sim/      # External simulation microservices (prod & -dev Mock Bank, Mock Broker, Mock Hardware)
+│   ├── registry/          # Harbor Enterprise Container Registry (`harbor.yaml` on :32000)
+│   ├── security/          # Kyverno admission controller & Enforce ClusterPolicies
+│   ├── ha/                # Multi-node HA configs (Gateway API `gateway.yaml`, LAN DNS/TLS, Longhorn, Cloudflare Tunnel)
+│   ├── monitoring/        # Prometheus, Grafana, Alloy, Tempo, kube-state-metrics, Gatus
+│   └── logging/           # Loki & Promtail CRI pod-logging stack
 ├── ansible/               # Ansible playbooks for host & cluster provisioning
-└── internal/              # Core domain logic, handlers, repositories, services, and sagas
-    ├── handler/           # HTTP handlers (core_invest, facilities, ops, workforce)
-    ├── repository/        # pgxpool database repositories & mock implementations
+└── internal/              # Core domain logic, app routers, handlers, repositories, services, and sagas
+    ├── app/               # Modular service runtime packages (customerbff, employeebff, customerbll, internalbll, worker)
+    ├── handler/           # HTTP handlers (workforce, ops, cots, reporting)
+    ├── repository/        # pgxpool database repositories, audit hash-chain & mock implementations
     ├── service/           # Domain business logic services & PKI rotation manager
     └── saga/              # Distributed sagas (OnboardingSaga, OffboardingEngine)
 ```
@@ -159,22 +178,23 @@ OCI is organized as a single **Monorepo** following **Domain-Driven Design (DDD)
    * Executing the simulator directly on the test server host is strictly restricted to rare network debugging tasks (e.g. diagnosing local host network interfaces, firewall rules, or container socket bindings).
 
 ### Security Invariants
-1. **Zero Long-Lived / Static Certs:** All inter-service gRPC calls require mTLS via `cert-manager`. Certificates must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts.
-2. **No Sensitive Payload Logging (CWE-532):** Background event workers and HTTP handlers must never log unredacted message payloads, secret keys, or credentials.
+1. **Zero Long-Lived / Static Certs or Static Secrets:** All inter-service gRPC calls require mTLS via `cert-manager-csi-driver-spiffe` (ephemeral 1-hour X.509-SVIDs mounted on `tmpfs` with SPIFFE URI SAN authorization in `pkg/grpcutil`). Certificates and CA pools (`trust-manager` `oci-ca-bundle`) must be reloaded dynamically in Go standard library `crypto/tls` (`GetCertificate` / `GetClientCertificate`). Never use `subPath` secret mounts, and never commit static `kind: Secret` credential manifests—use OpenBao + External Secrets Operator (`ExternalSecret` / `VaultDynamicSecret`).
+2. **No Sensitive Payload Logging (CWE-532):** Background event workers, WAF middleware, and HTTP handlers must never log unredacted message payloads, exploit strings, secret keys, or credentials.
 3. **No JWTs in Web SPAs:** Web browser clients authenticate via OIDC/OAuth2 handled at the Go BFF layer. Access tokens are stored exclusively in Valkey. Browsers receive only opaque session cookies (`__Host-customer-session` or `__Host-employee-session`, both `HttpOnly`, `Secure`, `SameSite=Lax`).
-4. **Double-Submit CSRF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie.
+4. **Double-Submit CSRF & Edge WAF:** All state-changing HTTP requests (`POST`, `PUT`, `DELETE`) to the BFFs must include the `X-CSRF-Token` header matching the CSRF cookie. All BFF HTTP routes are protected by embedded Coraza OWASP CRS WAF middleware (`pkg/waf`).
+5. **Policy-as-Code & Audit Integrity:** Sensitive workforce and pre-trade authorization checks are evaluated fail-closed via embedded OPA/Rego (`pkg/authz/policy`) in the BLL tier, with denials and sensitive mutations recorded in the tamper-evident SHA-256 hash-chain ledger (`ops.audit_logs`).
 
 ### Kubernetes Namespace & Database Isolation Standards
-1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (BFFs, BLLs, Domain APIs, web portals, worker, pebble-proxy), customer identity provider (ZITADEL), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
+1. **Core Workload & Customer Plane Collocation (`oci-core`):** All custom OCI applications (BFFs, BLLs, Domain APIs, web portals, worker, pebble-proxy, `coturn`), customer identity provider (ZITADEL), secret manager (OpenBao), and their direct operational dependencies (Valkey, RabbitMQ, Meilisearch, and `postgres-core`) must reside together in the `oci-core` namespace. Never place internal employee COTS tools here.
 2. **COTS Isolation (`oci-internal`):** Commercial and open-source off-the-shelf business platforms (Nextcloud, Forgejo, ERPNext, Frappe HR, Snipe-IT) must be deployed exclusively in `oci-internal` and connect to their dedicated `postgres-internal-service` database. They must connect to shared core resources (like Valkey) via full cluster FQDNs (`valkey-service.oci-core.svc.cluster.local:6379`).
-3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core`. COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
-4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Alpaca Broker API, Plaid / Banking API) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
+3. **Database Tier Separation (Dual PostgreSQL):** Proprietary business schemas (`workforce`, `facilities`, `core_invest`, `ops`) and customer auth are isolated to `postgres-core` in `oci-core` (accessed via OpenBao schema-scoped dynamic PostgreSQL roles). COTS third-party applications use independent databases (`forgejo`, `nextcloud`, `snipeit`, `erpnext`) on `postgres-internal` in `oci-internal`. COTS applications must never share or connect to `postgres-core`.
+4. **Simulation Isolation (`external-sim`):** Mock 3rd-party services (e.g., Mock Broker API, Mock Bank API, Mock Hardware) must run strictly in `external-sim`. They use stateless in-memory persistence and must never connect directly to either PostgreSQL database or access internal application secrets.
 5. **No Legacy `apps` or Standalone `postgres` Namespaces:** The legacy `apps` and `postgres` namespaces are deprecated and deleted. Never create or reintroduce Kubernetes manifests targeting `namespace: apps` or `namespace: postgres`.
-6. **Ingress & Cluster Engine Conventions (MicroK8s on Ubuntu Server Reference Standard):**
-   * **MicroK8s on Ubuntu Server as Primary Reference:** Orange Cat Investments uses **MicroK8s on Ubuntu Server** as the primary Kubernetes reference engine. In MicroK8s, the built-in NGINX Ingress controller (`microk8s enable ingress`) is the standard ingress controller.
-   * **Ingress Class Defaults:** Manifests should use standard IngressClass `public` (or default to the cluster ingress controller) so that the cluster's ingress controller automatically adopts routes.
-   * **In-Cluster Container Registry (`:32000`):** In MicroK8s, container images are hosted via the built-in container registry addon (`microk8s enable registry`) or `k8s/registry/registry.yaml` on NodePort 32000, preserving the `localhost:32000/<image>:<tag>` convention.
-   * **Dedicated Workload Storage:** Workloads default to standard persistent storage (e.g., MicroK8s hostpath storage `microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass). When available, configure storage paths so persistent volume claims land on dedicated persistent storage.
+6. **Gateway API, Registry & Cluster Engine Conventions (MicroK8s on Ubuntu Server Reference Standard):**
+   * **MicroK8s on Ubuntu Server as Primary Reference:** Orange Cat Investments uses **MicroK8s on Ubuntu Server** as the primary Kubernetes reference engine.
+   * **Kubernetes Gateway API (`HTTPRoute` / `GRPCRoute`):** Legacy `networking.k8s.io/v1` `Ingress` manifests are forbidden. All edge routing uses Envoy Gateway (`GatewayClass/oci-gateway-class`, `Gateway/oci-edge-gateway` in `k8s/ha/lan/tls/gateway.yaml`) with namespace-scoped `HTTPRoute` / `GRPCRoute` manifests (`k8s/*/http-routes.yaml`).
+   * **In-Cluster Enterprise Container Registry (`:32000`):** Images are hosted via Harbor (`k8s/registry/harbor.yaml`) on NodePort `32000` / `registry.oci.local` (preserving `localhost:32000/<image>:<tag>`), or the MicroK8s registry addon when active, with Trivy vulnerability scanning, CycloneDX SBOMs, and Cosign signatures enforced by Kyverno in `oci-core`.
+   * **Dedicated Workload Storage:** Workloads default to standard persistent storage (e.g., MicroK8s hostpath storage `microk8s enable hostpath-storage` / `microk8s-hostpath` StorageClass, or Longhorn `longhorn` in multi-node HA). When available, configure storage paths so persistent volume claims land on dedicated persistent storage.
 
 ### Event Protocol Standard
 All domain messages emitted across RabbitMQ must be wrapped in the standard Go `envelope.EventEnvelope[T]` with UUIDv7 `EventID`, UTC timestamp `OccurredAt`, and OTel context `CorrelationID`.

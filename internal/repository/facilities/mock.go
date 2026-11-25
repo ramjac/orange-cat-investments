@@ -5,26 +5,31 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/orange-cat-investments/oci/pkg/envelope"
+	"github.com/orange-cat-investments/oci/pkg/outbox"
 )
 
 type mockRepository struct {
-	mu        sync.RWMutex
-	assets    map[string]*HardwareAsset
-	tickets  map[string]*MaintenanceTicket
-	logs     map[string][]*MaintenanceLog
-	releases  map[string][]*FirmwareRelease
-	otaJobs   map[string][]*DeviceOTAJob
-	telemetry []*EnvironmentalTelemetry
+	mu          sync.RWMutex
+	assets      map[string]*HardwareAsset
+	tickets     map[string]*MaintenanceTicket
+	logs        map[string][]*MaintenanceLog
+	releases    map[string][]*FirmwareRelease
+	otaJobs     map[string][]*DeviceOTAJob
+	telemetry   []*EnvironmentalTelemetry
+	outboxStore *outbox.MemoryStore
 }
 
 func NewMockRepository() Repository {
 	return &mockRepository{
-		assets:    make(map[string]*HardwareAsset),
-		tickets:   make(map[string]*MaintenanceTicket),
-		logs:      make(map[string][]*MaintenanceLog),
-		releases:  make(map[string][]*FirmwareRelease),
-		otaJobs:   make(map[string][]*DeviceOTAJob),
-		telemetry: make([]*EnvironmentalTelemetry, 0),
+		assets:      make(map[string]*HardwareAsset),
+		tickets:     make(map[string]*MaintenanceTicket),
+		logs:        make(map[string][]*MaintenanceLog),
+		releases:    make(map[string][]*FirmwareRelease),
+		otaJobs:     make(map[string][]*DeviceOTAJob),
+		telemetry:   make([]*EnvironmentalTelemetry, 0),
+		outboxStore: outbox.NewMemoryStore(outbox.SchemaFacilities),
 	}
 }
 
@@ -416,6 +421,15 @@ func (m *mockRepository) CreateOTAJob(ctx context.Context, job *DeviceOTAJob) (*
 	job.CreatedAt = now
 	job.UpdatedAt = now
 	m.otaJobs[job.AssetID] = append(m.otaJobs[job.AssetID], job)
+	if m.outboxStore != nil {
+		if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOTATriggered, job.JobID, envelope.OTATriggeredPayload{
+			JobID:     job.JobID,
+			AssetID:   job.AssetID,
+			ReleaseID: job.ReleaseID,
+		}); err == nil {
+			m.outboxStore.Enqueue(evID, envelope.TopicOTATriggered, job.JobID, raw)
+		}
+	}
 	return job, nil
 }
 
@@ -433,6 +447,15 @@ func (m *mockRepository) BatchCreateOTAJobs(ctx context.Context, jobs []*DeviceO
 		cp.UpdatedAt = now
 		result[i] = &cp
 		m.otaJobs[cp.AssetID] = append(m.otaJobs[cp.AssetID], &cp)
+		if m.outboxStore != nil {
+			if evID, raw, err := outbox.BuildEnvelopeBytes(ctx, "", envelope.TopicOTATriggered, cp.JobID, envelope.OTATriggeredPayload{
+				JobID:     cp.JobID,
+				AssetID:   cp.AssetID,
+				ReleaseID: cp.ReleaseID,
+			}); err == nil {
+				m.outboxStore.Enqueue(evID, envelope.TopicOTATriggered, cp.JobID, raw)
+			}
+		}
 	}
 	return result, nil
 }
@@ -527,5 +550,23 @@ func (m *mockRepository) GetLatestEnvironmentalTelemetry(ctx context.Context, zo
 		}
 	}
 	return res, nil
+}
+
+func (m *mockRepository) ClaimOutboxEvents(ctx context.Context, limit int32, lease time.Duration) ([]*outbox.Record, error) {
+	if m.outboxStore == nil {
+		return []*outbox.Record{}, nil
+	}
+	return m.outboxStore.ClaimPending(limit, lease), nil
+}
+
+func (m *mockRepository) AckOutboxEvents(ctx context.Context, publishedIDs []int64, failures []outbox.Failure) (int, error) {
+	if m.outboxStore == nil {
+		return 0, nil
+	}
+	m.outboxStore.MarkPublished(publishedIDs)
+	for _, f := range failures {
+		m.outboxStore.MarkFailed(f.ID, f.Error, 0)
+	}
+	return len(publishedIDs) + len(failures), nil
 }
 

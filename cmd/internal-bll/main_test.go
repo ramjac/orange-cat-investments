@@ -212,8 +212,8 @@ func TestInternalBLLCreateIncidentAndOTA(t *testing.T) {
 	pub.mu.Lock()
 	topicCount := len(pub.topics)
 	pub.mu.Unlock()
-	if topicCount != 4 {
-		t.Fatalf("expected 4 published events (1 incident + 2 OTA + 1 onboard), got %d", topicCount)
+	if topicCount != 0 {
+		t.Fatalf("expected 0 direct broker publishes when domain APIs persist outbox events atomically, got %d", topicCount)
 	}
 }
 
