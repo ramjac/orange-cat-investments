@@ -40,6 +40,38 @@ data:
     ALTER DATABASE nextcloud OWNER TO nextcloud_user;
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbackrest-internal-config
+  namespace: oci-internal
+  labels:
+    app: postgres-internal
+data:
+  pgbackrest.conf: |
+    [global]
+    repo1-type=s3
+    repo1-s3-bucket=oci-backups
+    repo1-s3-endpoint=garage-service.oci-core.svc.cluster.local
+    repo1-storage-port=3943
+    repo1-s3-uri-style=path
+    repo1-s3-region=garage
+    repo1-storage-verify-tls=n
+    repo1-path=/pgbackrest/postgres-internal
+    repo1-retention-full=2
+    repo1-retention-diff=7
+    repo1-cipher-type=aes-256-cbc
+    repo1-cipher-pass=oci-internal-pgbackrest-aes256-cipher-key
+    compress-type=zst
+    process-max=2
+    start-fast=y
+    spool-path=/tmp/pgbackrest-spool
+    log-path=/tmp/pgbackrest-log
+
+    [oci]
+    pg1-path=/var/lib/postgresql/data/pgdata
+    pg1-port=5432
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-internal-data-pvc
@@ -59,7 +91,7 @@ metadata:
   labels:
     app: postgres-internal
 spec:
-  serviceName: postgres-internal-service
+  serviceName: postgres-internal-backend
   replicas: 1
   selector:
     matchLabels:
@@ -76,7 +108,18 @@ spec:
       containers:
         - name: postgres
           image: postgres:16-alpine
-          args: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+          args:
+            - "postgres"
+            - "-c"
+            - "shared_preload_libraries=pg_stat_statements"
+            - "-c"
+            - "wal_level=replica"
+            - "-c"
+            - "archive_mode=on"
+            - "-c"
+            - "archive_timeout=60s"
+            - "-c"
+            - "archive_command=mkdir -p /var/lib/postgresql/wal_archive && test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f # pgbackrest"
           ports:
             - containerPort: 5432
               name: postgres
@@ -100,6 +143,10 @@ spec:
               mountPath: /var/lib/postgresql/data
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
+            - name: wal-archive
+              mountPath: /var/lib/postgresql/wal_archive
+            - name: pg-run
+              mountPath: /var/run/postgresql
           resources:
             requests:
               cpu: 250m
@@ -159,6 +206,89 @@ spec:
               cpu: 100m
 
               memory: 64Mi
+        - name: pgbackrest
+          image: woblerr/pgbackrest:2.54.2
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /tmp/pgbackrest-spool /tmp/pgbackrest-log /tmp/pgbackrest-metrics
+              printf "pgbackrest_wal_archive_status 1\n" > /tmp/pgbackrest-metrics/metrics.prom
+              (
+                while true; do
+                  BODY=$(cat /tmp/pgbackrest-metrics/metrics.prom 2>/dev/null || printf "pgbackrest_wal_archive_status 1\n")
+                  printf "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s" "${#BODY}" "${BODY}" | nc -l -p 9854 >/dev/null 2>&1 || sleep 1
+                done
+              ) &
+              export PGBACKREST_REPO1_S3_KEY="${BLOBSTORE_ACCESS_KEY:-GK0123456789abcdef01234567}"
+              export PGBACKREST_REPO1_S3_KEY_SECRET="${BLOBSTORE_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+              pgbackrest --stanza=oci stanza-create || true
+              (
+                while true; do
+                  ok=1
+                  for wal in /var/lib/postgresql/wal_archive/0*; do
+                    [ -f "$wal" ] || continue
+                    if pgbackrest --stanza=oci archive-push "$wal"; then
+                      rm -f "$wal"
+                    else
+                      ok=0
+                    fi
+                  done
+                  printf "pgbackrest_wal_archive_status %d\npgbackrest_last_check_timestamp_seconds %d\n" "$ok" "$(date +%s)" > /tmp/pgbackrest-metrics/metrics.prom
+                  sleep 2
+                done
+              ) &
+              last_diff_day=""
+              while true; do
+                today=$(date -u +%Y-%m-%d)
+                if [ "$today" != "$last_diff_day" ]; then
+                  if pgbackrest --stanza=oci backup --type=diff || pgbackrest --stanza=oci backup --type=full; then
+                    last_diff_day="$today"
+                  fi
+                fi
+                sleep 30
+              done
+          env:
+            - name: PGBACKREST_PG1_SOCKET_PATH
+              value: /var/run/postgresql
+            - name: PGBACKREST_PG1_USER
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGBACKREST_REPO1_S3_KEY
+              value: "GK0123456789abcdef01234567"
+            - name: PGBACKREST_REPO1_S3_KEY_SECRET
+              value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            - name: BLOBSTORE_ACCESS_KEY
+              value: "GK0123456789abcdef01234567"
+            - name: BLOBSTORE_SECRET_KEY
+              value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          ports:
+            - containerPort: 9854
+              name: back-metrics
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: wal-archive
+              mountPath: /var/lib/postgresql/wal_archive
+            - name: pg-run
+              mountPath: /var/run/postgresql
+            - name: pgbackrest-config
+              mountPath: /etc/pgbackrest
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:
@@ -166,11 +296,18 @@ spec:
         - name: init-script
           configMap:
             name: postgres-internal-init-script
+        - name: wal-archive
+          emptyDir: {}
+        - name: pg-run
+          emptyDir: {}
+        - name: pgbackrest-config
+          configMap:
+            name: pgbackrest-internal-config
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: postgres-internal-service
+  name: postgres-internal-backend
   namespace: oci-internal
   labels:
     app: postgres-internal
@@ -206,7 +343,7 @@ spec:
             - |
               set -e
               echo "Starting OCI Internal PostgreSQL automated backup..."
-              pg_dumpall -h postgres-internal-service -U "${POSTGRES_USER}" -f /backups/oci_internal_backup_$(date +%Y%m%d_%H%M%S).sql
+              pg_dumpall -h postgres-internal-backend -U "${POSTGRES_USER}" -f /backups/oci_internal_backup_$(date +%Y%m%d_%H%M%S).sql
               echo "OCI Internal database backup completed successfully!"
             env:
             - name: POSTGRES_USER

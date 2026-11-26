@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -1805,16 +1806,39 @@ func (r *Registry) createArthurPersona() *Persona {
 
 					var created struct {
 						StatementID string `json:"statement_id"`
+						DownloadURL string `json:"download_url"`
 					}
 					_ = json.Unmarshal(bytes, &created)
 
-					// Verify PDF binary download
+					// Verify PDF binary download via BFF
 					downloadEndpoint := fmt.Sprintf("/api/v1/customer/statements/%s/download", created.StatementID)
 					dlResp, dlBytes, dlErr := client.DoCustomer(ctx, "GET", downloadEndpoint, nil)
 					if dlErr != nil {
 						return nil, dlErr
 					}
 					isPDF := dlResp.StatusCode == http.StatusOK && len(dlBytes) > 4 && string(dlBytes[:5]) == "%PDF-"
+
+					// If Garage S3 pre-signed URL was returned, verify direct download (7.43)
+					presignedURL := created.DownloadURL
+					if presignedURL == "" {
+						presignedURL = dlResp.Header.Get("X-PreSigned-Download-URL")
+					}
+					presignDetail := ""
+					if presignedURL != "" {
+						s3Req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, presignedURL, nil)
+						if reqErr != nil {
+							return nil, reqErr
+						}
+						s3Resp, s3Err := client.httpClient.Do(s3Req)
+						if s3Err != nil {
+							return nil, s3Err
+						}
+						s3Bytes, _ := io.ReadAll(io.LimitReader(s3Resp.Body, 1024*1024))
+						_ = s3Resp.Body.Close()
+						s3OK := s3Resp.StatusCode == http.StatusOK && len(s3Bytes) > 4 && string(s3Bytes[:5]) == "%PDF-"
+						isPDF = isPDF && s3OK
+						presignDetail = fmt.Sprintf(", presigned S3 HTTP %d (%d bytes)", s3Resp.StatusCode, len(s3Bytes))
+					}
 
 					return &ActionResult{
 						PersonaID:   "cust-longterm-arthur",
@@ -1823,7 +1847,7 @@ func (r *Registry) createArthurPersona() *Persona {
 						Endpoint:    downloadEndpoint,
 						Success:     isPDF,
 						StatusCode:  dlResp.StatusCode,
-						Details:     fmt.Sprintf("Generated and downloaded pure Go PDF 1.4 statement (ID: %s, %d bytes)", created.StatementID, len(dlBytes)),
+						Details:     fmt.Sprintf("Generated and downloaded pure Go PDF 1.4 statement (ID: %s, %d bytes%s)", created.StatementID, len(dlBytes), presignDetail),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -1928,14 +1952,25 @@ func (r *Registry) createChloePersona() *Persona {
 					if err != nil {
 						return nil, err
 					}
+					ok := resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active"))
+					mailDetail := ""
+					if (resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK) && client.MailpitURL() != "" {
+						msgs, mailErr := client.WaitForMailpitMessage(ctx, "to:chloe@oci.local", 6*time.Second)
+						if mailErr != nil {
+							ok = false
+							mailDetail = fmt.Sprintf(" [mailpit check failed: %v]", mailErr)
+						} else {
+							mailDetail = fmt.Sprintf(" [mailpit verified %d trade confirmation email(s)]", len(msgs))
+						}
+					}
 					return &ActionResult{
 						PersonaID:   "cust-active-chloe",
 						PersonaName: "Chloe Spark",
 						ActionName:  "chloe_momentum_buy_order",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusConflict || (resp.StatusCode == http.StatusBadRequest && strings.Contains(string(bytes), "emergency medical hold active")),
+						Success:     ok,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Executed momentum buy order on activity spike: %s", string(bytes)),
+						Details:     fmt.Sprintf("Executed momentum buy order on activity spike: %s%s", string(bytes), mailDetail),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},
@@ -2296,14 +2331,25 @@ func (r *Registry) createRickPersona() *Persona {
 					if err != nil {
 						return nil, err
 					}
+					ok := resp.StatusCode == http.StatusOK
+					mailDetail := ""
+					if ok && client.MailpitURL() != "" {
+						msgs, mailErr := client.WaitForMailpitMessage(ctx, "to:rick.newhire@oci.local", 6*time.Second)
+						if mailErr != nil {
+							ok = false
+							mailDetail = fmt.Sprintf(" [mailpit check failed: %v]", mailErr)
+						} else {
+							mailDetail = fmt.Sprintf(" [mailpit verified %d onboarding email(s)]", len(msgs))
+						}
+					}
 					return &ActionResult{
 						PersonaID:   "emp-human-rick",
 						PersonaName: "Rick Newhire",
 						ActionName:  "rick_trigger_self_onboarding_webhook",
 						Endpoint:    endpoint,
-						Success:     resp.StatusCode == http.StatusOK,
+						Success:     ok,
 						StatusCode:  resp.StatusCode,
-						Details:     fmt.Sprintf("Self onboarding saga webhook response: %s", string(bytes)),
+						Details:     fmt.Sprintf("Self onboarding saga webhook response: %s%s", string(bytes), mailDetail),
 						Timestamp:   time.Now().UTC(),
 					}, nil
 				},

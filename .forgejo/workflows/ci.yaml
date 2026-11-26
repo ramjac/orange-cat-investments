@@ -56,6 +56,25 @@ jobs:
           golangci-lint run
           gitleaks detect --no-git --config .gitleaks.toml
 
+      - name: Verify API & Schema Contracts (buf & oasdiff, 7.47)
+        run: |
+          if ! command -v buf &>/dev/null; then
+            curl -fsSL "https://github.com/bufbuild/buf/releases/download/v1.47.2/buf-Linux-x86_64" -o /usr/local/bin/buf
+            chmod +x /usr/local/bin/buf
+          fi
+          if ! command -v oasdiff &>/dev/null; then
+            curl -fsSL "https://github.com/Tufin/oasdiff/releases/download/v1.10.22/oasdiff_1.10.22_linux_amd64.tar.gz" | tar -C /usr/local/bin -xz oasdiff
+          fi
+          buf lint
+          if git rev-parse --verify origin/main &>/dev/null || git rev-parse --verify main &>/dev/null; then
+            BASE_REF="main"
+            if git rev-parse --verify origin/main &>/dev/null; then
+              BASE_REF="origin/main"
+            fi
+            buf breaking --against ".git#branch=${BASE_REF}"
+            oasdiff breaking "${BASE_REF}:api/openapi.yaml" api/openapi.yaml
+          fi
+
       - name: Verify CI Contracts
         run: ./scripts/verify-ci-contracts.sh
 
@@ -149,6 +168,7 @@ jobs:
           docker build -t localhost:32000/oci-employee-bff:dev-latest -t localhost:32000/oci-employee-bff:sha-${COMMIT_SHA} -f cmd/employee-bff/Dockerfile .
           docker build -t localhost:32000/oci-pebble-proxy:dev-latest -t localhost:32000/oci-pebble-proxy:sha-${COMMIT_SHA} -f cmd/pebble-proxy/Dockerfile .
           docker build -t localhost:32000/oci-worker:dev-latest -t localhost:32000/oci-worker:sha-${COMMIT_SHA} -f cmd/worker/Dockerfile .
+          docker build -t localhost:32000/db-migrate:dev-latest -t localhost:32000/db-migrate:sha-${COMMIT_SHA} -f cmd/db-migrate/Dockerfile .
           docker build -t localhost:32000/oci-customer-portal:dev-latest -t localhost:32000/oci-customer-portal:sha-${COMMIT_SHA} -f web/customer-portal/Dockerfile .
           docker build -t localhost:32000/oci-employee-portal:dev-latest -t localhost:32000/oci-employee-portal:sha-${COMMIT_SHA} -f web/employee-portal/Dockerfile .
           docker build -t localhost:32000/oci-marketing:dev-latest -t localhost:32000/oci-marketing:sha-${COMMIT_SHA} -f web/marketing/Dockerfile .
@@ -158,13 +178,13 @@ jobs:
 
           echo "Running Trivy vulnerability gate (7.33) & generating CycloneDX SBOMs (7.34)..."
           mkdir -p /tmp/sboms
-          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker db-migrate oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
             trivy image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed --scanners vuln localhost:32000/${app}:sha-${COMMIT_SHA}
             syft localhost:32000/${app}:sha-${COMMIT_SHA} -o cyclonedx-json=/tmp/sboms/${app}.cdx.json
           done
 
           echo "Pushing images directly to Harbor container registry (localhost:32000)..."
-          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker db-migrate oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
             docker push localhost:32000/${app}:dev-latest
             docker push localhost:32000/${app}:sha-${COMMIT_SHA}
           done
@@ -172,7 +192,7 @@ jobs:
           if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
             echo "${COSIGN_PRIVATE_KEY}" > /tmp/cosign.key
             chmod 600 /tmp/cosign.key
-            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker db-migrate oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
               DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' localhost:32000/${app}:sha-${COMMIT_SHA} 2>/dev/null || echo "localhost:32000/${app}:sha-${COMMIT_SHA}")
               COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign --yes --key /tmp/cosign.key "${DIGEST_REF}"
               COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign attest --yes --key /tmp/cosign.key --predicate "/tmp/sboms/${app}.cdx.json" --type cyclonedx "${DIGEST_REF}"
@@ -196,7 +216,13 @@ jobs:
           echo "Applying Gateway API CRDs & development environment manifests to oci-dev for sha-${COMMIT_SHA}..."
           kubectl apply -f k8s/namespaces/namespaces.yaml
           kubectl apply -f k8s/ha/lan/tls/gateway.yaml || (sleep 2 && kubectl apply -f k8s/ha/lan/tls/gateway.yaml)
+          kubectl delete job db-migrate -n oci-dev --ignore-not-found
           kubectl apply -f k8s/oci-dev/
+          kubectl rollout status statefulset/postgres-dev -n oci-dev --timeout=120s
+          kubectl rollout status deployment/pgbouncer -n oci-dev --timeout=120s
+          kubectl delete job db-migrate -n oci-dev --ignore-not-found
+          sed "s|localhost:32000/db-migrate:dev-latest|localhost:32000/db-migrate:sha-${COMMIT_SHA}|g" k8s/oci-dev/db-migrate-job.yaml | kubectl apply -f -
+          kubectl wait --for=condition=complete job/db-migrate -n oci-dev --timeout=120s
           
           echo "Setting immutable image tags (sha-${COMMIT_SHA}) on oci-dev deployments..."
           kubectl set image deployment/workforce-api workforce-api=localhost:32000/workforce-api:sha-${COMMIT_SHA} -n oci-dev
@@ -282,7 +308,7 @@ jobs:
         run: |
           COMMIT_SHA=$(git rev-parse --short HEAD)
           echo "Promoting verified release sha-${COMMIT_SHA} to production :prod-stable and :latest"
-          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+          for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker db-migrate oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:prod-stable
             docker tag localhost:32000/${app}:sha-${COMMIT_SHA} localhost:32000/${app}:latest
             docker push localhost:32000/${app}:prod-stable
@@ -291,7 +317,7 @@ jobs:
           if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
             echo "${COSIGN_PRIVATE_KEY}" > /tmp/cosign.key
             chmod 600 /tmp/cosign.key
-            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
+            for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-pebble-proxy oci-worker db-migrate oci-customer-portal oci-employee-portal oci-marketing mock-hardware mock-bank mock-broker; do
               COSIGN_PASSWORD="${COSIGN_PASSWORD:-}" cosign sign --yes --key /tmp/cosign.key "localhost:32000/${app}:prod-stable"
             done
             rm -f /tmp/cosign.key
@@ -315,7 +341,13 @@ jobs:
             kubectl rollout status deployment/${app} -n external-sim --timeout=120s
           done
           echo "Rolling out verified stable release to oci-core..."
+          kubectl delete job db-migrate -n oci-core --ignore-not-found
           kubectl apply -f k8s/oci-core/
+          kubectl rollout status statefulset/postgres-core -n oci-core --timeout=120s
+          kubectl rollout status deployment/pgbouncer -n oci-core --timeout=120s
+          kubectl delete job db-migrate -n oci-core --ignore-not-found
+          sed "s|localhost:32000/db-migrate:prod-stable|localhost:32000/db-migrate:sha-${COMMIT_SHA}|g" k8s/oci-core/db-migrate-job.yaml | kubectl apply -f -
+          kubectl wait --for=condition=complete job/db-migrate -n oci-core --timeout=120s
           for app in workforce-api facilities-api core-invest-api ops-api customer-bll internal-bll oci-customer-bff oci-employee-bff oci-customer-portal oci-employee-portal oci-pebble-proxy oci-worker oci-marketing; do
             kubectl set image deployment/${app} ${app}=localhost:32000/${app}:sha-${COMMIT_SHA} -n oci-core
             kubectl rollout status deployment/${app} -n oci-core --timeout=180s

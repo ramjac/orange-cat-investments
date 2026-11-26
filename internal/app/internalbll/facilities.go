@@ -2,6 +2,7 @@ package internalbll
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
@@ -10,7 +11,9 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -67,7 +70,20 @@ func (s *Server) CreateFirmwareRelease(ctx context.Context, in *facilitiesv1.Cre
 		return nil, status.Error(codes.Unavailable, "facilities client not configured")
 	}
 	res, err := s.facClient.CreateFirmwareRelease(ctx, in)
-	return res, s.logDomainError("facilities-api", "CreateFirmwareRelease", err)
+	if err != nil {
+		return res, s.logDomainError("facilities-api", "CreateFirmwareRelease", err)
+	}
+	if s.blobStore != nil && res != nil && res.Release != nil {
+		key := fmt.Sprintf("firmware/%s/%s/release.json", res.Release.DeviceType, res.Release.Version)
+		if payload, mErr := json.Marshal(res.Release); mErr == nil {
+			if _, pErr := s.blobStore.PutBlob(ctx, "oci-firmware", key, "application/json", payload); pErr != nil {
+				s.logger.Warn("failed to archive firmware release metadata to blobStore", "release_id", res.Release.ReleaseID, "error", pErr)
+			} else if url, uErr := s.blobStore.PresignGetURL(ctx, "oci-firmware", key, 15*time.Minute); uErr == nil && url != "" {
+				_ = grpc.SetHeader(ctx, metadata.Pairs("x-presigned-download-url", url))
+			}
+		}
+	}
+	return res, nil
 }
 
 func (s *Server) ListFirmwareReleases(ctx context.Context, in *facilitiesv1.ListFirmwareReleasesRequest) (*facilitiesv1.ListFirmwareReleasesResponse, error) {

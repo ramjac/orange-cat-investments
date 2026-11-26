@@ -80,6 +80,18 @@ spec:
               value: "/var/lib/gitea/data/tmp/package-upload"
             - name: FORGEJO__packages__LIMIT_TOTAL_OWNER_SIZE
               value: "-1"
+            - name: SMTP_HOST
+              value: "mailpit-service.oci-internal.svc.cluster.local:1025"
+            - name: FORGEJO__mailer__ENABLED
+              value: "true"
+            - name: FORGEJO__mailer__PROTOCOL
+              value: "smtp"
+            - name: FORGEJO__mailer__SMTP_ADDR
+              value: "mailpit-service.oci-internal.svc.cluster.local"
+            - name: FORGEJO__mailer__SMTP_PORT
+              value: "1025"
+            - name: FORGEJO__mailer__FROM
+              value: "forgejo@oci.local"
           resources:
             requests:
               cpu: 200m

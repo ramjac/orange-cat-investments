@@ -1,0 +1,63 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: oci-core
+  labels:
+    app: db-migrate
+    tier: migration
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+        tier: migration
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: db-migrate
+          image: localhost:32000/db-migrate:prod-stable
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: PGHOST
+              value: postgres-core-service
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: oci
+            - name: PGSSLMODE
+              value: disable
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: POSTGRES_PASSWORD
+            - name: MIGRATIONS_DIR
+              value: /app/scripts/migrations
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

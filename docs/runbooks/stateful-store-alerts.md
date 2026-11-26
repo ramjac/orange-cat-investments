@@ -12,6 +12,7 @@ This runbook documents the Prometheus alerting rules for OCI's stateful data sto
 | `PostgresDeadTupleBloat` | `postgresql_alerts` | `warning` | `database` | `n_dead_tup > 10000` and dead ratio `> 0.20` | `15m` |
 | `PostgresXIDWraparoundRisk` | `postgresql_alerts` | `critical` | `database` | `pg_database_age > 1500000000` (1.5B XIDs) | `5m` |
 | `PostgresLowCacheHitRatio` | `postgresql_alerts` | `warning` | `database` | 5m buffer cache hit ratio `< 0.99` (when active) | `10m` |
+| `PostgresWALArchiveFailing` | `postgresql_alerts` | `critical` | `database` | `rate(pg_stat_archiver_failed_count[5m]) > 0 or pgbackrest_wal_archive_status == 0` | `2m` |
 | `MeilisearchDown` | `meilisearch_alerts` | `critical` | `search` | `up{job="meilisearch"} == 0` | `1m` |
 | `MeilisearchDiskUsageHigh` | `meilisearch_alerts` | `warning` | `search` | `meilisearch-data-pvc` used / capacity `> 0.80` | `5m` |
 
@@ -102,6 +103,34 @@ This runbook documents the Prometheus alerting rules for OCI's stateful data sto
 * **Remediation:**
   1. Identify queries performing sequential scans on large tables and add missing indexes.
   2. Verify `shared_buffers` sizing relative to pod memory limits in `postgres-core.yaml` / `postgres-internal.yaml`.
+
+### `PostgresWALArchiveFailing`
+* **Severity:** `critical`
+* **Threshold:** `rate(pg_stat_archiver_failed_count[5m]) > 0` or `pgbackrest_wal_archive_status == 0` for **2 minutes**.
+* **Impact:** Continuous Write-Ahead Log (WAL) archiving via PgBackRest to Garage S3 (`oci-backups`) is failing, degrading Point-In-Time Recovery (PITR) RPO.
+* **Triage:**
+  ```bash
+  kubectl -n oci-core exec statefulset/postgres-core -c pgbackrest -- pgbackrest --stanza=oci info
+  kubectl -n oci-core exec statefulset/postgres-core -c postgres -- psql -U "$POSTGRES_USER" -d oci -c "SELECT * FROM pg_stat_archiver;"
+  ```
+* **Remediation:**
+  1. Verify Garage S3 (`garage-service:3900`) health and `oci-backups` bucket accessibility.
+  2. Inspect `pgbackrest` sidecar logs (`kubectl -n oci-core logs statefulset/postgres-core -c pgbackrest`) for cipher key or credential mismatches.
+
+### Point-In-Time Recovery (PITR) Restore Drill (`PgBackRest`)
+To execute a controlled PITR restore drill in `oci-dev` (or recover to a specific timestamp before an accidental `DROP TABLE`):
+1. Record or identify the target UTC recovery timestamp (`YYYY-MM-DD HH:MM:SS`).
+2. Run the automated verification drill script against `oci-dev`:
+   ```bash
+   ./scripts/verify-pitr-restore.sh --namespace oci-dev
+   ```
+3. Manual PgBackRest PITR restore procedure (into an isolated recovery directory):
+   ```bash
+   pgbackrest --stanza=oci --pg1-path=/tmp/pitr-restore \
+     --type=time "--target=YYYY-MM-DD HH:MM:SS" \
+     --target-action=promote restore
+   ```
+4. Start PostgreSQL against `/tmp/pitr-restore`, validate the recovered table state, and dump/re-import or promote as needed.
 
 ---
 

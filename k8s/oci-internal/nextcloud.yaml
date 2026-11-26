@@ -48,6 +48,14 @@ spec:
                   key: NEXTCLOUD_ADMIN_PASSWORD
             - name: NEXTCLOUD_TRUSTED_DOMAINS
               value: "nextcloud.oci.local nextcloud-service nextcloud-service.oci-internal.svc.cluster.local localhost"
+            - name: SMTP_HOST
+              value: "mailpit-service.oci-internal.svc.cluster.local:1025"
+            - name: SMTP_PORT
+              value: "1025"
+            - name: MAIL_FROM_ADDRESS
+              value: "nextcloud"
+            - name: MAIL_DOMAIN
+              value: "oci.local"
           volumeMounts:
             - name: nextcloud-data
               mountPath: /var/www/html

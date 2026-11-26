@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	blobstoreS3 "github.com/orange-cat-investments/oci/pkg/blobstore/s3"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
@@ -644,4 +645,57 @@ func TestGenerateAndListStatements_Lifecycle(t *testing.T) {
 	_, err = srvNoCI.GenerateBatchStatements(ctx, &customerbllv1.GenerateBatchStatementsRequest{})
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(err))
+}
+
+type mockBlobStore struct {
+	blobs map[string][]byte
+}
+
+func (m *mockBlobStore) EnsureBuckets(_ context.Context, _ ...string) error { return nil }
+func (m *mockBlobStore) PutBlob(_ context.Context, bucket, key, contentType string, data []byte) (*blobstoreS3.BlobMetadata, error) {
+	if m.blobs == nil {
+		m.blobs = make(map[string][]byte)
+	}
+	m.blobs[bucket+"/"+key] = append([]byte(nil), data...)
+	return &blobstoreS3.BlobMetadata{Bucket: bucket, Key: key, ContentType: contentType, SizeBytes: int64(len(data))}, nil
+}
+func (m *mockBlobStore) GetBlob(_ context.Context, bucket, key string) ([]byte, error) {
+	if b, ok := m.blobs[bucket+"/"+key]; ok {
+		return b, nil
+	}
+	return nil, errors.New("not found")
+}
+func (m *mockBlobStore) PresignGetURL(_ context.Context, bucket, key string, _ time.Duration) (string, error) {
+	return "http://s3.oci.local/" + bucket + "/" + key + "?X-Amz-Signature=deadbeef", nil
+}
+
+func TestStatements_BlobStoreUploadAndDownload(t *testing.T) {
+	bs := &mockBlobStore{blobs: make(map[string][]byte)}
+	mockCI := &mockCoreInvestClient{
+		generateMonthlyFunc: func(ctx context.Context, in *coreinvestv1.GenerateMonthlyStatementRequest) (*coreinvestv1.GenerateMonthlyStatementResponse, error) {
+			return &coreinvestv1.GenerateMonthlyStatementResponse{
+				Statement: &coreinvestv1.CustomerStatement{StatementID: "stmt-s3-1"},
+				PDFBytes:  []byte("%PDF-1.4 Garage S3 Stored"),
+			}, nil
+		},
+	}
+
+	srv := NewServer(Config{BlobStore: bs})
+	srv.SetCoreInvestClient(mockCI)
+
+	genRes, err := srv.GenerateStatement(context.Background(), &customerbllv1.GenerateStatementRequest{
+		CustomerID: "cust-s3",
+		Type:       "monthly",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "stmt-s3-1", genRes.Statement.StatementID)
+	assert.Equal(t, []byte("%PDF-1.4 Garage S3 Stored"), bs.blobs["oci-statements/statements/cust-s3/stmt-s3-1.pdf"])
+
+	// DownloadStatement should serve cached bytes directly from blobStore
+	dlRes, err := srv.DownloadStatement(context.Background(), &customerbllv1.DownloadStatementRequest{
+		CustomerID:  "cust-s3",
+		StatementID: "stmt-s3-1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("%PDF-1.4 Garage S3 Stored"), dlRes.PDFBytes)
 }

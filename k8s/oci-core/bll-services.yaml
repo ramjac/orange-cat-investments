@@ -74,6 +74,24 @@ spec:
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
             - name: DEFAULT_FELINE_ID
               value: "" # Optional default employee override; dynamically queried from workforce API if unset
+            - name: BLOBSTORE_ENDPOINT
+              value: "http://garage-service.oci-core.svc.cluster.local:3900"
+            - name: BLOBSTORE_PUBLIC_ENDPOINT
+              value: "http://s3.oci.local"
+            - name: BLOBSTORE_REGION
+              value: "garage"
+            - name: BLOBSTORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: BLOBSTORE_ACCESS_KEY
+                  optional: true
+            - name: BLOBSTORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: BLOBSTORE_SECRET_KEY
+                  optional: true
             - name: TLS_CERT_FILE
               value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE
@@ -221,6 +239,24 @@ spec:
                   key: MEILI_MASTER_KEY
             - name: RABBITMQ_URL
               value: "amqp://oci_rabbit:oci_rabbit_pass@rabbitmq-service.oci-core.svc.cluster.local:5672/"
+            - name: BLOBSTORE_ENDPOINT
+              value: "http://garage-service.oci-core.svc.cluster.local:3900"
+            - name: BLOBSTORE_PUBLIC_ENDPOINT
+              value: "http://s3.oci.local"
+            - name: BLOBSTORE_REGION
+              value: "garage"
+            - name: BLOBSTORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: BLOBSTORE_ACCESS_KEY
+                  optional: true
+            - name: BLOBSTORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: oci-core-secrets
+                  key: BLOBSTORE_SECRET_KEY
+                  optional: true
             - name: TLS_CERT_FILE
               value: "/etc/tls/certs/tls.crt"
             - name: TLS_KEY_FILE

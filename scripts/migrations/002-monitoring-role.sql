@@ -1,3 +1,5 @@
+-- +goose Up
+-- +goose StatementBegin
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'oci_monitor') THEN
@@ -7,4 +9,5 @@ BEGIN
   END IF;
 END
 $$;
+-- +goose StatementEnd
 GRANT pg_monitor TO oci_monitor;

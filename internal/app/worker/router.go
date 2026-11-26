@@ -10,6 +10,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/message/router/middleware"
+	"github.com/orange-cat-investments/oci/pkg/envelope"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
 )
@@ -209,6 +210,45 @@ func CreateRouterWithRetry(
 		return nil, err
 	}
 	logger.Info("Watermill incident alert pipeline handler registered")
+
+	if smtpNotifier := NewSMTPNotifierFromEnv(logger); smtpNotifier != nil {
+		onbEmailHandler := router.AddNoPublisherHandler(
+			"onboarding_welcome_email_handler",
+			envelope.TopicEmployeeOnboarded,
+			ps,
+			func(msg *message.Message) error {
+				return HandleEmployeeOnboarded(msg.Context(), logger, smtpNotifier, msg)
+			},
+		)
+		if err := AttachHandlerResilience(onbEmailHandler, envelope.TopicEmployeeOnboarded, ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
+
+		tradeEmailHandler := router.AddNoPublisherHandler(
+			"trade_confirmation_email_handler",
+			envelope.TopicTradeExecuted,
+			ps,
+			func(msg *message.Message) error {
+				return HandleTradeExecutedEmail(msg.Context(), logger, smtpNotifier, msg)
+			},
+		)
+		if err := AttachHandlerResilience(tradeEmailHandler, envelope.TopicTradeExecuted, ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
+
+		achEmailHandler := router.AddNoPublisherHandler(
+			"ach_settled_email_handler",
+			envelope.TopicACHSettled,
+			ps,
+			func(msg *message.Message) error {
+				return HandleACHSettledEmail(msg.Context(), logger, smtpNotifier, msg)
+			},
+		)
+		if err := AttachHandlerResilience(achEmailHandler, envelope.TopicACHSettled, ps, retryCfg, logger); err != nil {
+			return nil, err
+		}
+		logger.Info("Watermill SMTP transactional email handlers registered")
+	}
 
 	return router, nil
 }

@@ -2,6 +2,7 @@
 -- Idempotent migration adding schema-scoped transactional SQL outbox tables
 -- across workforce, facilities, core_invest, and ops schemas (Phase 10 / 7.40).
 
+-- +goose Up
 CREATE TABLE IF NOT EXISTS workforce.outbox_events (
     id BIGSERIAL PRIMARY KEY,
     event_id UUID NOT NULL UNIQUE,

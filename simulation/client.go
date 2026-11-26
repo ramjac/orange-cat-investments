@@ -27,6 +27,7 @@ type Client struct {
 	brokerURL       string
 	bankURL         string
 	forgejoURL      string
+	mailpitURL      string
 	mode            string
 	tokensFile      string
 	transport       http.RoundTripper
@@ -70,6 +71,7 @@ func NewClient(cfg *Config) (*Client, error) {
 		brokerURL:   strings.TrimSuffix(cfg.BrokerURL, "/"),
 		bankURL:     strings.TrimSuffix(cfg.BankURL, "/"),
 		forgejoURL:  strings.TrimSuffix(cfg.ForgejoURL, "/"),
+		mailpitURL:  strings.TrimSuffix(cfg.MailpitURL, "/"),
 		mode:        cfg.Mode,
 		tokensFile:  cfg.TokensFile,
 		transport:   transport,
@@ -745,4 +747,62 @@ func (c *Client) findTimesheetByShiftDate(ctx context.Context, employeeID, shift
 		}
 	}
 	return nil, false, nil
+}
+
+// MailpitMessage represents a summary message returned by Mailpit's /api/v1/messages endpoint.
+type MailpitMessage struct {
+	ID      string `json:"ID"`
+	Subject string `json:"Subject"`
+	To      []struct {
+		Address string `json:"Address"`
+	} `json:"To"`
+}
+
+// MailpitURL returns the configured Mailpit REST API base URL.
+func (c *Client) MailpitURL() string {
+	return c.mailpitURL
+}
+
+// QueryMailpitMessages queries Mailpit's REST API (/api/v1/messages?query=...).
+func (c *Client) QueryMailpitMessages(ctx context.Context, query string) ([]MailpitMessage, error) {
+	if c.mailpitURL == "" {
+		return nil, fmt.Errorf("mailpit URL is not configured")
+	}
+	endpoint := fmt.Sprintf("%s/api/v1/messages?query=%s", c.mailpitURL, url.QueryEscape(query))
+	resp, body, err := c.doRequest(ctx, endpoint, http.MethodGet, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("mailpit query failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	var res struct {
+		Messages []MailpitMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, fmt.Errorf("decode mailpit response: %w", err)
+	}
+	return res.Messages, nil
+}
+
+// WaitForMailpitMessage polls Mailpit until at least one matching message appears or timeout elapses.
+func (c *Client) WaitForMailpitMessage(ctx context.Context, query string, timeout time.Duration) ([]MailpitMessage, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		msgs, err := c.QueryMailpitMessages(ctx, query)
+		if err == nil && len(msgs) > 0 {
+			return msgs, nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("no mailpit messages matched query %q within %s", query, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
 }

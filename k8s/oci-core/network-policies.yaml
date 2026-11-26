@@ -328,6 +328,17 @@ spec:
         - protocol: TCP
           port: 8000
     - to:
+        - podSelector:
+            matchLabels:
+              app: garage
+      ports:
+        - protocol: TCP
+          port: 3900
+        - protocol: TCP
+          port: 3903
+        - protocol: TCP
+          port: 3943
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: external-sim
@@ -377,6 +388,9 @@ spec:
         - podSelector:
             matchLabels:
               app: postgres-core
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
       ports:
         - protocol: TCP
           port: 5432
@@ -434,6 +448,16 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: mailpit
+      ports:
+        - protocol: TCP
+          port: 1025
 ---
 # PostgreSQL Core Backup CronJob
 apiVersion: networking.k8s.io/v1
@@ -452,6 +476,9 @@ spec:
         - podSelector:
             matchLabels:
               app: postgres-core
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
       ports:
         - protocol: TCP
           port: 5432
@@ -476,6 +503,12 @@ spec:
               tier: domain-api
         - podSelector:
             matchLabels:
+              app: pgbouncer
+        - podSelector:
+            matchLabels:
+              app: db-migrate
+        - podSelector:
+            matchLabels:
               app: zitadel
         - podSelector:
             matchLabels:
@@ -486,6 +519,16 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: garage
+      ports:
+        - protocol: TCP
+          port: 3900
+        - protocol: TCP
+          port: 3943
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -608,9 +651,22 @@ spec:
         - podSelector:
             matchLabels:
               app: postgres-core
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
       ports:
         - protocol: TCP
           port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: mailpit
+      ports:
+        - protocol: TCP
+          port: 1025
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -643,6 +699,9 @@ spec:
         - podSelector:
             matchLabels:
               app: postgres-core
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
       ports:
         - protocol: TCP
           port: 5432
@@ -651,8 +710,12 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: oci-dev
           podSelector:
-            matchLabels:
-              app: postgres-dev
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - postgres-dev
+                  - pgbouncer
       ports:
         - protocol: TCP
           port: 5432
@@ -661,8 +724,12 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: oci-internal
           podSelector:
-            matchLabels:
-              app: postgres-internal
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - postgres-internal
+                  - pgbouncer
       ports:
         - protocol: TCP
           port: 5432
@@ -709,3 +776,141 @@ spec:
         - protocol: UDP
           port: 49152
           endPort: 49200
+---
+# Garage S3 Object Storage (7.43)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: garage-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: garage
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: bll
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+        - podSelector:
+            matchLabels:
+              app: garage-bootstrap
+        - podSelector:
+            matchLabels:
+              app: cloudflare-tunnel
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-internal
+          podSelector:
+            matchLabels:
+              app: postgres-internal
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+      ports:
+        - protocol: TCP
+          port: 3900
+        - protocol: TCP
+          port: 3903
+        - protocol: TCP
+          port: 3943
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: garage-bootstrap-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: garage-bootstrap
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: garage
+      ports:
+        - protocol: TCP
+          port: 3900
+        - protocol: TCP
+          port: 3903
+---
+# PgBouncer Connection Pooler (7.46)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgbouncer-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: pgbouncer
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: domain-api
+        - podSelector:
+            matchLabels:
+              app: zitadel
+        - podSelector:
+            matchLabels:
+              app: openbao
+        - podSelector:
+            matchLabels:
+              app: postgres-core-backup
+        - podSelector:
+            matchLabels:
+              app: db-migrate
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Automated Schema Migration Runner Job (7.46)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: db-migrate-network-policy
+  namespace: oci-core
+spec:
+  podSelector:
+    matchLabels:
+      app: db-migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
+        - podSelector:
+            matchLabels:
+              app: postgres-core
+      ports:
+        - protocol: TCP
+          port: 5432

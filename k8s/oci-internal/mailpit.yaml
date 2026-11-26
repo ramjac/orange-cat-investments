@@ -1,0 +1,80 @@
+# ==============================================================================
+# Mailpit In-Cluster SMTP Sandbox & REST Inspection UI (Phase 11 / 7.45)
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  namespace: oci-internal
+  labels:
+    app: mailpit
+    tier: messaging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mailpit
+  template:
+    metadata:
+      labels:
+        app: mailpit
+        tier: messaging
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.21
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1025
+              name: smtp
+            - containerPort: 8025
+              name: http
+          env:
+            - name: MP_MAX_MESSAGES
+              value: "5000"
+            - name: MP_SMTP_AUTH_ACCEPT_ANY
+              value: "1"
+            - name: MP_SMTP_AUTH_ALLOW_INSECURE
+              value: "1"
+            - name: MP_UI_BIND_ADDR
+              value: "0.0.0.0:8025"
+            - name: MP_SMTP_BIND_ADDR
+              value: "0.0.0.0:1025"
+          readinessProbe:
+            httpGet:
+              path: /livez
+              port: 8025
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8025
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit-service
+  namespace: oci-internal
+  labels:
+    app: mailpit
+    tier: messaging
+spec:
+  ports:
+    - port: 1025
+      targetPort: 1025
+      name: smtp
+    - port: 8025
+      targetPort: 8025
+      name: http
+  selector:
+    app: mailpit

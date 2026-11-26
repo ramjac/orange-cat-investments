@@ -410,6 +410,15 @@ data:
             annotations:
               summary: "PostgreSQL cache hit ratio below 99% on {{ $labels.datname }}"
               description: "Database {{ $labels.datname }} on {{ $labels.instance }} has a shared buffer cache hit ratio of {{ $value | humanizePercentage }} over the last 5m."
+          - alert: PostgresWALArchiveFailing
+            expr: rate(pg_stat_archiver_failed_count[5m]) > 0 or pgbackrest_wal_archive_status == 0
+            for: 2m
+            labels:
+              severity: critical
+              tier: database
+            annotations:
+              summary: "PostgreSQL WAL archiving to Garage S3 via PgBackRest is failing on {{ $labels.instance }}"
+              description: "pg_stat_archiver or PgBackRest reports WAL archive failures on {{ $labels.instance }}. Continuous PITR RPO is degraded."
 
       - name: meilisearch_alerts
         rules:

@@ -207,6 +207,19 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: garage
+      ports:
+        - protocol: TCP
+          port: 3900
+        - protocol: TCP
+          port: 3943
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -224,6 +237,109 @@ spec:
         - podSelector:
             matchLabels:
               app: postgres-internal
+        - podSelector:
+            matchLabels:
+              app: pgbouncer
       ports:
         - protocol: TCP
           port: 5432
+---
+# PgBouncer Connection Pooler for COTS (7.46)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgbouncer-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchLabels:
+      app: pgbouncer
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: openbao
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres-internal
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+# Mailpit In-Cluster SMTP Sandbox (7.45)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mailpit-network-policy
+  namespace: oci-internal
+spec:
+  podSelector:
+    matchLabels:
+      app: mailpit
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - oci-core
+                  - oci-dev
+          podSelector:
+            matchExpressions:
+              - key: tier
+                operator: In
+                values:
+                  - worker
+                  - batch
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - oci-core
+                  - oci-dev
+          podSelector:
+            matchLabels:
+              app: zitadel
+      ports:
+        - protocol: TCP
+          port: 1025
+    - from:
+        - podSelector:
+            matchLabels:
+              app: forgejo-runner
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - ingress
+                  - kube-system
+                  - gateway-system
+                  - envoy-gateway-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-core
+          podSelector:
+            matchLabels:
+              app: cloudflare-tunnel
+      ports:
+        - protocol: TCP
+          port: 8025

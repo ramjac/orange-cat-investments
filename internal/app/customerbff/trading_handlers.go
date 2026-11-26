@@ -13,6 +13,7 @@ import (
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	"github.com/orange-cat-investments/oci/pkg/httputil"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -57,7 +58,11 @@ func (b *CustomerBFF) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	orderResp, err := b.bllClient.ValidateAndExecuteOrder(r.Context(), &customerbllv1.ValidateAndExecuteOrderRequest{
+	bllCtx := r.Context()
+	if session.Email != "" {
+		bllCtx = metadata.AppendToOutgoingContext(bllCtx, "x-customer-email", session.Email)
+	}
+	orderResp, err := b.bllClient.ValidateAndExecuteOrder(bllCtx, &customerbllv1.ValidateAndExecuteOrderRequest{
 		CustomerID:  session.CustomerID,
 		PortfolioID: req.PortfolioID,
 		Symbol:      req.Symbol,
