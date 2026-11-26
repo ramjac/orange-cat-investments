@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -17,6 +18,7 @@ import (
 	workforcev1 "github.com/orange-cat-investments/oci/pkg/gen/go/workforce/v1"
 	"github.com/orange-cat-investments/oci/pkg/telemetry"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -260,7 +262,42 @@ func (s *Server) ValidateAndExecuteOrder(ctx context.Context, in *customerbllv1.
 		_ = s.publisher.Publish(envelope.TopicOrderPlaced, message.NewMessage(event.EventID, eventBytes))
 	}
 
+	// 5. Publish transactional trade_executed notification event for async SMTP confirmation (Phase 11 / 7.45)
+	if s.publisher != nil {
+		customerEmail := resolveOrderCustomerEmail(ctx, portResp.Portfolio, in.CustomerID)
+		if customerEmail != "" {
+			txEventID := watermill.NewUUID()
+			txEvent := envelope.NewEventEnvelope(ctx, txEventID, envelope.TopicTradeExecuted, orderID, envelope.TradeExecutedPayload{
+				OrderID:       orderID,
+				CustomerID:    in.CustomerID,
+				CustomerEmail: customerEmail,
+				PortfolioID:   in.PortfolioID,
+				Symbol:        in.Symbol,
+				Side:          in.Side,
+				Quantity:      in.Quantity,
+				Price:         executedPrice,
+				Status:        orderStatus,
+				ExecutedAt:    nowStr,
+			})
+			if txBytes, mErr := json.Marshal(txEvent); mErr == nil {
+				_ = s.publisher.Publish(envelope.TopicTradeExecuted, message.NewMessage(txEvent.EventID, txBytes))
+			}
+		}
+	}
+
 	return result, nil
+}
+
+func resolveOrderCustomerEmail(ctx context.Context, _ *coreinvestv1.Portfolio, customerID string) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-customer-email"); len(vals) > 0 && strings.Contains(vals[0], "@") {
+			return strings.TrimSpace(vals[0])
+		}
+	}
+	if customerID != "" {
+		return strings.ToLower(strings.TrimSpace(customerID)) + "@oci.local"
+	}
+	return ""
 }
 
 // trustedMarketQuote returns a conservative per-share reference price used to

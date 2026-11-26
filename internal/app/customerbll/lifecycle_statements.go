@@ -12,7 +12,9 @@ import (
 	customerbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/customer_bll/v1"
 	opsv1 "github.com/orange-cat-investments/oci/pkg/gen/go/ops/v1"
 	"github.com/orange-cat-investments/oci/pkg/reporting"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -263,9 +265,14 @@ func (s *Server) GenerateStatement(ctx context.Context, in *customerbllv1.Genera
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "%v", err)
 			}
+			var downloadURL string
+			if res != nil && res.Statement != nil {
+				downloadURL = s.storeStatementAndPresign(ctx, in.CustomerID, res.Statement.StatementID, res.PDFBytes)
+			}
 			return &customerbllv1.GenerateStatementResponse{
-				Statement: res.Statement,
-				PDFBytes:  res.PDFBytes,
+				Statement:   res.Statement,
+				PDFBytes:    res.PDFBytes,
+				DownloadURL: downloadURL,
 			}, nil
 		}
 
@@ -278,13 +285,20 @@ func (s *Server) GenerateStatement(ctx context.Context, in *customerbllv1.Genera
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "%v", err)
 		}
+		var downloadURL string
+		if res != nil && res.Statement != nil {
+			downloadURL = s.storeStatementAndPresign(ctx, in.CustomerID, res.Statement.StatementID, res.PDFBytes)
+		}
 		return &customerbllv1.GenerateStatementResponse{
-			Statement: res.Statement,
-			PDFBytes:  res.PDFBytes,
+			Statement:   res.Statement,
+			PDFBytes:    res.PDFBytes,
+			DownloadURL: downloadURL,
 		}, nil
 	}
 
 	stmtID := "stmt-" + watermill.NewUUID()[:8]
+	mockPDF := []byte("%PDF-1.4 OCI Customer Statement Document")
+	downloadURL := s.storeStatementAndPresign(ctx, in.CustomerID, stmtID, mockPDF)
 	return &customerbllv1.GenerateStatementResponse{
 		Statement: &coreinvestv1.CustomerStatement{
 			StatementID:   stmtID,
@@ -295,12 +309,31 @@ func (s *Server) GenerateStatement(ctx context.Context, in *customerbllv1.Genera
 			Status:        "generated",
 			GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
 		},
+		PDFBytes:    mockPDF,
+		DownloadURL: downloadURL,
 	}, nil
 }
 
 func (s *Server) DownloadStatement(ctx context.Context, in *customerbllv1.DownloadStatementRequest) (*customerbllv1.DownloadStatementResponse, error) {
 	if in == nil || in.StatementID == "" {
 		return nil, status.Error(codes.InvalidArgument, "statement_id is required")
+	}
+	fileName := fmt.Sprintf("statement-%s.pdf", in.StatementID)
+	if s.blobStore != nil && in.CustomerID != "" {
+		key := statementBlobKey(in.CustomerID, in.StatementID)
+		if cachedPDF, err := s.blobStore.GetBlob(ctx, "oci-statements", key); err == nil && len(cachedPDF) > 0 {
+			var downloadURL string
+			if u, pErr := s.blobStore.PresignGetURL(ctx, "oci-statements", key, 15*time.Minute); pErr == nil && u != "" {
+				downloadURL = u
+				_ = grpc.SetHeader(ctx, metadata.Pairs("x-presigned-download-url", u))
+			}
+			return &customerbllv1.DownloadStatementResponse{
+				PDFBytes:    cachedPDF,
+				ContentType: "application/pdf",
+				FileName:    fileName,
+				DownloadURL: downloadURL,
+			}, nil
+		}
 	}
 	if s.ciClient != nil {
 		res, err := s.ciClient.GetStatementDocument(ctx, &coreinvestv1.GetStatementDocumentRequest{
@@ -310,20 +343,52 @@ func (s *Server) DownloadStatement(ctx context.Context, in *customerbllv1.Downlo
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to retrieve statement: %v", err)
 		}
-		fileName := fmt.Sprintf("statement-%s.pdf", in.StatementID)
+		downloadURL := s.storeStatementAndPresign(ctx, in.CustomerID, in.StatementID, res.PDFBytes)
 		return &customerbllv1.DownloadStatementResponse{
 			Statement:   res.Statement,
 			PDFBytes:    res.PDFBytes,
 			ContentType: "application/pdf",
 			FileName:    fileName,
+			DownloadURL: downloadURL,
 		}, nil
 	}
 
+	mockPDF := []byte("%PDF-1.4 OCI Customer Statement Document Mock")
+	downloadURL := s.storeStatementAndPresign(ctx, in.CustomerID, in.StatementID, mockPDF)
 	return &customerbllv1.DownloadStatementResponse{
-		PDFBytes:    []byte("%PDF-1.4 OCI Customer Statement Document Mock"),
+		PDFBytes:    mockPDF,
 		ContentType: "application/pdf",
-		FileName:    fmt.Sprintf("statement-%s.pdf", in.StatementID),
+		FileName:    fileName,
+		DownloadURL: downloadURL,
 	}, nil
+}
+
+func statementBlobKey(customerID, statementID string) string {
+	custSegment := customerID
+	if custSegment == "" {
+		custSegment = "anonymous"
+	}
+	return fmt.Sprintf("statements/%s/%s.pdf", custSegment, statementID)
+}
+
+func (s *Server) storeStatementAndPresign(ctx context.Context, customerID, statementID string, pdfBytes []byte) string {
+	if s.blobStore == nil || statementID == "" || len(pdfBytes) == 0 {
+		return ""
+	}
+	key := statementBlobKey(customerID, statementID)
+	if _, err := s.blobStore.PutBlob(ctx, "oci-statements", key, "application/pdf", pdfBytes); err != nil {
+		s.log().Warn("failed to upload statement PDF to blobStore", "statement_id", statementID, "error", err)
+		return ""
+	}
+	presignedURL, err := s.blobStore.PresignGetURL(ctx, "oci-statements", key, 15*time.Minute)
+	if err != nil || presignedURL == "" {
+		if err != nil {
+			s.log().Warn("failed to presign statement download URL", "statement_id", statementID, "error", err)
+		}
+		return ""
+	}
+	_ = grpc.SetHeader(ctx, metadata.Pairs("x-presigned-download-url", presignedURL))
+	return presignedURL
 }
 
 func (s *Server) GenerateBatchStatements(ctx context.Context, in *customerbllv1.GenerateBatchStatementsRequest) (*customerbllv1.GenerateBatchStatementsResponse, error) {

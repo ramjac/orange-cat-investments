@@ -35,7 +35,7 @@ Based on the review results, take exactly one of the following actions:
   If there are no changes, close the Pull Request.
 
 * **Fails Requirements**:
-  If the changes do not pass all the requirements (merge conflicts cannot be resolved, tests fail, bad architecture, not useful, etc.), leave a comment on the Pull Request explaining how it is problematic.
+  If the changes do not pass all the requirements (merge conflicts cannot be resolved, tests fail, bad architecture, not useful, etc.), leave comments on the Pull Request explaining how it is problematic. If possible, comment on the specific lines of code or files that are problematic.
 
 * **Passes Requirements**:
   If the changes pass all the requirements above, merge the Pull Request.

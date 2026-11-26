@@ -1,9 +1,11 @@
 -- 001-portfolio-snapshot-daily-nav.sql
 -- Idempotent migration extending core_invest.portfolio_snapshots for Daily NAV EOD snapshots.
 
+-- +goose Up
 ALTER TABLE core_invest.portfolio_snapshots
     ADD COLUMN IF NOT EXISTS snapshot_type VARCHAR(20) NOT NULL DEFAULT 'observation';
 
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -17,6 +19,7 @@ BEGIN
             CHECK (snapshot_type IN ('observation', 'daily_eod'));
     END IF;
 END $$;
+-- +goose StatementEnd
 
 ALTER TABLE core_invest.portfolio_snapshots
     ADD COLUMN IF NOT EXISTS snapshot_date DATE,

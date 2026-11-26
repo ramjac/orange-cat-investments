@@ -161,6 +161,8 @@ HCL
     fi
     INT_NC_USER=$(read_secret_key "oci-internal" "app-secrets" "NEXTCLOUD_ADMIN_USER" "admin")
     INT_NC_PASS=$(read_secret_key "oci-internal" "app-secrets" "NEXTCLOUD_ADMIN_PASSWORD" "oci_nextcloud_admin_pass")
+    CORE_BLOB_KEY=$(read_secret_key "oci-core" "oci-core-secrets" "BLOBSTORE_ACCESS_KEY" "GK0123456789abcdef01234567")
+    CORE_BLOB_SECRET=$(read_secret_key "oci-core" "oci-core-secrets" "BLOBSTORE_SECRET_KEY" "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 
     bao_authed bao kv put secret/oci-core/config \
         DATABASE_URL="postgres://${CORE_PG_USER}:${CORE_PG_PASS}@postgres-core-service.oci-core.svc.cluster.local:5432/${CORE_PG_DB}?sslmode=disable" \
@@ -178,6 +180,8 @@ HCL
         PLAID_CLIENT_ID="${CORE_PLAID_ID}" \
         PLAID_SECRET="${CORE_PLAID_SECRET}" \
         TURN_AUTH_SECRET="${CORE_TURN_SECRET}" \
+        BLOBSTORE_ACCESS_KEY="${CORE_BLOB_KEY}" \
+        BLOBSTORE_SECRET_KEY="${CORE_BLOB_SECRET}" \
         NEXTCLOUD_ADMIN_USER="${INT_NC_USER}" \
         NEXTCLOUD_ADMIN_PASS="${INT_NC_PASS}" >/dev/null
 
@@ -192,6 +196,8 @@ HCL
     if [[ -z "${DEV_TURN_SECRET}" ]]; then
         DEV_TURN_SECRET=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
     fi
+    DEV_BLOB_KEY=$(read_secret_key "oci-dev" "oci-dev-secrets" "BLOBSTORE_ACCESS_KEY" "GKdeadbeef0123456789abcdef")
+    DEV_BLOB_SECRET=$(read_secret_key "oci-dev" "oci-dev-secrets" "BLOBSTORE_SECRET_KEY" "deadbeef0123456789abcdefdeadbeef0123456789abcdefdeadbeef01234567")
 
     bao_authed bao kv put secret/oci-dev/config \
         DATABASE_URL="postgres://${DEV_PG_USER}:${DEV_PG_PASS}@postgres-dev-service.oci-dev.svc.cluster.local:5432/${DEV_PG_DB}?sslmode=disable" \
@@ -209,6 +215,8 @@ HCL
         PLAID_CLIENT_ID="mock-dev-client" \
         PLAID_SECRET="mock-dev-secret" \
         TURN_AUTH_SECRET="${DEV_TURN_SECRET}" \
+        BLOBSTORE_ACCESS_KEY="${DEV_BLOB_KEY}" \
+        BLOBSTORE_SECRET_KEY="${DEV_BLOB_SECRET}" \
         NEXTCLOUD_ADMIN_USER="${INT_NC_USER}" \
         NEXTCLOUD_ADMIN_PASS="${INT_NC_PASS}" >/dev/null
 

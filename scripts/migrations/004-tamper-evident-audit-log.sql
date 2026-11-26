@@ -2,6 +2,7 @@
 -- Append-only ledger in ops.audit_logs with SHA-256 hash chaining and
 -- PostgreSQL BEFORE UPDATE/DELETE/TRUNCATE immutability triggers.
 
+-- +goose Up
 CREATE SEQUENCE IF NOT EXISTS ops.audit_logs_id_seq;
 
 CREATE TABLE IF NOT EXISTS ops.audit_logs (
@@ -31,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_ops_audit_logs_action_created
 -- id order and build a chain that ascending-id verification rejects.
 ALTER TABLE ops.audit_logs ALTER COLUMN id DROP DEFAULT;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION ops.prevent_audit_log_mutation()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -38,6 +40,7 @@ BEGIN
         USING ERRCODE = '42501';
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 DROP TRIGGER IF EXISTS trg_ops_audit_logs_no_update_delete ON ops.audit_logs;
 CREATE TRIGGER trg_ops_audit_logs_no_update_delete
@@ -49,6 +52,7 @@ CREATE TRIGGER trg_ops_audit_logs_no_truncate
     BEFORE TRUNCATE ON ops.audit_logs
     FOR EACH STATEMENT EXECUTE FUNCTION ops.prevent_audit_log_mutation();
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION ops.compute_audit_log_hash()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -95,6 +99,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+-- +goose StatementEnd
 
 DROP TRIGGER IF EXISTS trg_ops_audit_logs_compute_hash ON ops.audit_logs;
 CREATE TRIGGER trg_ops_audit_logs_compute_hash

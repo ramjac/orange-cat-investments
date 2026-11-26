@@ -13,6 +13,7 @@ import (
 	"github.com/orange-cat-investments/oci/pkg/auditintent"
 	"github.com/orange-cat-investments/oci/pkg/authz/policy"
 	"github.com/orange-cat-investments/oci/pkg/bank/plaid"
+	blobstoreS3 "github.com/orange-cat-investments/oci/pkg/blobstore/s3"
 	"github.com/orange-cat-investments/oci/pkg/broker/alpaca"
 	cachevalkey "github.com/orange-cat-investments/oci/pkg/cache/valkey"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
@@ -33,6 +34,7 @@ type Config struct {
 	ClientTLS        *tls.Config
 	BrokerClient     *alpaca.Client
 	BankClient       *plaid.Client
+	BlobStore        blobstoreS3.Store
 	UpstreamTimeout  time.Duration
 	PolicyEngine     *policy.Engine
 	// SettlementDedup provides durable ACH settlement deduplication keyed by
@@ -51,6 +53,7 @@ type Server struct {
 	publisher       message.Publisher
 	brokerClient    *alpaca.Client
 	bankClient      *plaid.Client
+	blobStore       blobstoreS3.Store
 	defaultFelineID string
 	upstreamTimeout time.Duration
 	policyEngine    *policy.Engine
@@ -107,11 +110,19 @@ func NewServer(cfg Config) *Server {
 			logger.Info("ACH settlement deduplication backed by shared Valkey (fail-closed claims)", "addr", valkeyAddr)
 		}
 	}
+	blobStore := cfg.BlobStore
+	if blobStore == nil {
+		if client := blobstoreS3.NewFromEnv(); client != nil {
+			blobStore = client
+			logger.Info("Customer BLL connected to S3 blobStore")
+		}
+	}
 	s := &Server{
 		logger:          logger,
 		publisher:       cfg.Publisher,
 		brokerClient:    cfg.BrokerClient,
 		bankClient:      cfg.BankClient,
+		blobStore:       blobStore,
 		defaultFelineID: cfg.DefaultFelineID,
 		upstreamTimeout: upstreamTimeout,
 		policyEngine:    policyEngine,
@@ -246,6 +257,10 @@ func (s *Server) SetBrokerClient(c *alpaca.Client) {
 
 func (s *Server) SetBankClient(c *plaid.Client) {
 	s.bankClient = c
+}
+
+func (s *Server) SetBlobStore(bs blobstoreS3.Store) {
+	s.blobStore = bs
 }
 
 func (s *Server) SetDefaultFelineID(id string) {

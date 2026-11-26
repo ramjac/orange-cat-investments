@@ -437,6 +437,7 @@ message GenerateStatementRequest {
 message GenerateStatementResponse {
   oci.core_invest.v1.CustomerStatement statement = 1;
   bytes pdf_bytes = 2;
+  string download_url = 3;
 }
 
 message DownloadStatementRequest {
@@ -449,6 +450,7 @@ message DownloadStatementResponse {
   bytes pdf_bytes = 2;
   string content_type = 3;
   string file_name = 4;
+  string download_url = 5;
 }
 
 message GenerateBatchStatementsRequest {

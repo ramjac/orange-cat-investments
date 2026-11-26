@@ -271,6 +271,19 @@ func (b *CustomerBFF) handleGenerateStatement(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if resp.DownloadURL != "" {
+		w.Header().Set("X-PreSigned-Download-URL", resp.DownloadURL)
+		if resp.Statement != nil {
+			raw, _ := json.Marshal(resp.Statement)
+			var payload map[string]any
+			if json.Unmarshal(raw, &payload) == nil {
+				payload["download_url"] = resp.DownloadURL
+				httputil.WriteJSON(w, http.StatusCreated, payload)
+				return
+			}
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusCreated, resp.Statement)
 }
 
@@ -310,6 +323,9 @@ func (b *CustomerBFF) handleDownloadStatement(w http.ResponseWriter, r *http.Req
 		fileName = resp.FileName
 	}
 
+	if resp.DownloadURL != "" {
+		w.Header().Set("X-PreSigned-Download-URL", resp.DownloadURL)
+	}
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileName))
 	w.WriteHeader(http.StatusOK)

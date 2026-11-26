@@ -333,7 +333,7 @@ func backoff(attempts int) time.Duration {
 	if d > maxBackoff {
 		d = maxBackoff
 	}
-	jitter := time.Duration(float64(d) * 0.25 * rand.Float64())
+	jitter := time.Duration(float64(d) * 0.25 * rand.Float64()) // #nosec G404 -- non-cryptographic retry backoff jitter
 	return d + jitter
 }
 

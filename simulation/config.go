@@ -3,6 +3,7 @@ package simulation
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -23,6 +24,9 @@ type Config struct {
 
 	// ForgejoURL is the base URL for the Forgejo Git repository host (default: http://localhost:3000).
 	ForgejoURL string
+
+	// MailpitURL is the base URL for the Mailpit REST API (optional; auto-resolved for *.oci.local).
+	MailpitURL string
 
 	// TokensFile is an optional path to a JSON file containing saved tokens and session state.
 	TokensFile string
@@ -87,6 +91,7 @@ func (c *Config) ValidateTarget() error {
 		{"BrokerURL", c.BrokerURL},
 		{"BankURL", c.BankURL},
 		{"ForgejoURL", c.ForgejoURL},
+		{"MailpitURL", c.MailpitURL},
 	}
 
 	for _, t := range targets {
@@ -155,4 +160,22 @@ func ResolveExternalURLs(brokerURL, bankURL string) (string, string) {
 	}
 
 	return resolvedBroker, resolvedBank
+}
+
+// ResolveMailpitURL resolves the Mailpit REST API URL from flag, environment, or .oci.local routing.
+func ResolveMailpitURL(explicit, employeeBFFURL string) string {
+	if trimmed := strings.TrimRight(strings.TrimSpace(explicit), "/"); trimmed != "" {
+		return trimmed
+	}
+	if envURL := strings.TrimRight(strings.TrimSpace(os.Getenv("MAILPIT_URL")), "/"); envURL != "" {
+		return envURL
+	}
+	lowerBFF := strings.ToLower(employeeBFFURL)
+	if strings.Contains(lowerBFF, "dev.") && strings.Contains(lowerBFF, ".oci.local") {
+		return "http://dev.mail.oci.local"
+	}
+	if strings.Contains(lowerBFF, ".oci.local") {
+		return "http://mail.oci.local"
+	}
+	return ""
 }

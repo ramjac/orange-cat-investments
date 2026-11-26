@@ -130,6 +130,7 @@ expected = {
         "PostgresDeadTupleBloat",
         "PostgresXIDWraparoundRisk",
         "PostgresLowCacheHitRatio",
+        "PostgresWALArchiveFailing",
     },
     "meilisearch_alerts": {"MeilisearchDown", "MeilisearchDiskUsageHigh"},
 }
@@ -545,6 +546,7 @@ go_manifests = [
     "k8s/oci-core/oci-pebble-proxy.yaml",
     "k8s/oci-core/oci-worker.yaml",
     "k8s/oci-core/batch-jobs.yaml",
+    "k8s/oci-core/db-migrate-job.yaml",
     "k8s/oci-core/marketing.yaml",
     "k8s/oci-dev/domain-apis.yaml",
     "k8s/oci-dev/bll-services.yaml",
@@ -553,6 +555,7 @@ go_manifests = [
     "k8s/oci-dev/oci-pebble-proxy.yaml",
     "k8s/oci-dev/oci-worker.yaml",
     "k8s/oci-dev/batch-jobs.yaml",
+    "k8s/oci-dev/db-migrate-job.yaml",
     "k8s/oci-dev/marketing.yaml",
     "k8s/external-sim/mock-bank.yaml",
     "k8s/external-sim/mock-bank-dev.yaml",
@@ -568,7 +571,7 @@ for path in go_manifests:
             if not isinstance(doc, dict):
                 continue
             kind = doc.get("kind")
-            if kind == "Deployment":
+            if kind in ("Deployment", "Job"):
                 containers = doc.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
             elif kind == "CronJob":
                 containers = doc.get("spec", {}).get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
@@ -980,6 +983,289 @@ for pat_file in \
     failed=1
   fi
 done
+
+# 32. Verify Phase 11 (7.43) S3-Compatible Object Storage (Garage) & Pre-Signed Blobs
+echo "Verifying Phase 11 (7.43) Garage object storage & S3 blobStore integration..."
+for pat_file in \
+  "pkg/blobstore/s3/client.go:EnsureBuckets" \
+  "pkg/blobstore/s3/client.go:PresignGetURL" \
+  "pkg/blobstore/s3/client.go:AWS4-HMAC-SHA256" \
+  "k8s/oci-core/garage.yaml:dxflrs/garage:v1.0.1" \
+  "k8s/oci-core/garage.yaml:oci-statements" \
+  "k8s/oci-core/garage.yaml:oci-firmware" \
+  "k8s/oci-core/garage.yaml:oci-backups" \
+  "k8s/oci-dev/garage.yaml:dxflrs/garage:v1.0.1" \
+  "k8s/oci-dev/garage.yaml:oci-statements" \
+  "k8s/oci-dev/garage.yaml:oci-firmware" \
+  "k8s/oci-dev/garage.yaml:oci-backups" \
+  "k8s/oci-core/bll-services.yaml:BLOBSTORE_ENDPOINT" \
+  "k8s/oci-dev/bll-services.yaml:BLOBSTORE_ENDPOINT" \
+  "scripts/init-openbao.sh:BLOBSTORE_ACCESS_KEY" \
+  "internal/app/customerbll/lifecycle_statements.go:oci-statements" \
+  "internal/app/customerbll/lifecycle_statements.go:PresignGetURL" \
+  "internal/app/customerbff/portfolio_handlers.go:X-PreSigned-Download-URL" \
+  "internal/app/internalbll/facilities.go:oci-firmware"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 11 (7.43) symbol: $fpat"
+    failed=1
+  fi
+done
+
+# 33. Verify Phase 11 (7.44) Continuous PostgreSQL WAL Archiving & PITR (PgBackRest)
+echo "Verifying Phase 11 (7.44) PgBackRest WAL archiving & PITR drill..."
+for pg_file in k8s/oci-core/postgres-core.yaml k8s/oci-dev/postgres-dev.yaml k8s/oci-internal/postgres-internal.yaml; do
+  for pat in "wal_level=replica" "archive_mode=on" "pgbackrest" "repo1-s3-bucket=oci-backups"; do
+    if ! grep -q "$pat" "$pg_file"; then
+      echo "ERROR: $pg_file missing Phase 11 (7.44) WAL/PITR setting: $pat"
+      failed=1
+    fi
+  done
+done
+if ! grep -q "PostgresWALArchiveFailing" docs/runbooks/stateful-store-alerts.md; then
+  echo "ERROR: docs/runbooks/stateful-store-alerts.md missing PostgresWALArchiveFailing runbook"
+  failed=1
+fi
+if [ ! -x scripts/verify-pitr-restore.sh ] || ! ./scripts/verify-pitr-restore.sh --dry-run >/dev/null; then
+  echo "ERROR: scripts/verify-pitr-restore.sh must be executable and pass --dry-run"
+  failed=1
+fi
+if ./scripts/verify-pitr-restore.sh --namespace oci-core >/dev/null 2>&1; then
+  echo "ERROR: scripts/verify-pitr-restore.sh must refuse --namespace oci-core"
+  failed=1
+fi
+
+# 34. Verify Phase 11 (7.45) In-Cluster Mailpit SMTP Sandbox & Notifications
+echo "Verifying Phase 11 (7.45) Mailpit SMTP sandbox & simulator mail checks..."
+for pat_file in \
+  "k8s/oci-internal/mailpit.yaml:axllent/mailpit" \
+  "k8s/oci-internal/mailpit.yaml:mailpit-service" \
+  "k8s/oci-internal/http-routes.yaml:mail.oci.local" \
+  "k8s/oci-core/oci-worker.yaml:mailpit-service.oci-internal.svc.cluster.local:1025" \
+  "k8s/oci-dev/oci-worker.yaml:mailpit-service.oci-internal.svc.cluster.local:1025" \
+  "k8s/oci-internal/forgejo.yaml:mailpit-service.oci-internal.svc.cluster.local:1025" \
+  "k8s/oci-internal/nextcloud.yaml:mailpit-service.oci-internal.svc.cluster.local" \
+  "k8s/oci-core/zitadel.yaml:mailpit-service.oci-internal.svc.cluster.local" \
+  "k8s/oci-dev/zitadel.yaml:mailpit-service.oci-internal.svc.cluster.local" \
+  "internal/app/worker/router.go:TopicEmployeeOnboarded" \
+  "internal/app/worker/smtp_notifier.go:HandleEmployeeOnboarded" \
+  "simulation/actions.go:rick.newhire@oci.local" \
+  "simulation/actions.go:chloe@oci.local"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 11 (7.45) symbol: $fpat"
+    failed=1
+  fi
+done
+
+# 35. Verify Phase 11 (7.46) Database Migration Runner, 3-Copy SQL Sync & PgBouncer
+echo "Verifying Phase 11 (7.46) db-migrate pipeline, 3-copy SQL sync & PgBouncer..."
+for pat_file in \
+  "cmd/db-migrate/main.go:goose_db_version" \
+  "cmd/db-migrate/main.go:parseGooseUpStatements" \
+  "cmd/db-migrate/Dockerfile:gcr.io/distroless/static-debian12:nonroot" \
+  "k8s/oci-core/db-migrate-job.yaml:localhost:32000/db-migrate:" \
+  "k8s/oci-dev/db-migrate-job.yaml:localhost:32000/db-migrate:" \
+  "k8s/oci-core/pgbouncer.yaml:POOL_MODE" \
+  "k8s/oci-core/pgbouncer.yaml:postgres-core-backend" \
+  "k8s/oci-dev/pgbouncer.yaml:postgres-dev-backend" \
+  "k8s/oci-internal/pgbouncer.yaml:postgres-internal-backend"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 11 (7.46) symbol: $fpat"
+    failed=1
+  fi
+done
+for pgb in k8s/oci-core/pgbouncer.yaml k8s/oci-dev/pgbouncer.yaml k8s/oci-internal/pgbouncer.yaml; do
+  if ! grep -q 'value: transaction' "$pgb" || ! grep -q 'value: "500"' "$pgb" || ! grep -q 'value: "25"' "$pgb"; then
+    echo "ERROR: $pgb must enforce transaction pool mode, MAX_CLIENT_CONN=500, DEFAULT_POOL_SIZE=25"
+    failed=1
+  fi
+done
+if ! python3 - <<'PY'
+import glob, re, sys
+
+bootstrap_files = [
+    "scripts/init.sql",
+    "k8s/oci-core/postgres-core-configmap.yaml",
+    "k8s/oci-dev/postgres-dev-configmap.yaml",
+]
+boot_contents = {p: open(p, "r", encoding="utf-8").read() for p in bootstrap_files}
+
+mig_files = sorted(glob.glob("scripts/migrations/*.sql"))
+if not mig_files:
+    print("ERROR: no migration files found in scripts/migrations/")
+    sys.exit(1)
+
+errors = []
+for mf in mig_files:
+    txt = open(mf, "r", encoding="utf-8").read()
+    if "-- +goose Up" not in txt:
+        errors.append(f"{mf} missing '-- +goose Up' directive")
+    # Skip role-only migrations covered differently; check tables, indexes, functions, and added columns
+    for tbl in re.findall(r"CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_.]+)", txt, flags=re.I):
+        for bp, bc in boot_contents.items():
+            if tbl not in bc:
+                errors.append(f"3-copy SQL drift: table {tbl} from {mf} missing in {bp}")
+    for fn in re.findall(r"CREATE OR REPLACE FUNCTION\s+([a-zA-Z0-9_.]+)", txt, flags=re.I):
+        for bp, bc in boot_contents.items():
+            if fn not in bc:
+                errors.append(f"3-copy SQL drift: function {fn} from {mf} missing in {bp}")
+    for idx in re.findall(r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\s+([a-zA-Z0-9_]+)", txt, flags=re.I):
+        for bp, bc in boot_contents.items():
+            if idx not in bc:
+                errors.append(f"3-copy SQL drift: index {idx} from {mf} missing in {bp}")
+    for col in re.findall(r"ADD COLUMN IF NOT EXISTS\s+([a-zA-Z0-9_]+)", txt, flags=re.I):
+        for bp, bc in boot_contents.items():
+            if col not in bc:
+                errors.append(f"3-copy SQL drift: column {col} from {mf} missing in {bp}")
+
+if errors:
+    for e in errors:
+        print("ERROR:", e)
+    sys.exit(1)
+print(f"Verified {len(mig_files)} migrations across all 3 SQL bootstrap copies.")
+PY
+then
+  failed=1
+fi
+
+# 36. Verify Phase 11 (7.47) Protobuf (buf) & OpenAPI (oasdiff) Contract Gate + Negative Tests
+echo "Verifying Phase 11 (7.47) buf/oasdiff config & negative breaking-change checks..."
+for pat_file in \
+  "buf.yaml:version: v2" \
+  "buf.yaml:STANDARD" \
+  "buf.yaml:WIRE_JSON" \
+  "buf.gen.yaml:pkg/gen/go" \
+  ".forgejo/workflows/ci.yaml:buf lint" \
+  ".forgejo/workflows/ci.yaml:buf breaking" \
+  ".forgejo/workflows/ci.yaml:oasdiff breaking"; do
+  fpath="${pat_file%%:*}"
+  fpat="${pat_file#*:}"
+  if [ ! -f "$fpath" ] || ! grep -q "$fpat" "$fpath"; then
+    echo "ERROR: $fpath missing expected Phase 11 (7.47) symbol: $fpat"
+    failed=1
+  fi
+done
+if ! python3 - <<'PY'
+import copy, glob, re, subprocess, sys, yaml
+
+def parse_proto_messages(text):
+    msgs = {}
+    current = None
+    depth = 0
+    for raw_line in text.splitlines():
+        line = raw_line.split("//", 1)[0].strip()
+        if not line:
+            continue
+        m = re.match(r"message\s+([A-Za-z0-9_]+)\s*\{", line)
+        if m and depth == 0:
+            current = m.group(1)
+            msgs[current] = {}
+            depth = 1
+            continue
+        if current:
+            if "{" in line:
+                depth += line.count("{")
+            if "}" in line:
+                depth -= line.count("}")
+                if depth <= 0:
+                    current = None
+                    depth = 0
+                continue
+            f = re.match(r"(?:repeated\s+|optional\s+)?([A-Za-z0-9_.<>]+)\s+([A-Za-z0-9_]+)\s*=\s*(\d+)\s*;", line)
+            if f:
+                msgs[current][int(f.group(3))] = (f.group(1), f.group(2))
+    return msgs
+
+def detect_proto_breaking(old_text, new_text):
+    old_msgs = parse_proto_messages(old_text)
+    new_msgs = parse_proto_messages(new_text)
+    errs = []
+    for msg, old_fields in old_msgs.items():
+        if msg not in new_msgs:
+            errs.append(f"deleted message {msg}")
+            continue
+        for num, (ftype, fname) in old_fields.items():
+            if num not in new_msgs[msg]:
+                errs.append(f"removed field {msg}.{fname}={num}")
+            elif new_msgs[msg][num] != (ftype, fname):
+                errs.append(f"changed field {msg} #{num}: {ftype} {fname} -> {new_msgs[msg][num]}")
+    return errs
+
+def detect_openapi_breaking(old_spec, new_spec):
+    errs = []
+    old_paths = old_spec.get("paths", {}) or {}
+    new_paths = new_spec.get("paths", {}) or {}
+    for p, pitem in old_paths.items():
+        if p not in new_paths:
+            errs.append(f"deleted path {p}")
+            continue
+        for method in ("get", "post", "put", "patch", "delete"):
+            if method in (pitem or {}) and method not in (new_paths[p] or {}):
+                errs.append(f"deleted operation {method.upper()} {p}")
+    old_schemas = (old_spec.get("components", {}) or {}).get("schemas", {}) or {}
+    new_schemas = (new_spec.get("components", {}) or {}).get("schemas", {}) or {}
+    for sname, sdef in old_schemas.items():
+        if sname not in new_schemas:
+            continue
+        old_req = set(sdef.get("required", []) or [])
+        old_props = set((sdef.get("properties", {}) or {}).keys())
+        new_props = set((new_schemas[sname].get("properties", {}) or {}).keys())
+        for req_prop in old_req:
+            if req_prop in old_props and req_prop not in new_props:
+                errs.append(f"removed required schema property {sname}.{req_prop}")
+    return errs
+
+# 1. Verify current branch vs main (if main exists locally)
+has_main = subprocess.run(["git", "rev-parse", "--verify", "main"], capture_output=True).returncode == 0
+if has_main:
+    for pfile in sorted(glob.glob("proto/oci/**/*.proto", recursive=True)):
+        res = subprocess.run(["git", "show", f"main:{pfile}"], capture_output=True, text=True)
+        if res.returncode == 0:
+            cur = open(pfile, "r", encoding="utf-8").read()
+            b = detect_proto_breaking(res.stdout, cur)
+            if b:
+                print(f"ERROR: breaking proto change in {pfile}: {b}")
+                sys.exit(1)
+    oas_res = subprocess.run(["git", "show", "main:api/openapi.yaml"], capture_output=True, text=True)
+    if oas_res.returncode == 0:
+        old_oas = yaml.safe_load(oas_res.stdout)
+        cur_oas = yaml.safe_load(open("api/openapi.yaml", "r", encoding="utf-8"))
+        b = detect_openapi_breaking(old_oas, cur_oas)
+        if b:
+            print(f"ERROR: breaking OpenAPI change vs main: {b}")
+            sys.exit(1)
+
+# 2. Negative self-tests (mutated proto field number & removed OpenAPI required response property MUST fail)
+sample_proto = "message SampleResp {\n  string id = 1;\n}\n"
+mutated_proto = "message SampleResp {\n  string id = 2;\n}\n"
+if not detect_proto_breaking(sample_proto, mutated_proto):
+    print("ERROR: proto negative breaking-change test unexpectedly passed")
+    sys.exit(1)
+
+cur_oas = yaml.safe_load(open("api/openapi.yaml", "r", encoding="utf-8"))
+mutated_oas = copy.deepcopy(cur_oas)
+target_schema = None
+for sname, sdef in (mutated_oas.get("components", {}) or {}).get("schemas", {}).items():
+    req = sdef.get("required", []) or []
+    props = sdef.get("properties", {}) or {}
+    if req and req[0] in props:
+        del props[req[0]]
+        target_schema = sname
+        break
+if not target_schema or not detect_openapi_breaking(cur_oas, mutated_oas):
+    print("ERROR: OpenAPI negative breaking-change test unexpectedly passed")
+    sys.exit(1)
+
+print("Verified proto/OpenAPI compatibility and negative breaking-change assertions.")
+PY
+then
+  failed=1
+fi
 
 if [ "$failed" -eq 1 ]; then
     echo "CI contracts verification failed."

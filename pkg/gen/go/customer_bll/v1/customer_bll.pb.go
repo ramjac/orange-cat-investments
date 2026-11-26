@@ -390,8 +390,9 @@ type GenerateStatementRequest struct {
 }
 
 type GenerateStatementResponse struct {
-	Statement *coreinvestv1.CustomerStatement `json:"statement"`
-	PDFBytes  []byte                          `json:"pdf_bytes"`
+	Statement   *coreinvestv1.CustomerStatement `json:"statement"`
+	PDFBytes    []byte                          `json:"pdf_bytes"`
+	DownloadURL string                          `json:"download_url,omitempty"`
 }
 
 type DownloadStatementRequest struct {
@@ -404,6 +405,7 @@ type DownloadStatementResponse struct {
 	PDFBytes    []byte                          `json:"pdf_bytes"`
 	ContentType string                          `json:"content_type"`
 	FileName    string                          `json:"file_name"`
+	DownloadURL string                          `json:"download_url,omitempty"`
 }
 
 type GenerateBatchStatementsRequest struct {

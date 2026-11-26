@@ -14,6 +14,7 @@ import (
 	wfService "github.com/orange-cat-investments/oci/internal/service/workforce"
 	"github.com/orange-cat-investments/oci/pkg/auditintent"
 	"github.com/orange-cat-investments/oci/pkg/authz/policy"
+	blobstoreS3 "github.com/orange-cat-investments/oci/pkg/blobstore/s3"
 	coreinvestv1 "github.com/orange-cat-investments/oci/pkg/gen/go/core_invest/v1"
 	facilitiesv1 "github.com/orange-cat-investments/oci/pkg/gen/go/facilities/v1"
 	internalbllv1 "github.com/orange-cat-investments/oci/pkg/gen/go/internal_bll/v1"
@@ -78,6 +79,7 @@ type Server struct {
 	logger          *slog.Logger
 	meiliClient     *meilisearch.Client
 	policyEngine    *policy.Engine
+	blobStore       blobstoreS3.Store
 
 	// auditRecorder durably spools audit intents whose synchronous ledger
 	// append failed; auditRelay re-delivers them until ops-api accepts them.
@@ -95,6 +97,7 @@ type Config struct {
 	CoreInvestClient coreinvestv1.CoreInvestServiceClient
 	SearchClient     *meilisearch.Client
 	PolicyEngine     *policy.Engine
+	BlobStore        blobstoreS3.Store
 	// AuditSpoolDir overrides the durable audit-intent spool location
 	// (default: $OCI_AUDIT_INTENT_DIR, else ~/.oci/audit-intents/internal-bll).
 	AuditSpoolDir string
@@ -161,6 +164,14 @@ func NewServer(
 		}
 	}
 
+	blobStore := cfg.BlobStore
+	if blobStore == nil {
+		if client := blobstoreS3.NewFromEnv(); client != nil {
+			blobStore = client
+			logger.Info("Internal BLL connected to S3 blobStore")
+		}
+	}
+
 	s := &Server{
 		wfClient:        wfClient,
 		facClient:       facClient,
@@ -174,6 +185,7 @@ func NewServer(
 		logger:          logger,
 		meiliClient:     meiliClient,
 		policyEngine:    policyEngine,
+		blobStore:       blobStore,
 		auditRecorder:   auditRecorder,
 	}
 
@@ -216,6 +228,11 @@ func (s *Server) SetCoreInvestClient(c coreinvestv1.CoreInvestServiceClient) {
 // SetSearchClient sets the Meilisearch client on the server.
 func (s *Server) SetSearchClient(c *meilisearch.Client) {
 	s.meiliClient = c
+}
+
+// SetBlobStore sets the object storage client on the server.
+func (s *Server) SetBlobStore(bs blobstoreS3.Store) {
+	s.blobStore = bs
 }
 
 func (s *Server) logDomainError(domainAPI, op string, err error) error {

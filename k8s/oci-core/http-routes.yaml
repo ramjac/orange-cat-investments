@@ -263,3 +263,30 @@ spec:
       backendRefs:
         - name: oci-marketing-service
           port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: oci-core-garage-s3-route
+  namespace: oci-core
+  labels:
+    owner: emp-human-elise
+    app.kubernetes.io/part-of: oci-gateway-api
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: oci-edge-gateway
+      namespace: oci-core
+  hostnames:
+    - s3.oci.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 300s
+      backendRefs:
+        - name: garage-service
+          port: 3900

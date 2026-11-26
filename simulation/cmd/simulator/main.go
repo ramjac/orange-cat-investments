@@ -18,6 +18,7 @@ func main() {
 		bffURL       = flag.String("bff-url", "", "Base URL for OCI Employee BFF")
 		custBFFURL   = flag.String("cust-bff-url", "", "Base URL for OCI Customer BFF")
 		forgejoURL   = flag.String("forgejo-url", "", "Base URL for Forgejo Git repository host")
+		mailpitURL   = flag.String("mailpit-url", "", "Base URL for Mailpit REST inspection API")
 		brokerURL    = flag.String("broker-url", "", "Base URL for Mock Broker API")
 		bankURL      = flag.String("bank-url", "", "Base URL for Mock Bank API")
 		mode         = flag.String("mode", "live", "Simulation mode: 'live', 'step', 'continuous'")
@@ -71,11 +72,13 @@ func main() {
 
 	resolvedBFF, resolvedCustBFF, resolvedForgejo := simulation.ResolveRoutingURLs(*bffURL, *custBFFURL, *forgejoURL)
 	resolvedBroker, resolvedBank := simulation.ResolveExternalURLs(*brokerURL, *bankURL)
+	resolvedMailpit := simulation.ResolveMailpitURL(*mailpitURL, resolvedBFF)
 
 	cfg := &simulation.Config{
 		EmployeeBFFURL:     resolvedBFF,
 		CustomerBFFURL:     resolvedCustBFF,
 		ForgejoURL:         resolvedForgejo,
+		MailpitURL:         resolvedMailpit,
 		BrokerURL:          resolvedBroker,
 		BankURL:            resolvedBank,
 		TokensFile:         *tokensFile,

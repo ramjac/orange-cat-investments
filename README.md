@@ -334,6 +334,13 @@ Orange Cat Investments leverages Valkey 7.2 in namespace `oci-core` (`valkey-ser
 * **Tamper-Evident Cryptographic Hash-Chain Audit Log (`7.41`):** Added append-only `ops.audit_logs` with SHA-256 hash chaining (`ops.compute_audit_log_hash()` under advisory transaction lock) and `BEFORE UPDATE OR DELETE` / `BEFORE TRUNCATE` immutability triggers (`ops.prevent_audit_log_mutation()`) across `scripts/init.sql`, both Postgres ConfigMaps, and `scripts/migrations/004-tamper-evident-audit-log.sql`. Exposed `AppendAuditLog`, `VerifyAuditChain`, and `ListAuditLogs` across `ops-api` and `internal-bll`, wired high-sensitivity mutations (medical holds, employee offboarding, leave status approvals, quant orders, API key revocation, and GDPR erasure with hashed non-PII subjects) to emit audit entries, exposed `GET /api/v1/ops/audit-logs/verify` & `GET /ops/audit-logs/verify` on `employee-bff`, and added the `frank_verify_audit_chain` simulator action (enforced by Check #30 in `scripts/verify-ci-contracts.sh`).
 * **Policy-as-Code Authorization Engine — Embedded OPA / Rego Go SDK (`7.42`):** Created `pkg/authz/policy` embedding `github.com/open-policy-agent/opa/v1/rego` with compiled embedded Rego v1 policies (`policies/workforce.rego`, `policies/trading.rego`), propagated authenticated employee actor metadata across BFF $\rightarrow$ BLL gRPC calls (`pkg/grpcutil/actor.go`), wired fail-closed policy enforcement into `internal-bll` and `customer-bll` logging every policy denial (`authz.policy.denied`) to `ops.audit_logs`, and added the negative authorization simulator check `rick_unauthorized_medical_hold_denied` (`HTTP 403 Forbidden`) (enforced by Check #31 in `scripts/verify-ci-contracts.sh`).
 
+### 5.32 Enterprise Data Lifecycle, Object Storage, PITR, SMTP & Schema Governance
+* **S3-Compatible Object Storage (`Garage`) & Pre-Signed Blobs (`7.43`):** Deployed **Garage** (`dxflrs/garage:v1.0.1`) with an internal HTTPS TLS sidecar (`:3943`) and bucket bootstrap Jobs (`oci-statements`, `oci-firmware`, `oci-backups`) in `k8s/oci-core/garage.yaml` and `k8s/oci-dev/garage.yaml`, plus OpenBao secret wiring (`BLOBSTORE_ACCESS_KEY`, `BLOBSTORE_SECRET_KEY`). Implemented a stdlib AWS SigV4 (`AWS4-HMAC-SHA256`) S3 driver in `pkg/blobstore/s3` consumed via generic `blobStore` interfaces across `customer-bll` (uploading generated monthly statements / Form 1099-Bs to `oci-statements` and returning 15-minute pre-signed `download_url` / `X-PreSigned-Download-URL`) and `internal-bll` (uploading firmware metadata to `oci-firmware`), verified end-to-end by Arthur Pendelton's statement download action and Check #32 in `scripts/verify-ci-contracts.sh`.
+* **Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`7.44`):** Configured `postgres-core`, `postgres-dev`, and `postgres-internal` with `wal_level=replica`, `archive_mode=on`, `archive_timeout=60s`, and a `woblerr/pgbackrest:2.54.2` sidecar streaming compressed (`zst`), encrypted (`aes-256-cbc`) WAL segments and daily differential/full backups over TLS to Garage `oci-backups`. Added Prometheus alert `PostgresWALArchiveFailing` (`k8s/monitoring/prometheus.yaml`), PITR recovery SOP in `docs/runbooks/stateful-store-alerts.md`, and `scripts/verify-pitr-restore.sh` (refusing `oci-core`, validated via live `oci-dev` PITR restore drill recovering pre-drop table state and Check #33 in `scripts/verify-ci-contracts.sh`).
+* **In-Cluster SMTP Sandbox (`Mailpit`) & Simulator Email Verification (`7.45`):** Deployed **Mailpit** (`k8s/oci-internal/mailpit.yaml`, `:1025` SMTP / `:8025` REST & UI at `mail.oci.local` / `dev.mail.oci.local`) and wired `SMTP_HOST=mailpit-service.oci-internal.svc.cluster.local:1025` into `oci-worker`, Forgejo, Nextcloud, and ZITADEL. Implemented CWE-532-safe transactional email delivery (`internal/app/worker/smtp_notifier.go`, redacting recipient PII and bodies from logs) for onboarding welcome, trade execution, and ACH settlement events, verified via Mailpit REST assertions for `Rick Newhire` and `Chloe Spark` in `simulation/actions.go` and Check #34 in `scripts/verify-ci-contracts.sh`.
+* **Automated Database Migration Runner & `PgBouncer` Transaction Pooling (`7.46`):** Annotated all numbered migrations in `scripts/migrations/*.sql` with `-- +goose Up` / `StatementBegin` / `StatementEnd`, built distroless `cmd/db-migrate` tracking applied versions in `public.goose_db_version`, wired `k8s/oci-core/db-migrate-job.yaml` and `k8s/oci-dev/db-migrate-job.yaml` into `.forgejo/workflows/ci.yaml`, and deployed `PgBouncer` (`edoburu/pgbouncer:v1.23.1-p0`, `pool_mode=transaction`, `max_client_conn=500`, `default_pool_size=25`, `max_prepared_statements=200`, dynamic `pg_shadow` `AUTH_QUERY`) fronting `postgres-core`, `postgres-dev`, and `postgres-internal` (enforced alongside 3-copy SQL parity by Check #35 in `scripts/verify-ci-contracts.sh`).
+* **Automated Wire & REST Contract Testing (`7.47`):** Added root `buf.yaml` (`STANDARD` lint, `FILE` + `WIRE_JSON` breaking) and `buf.gen.yaml`, wired `buf lint`, `buf breaking --against '.git#branch=main'`, and `oasdiff breaking main:api/openapi.yaml api/openapi.yaml` into `.forgejo/workflows/ci.yaml`, and enforced offline Protobuf/OpenAPI compatibility plus negative breaking-change self-tests in Check #36 of `scripts/verify-ci-contracts.sh`.
+
 ---
 
 ## 6. Home Server Self-Hosting & Quickstart Guide
@@ -802,7 +809,7 @@ docker stop oci-postgres oci-valkey oci-rabbitmq && docker rm oci-postgres oci-v
 
 ## 7. Future Work & Technical Roadmap
 
-Completed roadmap work (`Phase 1`–`Phase 9`: steps `7.1`–`7.39`) has been promoted into Section 5 above. Only open future work phases remain below.
+Completed roadmap work (`Phase 1`–`Phase 11`: steps `7.1`–`7.47`) has been promoted into Section 5 above. No open roadmap items currently remain.
 
 ### 7.0 Rules That Apply to Future Work
 
@@ -811,74 +818,3 @@ Completed roadmap work (`Phase 1`–`Phase 9`: steps `7.1`–`7.39`) has been pr
 3. **Offline vs. Cluster Gates:** Gates marked **[offline]** must pass on any workstation. Gates marked **[cluster]** require the `thinker` test cluster. Never claim a cluster gate passed without running it.
 4. **Schema Change Protocol:** The database bootstrap SQL exists in **three copies** that must stay in sync: `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml` (seed rows: `scripts/seed-dev.sql` and the `oci-dev` configmap). Bootstrap scripts only run against an empty data volume, so every schema change must be written idempotently (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`) and also added to a numbered migration file `scripts/migrations/NNN-<name>.sql` that can be applied to existing databases with `psql -f`.
 5. **Completion Protocol:** When a future work item merges, document the shipped capability in Section 5 and remove the completed item from Section 7.
-
----
-
-### Execution Phases
-
-1. **Phase 11 — Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`):** S3-compatible object storage (`Garage`) for statements/1099-Bs/firmware, continuous WAL archiving & PITR via `PgBackRest`, in-cluster `Mailpit` SMTP verification, automated `goose` migrations + `PgBouncer` transaction pooling, and `buf breaking` + `oasdiff` contract gates.
-   - [ ] **7.43** S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
-   - [ ] **7.44** Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
-   - [ ] **7.45** In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
-   - [ ] **7.46** Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
-   - [ ] **7.47** Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
-
----
-
-### Phase 11: Enterprise Data Lifecycle, Object Storage, Messaging Sandbox & Contract Testing (`7.43`–`7.47`)
-
-Completes the self-hosted enterprise infrastructure with S3 blob storage, point-in-time database recovery, an in-cluster SMTP verification server, automated schema migrations + connection pooling, and wire-level contract breaking-change gates.
-
-#### 7.43 S3-Compatible Object Storage (`Garage`) for PDF Statements, 1099-Bs & Firmware Blobs
-* **Depends On:** None.
-* **Current Codebase State:** Generated end-of-month investor statements (`core_invest.investment_statements`), Form 1099-B tax documents, and firmware blobs store only metadata rows in PostgreSQL without an underlying S3 object store for binary blobs.
-* **PR Scope:**
-  1. Deploy **Garage** (lightweight Rust S3-compatible object store, `< 64 MiB` idle RAM) in `k8s/oci-core/garage.yaml` and `k8s/oci-dev/garage.yaml` with dedicated PVCs and buckets `oci-statements`, `oci-firmware`, and `oci-backups`.
-  2. Implement a vendor-neutral S3 storage driver in `pkg/blobstore/s3` (using standard AWS S3 v2 SDK pointed at Garage's cluster endpoint, consumed via generic `blobStore` variables per `AGENTS.md` §3 Rule 6).
-  3. Update `customer-bll` (`GenerateStatement` / EOM PDF batch runner) and `internal-bll` (`facilities` firmware catalog) to upload generated PDF/1099-B and firmware blobs to Garage and return time-limited pre-signed S3 download URLs.
-* **Verification Gate:**
-  * [offline] Unit tests with an in-memory/httptest S3 server verify blob upload, SHA-256 content integrity, and pre-signed URL generation.
-  * [cluster] Arthur Pendelton's statement generation action uploads a PDF to Garage in `oci-dev` and downloads it via the returned pre-signed URL (`HTTP 200`, `%PDF-` header).
-
-#### 7.44 Continuous PostgreSQL WAL Archiving & Point-In-Time Recovery (`PgBackRest` to `Garage` S3)
-* **Depends On:** `7.43`.
-* **Current Codebase State:** Database backups rely solely on a daily `pg_dump` CronJob (`scripts/backup-db.sh`), offering a 24-hour Recovery Point Objective (RPO) and no Point-In-Time Recovery (PITR).
-* **PR Scope:**
-  1. Configure `postgres-core` and `postgres-internal` with `wal_level = replica`, `archive_mode = on`, and a **PgBackRest** sidecar streaming compressed, encrypted Write-Ahead Logs (WAL) and daily differential backups directly to the `oci-backups` bucket in `Garage` (`7.43`).
-  2. Add `scripts/verify-pitr-restore.sh` and update `docs/runbooks/stateful-store-alerts.md` with a step-by-step PITR restore drill (`--type=time "--target=YYYY-MM-DD HH:MM:SS"`).
-  3. Export PgBackRest backup lag metrics to Prometheus (`PostgresWALArchiveFailing` alert rule in `k8s/monitoring/prometheus.yaml`).
-* **Verification Gate:**
-  * [offline] `scripts/verify-ci-contracts.sh` validates the `PostgresWALArchiveFailing` alert rule and PgBackRest configuration.
-  * [cluster] Executing a PITR drill on a test table in `oci-dev` restores the database state to a target timestamp prior to a synthetic `DROP TABLE`.
-
-#### 7.45 In-Cluster SMTP / Email Sandbox (`Mailpit`) & Simulator Email Receipt Verification
-* **Depends On:** None.
-* **Current Codebase State:** Onboarding sagas, trade executions, ZITADEL registrations, Forgejo PR notifications, and Nextcloud shares lack an in-cluster SMTP server to deliver and verify transactional emails.
-* **PR Scope:**
-  1. Deploy **Mailpit** (`k8s/oci-internal/mailpit.yaml`) exposing SMTP on `mailpit-service.oci-internal.svc.cluster.local:1025` and its REST inspection API/UI on `:8025` (`mail.oci.local`).
-  2. Wire `SMTP_HOST=mailpit-service.oci-internal.svc.cluster.local:1025` into `oci-worker` (sending trade confirmation, ACH settlement, and onboarding welcome emails), Forgejo, Nextcloud, and ZITADEL.
-  3. Extend the OCI Platform Simulator (`simulation/actions.go`) to query Mailpit's native REST API (`GET /api/v1/messages?query=to:rick@oci.local` and `to:chloe@example.com`) after `OnboardingSaga` and trade execution to assert that expected transactional emails were delivered.
-* **Verification Gate:**
-  * [offline] Unit tests verify worker SMTP notification formatting and CWE-532 redaction in logs.
-  * [cluster] Simulator verifies live email delivery in Mailpit for `Rick Newhire` onboarding and `Chloe Spark` order execution.
-
-#### 7.46 Automated Database Migration Runner (`goose`) & `PgBouncer` Transaction Pooling
-* **Depends On:** None.
-* **Current Codebase State:** Per `scripts/migrations/README.md`, numbered migrations in `scripts/migrations/NNN-*.sql` must be applied manually with `psql -f` on existing volumes, and 10-worker concurrent simulation runs open direct PostgreSQL connections from every microservice and COTS pod.
-* **PR Scope:**
-  1. Build a lightweight migration runner (`cmd/db-migrate` using `pressly/goose/v3` or a Kubernetes Job `k8s/oci-core/db-migrate-job.yaml` and `k8s/oci-dev/db-migrate-job.yaml`) that automatically applies `scripts/migrations/*.sql` in sequence and tracks versions in `public.goose_db_version` during `deploy-oci-dev` and `promote-oci-core` in `.forgejo/workflows/ci.yaml`.
-  2. Add a CI contract check in `scripts/verify-ci-contracts.sh` verifying that every table/column in `scripts/migrations/*.sql` is also present in `scripts/init.sql`, `k8s/oci-core/postgres-core-configmap.yaml`, and `k8s/oci-dev/postgres-dev-configmap.yaml`.
-  3. Deploy **PgBouncer** (`pool_mode = transaction`, `max_client_conn = 500`, `default_pool_size = 25`) in front of `postgres-core`, `postgres-dev`, and `postgres-internal`, routing all Domain APIs and COTS apps through the pooled service port.
-* **Verification Gate:**
-  * [offline] Unit test applies `scripts/init.sql` followed by all `scripts/migrations/*.sql` idempotently; `./scripts/verify-ci-contracts.sh` enforces 3-copy SQL sync.
-  * [cluster] 10-worker concurrent load test (`scripts/run-load-test.sh`) runs through PgBouncer with active PostgreSQL backend connections (`pg_stat_activity`) staying below 35.
-
-#### 7.47 Automated Wire & REST Contract Testing (`buf breaking` & `oasdiff`)
-* **Depends On:** None.
-* **Current Codebase State:** `AGENTS.md` §4 validates `api/openapi.yaml` syntax via `scripts/validate-openapi.py`, and `.proto` files are compiled manually without automated breaking-change detection against `main`.
-* **PR Scope:**
-  1. Add `buf.yaml` and `buf.gen.yaml` at the repository root configuring `buf lint` (`STANDARD` category) and `buf breaking` (`FILE` / `WIRE_JSON` categories) across `proto/oci/**`.
-  2. Add `buf lint`, `buf breaking --against '.git#branch=main'`, and `oasdiff breaking main:api/openapi.yaml api/openapi.yaml` to `scripts/verify-ci-contracts.sh` and `.forgejo/workflows/ci.yaml` so any wire-breaking Protobuf change (between BLLs and Domain APIs) or breaking OpenAPI 3.1 REST change (between BFFs and Vue/Flutter/Pebble clients) fails CI automatically.
-* **Verification Gate:**
-  * [offline] `./scripts/verify-ci-contracts.sh` executes `buf lint`, `buf breaking`, and `oasdiff` cleanly, and negative test cases confirm renaming a proto field number or removing a required OpenAPI response field triggers a non-zero exit code.
-  * [cluster] Forgejo Actions `validate-and-test` runs contract diffing on every PR.

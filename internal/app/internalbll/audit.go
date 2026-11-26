@@ -90,7 +90,8 @@ func (s *Server) recordAudit(ctx context.Context, action, resourceType, resource
 			"action", action, "resource_id", resourceID, "error", err)
 		writeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_, spoolErr := s.auditRecorder.Record(writeCtx, auditintent.Entry{
+		// Record already logged CRITICAL if the durable spool fails.
+		_, _ = s.auditRecorder.Record(writeCtx, auditintent.Entry{
 			ActorID:      actorID,
 			ActorRole:    actorRole,
 			Action:       action,
@@ -99,10 +100,6 @@ func (s *Server) recordAudit(ctx context.Context, action, resourceType, resource
 			MetadataJSON: string(metaBytes),
 			OccurredAt:   time.Now().UTC(),
 		})
-		if spoolErr != nil {
-			// Record already logged CRITICAL: without the durable spool the
-			// entry for a committed operation is lost.
-		}
 	}
 }
 

@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: oci-dev
+  labels:
+    app: pgbouncer
+    tier: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+        tier: data
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.23.1-p0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: pgbouncer
+          env:
+            - name: DB_HOST
+              value: postgres-dev-backend
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "*"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POOL_MODE
+              value: transaction
+            - name: MAX_CLIENT_CONN
+              value: "500"
+            - name: DEFAULT_POOL_SIZE
+              value: "25"
+            - name: MAX_DB_CONNECTIONS
+              value: "30"
+            - name: MAX_PREPARED_STATEMENTS
+              value: "200"
+            - name: AUTH_TYPE
+              value: scram-sha-256
+            - name: AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oci-dev-secrets
+                  key: POSTGRES_USER
+            - name: AUTH_QUERY
+              value: "SELECT usename, passwd FROM pg_shadow WHERE usename=$1"
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: extra_float_digits,options
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-dev-service
+  namespace: oci-dev
+  labels:
+    app: pgbouncer
+    tier: data
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: pgbouncer

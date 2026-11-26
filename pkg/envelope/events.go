@@ -18,7 +18,21 @@ const (
 	TopicCareScheduleUpdated  = "events.workforce.care_schedule_updated.v1"
 	TopicReportGenerated      = "events.reporting.report_generated.v1"
 	TopicCARotated            = "events.ops.ca_rotated.v1"
+	TopicEmployeeOnboarded    = "events.workforce.employee_onboarded.v1"
 )
+
+type TradeExecutedPayload struct {
+	OrderID       string  `json:"order_id"`
+	CustomerID    string  `json:"customer_id"`
+	CustomerEmail string  `json:"customer_email"`
+	PortfolioID   string  `json:"portfolio_id"`
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"`
+	Quantity      float64 `json:"quantity"`
+	Price         float64 `json:"price"`
+	Status        string  `json:"status"`
+	ExecutedAt    string  `json:"executed_at"`
+}
 
 type ACHTransferRequestedPayload struct {
 	TransferID   string  `json:"transfer_id"`
